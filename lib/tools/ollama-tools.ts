@@ -30,7 +30,7 @@ export const OLLAMA_TOOLS: OllamaTool[] = [
     type: "function",
     function: {
       name: "generate_image",
-      description: "DEFAULT image tool - use for ALL visual requests: photos, art, illustrations, diagrams, charts, infographics, scenes, objects, people, animals, concepts, designs, sketches, renders. Fast (~2 seconds).",
+      description: "Generate a picture/photo/artwork. Use ONLY when user explicitly requests an image, photo, illustration, drawing, render, or visual artwork. Do NOT use for text content like poems, sonnets, stories, essays, lyrics, code, or explanations - write those directly without tools.",
       parameters: {
         type: "object",
         properties: {
@@ -124,7 +124,7 @@ export const OLLAMA_TOOLS: OllamaTool[] = [
     type: "function",
     function: {
       name: "glyph_motif",
-      description: "ONLY use when user EXPLICITLY requests: procedural SVG, sigil, mandala, geometric symbol, or SVG icon. For all other images use generate_image.",
+      description: "ONLY for procedural SVG patterns when user EXPLICITLY requests: sigil, mandala, geometric symbol, rune, or SVG icon. Never use for text content (poems, stories, code). For photos/illustrations use generate_image.",
       parameters: {
         type: "object",
         properties: {

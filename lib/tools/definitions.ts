@@ -164,7 +164,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "generate_image",
-    description: "DEFAULT image tool. Use for ALL visual requests: photos, art, illustrations, diagrams, charts, scenes, objects, people, animals, concepts, designs. Fast (~2 seconds).",
+    description: "Generate a picture/photo/artwork. Use ONLY when user explicitly requests an image, photo, illustration, drawing, render, or visual artwork. Do NOT use for text content (poems, stories, essays, code).",
     parameters: [
       { name: "prompt", type: "string", required: true, description: "Detailed description of the image" },
       { name: "width", type: "number", required: false, description: "Image width (512-1024)", default: 768 },
@@ -190,7 +190,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "glyph_motif",
-    description: "ONLY for procedural SVG patterns when user EXPLICITLY requests: sigils, mandalas, geometric symbols, SVG icons. NOT for photos, illustrations, or realistic images - use generate_image for those.",
+    description: "ONLY for procedural SVG patterns when user EXPLICITLY requests: sigil, mandala, geometric symbol, rune, or SVG icon. Never use for text content (poems, stories, code). For photos/illustrations use generate_image.",
     parameters: [
       { name: "prompt", type: "string", required: true, description: "Theme for the geometric pattern" },
       { name: "style", type: "string", required: false, description: "Pattern style: sigil, rune, mandala, circuit, organic", default: "sigil" },

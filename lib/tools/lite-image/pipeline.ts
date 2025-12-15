@@ -259,7 +259,8 @@ export async function runPipeline(options: {
   
   // 1. Tokenize and encode text
   const inputIds = tokenize(prompt, tokenizer);
-  const inputIdsTensor = new ort.Tensor("int64", BigInt64Array.from(inputIds.map(BigInt)), [1, MAX_LENGTH]);
+  // Note: Some models expect int32, others int64. Try int32 first (more common for ONNX exports)
+  const inputIdsTensor = new ort.Tensor("int32", Int32Array.from(inputIds), [1, MAX_LENGTH]);
   
   const textEncoderOutputs = await textEncoder.run({ input_ids: inputIdsTensor });
   const textEmbeddings = textEncoderOutputs.last_hidden_state as ort.Tensor;
@@ -275,8 +276,9 @@ export async function runPipeline(options: {
   for (let i = 0; i < timesteps.length; i++) {
     const t = timesteps[i];
     
-    // Create timestep tensor
-    const timestepTensor = new ort.Tensor("int64", BigInt64Array.from([BigInt(t)]), [1]);
+    // Create timestep tensor (some ONNX exports expect float, others int)
+    // SD Turbo ONNX typically expects float for timestep
+    const timestepTensor = new ort.Tensor("float32", Float32Array.from([t]), [1]);
     
     // Create latent tensor
     const latentTensor = new ort.Tensor("float32", latents, [1, LATENT_CHANNELS, latentHeight, latentWidth]);

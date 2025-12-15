@@ -22,6 +22,21 @@ export interface ModelInfo {
 }
 
 export const LITE_MODELS: Record<string, ModelInfo> = {
+  "sd-turbo-onnx": {
+    id: "sd-turbo-onnx",
+    name: "SD Turbo ONNX",
+    repo: "jdp8/sd-turbo-onnx",
+    files: [
+      "unet/model.onnx",
+      "vae_decoder/model.onnx",
+      "text_encoder/model.onnx",
+      "tokenizer/vocab.json",
+      "tokenizer/merges.txt",
+      "scheduler/scheduler_config.json",
+    ],
+    size: "~1.7GB",
+    steps: 1,  // SD Turbo is designed for single-step inference
+  },
   "bk-sdm-tiny": {
     id: "bk-sdm-tiny",
     name: "BK-SDM Tiny",
@@ -53,7 +68,7 @@ export const LITE_MODELS: Record<string, ModelInfo> = {
   },
 };
 
-export const DEFAULT_MODEL = "bk-sdm-tiny";
+export const DEFAULT_MODEL = "sd-turbo-onnx";
 
 /**
  * Get the local path for a model

@@ -36,7 +36,7 @@ When you need to use a tool, output valid JSON in this exact format:
 - For image uploads: user provides image_id, reference it directly in args
 - Be specific with creative prompts (style, mood, colors, composition)
 - After tool execution: DO NOT repeat or summarize the result - the UI shows artifacts directly
-- web_search auto-triggers for current events - you rarely need to call it explicitly
+- Use `web_search` for current events, facts, prices, news, or anything you're unsure about
 
 ## Visual Content
 For visual requests (photos, illustrations, renders, artwork):

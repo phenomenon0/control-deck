@@ -93,6 +93,24 @@ export const GlyphMotifSchema = z.object({
   }),
 });
 
+/**
+ * Execute code in a sandboxed environment with Canvas output
+ */
+export const ExecuteCodeSchema = z.object({
+  name: z.literal("execute_code"),
+  args: z.object({
+    language: z.enum([
+      "python", "lua", "go", "c", "javascript", "typescript", 
+      "bash", "sh", "html", "react", "threejs"
+    ]).describe("Programming language"),
+    code: z.string().min(1).describe("Source code to execute"),
+    filename: z.string().optional().describe("Optional filename"),
+    args: z.array(z.string()).optional().describe("Command line arguments"),
+    stdin: z.string().optional().describe("Standard input"),
+    timeout: z.number().int().min(1000).max(60000).default(30000).describe("Timeout in milliseconds"),
+  }),
+});
+
 // ============================================================================
 // Union Schema - All Tools
 // ============================================================================
@@ -105,6 +123,7 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   AnalyzeImageSchema,
   WebSearchSchema,
   GlyphMotifSchema,
+  ExecuteCodeSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -118,6 +137,7 @@ export type GenerateImageArgs = z.infer<typeof GenerateImageSchema>["args"];
 export type AnalyzeImageArgs = z.infer<typeof AnalyzeImageSchema>["args"];
 export type WebSearchArgs = z.infer<typeof WebSearchSchema>["args"];
 export type GlyphMotifArgs = z.infer<typeof GlyphMotifSchema>["args"];
+export type ExecuteCodeArgs = z.infer<typeof ExecuteCodeSchema>["args"];
 
 // ============================================================================
 // Tool Metadata for System Prompt Generation
@@ -197,6 +217,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "size", type: "number", required: false, description: "Size 64-512 pixels", default: 256 },
       { name: "seed", type: "number", required: false, description: "Random seed" },
       { name: "sheet", type: "boolean", required: false, description: "Generate 4x4 spritesheet", default: false },
+    ],
+  },
+  {
+    name: "execute_code",
+    description: "Execute code in a sandboxed environment. Output displays in Canvas with syntax highlighting, stdout/stderr streaming, and visual previews. Use for: running algorithms, data processing, demonstrations, visualizations, web previews (React/HTML/Three.js), testing code snippets.",
+    parameters: [
+      { name: "language", type: "string", required: true, description: "Language: python, lua, go, c, javascript, typescript, bash, html, react, threejs" },
+      { name: "code", type: "string", required: true, description: "Source code to execute" },
+      { name: "filename", type: "string", required: false, description: "Optional filename (auto-generated if not provided)" },
+      { name: "args", type: "array", required: false, description: "Command line arguments" },
+      { name: "stdin", type: "string", required: false, description: "Standard input data" },
+      { name: "timeout", type: "number", required: false, description: "Timeout in ms (1000-60000)", default: 30000 },
     ],
   },
 ];

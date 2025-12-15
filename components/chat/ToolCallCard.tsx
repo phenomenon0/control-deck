@@ -25,6 +25,8 @@ const TOOL_ICONS: Record<string, string> = {
   image_to_3d: "🎲",
   analyze_image: "👁️",
   web_search: "🔍",
+  glyph_motif: "✦",
+  execute_code: "▶",
 };
 
 interface ToolCallCardProps {

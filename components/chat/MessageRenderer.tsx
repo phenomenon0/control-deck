@@ -124,6 +124,9 @@ function AssistantMessage({
   const models = message.artifacts?.filter((a) => 
     a.mimeType?.includes("gltf") || a.mimeType?.includes("glb") || a.name?.endsWith(".glb")
   ) || [];
+  const htmlPreviews = message.artifacts?.filter((a) => 
+    a.mimeType === "text/html" && (a.name?.includes("Preview") || a.name?.includes("preview"))
+  ) || [];
 
   // Debug
   if (message.artifacts?.length) {
@@ -189,6 +192,11 @@ function AssistantMessage({
       {models.map((m) => (
         <ModelBlock key={m.id} artifact={m} />
       ))}
+
+      {/* HTML Previews (from code execution) */}
+      {htmlPreviews.map((h) => (
+        <HtmlPreviewBlock key={h.id} artifact={h} />
+      ))}
     </div>
   );
 }
@@ -241,6 +249,61 @@ function ModelBlock({ artifact }: { artifact: Artifact }) {
         camera-controls
         shadow-intensity="1"
         style={{ width: "100%", height: "100%" }}
+      />
+    </div>
+  );
+}
+
+function HtmlPreviewBlock({ artifact }: { artifact: Artifact }) {
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        width: "100%",
+        maxWidth: 450,
+        borderRadius: 8,
+        overflow: "hidden",
+        border: "1px solid var(--border-secondary)",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "8px 12px",
+          background: "var(--bg-tertiary)",
+          borderBottom: "1px solid var(--border-secondary)",
+        }}
+      >
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {artifact.name}
+        </span>
+        <a
+          href={artifact.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: 11,
+            color: "var(--accent)",
+            textDecoration: "none",
+          }}
+        >
+          Open ↗
+        </a>
+      </div>
+      {/* Iframe */}
+      <iframe
+        src={artifact.url}
+        title={artifact.name}
+        sandbox="allow-scripts"
+        style={{
+          width: "100%",
+          height: 300,
+          border: "none",
+          background: "white",
+        }}
       />
     </div>
   );

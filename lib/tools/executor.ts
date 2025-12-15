@@ -12,6 +12,7 @@ import type {
   AnalyzeImageArgs,
   WebSearchArgs,
   GlyphMotifArgs,
+  ExecuteCodeArgs,
 } from "./definitions";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
@@ -21,6 +22,7 @@ import { createEvent, type ArtifactCreated } from "@/lib/agui/events";
 import { hub } from "@/lib/agui/hub";
 import { isLiteMode, getImageBackend } from "@/lib/system";
 import { generateLiteImage, type LiteImageStyle } from "./lite-image";
+import { executeCode as runCode } from "./code-exec";
 import * as fs from "fs/promises";
 import * as path from "path";
 
@@ -74,6 +76,8 @@ export async function executeTool(
         return await executeWebSearch(tool.args);
       case "glyph_motif":
         return await executeGlyphMotif(tool.args, ctx);
+      case "execute_code":
+        return await executeCodeTool(tool.args, ctx);
       default:
         return {
           success: false,
@@ -430,6 +434,183 @@ async function executeGlyphMotif(
     return {
       success: false,
       message: `Failed to generate glyph: ${errMsg}`,
+      error: errMsg,
+    };
+  }
+}
+
+/**
+ * Execute code in sandboxed environment
+ */
+async function executeCodeTool(
+  args: ExecuteCodeArgs,
+  ctx: ExecutorContext
+): Promise<ToolExecutionResult> {
+  try {
+    console.log(`[Executor] Executing ${args.language} code`);
+    
+    const result = await runCode(
+      {
+        language: args.language,
+        code: args.code,
+        filename: args.filename,
+        args: args.args,
+        stdin: args.stdin,
+        timeout: args.timeout ?? 30000,
+        sandbox: {
+          maxMemoryMB: 256,
+          maxCPUSeconds: 10,
+          maxOutputBytes: 1024 * 1024,
+          networkEnabled: false,
+          captureImages: true,
+          captureFiles: true,
+        },
+      },
+      {
+        runId: ctx.runId,
+        threadId: ctx.threadId,
+      }
+    );
+    
+    // Create artifact directory for any outputs
+    const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
+    const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+    await fs.mkdir(destDir, { recursive: true });
+    
+    const artifacts: Array<{ id: string; url: string; name: string; mimeType: string }> = [];
+    
+    // Save any generated images as artifacts
+    if (result.images && result.images.length > 0) {
+      for (const img of result.images) {
+        const artifactId = crypto.randomUUID();
+        const filename = img.name;
+        const filePath = path.join(destDir, filename);
+        
+        // Decode base64 and save
+        const buffer = Buffer.from(img.data, "base64");
+        await fs.writeFile(filePath, buffer);
+        
+        const artifact = {
+          id: artifactId,
+          runId: ctx.runId,
+          threadId: ctx.threadId,
+          toolCallId: ctx.toolCallId,
+          mimeType: img.mimeType,
+          name: `Code Output: ${img.name}`,
+          url: `/api/artifacts/${ctx.runId}/${filename}`,
+          localPath: filePath,
+          originalPath: filePath,
+          meta: { type: "code_output", language: args.language },
+        };
+        
+        createArtifact(artifact);
+        
+        // Emit AG-UI event
+        const artifactEvt = createEvent<ArtifactCreated>("ArtifactCreated", ctx.threadId, {
+          runId: ctx.runId,
+          toolCallId: ctx.toolCallId,
+          artifactId,
+          mimeType: artifact.mimeType,
+          url: artifact.url,
+          name: artifact.name,
+          originalPath: artifact.originalPath,
+          localPath: artifact.localPath,
+          meta: artifact.meta,
+        });
+        saveEvent(artifactEvt);
+        hub.publish(ctx.threadId, artifactEvt);
+        
+        artifacts.push({
+          id: artifactId,
+          url: artifact.url,
+          name: artifact.name,
+          mimeType: artifact.mimeType,
+        });
+      }
+    }
+    
+    // Save preview HTML as artifact (for frontend languages)
+    if (result.preview?.bundled) {
+      const artifactId = crypto.randomUUID();
+      const filename = `preview_${Date.now()}.html`;
+      const filePath = path.join(destDir, filename);
+      
+      await fs.writeFile(filePath, result.preview.bundled, "utf-8");
+      
+      const artifact = {
+        id: artifactId,
+        runId: ctx.runId,
+        threadId: ctx.threadId,
+        toolCallId: ctx.toolCallId,
+        mimeType: "text/html",
+        name: `${args.language} Preview`,
+        url: `/api/artifacts/${ctx.runId}/${filename}`,
+        localPath: filePath,
+        originalPath: filePath,
+        meta: { type: "code_preview", language: args.language },
+      };
+      
+      createArtifact(artifact);
+      
+      const artifactEvt = createEvent<ArtifactCreated>("ArtifactCreated", ctx.threadId, {
+        runId: ctx.runId,
+        toolCallId: ctx.toolCallId,
+        artifactId,
+        mimeType: artifact.mimeType,
+        url: artifact.url,
+        name: artifact.name,
+        originalPath: artifact.originalPath,
+        localPath: artifact.localPath,
+        meta: artifact.meta,
+      });
+      saveEvent(artifactEvt);
+      hub.publish(ctx.threadId, artifactEvt);
+      
+      artifacts.push({
+        id: artifactId,
+        url: artifact.url,
+        name: artifact.name,
+        mimeType: artifact.mimeType,
+      });
+    }
+    
+    // Build message
+    let message = result.success
+      ? `Code executed successfully (${args.language}, ${result.durationMs}ms)`
+      : `Code execution failed (exit code: ${result.exitCode})`;
+    
+    if (result.stdout) {
+      message += `\n\nOutput:\n\`\`\`\n${result.stdout.slice(0, 2000)}${result.stdout.length > 2000 ? "\n... [truncated]" : ""}\n\`\`\``;
+    }
+    
+    if (result.stderr && !result.success) {
+      message += `\n\nErrors:\n\`\`\`\n${result.stderr.slice(0, 1000)}${result.stderr.length > 1000 ? "\n... [truncated]" : ""}\n\`\`\``;
+    }
+    
+    if (result.timedOut) {
+      message += `\n\n**Note:** Execution timed out after ${args.timeout ?? 30000}ms`;
+    }
+    
+    return {
+      success: result.success,
+      message,
+      artifacts: artifacts.length > 0 ? artifacts : undefined,
+      data: {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: result.durationMs,
+        preview: result.preview,
+      },
+      error: result.error,
+    };
+    
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Code execution failed";
+    console.error("[Executor] Code execution error:", error);
+    return {
+      success: false,
+      message: `Failed to execute code: ${errMsg}`,
       error: errMsg,
     };
   }

@@ -30,7 +30,7 @@ export const OLLAMA_TOOLS: OllamaTool[] = [
     type: "function",
     function: {
       name: "generate_image",
-      description: "Generate a picture/photo/artwork. Use ONLY when user explicitly requests an image, photo, illustration, drawing, render, or visual artwork. Do NOT use for text content like poems, sonnets, stories, essays, lyrics, code, or explanations - write those directly without tools.",
+      description: "Generate an image from text description. Use for: photos, artwork, illustrations, diagrams, scenes, visual concepts. Do NOT use for text content (poems, stories, essays, code) - write those directly.",
       parameters: {
         type: "object",
         properties: {

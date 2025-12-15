@@ -164,7 +164,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "generate_image",
-    description: "Generate a picture/photo/artwork. Use ONLY when user explicitly requests an image, photo, illustration, drawing, render, or visual artwork. Do NOT use for text content (poems, stories, essays, code).",
+    description: "Generate an image from text description. Use for: photos, artwork, illustrations, diagrams, scenes, visual concepts. Do NOT use for text content (poems, stories, essays, code) - write those directly.",
     parameters: [
       { name: "prompt", type: "string", required: true, description: "Detailed description of the image" },
       { name: "width", type: "number", required: false, description: "Image width (512-1024)", default: 768 },

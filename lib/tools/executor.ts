@@ -1,6 +1,6 @@
 /**
  * Tool Executor - Validates and executes tool calls
- * Routes to appropriate handlers (ComfyUI, Vision, Search)
+ * Routes to appropriate handlers (ComfyUI, Vision, Search, Lite)
  */
 
 import type {
@@ -19,6 +19,8 @@ import { getUpload, createArtifact, saveEvent } from "@/lib/agui/db";
 import { generateGlyphSvg, generateGlyphSheet, type GlyphStyle } from "./glyph";
 import { createEvent, type ArtifactCreated } from "@/lib/agui/events";
 import { hub } from "@/lib/agui/hub";
+import { isLiteMode, getImageBackend } from "@/lib/system";
+import { generateLiteImage, type LiteImageStyle } from "./lite-image";
 import * as fs from "fs/promises";
 import * as path from "path";
 
@@ -189,12 +191,51 @@ async function executeImageTo3D(
 }
 
 /**
- * Generate image using SDXL Turbo (fast, ~2 seconds)
+ * Generate image - routes to ComfyUI (power mode) or Lite pipeline (lite mode)
  */
 async function executeGenerateImage(
   args: GenerateImageArgs,
   ctx: ExecutorContext
 ): Promise<ToolExecutionResult> {
+  const backend = getImageBackend();
+  
+  // Route to lite pipeline in lite mode
+  if (backend === "lite") {
+    console.log("[Executor] Using lite image backend");
+    
+    // Extract style from prompt if mentioned, default to "ink"
+    let style: LiteImageStyle = "ink";
+    const promptLower = args.prompt.toLowerCase();
+    if (promptLower.includes("woodcut") || promptLower.includes("linocut")) {
+      style = "woodcut";
+    } else if (promptLower.includes("stipple") || promptLower.includes("dots")) {
+      style = "stipple";
+    } else if (promptLower.includes("crosshatch") || promptLower.includes("hatching")) {
+      style = "crosshatch";
+    } else if (promptLower.includes("engrav")) {
+      style = "engraving";
+    }
+    
+    // Lite mode uses smaller sizes
+    const size = Math.min(args.width ?? 256, args.height ?? 256) as 256 | 384 | 512;
+    const liteSize = size <= 256 ? 256 : size <= 384 ? 384 : 512;
+    
+    const result = await generateLiteImage(
+      {
+        prompt: args.prompt,
+        style,
+        size: liteSize,
+        seed: args.seed,
+        outputSvg: true,
+      },
+      ctx
+    );
+    
+    return result;
+  }
+  
+  // Power mode - use ComfyUI
+  console.log("[Executor] Using ComfyUI backend");
   const workflow = loadWorkflow("sdxl-turbo", {
     prompt: args.prompt,
     width: args.width ?? 768,

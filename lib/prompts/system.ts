@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
 import { TOOL_DEFINITIONS } from "../tools/definitions";
+import { isLiteMode, getSystemProfile } from "../system";
 
 // ============================================================================
 // Environment Detection
@@ -57,6 +58,7 @@ async function getOllamaModels(): Promise<string[]> {
 }
 
 async function getEnvironmentBlock(): Promise<string> {
+  const profile = getSystemProfile();
   const [gpu, ollama, comfy, models] = await Promise.all([
     getGPUStatus(),
     checkService("http://localhost:11434/api/tags"),
@@ -66,12 +68,25 @@ async function getEnvironmentBlock(): Promise<string> {
 
   const lines = [
     "<env>",
+    `  Mode: ${profile.mode.toUpperCase()}`,
     `  Platform: ${process.platform}`,
-    `  GPU: RTX 3090 (${gpu.free}GB / ${gpu.total}GB VRAM free)`,
-    `  Ollama: ${ollama ? "online" : "offline"}`,
-    `  ComfyUI: ${comfy ? "online" : "offline"}`,
-    `  Date: ${new Date().toDateString()}`,
   ];
+
+  if (profile.gpu) {
+    lines.push(`  GPU: ${profile.gpu.name} (${gpu.free}GB / ${gpu.total}GB VRAM free)`);
+  } else {
+    lines.push(`  GPU: None (CPU-only mode)`);
+  }
+
+  lines.push(`  RAM: ${profile.ram}GB`);
+  lines.push(`  Ollama: ${ollama ? "online" : "offline"}`);
+  
+  // Only show ComfyUI status in power mode
+  if (profile.mode === "power") {
+    lines.push(`  ComfyUI: ${comfy ? "online" : "offline"}`);
+  }
+  
+  lines.push(`  Date: ${new Date().toDateString()}`);
 
   if (models.length > 0) {
     lines.push(`  Models: ${models.slice(0, 8).join(", ")}${models.length > 8 ? "..." : ""}`);
@@ -135,7 +150,10 @@ export async function buildSystemPrompt(
   uploadIds?: string[],
   useNativeTools = false
 ): Promise<string> {
-  const mobyPath = path.join(process.cwd(), "lib/prompts/moby.txt");
+  // Select prompt based on mode
+  const liteMode = isLiteMode();
+  const promptFile = liteMode ? "moby-lite.txt" : "moby.txt";
+  const mobyPath = path.join(process.cwd(), "lib/prompts", promptFile);
   
   let mobyBase: string;
   try {

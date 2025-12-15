@@ -29,6 +29,7 @@ import {
   type OllamaMessage,
   type OllamaChatResponse,
 } from "@/lib/tools/ollama-tools";
+import { getSystemProfile } from "@/lib/system";
 
 const ollama = createOpenAICompatible({
   name: "ollama",
@@ -159,10 +160,20 @@ function needsThinking(content: string): boolean {
 export async function POST(req: Request) {
   const { messages, model, threadId, uploadIds } = await req.json();
 
+  // Get system profile for mode-based model selection
+  const systemProfile = getSystemProfile();
+  
   const hasImages = hasImageContent(messages);
+  
+  // Model selection priority:
+  // 1. Vision model if images detected
+  // 2. Explicitly requested model
+  // 3. Mode-based recommended model
+  // 4. Environment default
+  // 5. Fallback
   const selectedModel = hasImages 
     ? VISION_MODEL 
-    : (model ?? process.env.DEFAULT_MODEL ?? "gemma2:27b-instruct-q4_K_M");
+    : (model ?? systemProfile.recommended.textModel ?? process.env.DEFAULT_MODEL ?? "qwen2.5:1.5b");
   
   const thread = threadId ?? generateId();
   const runId = generateId();

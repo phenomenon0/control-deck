@@ -182,7 +182,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "web_search",
-    description: "Search the web for current information. Use for: news, facts, prices, recent events, research, anything you need to verify.",
+    description: "Search the web for current information. Use for: news, facts, prices, sports scores, research. If results are incomplete, search again with refined queries until you get concrete answers.",
     parameters: [
       { name: "query", type: "string", required: true, description: "Search query" },
       { name: "max_results", type: "number", required: false, description: "Max results (1-10)", default: 5 },

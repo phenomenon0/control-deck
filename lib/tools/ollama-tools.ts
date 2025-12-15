@@ -109,7 +109,7 @@ export const OLLAMA_TOOLS: OllamaTool[] = [
     type: "function",
     function: {
       name: "web_search",
-      description: "Search the web for current information. Use for: news, facts, prices, recent events, research, anything you're unsure about or need to verify.",
+      description: "Search the web for current information. Use for: news, facts, prices, sports scores, research. If results are incomplete, search again with refined queries until you get concrete answers.",
       parameters: {
         type: "object",
         properties: {

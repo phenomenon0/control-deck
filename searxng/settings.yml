@@ -1,0 +1,44 @@
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+  safe_search: 0
+  ban_time_on_fail: 2
+  max_ban_time_on_fail: 30
+  suspended_times:
+    SearxEngineAccessDenied: 300
+    SearxEngineCaptcha: 600
+    SearxEngineTooManyRequests: 60
+    cf_SearxEngineCaptcha: 1800
+    cf_SearxEngineAccessDenied: 1800
+    recaptcha_SearxEngineCaptcha: 3600
+
+server:
+  secret_key: "vDiIi4ywpdQWRNGCFzIQwxr4JLUHMP"
+  limiter: false
+  public_instance: false
+  method: "GET"
+
+outgoing:
+  request_timeout: 5.0
+
+engines:
+  # Enable news engines
+  - name: google news
+    disabled: false
+  - name: bing news
+    disabled: false
+  - name: duckduckgo news
+    disabled: false
+  - name: qwant news
+    disabled: false
+  - name: reuters
+    disabled: false
+  # Enable Reddit for discussions
+  - name: reddit
+    disabled: false
+  # Enable Hacker News
+  - name: hackernews
+    disabled: false

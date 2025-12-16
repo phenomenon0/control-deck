@@ -138,6 +138,22 @@ export const OLLAMA_TOOLS: OllamaTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "execute_code",
+      description: "Execute code and show output. Use when: user says 'run', 'execute', 'test'; asks for 'a program that does X'; wants to see output of calculations, countdowns, algorithms, data processing. Languages: python, javascript, typescript, bash, html, react, threejs.",
+      parameters: {
+        type: "object",
+        properties: {
+          language: { type: "string", description: "Language: python, javascript, typescript, bash, html, react, threejs" },
+          code: { type: "string", description: "Source code to execute" },
+          timeout: { type: "number", description: "Timeout in ms, default 30000" },
+        },
+        required: ["language", "code"],
+      },
+    },
+  },
 ];
 
 /**

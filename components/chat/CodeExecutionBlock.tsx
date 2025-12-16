@@ -60,7 +60,7 @@ export function CodeExecutionBlock({ data, onRerun }: CodeExecutionBlockProps) {
         isRunning={isRerunning}
         onCodeChange={onRerun ? setModifiedCode : undefined}
         onRun={onRerun ? handleRun : undefined}
-        className="min-h-[200px] max-h-[400px]"
+        className="h-[300px]"
       />
     </div>
   );

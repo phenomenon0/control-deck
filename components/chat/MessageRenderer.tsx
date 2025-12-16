@@ -33,6 +33,8 @@ const STRIP_PATTERNS = [
   /Generated.*?glyph.*?(?:\n|$)/gi, // Generated sigil glyph...
   /Use `show_image` with this ID to view\.?\s*/g, // Use `show_image` with this ID to view
   /Quick generation.*?SDXL Turbo\.?\s*/g, // Quick generation - 768x768 SDXL Turbo
+  /Code executed successfully.*?\n/g, // Code executed successfully (python, 1234ms)
+  /Preview generated for.*?\n/g, // Preview generated for react
 ];
 
 function stripContent(content: string): string {
@@ -119,6 +121,7 @@ function AssistantMessage({
   toolCalls?: ToolCallData[];
 }) {
   const cleanContent = stripContent(message.content);
+  // Images include SVGs (from glyph_motif)
   const images = message.artifacts?.filter((a) => a.mimeType?.startsWith("image/")) || [];
   const audio = message.artifacts?.filter((a) => a.mimeType?.startsWith("audio/")) || [];
   const models = message.artifacts?.filter((a) => 
@@ -202,18 +205,38 @@ function AssistantMessage({
 }
 
 function ImageBlock({ artifact }: { artifact: Artifact }) {
+  const isSvg = artifact.mimeType === "image/svg+xml";
+  
   return (
-    <img
-      src={artifact.url}
-      alt={artifact.name}
-      style={{
-        display: "block",
-        maxWidth: 350,
-        height: "auto",
-        borderRadius: 8,
-        marginTop: 12,
-      }}
-    />
+    <div style={{ marginTop: 12 }}>
+      <img
+        src={artifact.url}
+        alt={artifact.name}
+        style={{
+          display: "block",
+          maxWidth: isSvg ? 256 : 350,
+          height: "auto",
+          borderRadius: 8,
+          background: isSvg ? "var(--bg-tertiary)" : undefined,
+          padding: isSvg ? 8 : undefined,
+        }}
+      />
+      {isSvg && (
+        <a
+          href={artifact.url}
+          download={artifact.name}
+          style={{
+            display: "inline-block",
+            marginTop: 4,
+            fontSize: 11,
+            color: "var(--accent)",
+            textDecoration: "none",
+          }}
+        >
+          Download SVG ↓
+        </a>
+      )}
+    </div>
   );
 }
 

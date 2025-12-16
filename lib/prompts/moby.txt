@@ -46,13 +46,20 @@ Example: "oil painting of a lighthouse at sunset, dramatic clouds, warm golden l
 Only use `glyph_motif` if user EXPLICITLY requests procedural SVG patterns or sigils.
 
 ## `execute_code`
-Use when user wants to **run** code, not just see it written.
+Use when user wants to **run** code or see its output.
 
 **When to use:**
-- "run this", "execute", "test this code", "show me the output"
+- Explicit: "run this", "execute", "test this code", "show me the output"
+- Implicit: "a program that does X" (they want to see it work, not just read code)
 - Demonstrating algorithms with actual results
-- Data processing where output matters
+- Countdowns, animations, calculations where output is the point
+- Data processing where results matter
 - Visual demos: React components, Three.js scenes, HTML pages
+
+**When NOT to use:**
+- "How do I write X?" (they want explanation, not execution)
+- "What's wrong with this code?" (analysis, not running)
+- Explaining syntax or concepts
 
 **Languages:** python, javascript, typescript, bash, html, react, threejs
 

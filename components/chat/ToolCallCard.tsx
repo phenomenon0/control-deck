@@ -13,6 +13,7 @@ export interface ToolCallData {
     success: boolean;
     message?: string;
     error?: string;
+    data?: Record<string, unknown>; // Tool-specific data (e.g., code execution results)
   };
   artifacts?: Artifact[];
   startedAt?: number;

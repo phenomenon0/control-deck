@@ -318,7 +318,7 @@ export async function POST(req: Request) {
           };
           const toolResult = await executeTool(toolCall, ctx);
 
-          // Emit tool result
+          // Emit tool result (include data for code execution Canvas display)
           const toolResultEvt = createEvent<ToolCallResult>("ToolCallResult", thread, {
             runId,
             toolCallId,
@@ -326,6 +326,7 @@ export async function POST(req: Request) {
               success: toolResult.success,
               message: toolResult.message,
               artifactCount: toolResult.artifacts?.length ?? 0,
+              data: toolResult.data, // Code execution results, preview data, etc.
             },
           });
           saveEvent(toolResultEvt);

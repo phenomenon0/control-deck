@@ -596,6 +596,8 @@ async function executeCodeTool(
       message,
       artifacts: artifacts.length > 0 ? artifacts : undefined,
       data: {
+        language: args.language,
+        code: args.code,
         exitCode: result.exitCode,
         stdout: result.stdout,
         stderr: result.stderr,

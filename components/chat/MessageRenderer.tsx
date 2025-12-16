@@ -2,6 +2,7 @@
 
 import type { Artifact } from "./ArtifactRenderer";
 import { ToolCallCard, type ToolCallData } from "./ToolCallCard";
+import { CodeExecutionBlock, type CodeExecutionData } from "./CodeExecutionBlock";
 
 interface Message {
   id: string;
@@ -35,6 +36,9 @@ const STRIP_PATTERNS = [
   /Quick generation.*?SDXL Turbo\.?\s*/g, // Quick generation - 768x768 SDXL Turbo
   /Code executed successfully.*?\n/g, // Code executed successfully (python, 1234ms)
   /Preview generated for.*?\n/g, // Preview generated for react
+  /Code execution failed.*?\n/g, // Code execution failed (exit code: 1)
+  /\n?Output:\n```[\s\S]*?```/g, // Output code blocks from execution
+  /\n?Errors:\n```[\s\S]*?```/g, // Error code blocks from execution
 ];
 
 function stripContent(content: string): string {
@@ -180,6 +184,16 @@ function AssistantMessage({
           ))}
         </div>
       )}
+
+      {/* Code Execution Results - shown via Canvas */}
+      {toolCalls
+        .filter((t) => t.name === "execute_code" && t.status === "complete" && t.result?.data)
+        .map((tool) => (
+          <CodeExecutionBlock
+            key={`exec-${tool.id}`}
+            data={tool.result!.data as CodeExecutionData}
+          />
+        ))}
 
       {/* Images - inline, each standalone */}
       {images.map((img) => (

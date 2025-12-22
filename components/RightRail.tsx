@@ -5,6 +5,15 @@ import { useDeckSettings, THEME_META, type ThemeName } from "@/components/settin
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import { ToolResultCard } from "@/components/sidebar/ToolResultCard";
+import { useWidgets } from "@/lib/hooks/useWidgets";
+import { 
+  WeatherWidget, 
+  NewsWidget, 
+  SportsWidget, 
+  StocksWidget, 
+  StatsWidget, 
+  TodoWidget 
+} from "@/components/widgets";
 
 // =============================================================================
 // Types
@@ -53,6 +62,9 @@ export function RightRail({
   const [models, setModels] = useState<string[]>([]);
   const [expandedArtifact, setExpandedArtifact] = useState<Artifact | null>(null);
   const [filesExpanded, setFilesExpanded] = useState(false);
+  
+  // Widgets data
+  const widgets = useWidgets();
 
   // Fetch system stats
   useEffect(() => {
@@ -212,7 +224,7 @@ export function RightRail({
           </section>
         )}
 
-        {/* ===== THEME ===== */}
+        {/* ===== THEME (compact) ===== */}
         <section className="sidebar-section">
           <h4 className="section-title">Theme</h4>
           <div className="theme-pills">
@@ -228,6 +240,44 @@ export function RightRail({
             ))}
           </div>
         </section>
+
+        {/* ===== INFO WIDGETS ===== */}
+        <div className="widgets-section">
+          <WeatherWidget
+            data={widgets.data.weather}
+            isLoading={widgets.loading.weather}
+            error={widgets.errors.weather}
+            onRefresh={() => widgets.refresh("weather")}
+          />
+          
+          <NewsWidget
+            data={widgets.data.news}
+            isLoading={widgets.loading.news}
+            error={widgets.errors.news}
+            onRefresh={() => widgets.refresh("news")}
+          />
+          
+          <SportsWidget
+            data={widgets.data.sports}
+            isLoading={widgets.loading.sports}
+            error={widgets.errors.sports}
+            onRefresh={() => widgets.refresh("sports")}
+          />
+          
+          <StocksWidget
+            data={widgets.data.stocks}
+            isLoading={widgets.loading.stocks}
+            error={widgets.errors.stocks}
+            onRefresh={() => widgets.refresh("stocks")}
+          />
+          
+          <StatsWidget data={widgets.data.stats} />
+          
+          <TodoWidget 
+            data={widgets.data.todo}
+            onUpdate={widgets.updateTodo}
+          />
+        </div>
 
         {/* ===== LINKS + SERVICES (bottom) ===== */}
         <section className="sidebar-section sidebar-bottom">

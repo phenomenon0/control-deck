@@ -3021,3 +3021,575 @@ model-viewer {
   background: var(--bg-secondary);
   border-color: var(--border-bright);
 }
+
+/* =============================================================================
+   WIDGETS - Info Cards for RightRail
+   ============================================================================= */
+
+.widget {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  transition: background 0.15s ease;
+}
+
+.widget-header:hover {
+  background: var(--bg-secondary);
+}
+
+.widget-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.widget-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.widget-icon {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+}
+
+.widget-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.widget-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+}
+
+.widget-chevron {
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.widget-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.widget-body {
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.widget-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.widget-updated {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.widget-refresh {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.widget-refresh:hover {
+  opacity: 1;
+}
+
+.widget-refresh:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.widget-error {
+  color: var(--error);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.widget-retry {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.widget-spinner {
+  animation: spin 1s linear infinite;
+  color: var(--accent);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Weather Widget */
+.weather-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.weather-current {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.weather-temp-large {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.weather-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weather-condition {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.weather-feels {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.weather-stats {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.weather-forecast {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.forecast-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.forecast-name {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.forecast-temps {
+  display: flex;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.forecast-high {
+  color: var(--text-primary);
+}
+
+.forecast-low {
+  color: var(--text-muted);
+}
+
+/* News Widget */
+.news-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.news-item {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.news-item:hover {
+  background: var(--bg-secondary);
+}
+
+.news-item-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.news-source {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.news-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.news-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Sports Widget */
+.sports-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-card {
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.score-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.score-league {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.score-status {
+  font-size: 10px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.score-status.live {
+  color: var(--error);
+}
+
+.score-status.final {
+  color: var(--text-muted);
+}
+
+.score-status.upcoming {
+  color: var(--accent);
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--error);
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+.score-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.score-team {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.team-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.team-score {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: ui-monospace, monospace;
+}
+
+.score-start {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Stocks Widget */
+.stocks-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stock-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.stock-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.stock-symbol {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: ui-monospace, monospace;
+}
+
+.stock-name {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.stock-data {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sparkline {
+  opacity: 0.8;
+}
+
+.stock-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.price-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: ui-monospace, monospace;
+}
+
+.price-change {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+}
+
+.price-change.positive {
+  color: var(--success);
+}
+
+.price-change.negative {
+  color: var(--error);
+}
+
+/* Stats Widget */
+.stats-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stats-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.stats-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: ui-monospace, monospace;
+}
+
+/* Todo Widget */
+.todo-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todo-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.todo-input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.todo-input::placeholder {
+  color: var(--text-muted);
+}
+
+.todo-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.todo-add-btn {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  color: var(--bg-primary);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.todo-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.todo-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 8px;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.todo-item.done .todo-text {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.todo-checkbox {
+  width: 16px;
+  height: 16px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--success);
+}
+
+.checkbox-empty {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+}
+
+.todo-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.todo-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.todo-item:hover .todo-delete {
+  opacity: 0.6;
+}
+
+.todo-delete:hover {
+  opacity: 1;
+  color: var(--error);
+}
+
+/* Widgets section divider */
+.widgets-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}

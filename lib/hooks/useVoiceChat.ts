@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceInputMode = "push-to-talk" | "vad" | "toggle";
@@ -864,7 +864,8 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     [stopSpeaking, clearQueue, queueSpeech, waitForSpeechEnd]
   );
 
-  return {
+  // Memoize the return value to prevent unnecessary re-renders in consumers
+  return useMemo(() => ({
     isListening,
     isSpeaking,
     isProcessingSTT,
@@ -885,5 +886,25 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     checkVoiceApi,
     clearTranscript,
     clearError,
-  };
+  }), [
+    isListening,
+    isSpeaking,
+    isProcessingSTT,
+    isProcessingTTS,
+    transcript,
+    audioLevel,
+    voiceApiStatus,
+    error,
+    startListening,
+    stopListening,
+    speak,
+    queueSpeech,
+    playFiller,
+    clearQueue,
+    waitForSpeechEnd,
+    stopSpeaking,
+    checkVoiceApi,
+    clearTranscript,
+    clearError,
+  ]);
 }

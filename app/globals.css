@@ -6,74 +6,80 @@
 @custom-variant dark (&:is(.dark *));
 
 /* =============================================================================
-   FOREST FLOOR PALETTE - Nature-inspired, Gwern aesthetic
-   Dark mode default (winter cabin), light mode available
+   VINTAGE PAPER PALETTE - Organic, warm, tactile
+   Inspired by aged paper, typewriters, and analog aesthetics
    ============================================================================= */
 
 :root {
-  /* Dark Mode (Default - Winter) */
-  --bg-primary: #1A1D1A;
-  --bg-secondary: #222622;
-  --bg-tertiary: #2A2E2A;
-  --border: oklch(0.922 0 0);
-  --border-bright: #3D453D;
-  --text-primary: #E8EBE4;
-  --text-secondary: #A8B4A0;
-  --text-muted: #5C6B56;
-  --accent: oklch(0.97 0 0);
-  --accent-hover: #A3B88F;
-  --success: #8FA67A;
-  --warning: #C4B394;
-  --error: #C47A7A;
-  --separator: #2E352E;
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Dark Mode (Default - Warm Evening) */
+  --bg-primary: #1C1B18;
+  --bg-secondary: #24231F;
+  --bg-tertiary: #2C2A25;
+  --border: rgba(255, 248, 235, 0.08);
+  --border-bright: rgba(255, 248, 235, 0.15);
+  --text-primary: #F5F0E6;
+  --text-secondary: #C4BAA8;
+  --text-muted: #7A7265;
+  --accent: #D4A574;
+  --accent-hover: #E5B888;
+  --success: #A8C090;
+  --warning: #D4B896;
+  --error: #C9908A;
+  --separator: rgba(255, 248, 235, 0.06);
+  --radius: 0.5rem;
+  
+  /* Noise/grain overlay */
+  --noise-opacity: 0.03;
+  
+  /* Tailwind compat */
+  --background: #1C1B18;
+  --foreground: #F5F0E6;
+  --card: #24231F;
+  --card-foreground: #F5F0E6;
+  --popover: #24231F;
+  --popover-foreground: #F5F0E6;
+  --primary: #D4A574;
+  --primary-foreground: #1C1B18;
+  --secondary: #2C2A25;
+  --secondary-foreground: #C4BAA8;
+  --muted: #2C2A25;
+  --muted-foreground: #7A7265;
+  --accent-foreground: #1C1B18;
+  --destructive: #C9908A;
+  --input: rgba(255, 248, 235, 0.08);
+  --ring: #D4A574;
+  --chart-1: #D4A574;
+  --chart-2: #A8C090;
+  --chart-3: #8FA5B5;
+  --chart-4: #C9908A;
+  --chart-5: #B8A8C0;
+  --sidebar: #24231F;
+  --sidebar-foreground: #F5F0E6;
+  --sidebar-primary: #D4A574;
+  --sidebar-primary-foreground: #1C1B18;
+  --sidebar-accent: #2C2A25;
+  --sidebar-accent-foreground: #C4BAA8;
+  --sidebar-border: rgba(255, 248, 235, 0.08);
+  --sidebar-ring: #D4A574;
 }
 
-:root.light {
-  /* Light Mode */
-  --bg-primary: #FAF9F7;
-  --bg-secondary: #F4F3F0;
-  --bg-tertiary: #ECEAE6;
-  --border: #E2E0DB;
-  --border-bright: #D4D1CA;
-  --text-primary: #2D3A2D;
-  --text-secondary: #4A5A48;
-  --text-muted: #8B9A7C;
-  --accent: #6B7F5E;
-  --accent-hover: #5A6D4F;
-  --success: #6B7F5E;
-  --warning: #9A8B70;
-  --error: #9A6B6B;
-  --separator: #E2E0DB;
+:root.light, [data-theme="paper"] {
+  /* Light Mode - Aged Paper */
+  --bg-primary: #F8F5F0;
+  --bg-secondary: #F0EBE3;
+  --bg-tertiary: #E8E2D8;
+  --border: rgba(60, 50, 40, 0.12);
+  --border-bright: rgba(60, 50, 40, 0.2);
+  --text-primary: #3C3228;
+  --text-secondary: #5C5248;
+  --text-muted: #8C8275;
+  --accent: #B8845C;
+  --accent-hover: #A07448;
+  --success: #6B8F5C;
+  --warning: #B89860;
+  --error: #B87070;
+  --separator: rgba(60, 50, 40, 0.08);
+  --noise-opacity: 0.025;
 }
 
 * {
@@ -87,8 +93,32 @@ body {
   padding: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  /* Readable system font stack - not monospace for body text */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Noise texture overlay for organic feel - subtle, low frequency */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: var(--noise-opacity, 0.02);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* Monospace only for code */
+code, pre, .mono, kbd, .font-mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9em;
 }
 
 /* Scrollbar styling */
@@ -408,6 +438,43 @@ body {
   animation: blink 1s infinite;
   color: var(--accent);
   margin-left: 2px;
+}
+
+/* =============================================================================
+   THREAD SIDEBAR - Readable, warm typography
+   ============================================================================= */
+
+.thread-sidebar {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.thread-sidebar .new-chat-btn {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
+}
+
+.thread-sidebar .new-chat-btn:hover {
+  background: var(--accent) !important;
+  color: var(--bg-primary) !important;
+  border-color: var(--accent) !important;
+}
+
+.thread-item {
+  position: relative;
+}
+
+.thread-item:hover {
+  background: var(--bg-tertiary) !important;
+}
+
+.thread-item:hover .thread-delete-btn {
+  opacity: 0.6 !important;
+}
+
+.thread-delete-btn:hover {
+  opacity: 1 !important;
+  color: var(--error) !important;
 }
 
 /* Drawer overlay */

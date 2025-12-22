@@ -12,6 +12,54 @@ import {
   type ArtifactRow,
 } from "@/lib/agui/db";
 
+// Ollama API for title generation
+const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+const TITLE_MODEL = "qwen2.5:1.5b"; // Fast small model for titles
+
+/**
+ * Generate a concise chat title using LLM
+ */
+async function generateTitle(userMessage: string): Promise<string> {
+  try {
+    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: TITLE_MODEL,
+        prompt: `Generate a very short title (2-5 words) for a chat that starts with this message. Return ONLY the title, nothing else. No quotes, no explanation.
+
+Message: "${userMessage.slice(0, 200)}"
+
+Title:`,
+        stream: false,
+        options: {
+          temperature: 0.3,
+          num_predict: 20,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Ollama returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    let title = (data.response || "").trim();
+    
+    // Clean up the title
+    title = title.replace(/^["']|["']$/g, ""); // Remove quotes
+    title = title.replace(/^Title:\s*/i, ""); // Remove "Title:" prefix
+    title = title.split("\n")[0]; // Take first line only
+    title = title.slice(0, 50); // Max 50 chars
+    
+    return title || userMessage.slice(0, 30) + "...";
+  } catch (error) {
+    console.error("[Threads] Title generation failed:", error);
+    // Fallback to simple truncation
+    return userMessage.slice(0, 30) + (userMessage.length > 30 ? "..." : "");
+  }
+}
+
 // GET /api/threads - List all threads
 // GET /api/threads?id=xxx - Get single thread with messages
 export async function GET(req: Request) {
@@ -109,11 +157,14 @@ export async function POST(req: Request) {
       metadata,
     });
 
-    // Auto-generate title from first user message
+    // Auto-generate title from first user message using LLM
     const thread = getThread(threadId);
     if (thread && !thread.title && role === "user" && content) {
-      const title = content.slice(0, 50) + (content.length > 50 ? "..." : "");
-      updateThreadTitle(threadId, title);
+      // Generate title asynchronously (don't block response)
+      generateTitle(content).then((title) => {
+        updateThreadTitle(threadId, title);
+        console.log("[Threads] Generated title:", title);
+      });
     }
 
     return NextResponse.json({ id: messageId });
@@ -130,6 +181,26 @@ export async function POST(req: Request) {
     }
     updateMessage(id, content);
     return NextResponse.json({ ok: true });
+  }
+
+  // Generate/regenerate title for a thread
+  if (body.action === "generate-title") {
+    const { threadId } = body;
+    if (!threadId) {
+      return NextResponse.json({ error: "threadId required" }, { status: 400 });
+    }
+    
+    const messages = getMessages(threadId);
+    const firstUserMessage = messages.find(m => m.role === "user");
+    
+    if (!firstUserMessage) {
+      return NextResponse.json({ error: "No user message found" }, { status: 400 });
+    }
+    
+    const title = await generateTitle(firstUserMessage.content);
+    updateThreadTitle(threadId, title);
+    
+    return NextResponse.json({ title });
   }
 
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });

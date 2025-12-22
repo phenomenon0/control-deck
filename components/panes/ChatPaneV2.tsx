@@ -979,15 +979,38 @@ export default function ChatPaneV2() {
         })
         .catch((e) => console.error("[Chat] Failed to save message:", e));
 
-        // Update thread title if this was the first message (use functional update to avoid stale closure)
+        // Fetch LLM-generated title after a short delay (backend generates it async)
         setThreads((currentThreads) => {
           const thread = currentThreads.find((t) => t.id === threadId);
-          // Only update title if it's still "New conversation" (first message)
           if (thread && thread.title === "New conversation") {
+            // Temporary title while LLM generates
+            const tempTitle = text.slice(0, 40) + (text.length > 40 ? "..." : "");
             const updated = currentThreads.map((t) =>
-              t.id === threadId ? { ...t, title: text.slice(0, 50) + (text.length > 50 ? "..." : "") } : t
+              t.id === threadId ? { ...t, title: tempTitle } : t
             );
             setStoredThreads(updated);
+            
+            // Poll for LLM-generated title after 2 seconds
+            setTimeout(async () => {
+              try {
+                const res = await fetch(`/api/threads?id=${threadId}`);
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data.thread?.title && data.thread.title !== tempTitle) {
+                    setThreads((prev) => {
+                      const newThreads = prev.map((t) =>
+                        t.id === threadId ? { ...t, title: data.thread.title } : t
+                      );
+                      setStoredThreads(newThreads);
+                      return newThreads;
+                    });
+                  }
+                }
+              } catch (e) {
+                console.error("[Chat] Failed to fetch updated title:", e);
+              }
+            }, 2500);
+            
             return updated;
           }
           return currentThreads;
@@ -1018,6 +1041,8 @@ export default function ChatPaneV2() {
         setIsLoading(false);
         setSearchStatus(null);
         abortControllerRef.current = null;
+        // Auto-focus input after message completes
+        setTimeout(() => inputRef.current?.focus(), 100);
       }
     },
     [activeThreadId, isLoading, messages, selectedModel, pendingUploads, voiceChat, prefs.voice]
@@ -1098,15 +1123,15 @@ export default function ChatPaneV2() {
     >
       {/* Left Sidebar - Persistent */}
       <aside
+        className="thread-sidebar"
         style={{
-          width: sidebarOpen ? 260 : 0,
-          minWidth: sidebarOpen ? 260 : 0,
+          width: sidebarOpen ? 280 : 0,
+          minWidth: sidebarOpen ? 280 : 0,
           height: "100%",
           background: "var(--bg-secondary)",
           borderRight: sidebarOpen ? "1px solid var(--border)" : "none",
           display: "flex",
           flexDirection: "column",
-          fontFamily: "system-ui, -apple-system, sans-serif",
           transition: "width 0.2s ease, min-width 0.2s ease",
           overflow: "hidden",
         }}
@@ -1187,16 +1212,19 @@ export default function ChatPaneV2() {
                     onClick={() => handleSelectThread(t.id)}
                     className="thread-item"
                     style={{
-                      padding: "10px 12px",
-                      borderRadius: 6,
+                      padding: "10px 14px",
+                      borderRadius: 8,
                       cursor: "pointer",
-                      fontSize: 13,
+                      fontSize: 14,
+                      fontWeight: activeThreadId === t.id ? 500 : 400,
+                      lineHeight: 1.4,
                       color: activeThreadId === t.id ? "var(--text-primary)" : "var(--text-secondary)",
                       background: activeThreadId === t.id ? "var(--bg-tertiary)" : "transparent",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
                       marginBottom: 2,
+                      transition: "all 0.15s ease",
                     }}
                   >
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
@@ -1272,31 +1300,30 @@ export default function ChatPaneV2() {
       />
 
       {/* Messages */}
-      <main style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ maxWidth: 960, margin: "0 auto", padding: "20px 40px 64px" }}>
+      <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ 
+          maxWidth: 960, 
+          margin: "0 auto", 
+          padding: "20px 40px 24px",
+          width: "100%",
+          flex: messages.length === 0 ? 1 : "none",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: messages.length === 0 ? "flex-end" : "flex-start",
+        }}>
           {messages.length === 0 ? (
             <div style={{ 
-              display: "flex", 
-              flexDirection: "column", 
-              alignItems: "center", 
-              justifyContent: "center",
-              minHeight: "50vh",
-              paddingTop: "10vh"
+              textAlign: "center",
+              paddingBottom: 32,
             }}>
-              <p style={{ color: "var(--text-muted)", fontSize: 18, fontStyle: "italic" }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 16, fontStyle: "italic", margin: 0 }}>
                 What&apos;s on your mind?
               </p>
               {prefs.voice.enabled && (
-                <p style={{ color: "var(--text-muted)", fontSize: 14, marginTop: 8 }}>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 6, opacity: 0.7 }}>
                   {prefs.voice.mode === "push-to-talk" ? "Hold spacebar to speak" : "Click mic to talk"}
                 </p>
               )}
-              <div style={{ marginTop: 24, display: "flex", flexWrap: "wrap", gap: 8 }}>
-                <ShortcutHint keys={["Cmd", "K"]} label="Commands" />
-                <ShortcutHint keys={["Cmd", ","]} label="Settings" />
-                <ShortcutHint keys={["Cmd", "B"]} label="Sidebar" />
-                {prefs.voice.enabled && <ShortcutHint keys={["Cmd", "Shift", "V"]} label="Voice Mode" />}
-              </div>
             </div>
           ) : (
             <div>
@@ -1623,26 +1650,4 @@ function SendIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function ShortcutHint({ keys, label }: { keys: string[]; label: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      {keys.map((key, i) => (
-        <span
-          key={i}
-          style={{
-            padding: "2px 6px",
-            fontSize: 11,
-            fontFamily: "ui-monospace, monospace",
-            background: "var(--bg-secondary)",
-            border: "1px solid var(--border)",
-            borderRadius: 4,
-            color: "var(--text-muted)",
-          }}
-        >
-          {key}
-        </span>
-      ))}
-      <span style={{ fontSize: 12, color: "var(--text-muted)", marginLeft: 4 }}>{label}</span>
-    </div>
-  );
-}
+

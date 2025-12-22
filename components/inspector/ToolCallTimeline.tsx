@@ -1,6 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import type { DeckPayload } from "@/lib/agui/payload";
+import { PayloadViewer } from "./PayloadViewer";
 
 // =============================================================================
 // Types
@@ -12,7 +14,12 @@ export interface ToolCallEvent {
   status: "running" | "complete" | "error";
   startedAt: number;
   completedAt?: number;
-  result?: {
+  /** Tool call arguments (DeckPayload) */
+  args?: DeckPayload;
+  /** Tool execution result (DeckPayload - may be JSON or GLYPH) */
+  result?: DeckPayload;
+  /** Legacy result format for backwards compatibility */
+  legacyResult?: {
     success: boolean;
     message?: string;
     error?: string;
@@ -42,9 +49,14 @@ export function ToolCallTimeline({ events }: ToolCallTimelineProps) {
 // =============================================================================
 
 function ToolCallItem({ event, isLast }: { event: ToolCallEvent; isLast: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  
   const duration = event.completedAt
     ? ((event.completedAt - event.startedAt) / 1000).toFixed(1)
     : null;
+
+  // Check if we have payload data to show
+  const hasDetails = event.args || event.result;
 
   return (
     <div className="relative flex gap-3">
@@ -60,10 +72,45 @@ function ToolCallItem({ event, isLast }: { event: ToolCallEvent; isLast: boolean
 
       {/* Content */}
       <div className="flex-1 min-w-0 pb-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-            {event.name}
-          </span>
+        {/* Header row - clickable if we have details */}
+        <div 
+          className={`flex items-center justify-between gap-2 ${hasDetails ? 'cursor-pointer' : ''}`}
+          onClick={() => hasDetails && setExpanded(!expanded)}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Expand arrow if we have details */}
+            {hasDetails && (
+              <svg 
+                className={`w-3 h-3 text-[var(--text-muted)] transition-transform flex-shrink-0 ${expanded ? "rotate-90" : ""}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            )}
+            
+            <span className="text-sm font-medium text-[var(--text-primary)] truncate">
+              {event.name}
+            </span>
+            
+            {/* Payload type badge with savings */}
+            {event.result && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
+                event.result.kind === "glyph" 
+                  ? "bg-purple-500/20 text-purple-400" 
+                  : "bg-blue-500/20 text-blue-400"
+              }`}>
+                {event.result.kind.toUpperCase()}
+                {event.result.kind === "glyph" && event.result.approxBytes && (
+                  <span className="ml-1 opacity-75">
+                    {Math.round((1 - event.result.glyph.length / event.result.approxBytes) * 100)}%
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+          
           {duration && (
             <span className="text-xs text-[var(--text-muted)] flex-shrink-0">
               {duration}s
@@ -71,19 +118,45 @@ function ToolCallItem({ event, isLast }: { event: ToolCallEvent; isLast: boolean
           )}
         </div>
 
+        {/* Status text */}
         {event.status === "running" && (
           <div className="text-xs text-blue-400 mt-0.5">Running...</div>
         )}
 
-        {event.status === "error" && event.result?.error && (
-          <div className="text-xs text-red-400 mt-0.5 truncate" title={event.result.error}>
-            {event.result.error}
+        {event.status === "error" && event.legacyResult?.error && (
+          <div className="text-xs text-red-400 mt-0.5 truncate" title={event.legacyResult.error}>
+            {event.legacyResult.error}
           </div>
         )}
 
-        {event.status === "complete" && event.result?.message && (
-          <div className="text-xs text-[var(--text-muted)] mt-0.5 truncate" title={event.result.message}>
-            {event.result.message}
+        {event.status === "complete" && event.legacyResult?.message && !expanded && (
+          <div className="text-xs text-[var(--text-muted)] mt-0.5 truncate" title={event.legacyResult.message}>
+            {event.legacyResult.message}
+          </div>
+        )}
+
+        {/* Expanded details */}
+        {expanded && hasDetails && (
+          <div className="mt-3 space-y-3">
+            {/* Args */}
+            {event.args && (
+              <PayloadViewer 
+                payload={event.args} 
+                label="Args"
+                defaultExpanded={false}
+                maxPreviewLines={3}
+              />
+            )}
+            
+            {/* Result */}
+            {event.result && (
+              <PayloadViewer 
+                payload={event.result} 
+                label="Result"
+                defaultExpanded={true}
+                maxPreviewLines={5}
+              />
+            )}
           </div>
         )}
       </div>

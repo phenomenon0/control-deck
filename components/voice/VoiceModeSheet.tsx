@@ -8,7 +8,11 @@ import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 
-export type VoiceMode = "push-to-talk" | "vad";
+export type VoiceMode = "push-to-talk" | "vad" | "toggle";
+
+// Phrase detection regex: splits on sentence endings OR commas/semicolons for faster first utterance
+// This allows TTS to start speaking sooner (on first phrase, not first sentence)
+const PHRASE_ENDINGS = /[.!?。]\s+|\n\n|[,;:]\s+/;
 
 interface VoiceModeSheetProps {
   isOpen: boolean;
@@ -34,25 +38,29 @@ export function VoiceModeSheet({
 }: VoiceModeSheetProps) {
   // Get voice settings from centralized provider
   const { prefs, updateVoicePrefs } = useDeckSettings();
-  
-  // Map provider mode to local mode (provider uses "push-to-talk" | "vad")
-  const mode: VoiceMode = prefs.voice.mode === "vad" ? "vad" : "push-to-talk";
-  
+
+  // Use mode from settings (allows switching between VAD and push-to-talk)
+  const mode: VoiceMode = prefs.voice.mode;
+
   // Conversation state
   const [phase, setPhase] = useState<OrbPhase>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [currentUserSpeech, setCurrentUserSpeech] = useState("");
   const [assistantResponse, setAssistantResponse] = useState("");
-  
+
   // Tool/artifact state
   const [currentArtifacts, setCurrentArtifacts] = useState<Artifact[]>([]);
   const [isToolRunning, setIsToolRunning] = useState(false);
   const [currentToolName, setCurrentToolName] = useState<string | undefined>();
-  
+
   // Refs
   const abortControllerRef = useRef<AbortController | null>(null);
   const conversationRef = useRef<Array<{ role: string; content: string }>>([]);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const autoStartedRef = useRef(false);
+
+  // Track if we're in the middle of a conversation turn (waiting for AI response)
+  const isProcessingRef = useRef(false);
 
   // Voice chat hook - uses settings from provider
   const voiceChat = useVoiceChat({
@@ -65,7 +73,63 @@ export function VoiceModeSheet({
     onAutoSend: (text) => {
       handleUserUtterance(text);
     },
+    onListeningStopped: () => {
+      // Auto-restart listening in continuous voice mode
+      console.log("[VoiceMode] onListeningStopped called, isOpen:", isOpen, "isProcessing:", isProcessingRef.current);
+      if (isOpen) {
+        // Small delay to let any state settle
+        setTimeout(() => {
+          if (isOpen && !isProcessingRef.current && !voiceChat.isListening) {
+            console.log("[VoiceMode] Auto-restarting listening from onListeningStopped");
+            voiceChat.startListening();
+            setPhase("listening");
+          }
+        }, 200);
+      }
+    },
   });
+
+  // Auto-start listening when sheet opens (always continuous)
+  useEffect(() => {
+    if (isOpen && voiceChat.voiceApiStatus === "connected" && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      console.log("[VoiceMode] Auto-starting listening on open");
+      // Small delay to let the UI render
+      const timer = setTimeout(() => {
+        voiceChat.startListening();
+        setPhase("listening");
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+
+    if (!isOpen) {
+      autoStartedRef.current = false;
+    }
+  }, [isOpen, voiceChat.voiceApiStatus]);
+
+  // Safety net: ensure we're always listening when open and not processing/speaking
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const checkAndRestartListening = () => {
+      const shouldListen = isOpen && 
+          voiceChat.voiceApiStatus === "connected" && 
+          !voiceChat.isListening && 
+          !voiceChat.isSpeaking &&
+          !voiceChat.isProcessingSTT;
+      
+      if (shouldListen) {
+        console.log("[VoiceMode] Safety net: restarting listening");
+        isProcessingRef.current = false; // Reset just in case
+        voiceChat.startListening();
+        setPhase("listening");
+      }
+    };
+    
+    // Check frequently
+    const interval = setInterval(checkAndRestartListening, 500);
+    return () => clearInterval(interval);
+  }, [isOpen, voiceChat.voiceApiStatus, voiceChat.isListening, voiceChat.isSpeaking, voiceChat.isProcessingSTT]);
 
   // Connect to SSE for tool events
   useEffect(() => {
@@ -81,8 +145,7 @@ export function VoiceModeSheet({
         if (event.type === "ToolCallStart") {
           setIsToolRunning(true);
           setCurrentToolName(event.toolName);
-          
-          // Add system message about tool
+
           const toolMessage = getToolStartMessage(event.toolName);
           if (toolMessage) {
             setTranscript((prev) => [
@@ -114,14 +177,20 @@ export function VoiceModeSheet({
     };
   }, [isOpen, threadId]);
 
-  // Handle user utterance - send to chat API
+  // Handle user utterance - send to chat API with streaming TTS
   const handleUserUtterance = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
 
+      // Mark that we're processing (prevents auto-restart of listening)
+      isProcessingRef.current = true;
+      
       setPhase("processing");
       setCurrentUserSpeech("");
       setCurrentArtifacts([]);
+
+      // Play filler immediately while waiting for LLM
+      voiceChat.playFiller();
 
       // Add user message to transcript
       const userEntry: TranscriptEntry = {
@@ -164,16 +233,38 @@ export function VoiceModeSheet({
 
         const decoder = new TextDecoder();
         let fullResponse = "";
+        let sentenceBuffer = ""; // Buffer for accumulating text until sentence boundary
 
+        // Streaming TTS: queue sentences as they complete
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
           fullResponse += chunk;
-          setAssistantResponse(fullResponse);
+          sentenceBuffer += chunk;
+
+          // Look for completed sentences in the buffer
+          let match;
+          while ((match = sentenceBuffer.match(PHRASE_ENDINGS))) {
+            const cutOff = match.index! + match[0].length;
+            const textToSpeak = sentenceBuffer.slice(0, cutOff).trim();
+
+            if (textToSpeak) {
+              // Queue this sentence for TTS (non-blocking)
+              const cleanedText = cleanResponseForSpeech(textToSpeak);
+              if (cleanedText) {
+                setPhase("speaking");
+                voiceChat.queueSpeech(cleanedText);
+              }
+            }
+
+            // Remove spoken sentence from buffer
+            sentenceBuffer = sentenceBuffer.slice(cutOff);
+          }
 
           // Update transcript with streaming response
+          setAssistantResponse(fullResponse);
           setTranscript((prev) =>
             prev.map((entry) =>
               entry.id === assistantId
@@ -181,6 +272,14 @@ export function VoiceModeSheet({
                 : entry
             )
           );
+        }
+
+        // Speak any remaining text in buffer (incomplete sentence at end)
+        if (sentenceBuffer.trim()) {
+          const cleanedText = cleanResponseForSpeech(sentenceBuffer.trim());
+          if (cleanedText) {
+            voiceChat.queueSpeech(cleanedText);
+          }
         }
 
         // Finalize transcript
@@ -198,25 +297,21 @@ export function VoiceModeSheet({
         // Notify parent
         onMessageSent?.(text, fullResponse);
 
-        // Speak the response
-        const textToSpeak = cleanResponseForSpeech(fullResponse);
-        if (textToSpeak) {
-          setPhase("speaking");
-          await voiceChat.speak(textToSpeak);
-        }
+        // Wait for ALL queued audio to finish before restarting VAD
+        console.log("[VoiceMode] Waiting for speech to end...");
+        await voiceChat.waitForSpeechEnd();
+        console.log("[VoiceMode] Speech ended, restarting listening...");
 
-        // Ready for next turn
+        // Ready for next turn - allow auto-restart
+        isProcessingRef.current = false;
         setPhase("idle");
         setAssistantResponse("");
 
-        // If VAD mode, start listening again after a brief pause
-        if (mode === "vad") {
-          setTimeout(() => {
-            if (isOpen) {
-              voiceChat.startListening();
-              setPhase("listening");
-            }
-          }, 500);
+        // Auto-restart listening after response - always in voice mode
+        if (isOpen) {
+          console.log("[VoiceMode] Auto-restarting listening");
+          voiceChat.startListening();
+          setPhase("listening");
         }
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
@@ -230,16 +325,28 @@ export function VoiceModeSheet({
             },
           ]);
         }
+        
+        // Allow auto-restart on error too
+        isProcessingRef.current = false;
         setPhase("idle");
+
+        // Resume listening on error - always in voice mode
+        if (isOpen) {
+          console.log("[VoiceMode] Restarting listening after error");
+          voiceChat.startListening();
+          setPhase("listening");
+        }
       }
     },
     [selectedModel, threadId, mode, isOpen, voiceChat, onMessageSent]
   );
 
-  // Handle mic button interaction
+  // Handle mic button interaction (barge-in support)
   const handleMicPress = useCallback(() => {
+    // Barge-in: stop speaking AND clear queue if assistant is talking
     if (voiceChat.isSpeaking) {
       voiceChat.stopSpeaking();
+      voiceChat.clearQueue();
     }
 
     if (mode === "push-to-talk") {
@@ -278,14 +385,16 @@ export function VoiceModeSheet({
   const handleClose = useCallback(() => {
     voiceChat.stopListening();
     voiceChat.stopSpeaking();
+    voiceChat.clearQueue();
     abortControllerRef.current?.abort();
     setPhase("idle");
     setCurrentUserSpeech("");
     setAssistantResponse("");
+    autoStartedRef.current = false;
     onClose();
   }, [voiceChat, onClose]);
 
-  // Keyboard shortcut to close
+  // Keyboard shortcuts
   useEffect(() => {
     if (!isOpen) return;
 
@@ -293,11 +402,27 @@ export function VoiceModeSheet({
       if (e.key === "Escape") {
         handleClose();
       }
+      // Space bar for push-to-talk
+      if (e.code === "Space" && mode === "push-to-talk" && !e.repeat) {
+        e.preventDefault();
+        handleMicPress();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space" && mode === "push-to-talk") {
+        e.preventDefault();
+        handleMicRelease();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, handleClose]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [isOpen, handleClose, handleMicPress, handleMicRelease, mode]);
 
   if (!isOpen) return null;
 
@@ -393,8 +518,9 @@ export function VoiceModeSheet({
                 fontSize: "12px",
                 cursor: "pointer",
               }}
+              title={mode === "vad" ? "Voice Activity Detection (auto)" : "Push-to-Talk (manual)"}
             >
-              {mode === "vad" ? "VAD" : "PTT"}
+              {mode === "vad" ? "Auto" : "PTT"}
             </button>
 
             {/* Close button */}
@@ -432,18 +558,17 @@ export function VoiceModeSheet({
             overflow: "hidden",
           }}
         >
-          {/* Orb */}
+          {/* Orb - using pointer events for better mobile/desktop support */}
           <div
-            onMouseDown={handleMicPress}
-            onMouseUp={handleMicRelease}
-            onMouseLeave={handleMicRelease}
-            onTouchStart={handleMicPress}
-            onTouchEnd={handleMicRelease}
+            onPointerDown={handleMicPress}
+            onPointerUp={handleMicRelease}
+            onPointerLeave={handleMicRelease}
             style={{
               cursor: voiceChat.voiceApiStatus === "connected" ? "pointer" : "not-allowed",
               opacity: voiceChat.voiceApiStatus === "connected" ? 1 : 0.5,
               transition: "transform 0.2s ease",
               transform: phase === "listening" ? "scale(1.05)" : "scale(1)",
+              touchAction: "none", // Prevents scroll/zoom on touch
             }}
           >
             <VoiceOrb
@@ -461,10 +586,10 @@ export function VoiceModeSheet({
               textAlign: "center",
             }}
           >
-            {phase === "idle" && (mode === "vad" ? "Tap orb to start" : "Hold orb to talk")}
-            {phase === "listening" && (mode === "vad" ? "Listening..." : "Release to send")}
+            {phase === "idle" && "Starting..."}
+            {phase === "listening" && "Listening... (speak naturally)"}
             {phase === "processing" && "Thinking..."}
-            {phase === "speaking" && "Speaking..."}
+            {phase === "speaking" && "Speaking... (tap to interrupt)"}
           </div>
 
           {/* Tool results */}
@@ -533,7 +658,14 @@ function cleanResponseForSpeech(text: string): string {
     .replace(/\*([^*]+)\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/#{1,6}\s*/g, "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/```[\s\S]*?```/g, "code block")
+    .replace(/\n{2,}/g, ". "); // Replace multiple newlines with pause
+
+  // Don't return if it's just whitespace or too short
+  clean = clean.trim();
+  if (clean.length < 2) return "";
+
   return clean.slice(0, 500); // Limit length for TTS
 }
 

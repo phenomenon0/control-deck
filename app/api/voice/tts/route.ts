@@ -15,8 +15,7 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        engine: engine ?? process.env.DEFAULT_TTS ?? "chatterbox",
-        voice,
+        voice: voice ?? "jenny", // Default to Jenny voice (Piper)
       }),
     });
 

@@ -3,6 +3,16 @@
  * Routes to appropriate handlers (ComfyUI, Vision, Search, Lite)
  */
 
+// Constants for code execution limits
+const CODE_EXEC_LIMITS = {
+  MAX_MEMORY_MB: 256,
+  MAX_CPU_SECONDS: 10,
+  MAX_OUTPUT_BYTES: 1024 * 1024,
+  STDOUT_TRUNCATE: 2000,
+  STDERR_TRUNCATE: 1000,
+  DEFAULT_TIMEOUT_MS: 30000,
+} as const;
+
 import type {
   ToolCall,
   EditImageArgs,
@@ -13,7 +23,10 @@ import type {
   WebSearchArgs,
   GlyphMotifArgs,
   ExecuteCodeArgs,
+  VectorSearchArgs,
+  VectorStoreArgs,
 } from "./definitions";
+import { vectorSearch, vectorStore } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
 import { getUpload, createArtifact, saveEvent } from "@/lib/agui/db";
@@ -23,8 +36,31 @@ import { hub } from "@/lib/agui/hub";
 import { isLiteMode, getImageBackend } from "@/lib/system";
 import { generateLiteImage, type LiteImageStyle } from "./lite-image";
 import { executeCode as runCode } from "./code-exec";
+import { type DeckPayload, jsonPayload, smartEncode } from "@/lib/agui/payload";
 import * as fs from "fs/promises";
 import * as path from "path";
+
+// GLYPH encoding configuration
+const GLYPH_CONFIG = {
+  /** Enable GLYPH encoding for large tool results */
+  enabled: process.env.USE_GLYPH_RESULTS !== "false",
+  /** Minimum JSON size (bytes) before attempting GLYPH encoding (0 = always) */
+  minJsonBytes: 0,
+  /** Minimum savings (%) required to use GLYPH over JSON (0 = always) */
+  minSavings: 0,
+} as const;
+
+// Tools excluded from automatic GLYPH encoding
+// These return artifacts, text output, or very small structured data
+const GLYPH_EXCLUDE_TOOLS = new Set([
+  'execute_code',     // Text stdout - keep as text
+  'generate_image',   // Artifact refs only
+  'edit_image',       // Artifact refs only
+  'generate_audio',   // Artifact refs only
+  'image_to_3d',      // Artifact refs only
+  'glyph_motif',      // SVG artifact
+  'analyze_image',    // Text analysis
+]);
 
 // ============================================================================
 // Types
@@ -40,7 +76,13 @@ export interface ToolExecutionResult {
     mimeType: string;
   }>;
   error?: string;
+  /** Raw data for UI display (code execution results, etc.) */
   data?: unknown;
+  /** 
+   * Payload for AG-UI events and LLM context
+   * Use smartEncode() for large results (web_search, vector_search)
+   */
+  payload?: DeckPayload;
 }
 
 export interface ExecutorContext extends ComfyToolContext {
@@ -78,6 +120,10 @@ export async function executeTool(
         return await executeGlyphMotif(tool.args, ctx);
       case "execute_code":
         return await executeCodeTool(tool.args, ctx);
+      case "vector_search":
+        return await executeVectorSearch(tool.args);
+      case "vector_store":
+        return await executeVectorStore(tool.args);
       default:
         return {
           success: false,
@@ -94,6 +140,31 @@ export async function executeTool(
       error: errMsg,
     };
   }
+}
+
+/**
+ * Wrapper that auto-encodes structured results as GLYPH
+ * Called after each tool execution to ensure consistent encoding
+ */
+export async function executeToolWithGlyph(
+  tool: ToolCall,
+  ctx: ExecutorContext
+): Promise<ToolExecutionResult> {
+  const result = await executeTool(tool, ctx);
+  
+  // Auto-encode structured results as GLYPH (unless excluded or already has payload)
+  if (
+    GLYPH_CONFIG.enabled &&
+    !GLYPH_EXCLUDE_TOOLS.has(tool.name) && 
+    result.data && 
+    !result.payload &&
+    typeof result.data === 'object'
+  ) {
+    result.payload = encodeForLLM(result.data);
+    console.log(`[Executor] Auto-GLYPH for ${tool.name}: ${result.payload.kind}`);
+  }
+  
+  return result;
 }
 
 // ============================================================================
@@ -238,12 +309,12 @@ async function executeGenerateImage(
     return result;
   }
   
-  // Power mode - use ComfyUI
-  console.log("[Executor] Using ComfyUI backend");
+  // Power mode - use ComfyUI with SDXL Turbo
+  console.log("[Executor] Using ComfyUI backend (SDXL Turbo)");
   const workflow = loadWorkflow("sdxl-turbo", {
     prompt: args.prompt,
-    width: args.width ?? 768,
-    height: args.height ?? 768,
+    width: args.width ?? 512,
+    height: args.height ?? 512,
     steps: 4,
     seed: args.seed ?? Math.floor(Math.random() * 1000000),
   });
@@ -275,7 +346,7 @@ async function executeAnalyzeImage(
     };
   }
 
-  const OLLAMA_URL = process.env.OLLAMA_API_BASE_URL ?? "http://localhost:11434";
+  const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
   const question = args.question ?? "Describe this image in detail.";
 
   try {
@@ -339,16 +410,26 @@ async function executeWebSearch(
       };
     }
 
-    // Format results for LLM
+    // Encode results for LLM (may use GLYPH for large result sets)
+    const resultsData = { results: data.results, context: data.context };
+    const payload = encodeForLLM(resultsData);
+    
+    // Format message based on encoding
     let message = `Found ${data.count} results for "${args.query}":\n\n`;
-    for (const r of data.results) {
-      message += `- ${r.title}\n  ${r.url}\n  ${r.snippet}\n\n`;
+    if (payload.kind === "glyph") {
+      message += formatPayloadForLLM(payload);
+    } else {
+      // Plain text format for small results
+      for (const r of data.results) {
+        message += `- ${r.title}\n  ${r.url}\n  ${r.snippet}\n\n`;
+      }
     }
 
     return {
       success: true,
       message,
-      data: { results: data.results, context: data.context },
+      data: resultsData,
+      payload,
     };
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Search failed";
@@ -456,11 +537,11 @@ async function executeCodeTool(
         filename: args.filename,
         args: args.args,
         stdin: args.stdin,
-        timeout: args.timeout ?? 30000,
+        timeout: args.timeout ?? CODE_EXEC_LIMITS.DEFAULT_TIMEOUT_MS,
         sandbox: {
-          maxMemoryMB: 256,
-          maxCPUSeconds: 10,
-          maxOutputBytes: 1024 * 1024,
+          maxMemoryMB: CODE_EXEC_LIMITS.MAX_MEMORY_MB,
+          maxCPUSeconds: CODE_EXEC_LIMITS.MAX_CPU_SECONDS,
+          maxOutputBytes: CODE_EXEC_LIMITS.MAX_OUTPUT_BYTES,
           networkEnabled: false,
           captureImages: true,
           captureFiles: true,
@@ -580,15 +661,17 @@ async function executeCodeTool(
       : `Code execution failed (exit code: ${result.exitCode})`;
     
     if (result.stdout) {
-      message += `\n\nOutput:\n\`\`\`\n${result.stdout.slice(0, 2000)}${result.stdout.length > 2000 ? "\n... [truncated]" : ""}\n\`\`\``;
+      const truncateAt = CODE_EXEC_LIMITS.STDOUT_TRUNCATE;
+      message += `\n\nOutput:\n\`\`\`\n${result.stdout.slice(0, truncateAt)}${result.stdout.length > truncateAt ? "\n... [truncated]" : ""}\n\`\`\``;
     }
     
     if (result.stderr && !result.success) {
-      message += `\n\nErrors:\n\`\`\`\n${result.stderr.slice(0, 1000)}${result.stderr.length > 1000 ? "\n... [truncated]" : ""}\n\`\`\``;
+      const truncateAt = CODE_EXEC_LIMITS.STDERR_TRUNCATE;
+      message += `\n\nErrors:\n\`\`\`\n${result.stderr.slice(0, truncateAt)}${result.stderr.length > truncateAt ? "\n... [truncated]" : ""}\n\`\`\``;
     }
     
     if (result.timedOut) {
-      message += `\n\n**Note:** Execution timed out after ${args.timeout ?? 30000}ms`;
+      message += `\n\n**Note:** Execution timed out after ${args.timeout ?? CODE_EXEC_LIMITS.DEFAULT_TIMEOUT_MS}ms`;
     }
     
     return {
@@ -619,8 +702,146 @@ async function executeCodeTool(
 }
 
 // ============================================================================
+// VectorDB Tools
+// ============================================================================
+
+/**
+ * Validate and coerce metadata to Record<string, string>
+ */
+function validateMetadata(meta: unknown): Record<string, string> | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(meta as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      result[key] = value;
+    } else if (value !== null && value !== undefined) {
+      result[key] = String(value);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
+ * Search for semantically similar documents
+ */
+async function executeVectorSearch(
+  args: VectorSearchArgs
+): Promise<ToolExecutionResult> {
+  try {
+    const results = await vectorSearch(args.query, {
+      collection: args.collection,
+      k: args.k ?? 5,
+    });
+
+    if (results.length === 0) {
+      return {
+        success: true,
+        message: "No similar documents found.",
+        data: { results: [] },
+      };
+    }
+
+    // Encode results for LLM (may use GLYPH for many/long results)
+    const resultsData = { results };
+    const payload = encodeForLLM(resultsData);
+    
+    // Format message based on encoding
+    let message = `Found ${results.length} similar documents:\n\n`;
+    if (payload.kind === "glyph") {
+      message += formatPayloadForLLM(payload);
+    } else {
+      // Plain text format for small results
+      const formattedResults = results
+        .map((r, i) => `${i + 1}. [${r.score.toFixed(3)}] ${r.text}`)
+        .join("\n");
+      message += formattedResults;
+    }
+
+    return {
+      success: true,
+      message,
+      data: resultsData,
+      payload,
+    };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Search failed";
+    return {
+      success: false,
+      message: `Vector search failed: ${errMsg}`,
+      error: errMsg,
+    };
+  }
+}
+
+/**
+ * Store a document in VectorDB
+ */
+async function executeVectorStore(
+  args: VectorStoreArgs
+): Promise<ToolExecutionResult> {
+  try {
+    const result = await vectorStore(args.text, {
+      collection: args.collection ?? "default",
+      metadata: validateMetadata(args.metadata),
+    });
+
+    return {
+      success: true,
+      message: `Document stored successfully with ID: ${result.id}`,
+      data: { id: result.id, collection: args.collection ?? "default" },
+    };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Store failed";
+    return {
+      success: false,
+      message: `Failed to store document: ${errMsg}`,
+      error: errMsg,
+    };
+  }
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Encode data for LLM context, using GLYPH for large payloads
+ * Returns DeckPayload for use in AG-UI events
+ */
+function encodeForLLM(data: unknown): DeckPayload {
+  console.log("[encodeForLLM] Called, GLYPH enabled:", GLYPH_CONFIG.enabled);
+  
+  if (!GLYPH_CONFIG.enabled) {
+    console.log("[encodeForLLM] GLYPH disabled, using JSON");
+    return jsonPayload(data);
+  }
+  
+  const result = smartEncode(data, {
+    minBytes: GLYPH_CONFIG.minJsonBytes,
+    minSavings: GLYPH_CONFIG.minSavings,
+    forceGlyph: true, // Always use GLYPH for testing
+  });
+  
+  console.log("[encodeForLLM] Result kind:", result.kind);
+  return result;
+}
+
+/**
+ * Format DeckPayload for LLM message text
+ * Wraps GLYPH in fences, returns JSON as-is
+ */
+function formatPayloadForLLM(payload: DeckPayload): string {
+  if (payload.kind === "glyph") {
+    return `\`\`\`glyph data\n${payload.glyph}\n\`\`\``;
+  }
+  if (payload.kind === "json") {
+    return JSON.stringify(payload.data, null, 2);
+  }
+  if (payload.kind === "text") {
+    return payload.text;
+  }
+  return "[Binary data]";
+}
 
 /**
  * Convert ComfyUI result to executor result format

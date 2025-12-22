@@ -1,21 +1,120 @@
 "use client";
 
+import { useState } from "react";
 import type { Artifact } from "./ArtifactRenderer";
 import { ToolCallCard, type ToolCallData } from "./ToolCallCard";
 import { CodeExecutionBlock, type CodeExecutionData } from "./CodeExecutionBlock";
+import { ThinkingIndicator, ReasoningBubble } from "./ReasoningDisplay";
+import { ActivityPlan, ActivityProgress, ActivitySearch, type PlanStep } from "./ActivityDisplay";
+import { SportsScoreCard, WeatherCard, InfoCard, type SportsScoreData, type WeatherData } from "./InfoCards";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   artifacts?: Artifact[];
+  // New AG-UI fields
+  isThinking?: boolean;
+  reasoning?: string;
+  plan?: { title: string; steps: PlanStep[] };
+  progress?: { title: string; current: number; total: number; message?: string };
+  searchQuery?: string;
+  // Info cards
+  cards?: InfoCardData[];
 }
+
+// Card data types
+export type InfoCardData = 
+  | { type: "sports"; data: SportsScoreData }
+  | { type: "weather"; data: WeatherData }
+  | { type: "info"; data: { title: string; icon?: string; fields: { label: string; value: string | number }[]; footer?: string } };
 
 interface MessageRendererProps {
   message: Message;
   isLoading?: boolean;
   isLast?: boolean;
   toolCalls?: ToolCallData[];
+  // New AG-UI props
+  isThinking?: boolean;
+  reasoningContent?: string;
+}
+
+// =============================================================================
+// FormattedContent - Renders text with code blocks
+// =============================================================================
+
+function FormattedContent({ content }: { content: string }) {
+  // Split content by code blocks
+  const parts: { type: "text" | "code"; content: string; lang?: string }[] = [];
+  const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
+  
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    // Add text before code block
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+    // Add code block
+    parts.push({ type: "code", content: match[2], lang: match[1] || undefined });
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < content.length) {
+    parts.push({ type: "text", content: content.slice(lastIndex) });
+  }
+  
+  // If no code blocks, just return plain text
+  if (parts.length === 0) {
+    return <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{content}</span>;
+  }
+  
+  return (
+    <>
+      {parts.map((part, idx) => {
+        if (part.type === "code") {
+          return (
+            <pre
+              key={idx}
+              style={{
+                background: "var(--bg-tertiary)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                padding: "12px 14px",
+                margin: "8px 0",
+                overflow: "auto",
+                fontSize: 13,
+                lineHeight: 1.5,
+                fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+              }}
+            >
+              {part.lang && (
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 8,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  {part.lang}
+                </div>
+              )}
+              <code style={{ color: "var(--text-primary)" }}>{part.content}</code>
+            </pre>
+          );
+        }
+        return (
+          <span key={idx} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+            {part.content}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 // Patterns to strip from assistant messages
@@ -39,6 +138,10 @@ const STRIP_PATTERNS = [
   /Code execution failed.*?\n/g, // Code execution failed (exit code: 1)
   /\n?Output:\n```[\s\S]*?```/g, // Output code blocks from execution
   /\n?Errors:\n```[\s\S]*?```/g, // Error code blocks from execution
+  // Strip artifact success messages
+  /Success\.?\s*Artifact displayed in chat\.?\s*/gi, // Success. Artifact displayed in chat.
+  /Artifact displayed\.?\s*/gi, // Artifact displayed.
+  /Here(?:'s| is) the (?:audio|image|model|artifact)\.?\s*/gi, // Here's the audio/image.
 ];
 
 function stripContent(content: string): string {
@@ -56,11 +159,22 @@ export function MessageRenderer({
   isLoading = false,
   isLast = false,
   toolCalls = [],
+  isThinking = false,
+  reasoningContent,
 }: MessageRendererProps) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
   }
-  return <AssistantMessage message={message} isLoading={isLoading} isLast={isLast} toolCalls={toolCalls} />;
+  return (
+    <AssistantMessage
+      message={message}
+      isLoading={isLoading}
+      isLast={isLast}
+      toolCalls={toolCalls}
+      isThinking={isThinking}
+      reasoningContent={reasoningContent}
+    />
+  );
 }
 
 function UserMessage({ message }: { message: Message }) {
@@ -118,11 +232,15 @@ function AssistantMessage({
   isLoading,
   isLast,
   toolCalls = [],
+  isThinking = false,
+  reasoningContent,
 }: {
   message: Message;
   isLoading: boolean;
   isLast: boolean;
   toolCalls?: ToolCallData[];
+  isThinking?: boolean;
+  reasoningContent?: string;
 }) {
   const cleanContent = stripContent(message.content);
   // Images include SVGs (from glyph_motif)
@@ -140,23 +258,83 @@ function AssistantMessage({
     console.log("[MessageRenderer] Rendering artifacts:", message.artifacts);
   }
 
-  // Show blinking dot only when loading, is last message, no artifacts, and no tool calls
-  const showLoadingDot = isLoading && isLast && images.length === 0 && audio.length === 0 && toolCalls.length === 0;
+  // Show blinking dot only when loading, is last message, no artifacts, no tool calls, and not thinking
+  const showLoadingDot = isLoading && isLast && images.length === 0 && audio.length === 0 && toolCalls.length === 0 && !isThinking && !reasoningContent;
+
+  // Check if we should show reasoning (from message or props)
+  const showReasoning = reasoningContent || message.reasoning;
+  const reasoningText = reasoningContent || message.reasoning;
 
   return (
     <div style={{ textAlign: "left" }}>
-      {/* Text content */}
+      {/* Thinking indicator - shown while actively reasoning with no content yet */}
+      {isThinking && isLast && !reasoningText && !cleanContent && (
+        <ThinkingIndicator message="Reasoning..." isActive={true} />
+      )}
+
+      {/* Reasoning bubble - shown when we have reasoning content */}
+      {showReasoning && (
+        <ReasoningBubble
+          content={reasoningText || ""}
+          isStreaming={isThinking && isLast}
+          defaultCollapsed={!isLast}
+        />
+      )}
+
+      {/* Activity Plan - shown when message has a plan */}
+      {message.plan && (
+        <ActivityPlan
+          title={message.plan.title}
+          steps={message.plan.steps}
+        />
+      )}
+
+      {/* Activity Progress - shown when message has progress */}
+      {message.progress && (
+        <ActivityProgress
+          title={message.progress.title}
+          current={message.progress.current}
+          total={message.progress.total}
+          message={message.progress.message}
+        />
+      )}
+
+      {/* Search status - shown when message has a search query */}
+      {message.searchQuery && (
+        <ActivitySearch
+          query={message.searchQuery}
+          isSearching={isLoading && isLast}
+        />
+      )}
+
+      {/* Info Cards (Sports, Weather, etc.) */}
+      {message.cards && message.cards.length > 0 && (
+        <div style={{ marginBottom: cleanContent ? 12 : 0 }}>
+          {message.cards.map((card, idx) => {
+            if (card.type === "sports") {
+              return <SportsScoreCard key={idx} data={card.data} />;
+            }
+            if (card.type === "weather") {
+              return <WeatherCard key={idx} data={card.data} />;
+            }
+            if (card.type === "info") {
+              return <InfoCard key={idx} {...card.data} />;
+            }
+            return null;
+          })}
+        </div>
+      )}
+
+      {/* Text content with code block support */}
       {cleanContent && (
         <div
           style={{
             fontSize: 17,
             lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
             color: "var(--text-secondary)",
           }}
         >
-          {cleanContent}
+          <FormattedContent content={cleanContent} />
         </div>
       )}
 
@@ -178,7 +356,7 @@ function AssistantMessage({
 
       {/* Tool calls */}
       {toolCalls.length > 0 && (
-        <div style={{ marginTop: cleanContent ? 12 : 0 }}>
+        <div style={{ marginTop: cleanContent ? 8 : 0 }}>
           {toolCalls.map((tool) => (
             <ToolCallCard key={tool.id} tool={tool} />
           ))}
@@ -191,7 +369,7 @@ function AssistantMessage({
         .map((tool) => (
           <CodeExecutionBlock
             key={`exec-${tool.id}`}
-            data={tool.result!.data as CodeExecutionData}
+            data={tool.result!.data as unknown as CodeExecutionData}
           />
         ))}
 
@@ -219,22 +397,60 @@ function AssistantMessage({
 }
 
 function ImageBlock({ artifact }: { artifact: Artifact }) {
+  const [size, setSize] = useState<'normal' | 'expanded' | 'wide'>('normal');
   const isSvg = artifact.mimeType === "image/svg+xml";
   
+  const cycleSize = () => {
+    setSize(prev => prev === 'normal' ? 'expanded' : prev === 'expanded' ? 'wide' : 'normal');
+  };
+  
+  const widths = {
+    normal: isSvg ? 256 : 350,
+    expanded: isSvg ? 400 : 600,
+    wide: '100%',
+  };
+  
   return (
-    <div style={{ marginTop: 12 }}>
+    <div 
+      className={size === 'wide' ? 'artifact-wide' : ''}
+      style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}
+    >
       <img
         src={artifact.url}
         alt={artifact.name}
+        onClick={cycleSize}
         style={{
           display: "block",
-          maxWidth: isSvg ? 256 : 350,
+          maxWidth: widths[size],
           height: "auto",
           borderRadius: 8,
           background: isSvg ? "var(--bg-tertiary)" : undefined,
           padding: isSvg ? 8 : undefined,
+          cursor: "pointer",
+          transition: "max-width 0.2s ease",
         }}
       />
+      {/* Expand indicator */}
+      <button
+        onClick={(e) => { e.stopPropagation(); cycleSize(); }}
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          background: 'rgba(0,0,0,0.6)',
+          border: 'none',
+          borderRadius: 4,
+          padding: '4px 8px',
+          color: 'white',
+          fontSize: 11,
+          cursor: 'pointer',
+          opacity: 0.8,
+          transition: 'opacity 0.15s',
+        }}
+        title={size === 'normal' ? 'Expand' : size === 'expanded' ? 'Full width' : 'Reset size'}
+      >
+        {size === 'normal' ? '↗' : size === 'expanded' ? '⤢' : '↙'}
+      </button>
       {isSvg && (
         <a
           href={artifact.url}
@@ -256,11 +472,11 @@ function ImageBlock({ artifact }: { artifact: Artifact }) {
 
 function AudioBlock({ artifact }: { artifact: Artifact }) {
   return (
-    <div style={{ marginTop: 12, maxWidth: 350 }}>
+    <div style={{ marginTop: 8, maxWidth: 320 }}>
       <audio
         controls
         src={artifact.url}
-        style={{ width: "100%", height: 40 }}
+        style={{ width: "100%", height: 36 }}
       />
     </div>
   );

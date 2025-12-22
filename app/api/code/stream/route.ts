@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
           const result = await executeCode(execRequest, {
             runId: body.runId,
             threadId: body.threadId,
-            onChunk: (chunk: CodeExecChunk) => {
+            onChunk: (chunk) => {
               sendEvent("chunk", chunk);
             },
           });

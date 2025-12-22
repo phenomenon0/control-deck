@@ -36,14 +36,24 @@ export async function GET(req: Request) {
       }
     }
     
-    // Attach artifacts to messages by run_id
+    // Attach artifacts to messages by run_id and parse metadata
     const messagesWithArtifacts = messages.map(m => {
       const msgArtifacts = m.run_id ? (artifactsByRun.get(m.run_id) || []) : [];
+      // Parse metadata JSON if present
+      let metadata = null;
+      if (m.metadata) {
+        try {
+          metadata = JSON.parse(m.metadata);
+        } catch {
+          // Ignore parse errors
+        }
+      }
       return {
         id: m.id,
         role: m.role,
         content: m.content,
         created_at: m.created_at,
+        metadata,  // Include tool_calls, tool_name for proper conversation reconstruction
         artifacts: msgArtifacts.map(a => ({
           id: a.id,
           url: a.url,
@@ -75,7 +85,7 @@ export async function POST(req: Request) {
 
   // Save message to thread
   if (body.action === "message") {
-    const { threadId, id, role, content, runId } = body;
+    const { threadId, id, role, content, runId, metadata } = body;
     if (!threadId || !role || content === undefined) {
       return NextResponse.json(
         { error: "threadId, role, and content required" },
@@ -89,8 +99,15 @@ export async function POST(req: Request) {
     }
 
     const messageId = id ?? crypto.randomUUID();
-    console.log("[Threads API] Saving message:", { messageId, threadId, role, runId: runId ?? "null" });
-    saveMessage(messageId, threadId, role, content, runId);
+    console.log("[Threads API] Saving message:", { messageId, threadId, role, runId: runId ?? "null", hasMetadata: !!metadata });
+    saveMessage({
+      id: messageId,
+      threadId,
+      role,
+      content,
+      runId,
+      metadata,
+    });
 
     // Auto-generate title from first user message
     const thread = getThread(threadId);

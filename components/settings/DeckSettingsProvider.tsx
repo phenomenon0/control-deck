@@ -15,8 +15,9 @@ import React, {
 // =============================================================================
 
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
-export type VoiceMode = "push-to-talk" | "vad";
+export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type ThemeName = "default" | "paper" | "terminal" | "glass" | "brutal" | "cinema";
+export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 
 export interface VoicePrefs {
   enabled: boolean;
@@ -41,8 +42,17 @@ interface DeckSettingsContextValue {
   updateVoicePrefs: (partial: Partial<VoicePrefs>) => void;
   settingsOpen: boolean;
   setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  // Legacy inspector (deprecated - use rail instead)
   inspectorOpen: boolean;
   setInspectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  // Right rail
+  railOpen: boolean;
+  setRailOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  railTab: RailTab;
+  setRailTab: React.Dispatch<React.SetStateAction<RailTab>>;
+  // Left sidebar
+  sidebarOpen: boolean;
+  setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 // =============================================================================
@@ -50,10 +60,10 @@ interface DeckSettingsContextValue {
 // =============================================================================
 
 const DEFAULT_VOICE_PREFS: VoicePrefs = {
-  enabled: false,
-  readAloud: true,
-  mode: "push-to-talk",
-  ttsEngine: "chatterbox",
+  enabled: true,
+  readAloud: false,        // TTS only in Voice Mode, not regular chat
+  mode: "vad",             // Open conversational mode by default
+  ttsEngine: "piper",      // Fast Piper TTS (~100ms vs 500ms Chatterbox)
   silenceTimeoutMs: 1200,
   silenceThreshold: 0.14,
 };
@@ -117,7 +127,7 @@ function migratePrefs(): DeckPrefs {
       ? {
           enabled: oldVoice.enabled ?? false,
           readAloud: oldVoice.autoSpeak ?? true,
-          mode: oldVoice.mode === "toggle" ? "vad" : "push-to-talk",
+          mode: "vad",  // Always use VAD for continuous conversation
           ttsEngine: oldVoice.engine ?? "chatterbox",
           silenceTimeoutMs: DEFAULT_VOICE_PREFS.silenceTimeoutMs,
           silenceThreshold: DEFAULT_VOICE_PREFS.silenceThreshold,
@@ -167,6 +177,9 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   const [prefs, setPrefs] = useState<DeckPrefs>(DEFAULT_PREFS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
+  const [railTab, setRailTab] = useState<RailTab>("inspector");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hydrated, setHydrated] = useState(false);
 
   // Load prefs on mount (client-side only)
@@ -200,12 +213,23 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
         return;
       }
 
-      // Cmd+I for inspector
+      // Cmd+I for rail/inspector toggle
       if ((e.metaKey || e.ctrlKey) && e.key === "i") {
         // Don't override browser dev tools (Cmd+Shift+I)
         if (e.shiftKey) return;
         e.preventDefault();
-        setInspectorOpen((o) => !o);
+        // Toggle rail, always open to inspector tab
+        setRailOpen((o) => {
+          if (!o) setRailTab("inspector");
+          return !o;
+        });
+        return;
+      }
+
+      // Cmd+B for sidebar toggle
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        e.preventDefault();
+        setSidebarOpen((o) => !o);
         return;
       }
 
@@ -237,8 +261,14 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
       setSettingsOpen,
       inspectorOpen,
       setInspectorOpen,
+      railOpen,
+      setRailOpen,
+      railTab,
+      setRailTab,
+      sidebarOpen,
+      setSidebarOpen,
     }),
-    [prefs, updatePrefs, updateVoicePrefs, settingsOpen, inspectorOpen]
+    [prefs, updatePrefs, updateVoicePrefs, settingsOpen, inspectorOpen, railOpen, railTab, sidebarOpen]
   );
 
   return (

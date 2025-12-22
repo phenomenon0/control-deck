@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { ToolCallTimeline, type ToolCallEvent } from "./ToolCallTimeline";
 import { ArtifactList, type ArtifactItem } from "./ArtifactList";
+import type { DeckPayload } from "@/lib/agui/payload";
 
 // =============================================================================
 // Types
@@ -27,11 +28,18 @@ interface SSEEvent {
   url?: string;
   name?: string;
   model?: string;
-  result?: {
+  /** Tool call arguments (DeckPayload) */
+  args?: DeckPayload;
+  /** Tool execution result (DeckPayload - may be JSON or GLYPH) */
+  result?: DeckPayload;
+  /** Legacy result format */
+  legacyResult?: {
     success: boolean;
     message?: string;
     error?: string;
   };
+  success?: boolean;
+  durationMs?: number;
 }
 
 // =============================================================================
@@ -104,14 +112,28 @@ export function InspectorDrawer({ threadId }: InspectorDrawerProps) {
             ]);
             break;
 
+          case "ToolCallArgs":
+            // Update existing tool call with args
+            if (event.args) {
+              setToolCalls((prev) =>
+                prev.map((tc) =>
+                  tc.id === event.toolCallId
+                    ? { ...tc, args: event.args }
+                    : tc
+                )
+              );
+            }
+            break;
+
           case "ToolCallResult":
             setToolCalls((prev) =>
               prev.map((tc) =>
                 tc.id === event.toolCallId
                   ? {
                       ...tc,
-                      status: event.result?.success ? "complete" : "error",
+                      status: event.success !== false ? "complete" : "error",
                       result: event.result,
+                      legacyResult: event.legacyResult,
                       completedAt: Date.now(),
                     }
                   : tc

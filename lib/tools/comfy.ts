@@ -15,6 +15,7 @@ import {
   type ToolCallResult,
   type ArtifactCreated,
 } from "@/lib/agui/events";
+import { jsonPayload } from "@/lib/agui/payload";
 import { createArtifact, saveEvent } from "@/lib/agui/db";
 
 const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
@@ -28,9 +29,12 @@ const POLL_TIMEOUT = 300000; // 5 minutes (some workflows take longer)
 const VRAM_REQUIREMENTS: Record<string, number> = {
   "stable-audio": 8000,
   "sdxl-t2i": 10000,
-  "sdxl-turbo": 6000, // Turbo is smaller and faster
-  "qwen-edit": 20000,
+  "sdxl-turbo": 6000,    // Turbo is smaller and faster
   "hunyuan-3d": 10000,
+  // Black0S FLUX-based workflows
+  "flux-gguf": 12000,    // FLUX Q8 GGUF - good quality/VRAM balance
+  "flux-nunchaku": 8000, // FLUX INT4 Nunchaku - fastest, lowest VRAM
+  "sdxl-sd": 10000,      // SDXL/Pony/Illustrious hybrid
 };
 
 const MIN_VRAM_THRESHOLD = 20000; // 20GB minimum free for heavy workflows
@@ -433,7 +437,8 @@ export async function executeComfyWorkflow(
           const resultEvt = createEvent<ToolCallResult>("ToolCallResult", threadId, {
             runId,
             toolCallId,
-            result,
+            result: jsonPayload(result),
+            success: true,
           });
           saveEvent(resultEvt);
           hub.publish(threadId, resultEvt);
@@ -456,7 +461,8 @@ export async function executeComfyWorkflow(
     const resultEvt = createEvent<ToolCallResult>("ToolCallResult", threadId, {
       runId,
       toolCallId,
-      result: queuedResult,
+      result: jsonPayload(queuedResult),
+      success: true,
     });
     saveEvent(resultEvt);
     hub.publish(threadId, resultEvt);
@@ -473,7 +479,8 @@ export async function executeComfyWorkflow(
     const resultEvt = createEvent<ToolCallResult>("ToolCallResult", threadId, {
       runId,
       toolCallId,
-      result: errorResult,
+      result: jsonPayload(errorResult),
+      success: false,
     });
     saveEvent(resultEvt);
     hub.publish(threadId, resultEvt);

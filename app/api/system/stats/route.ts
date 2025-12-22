@@ -18,6 +18,7 @@ interface ServiceStatus {
   url: string;
   status: "online" | "offline" | "unknown";
   latencyMs?: number;
+  extra?: Record<string, unknown>;
 }
 
 async function getGpuStats(): Promise<GpuStats | null> {
@@ -71,22 +72,60 @@ async function checkService(name: string, url: string): Promise<ServiceStatus> {
   }
 }
 
+async function checkVectorDB(url: string): Promise<ServiceStatus> {
+  const start = Date.now();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    const res = await fetch(`${url}/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      return {
+        name: "VectorDB",
+        url,
+        status: "online",
+        latencyMs: Date.now() - start,
+        extra: {
+          vectors: data.total ?? 0,
+          collections: data.collections?.length ?? 0,
+          embedder: data.embedder?.type ?? "unknown",
+          model: data.mode?.embedder_model ?? "unknown",
+          dimension: data.mode?.dimension ?? 0,
+        },
+      };
+    }
+    return { name: "VectorDB", url, status: "offline" };
+  } catch {
+    return { name: "VectorDB", url, status: "offline" };
+  }
+}
+
 export async function GET() {
   const OLLAMA_URL = process.env.OLLAMA_BASE_URL?.replace("/v1", "") ?? "http://localhost:11434";
   const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
   const VOICE_URL = process.env.VOICE_API_URL ?? "http://localhost:8000";
+  const VECTORDB_URL = process.env.VECTORDB_URL ?? "http://localhost:4242";
+  const SEARXNG_URL = process.env.SEARXNG_URL ?? "http://localhost:8888";
 
   // Check all services in parallel
-  const [gpu, ollama, comfy, voice] = await Promise.all([
+  const [gpu, ollama, comfy, voice, vectordb, searxng] = await Promise.all([
     getGpuStats(),
     checkService("Ollama", `${OLLAMA_URL}/api/tags`),
     checkService("ComfyUI", `${COMFY_URL}/system_stats`),
     checkService("Voice API", `${VOICE_URL}/health`),
+    checkVectorDB(VECTORDB_URL),
+    checkService("SearxNG", `${SEARXNG_URL}/healthz`),
   ]);
 
   return NextResponse.json({
     gpu,
-    services: [ollama, comfy, voice],
+    services: [ollama, comfy, vectordb, searxng, voice],
     timestamp: new Date().toISOString(),
   });
 }

@@ -25,7 +25,7 @@ export { shellRunner } from "./runners/shell";
 export { goRunner } from "./runners/go";
 export { cRunner } from "./runners/c";
 export { javascriptRunner } from "./runners/javascript";
-export { frontendRunner, reactBundler } from "./runners/frontend";
+export { frontendRunner } from "./runners/frontend";
 
 // Sandbox utilities
 export {

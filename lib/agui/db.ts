@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import type { AGUIEvent } from "./events";
+import { AGUI_SCHEMA_VERSION, normalizeEvent } from "./events";
 
 const DB_PATH = path.join(process.cwd(), "data", "deck.db");
 
@@ -35,6 +36,7 @@ function initSchema(db: Database.Database) {
       run_id TEXT NOT NULL,
       thread_id TEXT NOT NULL,
       type TEXT NOT NULL,
+      schema_version INTEGER NOT NULL DEFAULT 1,
       data TEXT NOT NULL,
       timestamp TEXT NOT NULL
     );
@@ -93,6 +95,20 @@ function initSchema(db: Database.Database) {
   // Migration: Add run_id column to messages if it doesn't exist
   try {
     db.exec(`ALTER TABLE messages ADD COLUMN run_id TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  
+  // Migration: Add metadata column to messages for tool_calls, tool_name, etc.
+  try {
+    db.exec(`ALTER TABLE messages ADD COLUMN metadata TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  
+  // Migration: Add schema_version column to events
+  try {
+    db.exec(`ALTER TABLE events ADD COLUMN schema_version INTEGER NOT NULL DEFAULT 1`);
   } catch {
     // Column already exists, ignore
   }
@@ -184,11 +200,12 @@ export function getRun(id: string): RunRow | undefined {
 export function saveEvent(evt: AGUIEvent): void {
   const db = getDb();
   db.prepare(
-    `INSERT INTO events (run_id, thread_id, type, data, timestamp) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO events (run_id, thread_id, type, schema_version, data, timestamp) VALUES (?, ?, ?, ?, ?, ?)`
   ).run(
     evt.runId ?? "",
     evt.threadId,
     evt.type,
+    evt.schemaVersion ?? AGUI_SCHEMA_VERSION,
     JSON.stringify(evt),
     evt.timestamp
   );
@@ -199,6 +216,7 @@ export interface EventRow {
   run_id: string;
   thread_id: string;
   type: string;
+  schema_version: number;
   data: string;
   timestamp: string;
 }
@@ -208,7 +226,8 @@ export function getEvents(runId: string): AGUIEvent[] {
   const rows = db
     .prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY id ASC`)
     .all(runId) as EventRow[];
-  return rows.map((r) => JSON.parse(r.data) as AGUIEvent);
+  // Parse and normalize to current schema (handles v1 → v2 migration)
+  return rows.map((r) => normalizeEvent(JSON.parse(r.data)));
 }
 
 // Artifact operations
@@ -351,31 +370,78 @@ export function deleteThread(id: string): void {
 }
 
 // Message operations
+export interface MessageMetadata {
+  tool_calls?: Array<{
+    function: {
+      name: string;
+      arguments: Record<string, unknown>;
+    };
+  }>;
+  tool_name?: string;  // For tool role messages
+}
+
 export interface MessageRow {
   id: string;
   thread_id: string;
   role: string;
   content: string;
   run_id: string | null;
+  metadata: string | null;  // JSON stringified MessageMetadata
   created_at: string;
 }
 
+export interface SaveMessageOptions {
+  id: string;
+  threadId: string;
+  role: string;
+  content: string;
+  runId?: string;
+  metadata?: MessageMetadata;
+}
+
+export function saveMessage(opts: SaveMessageOptions): void;
 export function saveMessage(
   id: string,
   threadId: string,
   role: string,
   content: string,
-  runId?: string
+  runId?: string,
+  metadata?: MessageMetadata
+): void;
+export function saveMessage(
+  idOrOpts: string | SaveMessageOptions,
+  threadId?: string,
+  role?: string,
+  content?: string,
+  runId?: string,
+  metadata?: MessageMetadata
 ): void {
+  // Handle both signatures
+  let opts: SaveMessageOptions;
+  if (typeof idOrOpts === "object") {
+    opts = idOrOpts;
+  } else {
+    opts = {
+      id: idOrOpts,
+      threadId: threadId!,
+      role: role!,
+      content: content!,
+      runId,
+      metadata,
+    };
+  }
+  
   const db = getDb();
+  const metadataJson = opts.metadata ? JSON.stringify(opts.metadata) : null;
+  
   db.prepare(
-    `INSERT INTO messages (id, thread_id, role, content, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, threadId, role, content, runId ?? null, new Date().toISOString());
+    `INSERT INTO messages (id, thread_id, role, content, run_id, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(opts.id, opts.threadId, opts.role, opts.content, opts.runId ?? null, metadataJson, new Date().toISOString());
   
   // Update thread's updated_at
   db.prepare(`UPDATE threads SET updated_at = ? WHERE id = ?`).run(
     new Date().toISOString(),
-    threadId
+    opts.threadId
   );
 }
 
@@ -386,9 +452,14 @@ export function getMessages(threadId: string): MessageRow[] {
     .all(threadId) as MessageRow[];
 }
 
-export function updateMessage(id: string, content: string): void {
+export function updateMessage(id: string, content: string, metadata?: MessageMetadata): void {
   const db = getDb();
-  db.prepare(`UPDATE messages SET content = ? WHERE id = ?`).run(content, id);
+  if (metadata !== undefined) {
+    const metadataJson = metadata ? JSON.stringify(metadata) : null;
+    db.prepare(`UPDATE messages SET content = ?, metadata = ? WHERE id = ?`).run(content, metadataJson, id);
+  } else {
+    db.prepare(`UPDATE messages SET content = ? WHERE id = ?`).run(content, id);
+  }
 }
 
 // Upload operations (for image/file uploads, stored as base64)

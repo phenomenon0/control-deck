@@ -7,7 +7,7 @@ import { VoiceInputIndicator } from "@/components/chat/VoiceWaveform";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
 import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
-import { InspectorDrawer } from "@/components/inspector/InspectorDrawer";
+import { RightRail } from "@/components/RightRail";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 
@@ -17,6 +17,9 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   artifacts?: Artifact[];
+  // Info cards (sports scores, weather, etc.)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cards?: Array<{ type: "sports" | "weather" | "info"; data: any }>;
 }
 
 interface Thread {
@@ -59,19 +62,184 @@ function setStoredActiveThread(id: string | null) {
 function shouldSearch(query: string): boolean {
   const q = query.toLowerCase();
   if (/\b(search|look up|find online|google|bing|browse)\b/.test(q)) return true;
-  if (/\b(latest|recent|current|today|yesterday|this week|this month|right now|currently)\b/.test(q)) return true;
+  if (/\b(latest|recent|current|today|yesterday|this week|this month|right now|currently|last)\b/.test(q)) return true;
   if (/\b(202[3-9]|203\d)\b/.test(q)) return true;
   if (/\b(news|update|announcement|released|launched|happened|breaking|trending)\b/.test(q)) return true;
-  if (/\b(price|stock|weather|score|result|winner|election|status|rate|cost)\b/.test(q)) return true;
+  if (/\b(price|stock|weather|score|result|winner|election|status|rate|cost|match|game|played|vs)\b/.test(q)) return true;
   return false;
+}
+
+// Known team names for extraction
+const KNOWN_TEAMS = [
+  "arsenal", "aston villa", "bournemouth", "brentford", "brighton", "chelsea",
+  "crystal palace", "everton", "fulham", "ipswich", "leicester", "liverpool",
+  "manchester city", "manchester united", "man city", "man united", "man utd",
+  "newcastle", "nottingham forest", "southampton", "tottenham", "west ham", "wolves",
+  "barcelona", "real madrid", "bayern munich", "bayern", "psg", "juventus", 
+  "inter milan", "ac milan", "atletico madrid"
+];
+
+// Extract sports score from LLM response text
+function extractSportsCard(text: string): { type: "sports"; data: unknown } | null {
+  const textLower = text.toLowerCase();
+  
+  // Pattern: "Team A X-X Team B" or "Team A beat Team B X-X"
+  // Look for score pattern with ** markdown (common in responses)
+  const scorePatterns = [
+    /\*\*([a-z\s]+?)\s+(\d+)\s*[-–:]\s*(\d+)\s+([a-z\s]+?)\*\*/i,  // **Liverpool 3-0 Forest**
+    /\*\*(\d+)\s*[-–:]\s*(\d+)\*\*.*?([a-z\s]+?)\s+(?:vs?\.?|against|beat|defeated)\s+([a-z\s]+)/i,  // **3-0** Liverpool vs Forest
+    /([a-z\s]+?)\s+(\d+)\s*[-–:]\s*(\d+)\s+([a-z\s]+?)(?:\.|,|$)/i,  // Liverpool 3-0 Forest.
+  ];
+  
+  for (const pattern of scorePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      let homeTeam: string, awayTeam: string, homeScore: number, awayScore: number;
+      
+      if (pattern === scorePatterns[1]) {
+        // Pattern 2: score first, then teams
+        homeScore = parseInt(match[1]);
+        awayScore = parseInt(match[2]);
+        homeTeam = match[3].trim();
+        awayTeam = match[4].trim();
+      } else {
+        // Pattern 1 & 3: Team Score-Score Team
+        homeTeam = match[1].trim();
+        homeScore = parseInt(match[2]);
+        awayScore = parseInt(match[3]);
+        awayTeam = match[4].trim();
+      }
+      
+      // Validate teams are known
+      const homeKnown = KNOWN_TEAMS.some(t => homeTeam.toLowerCase().includes(t));
+      const awayKnown = KNOWN_TEAMS.some(t => awayTeam.toLowerCase().includes(t));
+      
+      if (homeKnown || awayKnown) {
+        // Determine competition from context
+        let competition = "Football";
+        if (textLower.includes("premier league")) competition = "Premier League";
+        else if (textLower.includes("champions league")) competition = "Champions League";
+        else if (textLower.includes("europa league")) competition = "Europa League";
+        else if (textLower.includes("fa cup")) competition = "FA Cup";
+        else if (textLower.includes("la liga")) competition = "La Liga";
+        
+        return {
+          type: "sports",
+          data: {
+            homeTeam: { name: homeTeam, score: homeScore },
+            awayTeam: { name: awayTeam, score: awayScore },
+            status: "finished",
+            competition,
+          }
+        };
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Extract weather from LLM response text  
+function extractWeatherCard(text: string): { type: "weather"; data: unknown } | null {
+  const textLower = text.toLowerCase();
+  
+  // Must mention weather-related terms
+  if (!/(weather|temperature|degrees|°|forecast|sunny|cloudy|rain|snow)/i.test(text)) {
+    return null;
+  }
+  
+  // Extract temperature
+  const tempMatch = text.match(/(\d+)\s*°?\s*([CF])?/i);
+  if (!tempMatch) return null;
+  
+  let temp = parseInt(tempMatch[1]);
+  // Convert F to C if likely Fahrenheit (>45 without unit specified often means F)
+  if (tempMatch[2]?.toUpperCase() === 'F' || (temp > 45 && !tempMatch[2])) {
+    temp = Math.round((temp - 32) * 5 / 9);
+  }
+  
+  // Extract location
+  const locationMatch = text.match(/(?:weather\s+(?:in|for)\s+|in\s+)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
+  const location = locationMatch ? locationMatch[1] : "Location";
+  
+  // Extract condition
+  let condition = "Unknown";
+  if (/sunny|clear/i.test(text)) condition = "Sunny";
+  else if (/partly cloudy/i.test(text)) condition = "Partly Cloudy";
+  else if (/cloud|overcast/i.test(text)) condition = "Cloudy";
+  else if (/rain|shower/i.test(text)) condition = "Rainy";
+  else if (/snow/i.test(text)) condition = "Snowy";
+  else if (/storm|thunder/i.test(text)) condition = "Stormy";
+  
+  return {
+    type: "weather",
+    data: {
+      location,
+      temperature: temp,
+      condition,
+    }
+  };
+}
+
+// Extract card from LLM response
+function extractCardFromResponse(text: string, query: string): { type: "sports" | "weather" | "info"; data: unknown } | null {
+  const qLower = query.toLowerCase();
+  
+  // Check if sports-related query
+  if (/score|match|game|played|vs|beat|won|lost|result/i.test(qLower) || 
+      KNOWN_TEAMS.some(t => qLower.includes(t))) {
+    const card = extractSportsCard(text);
+    if (card) return card;
+  }
+  
+  // Check if weather-related query
+  if (/weather|temperature|forecast/i.test(qLower)) {
+    const card = extractWeatherCard(text);
+    if (card) return card;
+  }
+  
+  return null;
+}
+
+// Helper to group threads by date
+function groupThreadsByDate(threads: Thread[]): { label: string; threads: Thread[] }[] {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const groups: { label: string; threads: Thread[] }[] = [
+    { label: "Today", threads: [] },
+    { label: "Yesterday", threads: [] },
+    { label: "Last 7 days", threads: [] },
+    { label: "Last 30 days", threads: [] },
+    { label: "Older", threads: [] },
+  ];
+
+  for (const t of threads) {
+    const date = new Date(t.lastMessageAt);
+    if (date >= today) {
+      groups[0].threads.push(t);
+    } else if (date >= yesterday) {
+      groups[1].threads.push(t);
+    } else if (date >= lastWeek) {
+      groups[2].threads.push(t);
+    } else if (date >= lastMonth) {
+      groups[3].threads.push(t);
+    } else {
+      groups[4].threads.push(t);
+    }
+  }
+
+  return groups.filter(g => g.threads.length > 0);
 }
 
 export default function ChatPaneV2() {
   // Settings from centralized provider
-  const { prefs, setSettingsOpen, inspectorOpen, setInspectorOpen } = useDeckSettings();
+  const { prefs, setSettingsOpen, railOpen, setRailOpen, setRailTab, sidebarOpen, setSidebarOpen } = useDeckSettings();
 
   // Core state
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -96,6 +264,18 @@ export default function ChatPaneV2() {
   
   // Thinking mode indicator
   const [isThinking, setIsThinking] = useState(false);
+  
+  // AG-UI Reasoning state
+  const [reasoningContent, setReasoningContent] = useState<string>("");
+  const [isReasoning, setIsReasoning] = useState(false);
+  
+  // AG-UI Activity state
+  const [currentPlan, setCurrentPlan] = useState<{ title: string; steps: { id: string; label: string; status: "pending" | "active" | "complete" | "error" }[] } | null>(null);
+  const [currentProgress, setCurrentProgress] = useState<{ title: string; current: number; total: number; message?: string } | null>(null);
+  
+  // AG-UI Info Cards state (sports scores, weather, etc.)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [currentCards, setCurrentCards] = useState<Array<{ type: "sports" | "weather" | "info"; data: any }>>([]);
 
   // Upload tracking for inline display
   const [uploadsById, setUploadsById] = useState<Map<string, { url: string; name: string; mimeType: string }>>(new Map());
@@ -109,6 +289,7 @@ export default function ChatPaneV2() {
   const pendingTTSRef = useRef<string | null>(null);
   const currentRunIdRef = useRef<string | null>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
+  const fallbackThreadIdRef = useRef<string>(crypto.randomUUID());
 
   // Voice chat hook - uses prefs from settings provider
   const voiceChat = useVoiceChat({
@@ -127,16 +308,19 @@ export default function ChatPaneV2() {
     },
   });
 
-  // Initialize
+  // Initialize - always start with a fresh new chat
   useEffect(() => {
     setThreads(getStoredThreads());
-    const active = getStoredActiveThread();
-    if (active) setActiveThreadId(active);
+    // Don't restore active thread - always start fresh
+    setActiveThreadId(null);
+    setMessages([]);
+    setStoredActiveThread(null);
   }, []);
 
   // Auto-TTS when assistant message completes (read-aloud feature)
+  // Skip if voice mode sheet is open (it handles its own TTS)
   useEffect(() => {
-    if (!prefs.voice.enabled || !prefs.voice.readAloud || isLoading) return;
+    if (!prefs.voice.enabled || !prefs.voice.readAloud || isLoading || voiceModeOpen) return;
     
     // Find the last assistant message
     const lastMsg = messages[messages.length - 1];
@@ -166,7 +350,7 @@ export default function ChatPaneV2() {
     } else {
       setSpeakingMessageId(null);
     }
-  }, [isLoading, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat]);
+  }, [isLoading, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat, voiceModeOpen]);
 
   // Fetch models and service status
   useEffect(() => {
@@ -183,107 +367,245 @@ export default function ChatPaneV2() {
       .then((data) => {
         if (data.models) setModels(data.models);
       })
-      .catch(() => {});
+      .catch((err) => console.error("[ChatPane] Failed to fetch models:", err));
 
     checkStatus();
     const interval = setInterval(checkStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Subscribe to SSE events
+  // Subscribe to SSE events with reconnection support
   useEffect(() => {
     if (!activeThreadId) return;
 
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isCleaningUp = false;
+    let isMounted = true;
 
-    const eventSource = new EventSource(`/api/agui/stream?threadId=${activeThreadId}`);
-    eventSourceRef.current = eventSource;
+    const createEventSource = () => {
+      if (isCleaningUp) return;
+      
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
 
-    eventSource.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data);
-        console.log("[SSE] Event received:", event.type, event);
+      console.log("[SSE] Connecting to thread:", activeThreadId);
+      const eventSource = new EventSource(`/api/agui/stream?threadId=${activeThreadId}`);
+      eventSourceRef.current = eventSource;
 
-        // Capture runId from RunStarted event - this is the authoritative source
-        if (event.type === "RunStarted") {
-          currentRunIdRef.current = event.runId;
-          setIsThinking(event.thinking ?? false);
-          console.log("[SSE] RunStarted - captured runId:", event.runId, "thinking:", event.thinking);
-        }
-        
-        // Clear thinking state when run finishes
-        if (event.type === "RunFinished" || event.type === "RunError") {
-          setIsThinking(false);
-        }
+      eventSource.onmessage = (e) => {
+        if (!isMounted) return;
+        try {
+          const event = JSON.parse(e.data);
+          console.log("[SSE] Event received:", event.type, event);
 
-        if (event.type === "ToolCallStart") {
-          setToolCallStates((prev) => {
-            const next = new Map(prev);
-            next.set(event.toolCallId, {
-              id: event.toolCallId,
-              name: event.toolName,
-              status: "running",
-              startedAt: Date.now(),
+          // Capture runId from RunStarted event - this is the authoritative source
+          if (event.type === "RunStarted") {
+            currentRunIdRef.current = event.runId;
+            setIsThinking(event.thinking ?? false);
+            // Reset reasoning/activity state for new run
+            // NOTE: Don't clear cards here - they're fetched before the run starts
+            // and attached to the message directly
+            setReasoningContent("");
+            setIsReasoning(false);
+            setCurrentPlan(null);
+            setCurrentProgress(null);
+            console.log("[SSE] RunStarted - captured runId:", event.runId, "thinking:", event.thinking);
+          }
+          
+          // Clear thinking state when run finishes
+          if (event.type === "RunFinished" || event.type === "RunError") {
+            setIsThinking(false);
+            setIsReasoning(false);
+          }
+
+          // AG-UI Reasoning events
+          if (event.type === "ReasoningStart") {
+            setIsReasoning(true);
+            setReasoningContent("");
+            console.log("[SSE] ReasoningStart");
+          }
+          
+          if (event.type === "ReasoningMessageContent" || event.type === "ReasoningContent") {
+            // Accumulate reasoning content
+            setReasoningContent(prev => prev + (event.content || event.delta || ""));
+            console.log("[SSE] ReasoningContent:", event.content || event.delta);
+          }
+          
+          if (event.type === "ReasoningEnd") {
+            setIsReasoning(false);
+            console.log("[SSE] ReasoningEnd");
+          }
+
+          // AG-UI Activity events
+          if (event.type === "ActivityPlan") {
+            setCurrentPlan({
+              title: event.title || "Plan",
+              steps: (event.steps || []).map((s: { id?: string; label: string; status?: string }, idx: number) => ({
+                id: s.id || `step-${idx}`,
+                label: s.label,
+                status: s.status || "pending",
+              })),
             });
-            return next;
-          });
-        }
+            console.log("[SSE] ActivityPlan:", event.title, event.steps);
+          }
 
-        if (event.type === "ToolCallResult") {
-          setToolCallStates((prev) => {
-            const next = new Map(prev);
-            const existing = next.get(event.toolCallId);
-            if (existing) {
+          if (event.type === "ActivityStepUpdate") {
+            // Update a specific step in the current plan
+            setCurrentPlan(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                steps: prev.steps.map(s =>
+                  s.id === event.stepId ? { ...s, status: event.status } : s
+                ),
+              };
+            });
+            console.log("[SSE] ActivityStepUpdate:", event.stepId, event.status);
+          }
+
+          if (event.type === "ActivityProgress") {
+            setCurrentProgress({
+              title: event.title || "Progress",
+              current: event.current || 0,
+              total: event.total || 100,
+              message: event.message,
+            });
+            console.log("[SSE] ActivityProgress:", event.current, "/", event.total);
+          }
+
+          if (event.type === "ActivityEnd") {
+            // Clear activities when done
+            setCurrentPlan(null);
+            setCurrentProgress(null);
+            console.log("[SSE] ActivityEnd");
+          }
+
+          // AG-UI Info Card events (sports scores, weather, etc.)
+          if (event.type === "InfoCard" || event.type === "Card") {
+            const cardType = (event.cardType || event.card?.type || "info") as "sports" | "weather" | "info";
+            const cardData = {
+              type: cardType,
+              data: event.data || event.card?.data || event,
+            };
+            setCurrentCards(prev => [...prev, cardData]);
+            console.log("[SSE] InfoCard:", cardData.type, cardData.data);
+          }
+
+          if (event.type === "ToolCallStart") {
+            setToolCallStates((prev) => {
+              const next = new Map(prev);
               next.set(event.toolCallId, {
-                ...existing,
-                status: event.result?.success ? "complete" : "error",
-                result: event.result,
+                id: event.toolCallId,
+                name: event.toolName,
+                status: "running",
+                startedAt: Date.now(),
               });
-            }
-            return next;
-          });
-        }
-
-        if (event.type === "ArtifactCreated") {
-          console.log("[SSE] ArtifactCreated - adding to messages", event);
-          const artifact: Artifact = {
-            id: event.artifactId,
-            url: event.url,
-            name: event.name,
-            mimeType: event.mimeType,
-          };
-
-          // Add to run artifacts (for streaming updates)
-          setArtifactsByRun((prev) => ({
-            ...prev,
-            [event.runId]: [...(prev[event.runId] ?? []), artifact],
-          }));
-
-          // Attach artifact directly to the last assistant message
-          setMessages((prev) => {
-            console.log("[SSE] Current messages before artifact add:", prev);
-            const updated = [...prev];
-            const lastIdx = updated.length - 1;
-            if (lastIdx >= 0 && updated[lastIdx]?.role === "assistant") {
-              const existing = updated[lastIdx].artifacts || [];
-              // Avoid duplicates
-              if (!existing.some(a => a.id === artifact.id)) {
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
-                  artifacts: [...existing, artifact],
-                };
-                console.log("[SSE] Artifact added to message:", updated[lastIdx]);
+              return next;
+            });
+          }
+          
+          if (event.type === "ToolCallArgs") {
+            setToolCallStates((prev) => {
+              const next = new Map(prev);
+              const existing = next.get(event.toolCallId);
+              if (existing) {
+                // Extract args from DeckPayload
+                const args = event.args?.kind === "json" ? event.args.data : event.args;
+                next.set(event.toolCallId, {
+                  ...existing,
+                  args: args as Record<string, unknown> | undefined,
+                });
               }
-            }
-            return updated;
-          });
+              return next;
+            });
+          }
+
+          if (event.type === "ToolCallResult") {
+            setToolCallStates((prev) => {
+              const next = new Map(prev);
+              const existing = next.get(event.toolCallId);
+              if (existing) {
+                // success is now at event level, result is DeckPayload
+                const success = event.success ?? true; // default to success if not specified
+                // Extract data from DeckPayload for UI display
+                const resultData = event.result?.kind === "json" ? event.result.data : event.result;
+                next.set(event.toolCallId, {
+                  ...existing,
+                  status: success ? "complete" : "error",
+                  result: typeof resultData === "object" && resultData !== null 
+                    ? resultData as { success: boolean; message?: string; error?: string; data?: Record<string, unknown> }
+                    : { success, message: String(resultData ?? "") },
+                  durationMs: event.durationMs,
+                });
+              }
+              return next;
+            });
+          }
+
+          if (event.type === "ArtifactCreated") {
+            console.log("[SSE] ArtifactCreated - runId:", event.runId, "currentRunId:", currentRunIdRef.current);
+            const artifact: Artifact = {
+              id: event.artifactId,
+              url: event.url,
+              name: event.name,
+              mimeType: event.mimeType,
+            };
+
+            // Add to run artifacts (for streaming updates)
+            setArtifactsByRun((prev) => ({
+              ...prev,
+              [event.runId]: [...(prev[event.runId] ?? []), artifact],
+            }));
+
+            // Attach artifact to the last assistant message
+            // We always attach to current message during active generation
+            // The runId check was too strict and caused artifacts to be dropped
+            setMessages((prev) => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx]?.role === "assistant") {
+                const existing = updated[lastIdx].artifacts || [];
+                // Avoid duplicates
+                if (!existing.some(a => a.id === artifact.id)) {
+                  updated[lastIdx] = {
+                    ...updated[lastIdx],
+                    artifacts: [...existing, artifact],
+                  };
+                  console.log("[SSE] Artifact added to message:", artifact.name);
+                }
+              }
+              return updated;
+            });
+          }
+        } catch {}
+      };
+
+      // Handle SSE errors with automatic reconnection
+      eventSource.onerror = (e) => {
+        console.error("[SSE] Connection error, readyState:", eventSource.readyState);
+        // EventSource will automatically try to reconnect for CONNECTING state
+        // But if it's in CLOSED state, we need to manually reconnect
+        if (eventSource.readyState === EventSource.CLOSED && !isCleaningUp) {
+          console.log("[SSE] Connection closed, reconnecting in 1s...");
+          eventSource.close();
+          eventSourceRef.current = null;
+          reconnectTimeout = setTimeout(createEventSource, 1000);
         }
-      } catch {}
+      };
     };
 
-    return () => eventSource.close();
+    createEventSource();
+
+    return () => {
+      isMounted = false;
+      isCleaningUp = true;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
   }, [activeThreadId]);
 
   // Load messages when thread changes
@@ -307,7 +629,7 @@ export default function ChatPaneV2() {
           );
         }
       })
-      .catch(() => {});
+      .catch((err) => console.error("[ChatPane] Failed to load messages:", err));
   }, [activeThreadId]);
 
   // Scroll to bottom
@@ -319,7 +641,6 @@ export default function ChatPaneV2() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (drawerOpen) setDrawerOpen(false);
         if (uploadTrayOpen) setUploadTrayOpen(false);
         if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
         if (voiceChat.isListening) voiceChat.stopListening();
@@ -367,7 +688,7 @@ export default function ChatPaneV2() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [drawerOpen, uploadTrayOpen, voiceChat, prefs.voice]);
+  }, [uploadTrayOpen, voiceChat, prefs.voice]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -377,28 +698,9 @@ export default function ChatPaneV2() {
     }
   }, [inputValue]);
 
-  // Paste handler
-  useEffect(() => {
-    const handlePaste = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (const item of items) {
-        if (item.type.startsWith("image/")) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file) await handleFileUpload(file);
-        }
-      }
-    };
-
-    document.addEventListener("paste", handlePaste);
-    return () => document.removeEventListener("paste", handlePaste);
-  }, [activeThreadId]);
-
   // Theme toggle removed - now handled by settings provider
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
 
     const reader = new FileReader();
@@ -407,15 +709,17 @@ export default function ChatPaneV2() {
 
       let threadId = activeThreadId;
       if (!threadId) {
-        threadId = crypto.randomUUID();
+        threadId = fallbackThreadIdRef.current;
         const newThread: Thread = {
           id: threadId,
           title: "New conversation",
           lastMessageAt: new Date().toISOString(),
         };
-        const updated = [newThread, ...threads];
-        setThreads(updated);
-        setStoredThreads(updated);
+        setThreads((prev) => {
+          const updated = [newThread, ...prev];
+          setStoredThreads(updated);
+          return updated;
+        });
         setActiveThreadId(threadId);
       }
 
@@ -447,47 +751,78 @@ export default function ChatPaneV2() {
           });
           // Auto-open tray when file is added
           setUploadTrayOpen(true);
+        } else {
+          console.error("[ChatPane] Upload response not ok:", res.status);
         }
       } catch (err) {
-        console.error("Upload failed:", err);
+        console.error("[ChatPane] Upload failed:", err);
       }
     };
     reader.readAsDataURL(file);
-  };
+  }, [activeThreadId]);
+
+  // Paste handler
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            try {
+              await handleFileUpload(file);
+            } catch (err) {
+              console.error("[ChatPane] Paste upload failed:", err);
+            }
+          }
+        }
+      }
+    };
+
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [activeThreadId, handleFileUpload]);
 
   const handleNewThread = () => {
     const id = crypto.randomUUID();
+    fallbackThreadIdRef.current = id; // Reset fallback to match new thread
     const newThread: Thread = {
       id,
       title: "New conversation",
       lastMessageAt: new Date().toISOString(),
     };
-    const updated = [newThread, ...threads];
-    setThreads(updated);
-    setStoredThreads(updated);
+    setThreads((prev) => {
+      const updated = [newThread, ...prev];
+      setStoredThreads(updated);
+      return updated;
+    });
     setActiveThreadId(id);
     setMessages([]);
     setPendingUploads([]);
-    setDrawerOpen(false);
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleSelectThread = (id: string) => {
     setActiveThreadId(id);
     setPendingUploads([]);
-    setDrawerOpen(false);
   };
 
   const handleDeleteThread = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = threads.filter((t) => t.id !== id);
-    setThreads(updated);
-    setStoredThreads(updated);
+    setThreads((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      setStoredThreads(updated);
+      return updated;
+    });
     if (activeThreadId === id) {
       setActiveThreadId(null);
       setMessages([]);
     }
-    fetch(`/api/threads?id=${id}`, { method: "DELETE" }).catch(() => {});
+    fetch(`/api/threads?id=${id}`, { method: "DELETE" })
+      .catch((err) => console.error("[ChatPane] Failed to delete thread:", err));
   };
 
   const sendMessage = useCallback(
@@ -498,15 +833,17 @@ export default function ChatPaneV2() {
 
       let threadId = activeThreadId;
       if (!threadId) {
-        threadId = crypto.randomUUID();
+        threadId = fallbackThreadIdRef.current;
         const newThread: Thread = {
           id: threadId,
           title: text.slice(0, 50) + (text.length > 50 ? "..." : ""),
           lastMessageAt: new Date().toISOString(),
         };
-        const updated = [newThread, ...threads];
-        setThreads(updated);
-        setStoredThreads(updated);
+        setThreads((prev) => {
+          const updated = [newThread, ...prev];
+          setStoredThreads(updated);
+          return updated;
+        });
         setActiveThreadId(threadId);
       }
 
@@ -541,20 +878,26 @@ export default function ChatPaneV2() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "message", threadId, id: userMessageId, role: "user", content: messageContent }),
-      }).catch(() => {});
+      }).catch((err) => console.error("[ChatPane] Failed to save user message:", err));
 
       const assistantId = crypto.randomUUID();
-      setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
-
-      // Clear tool call states and run ID for new generation
+      
+      // Clear tool call states, artifacts, run ID, and AG-UI state for new generation
       setToolCallStates(new Map());
+      setArtifactsByRun({});
       currentRunIdRef.current = null;
+      setReasoningContent("");
+      setIsReasoning(false);
+      setCurrentPlan(null);
+      setCurrentProgress(null);
+      setCurrentCards([]); // Clear cards for new message
 
       if (prefs.voice.enabled && prefs.voice.readAloud) {
         pendingTTSRef.current = assistantId;
       }
 
       let searchContext = "";
+      
       if (shouldSearch(text)) {
         try {
           setSearchStatus("Searching...");
@@ -563,10 +906,19 @@ export default function ChatPaneV2() {
             const searchData = await searchRes.json();
             searchContext = searchData.context || "";
           }
-        } catch {} finally {
+        } catch (err) {
+          console.error("[Chat] Search error:", err);
+        } finally {
           setSearchStatus(null);
         }
       }
+
+      // Create assistant message (cards will be extracted from response text)
+      setMessages((prev) => [...prev, { 
+        id: assistantId, 
+        role: "assistant", 
+        content: "",
+      }]);
 
       try {
         abortControllerRef.current = new AbortController();
@@ -598,18 +950,34 @@ export default function ChatPaneV2() {
 
         const decoder = new TextDecoder();
         let fullText = "";
+        let extractedCard: { type: "sports" | "weather" | "info"; data: unknown } | null = null;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           fullText += decoder.decode(value, { stream: true });
+          
+          // Try to extract card from response text (only once we have enough text)
+          if (!extractedCard && fullText.length > 30) {
+            const card = extractCardFromResponse(fullText, text);
+            if (card) {
+              extractedCard = card;
+              setCurrentCards([card as { type: "sports" | "weather" | "info"; data: unknown }]);
+            }
+          }
+          
           setMessages((prev) => {
             const updated = [...prev];
             const lastIdx = updated.length - 1;
             if (updated[lastIdx]?.role === "assistant") {
-              // Preserve existing artifacts - they're added via SSE ArtifactCreated events
               const existingArtifacts = updated[lastIdx].artifacts;
-              updated[lastIdx] = { ...updated[lastIdx], content: fullText, artifacts: existingArtifacts };
+              // Only use extracted card for THIS message, don't inherit from previous
+              updated[lastIdx] = { 
+                ...updated[lastIdx], 
+                content: fullText, 
+                artifacts: existingArtifacts,
+                cards: extractedCard ? [extractedCard] : undefined,
+              };
             }
             return updated;
           });
@@ -639,19 +1007,36 @@ export default function ChatPaneV2() {
         })
         .catch((e) => console.error("[Chat] Failed to save message:", e));
 
-        if (messages.length === 0) {
-          const updated = threads.map((t) =>
-            t.id === threadId ? { ...t, title: text.slice(0, 50) + (text.length > 50 ? "..." : "") } : t
-          );
-          setThreads(updated);
-          setStoredThreads(updated);
-        }
+        // Update thread title if this was the first message (use functional update to avoid stale closure)
+        setThreads((currentThreads) => {
+          const thread = currentThreads.find((t) => t.id === threadId);
+          // Only update title if it's still "New conversation" (first message)
+          if (thread && thread.title === "New conversation") {
+            const updated = currentThreads.map((t) =>
+              t.id === threadId ? { ...t, title: text.slice(0, 50) + (text.length > 50 ? "..." : "") } : t
+            );
+            setStoredThreads(updated);
+            return updated;
+          }
+          return currentThreads;
+        });
       } catch (err) {
         if (err instanceof Error && err.name !== "AbortError") {
+          console.error("[Chat] Error during message generation:", err);
           setMessages((prev) => {
             const updated = [...prev];
-            if (updated[updated.length - 1]?.role === "assistant" && !updated[updated.length - 1]?.content) {
-              updated.pop();
+            const lastMsg = updated[updated.length - 1];
+            // Remove assistant message if it's empty or has only partial/broken content
+            if (lastMsg?.role === "assistant") {
+              if (!lastMsg.content || lastMsg.content.length < 10) {
+                updated.pop();
+              } else {
+                // If there's partial content, append error indicator
+                updated[updated.length - 1] = {
+                  ...lastMsg,
+                  content: lastMsg.content + "\n\n*[Response interrupted due to an error]*",
+                };
+              }
             }
             return updated;
           });
@@ -663,7 +1048,7 @@ export default function ChatPaneV2() {
         abortControllerRef.current = null;
       }
     },
-    [activeThreadId, isLoading, messages, selectedModel, threads, pendingUploads, artifactsByRun, voiceChat, prefs.voice]
+    [activeThreadId, isLoading, messages, selectedModel, pendingUploads, voiceChat, prefs.voice]
   );
 
   const handleSpeakMessage = useCallback(
@@ -726,18 +1111,167 @@ export default function ChatPaneV2() {
     }
   };
 
+  const threadGroups = groupThreadsByDate(threads);
+
   return (
     <div
       style={{
         height: "100%",
         display: "flex",
-        flexDirection: "column",
         background: "var(--bg-primary)",
         fontFamily: "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, serif",
       }}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
     >
+      {/* Left Sidebar - Persistent */}
+      <aside
+        style={{
+          width: sidebarOpen ? 260 : 0,
+          minWidth: sidebarOpen ? 260 : 0,
+          height: "100%",
+          background: "var(--bg-secondary)",
+          borderRight: sidebarOpen ? "1px solid var(--border)" : "none",
+          display: "flex",
+          flexDirection: "column",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+          transition: "width 0.2s ease, min-width 0.2s ease",
+          overflow: "hidden",
+        }}
+      >
+        {/* Sidebar Header */}
+        <div
+          style={{
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <button
+            onClick={handleNewThread}
+            style={{
+              flex: 1,
+              background: "var(--bg-tertiary)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--text-primary)",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: "pointer",
+              padding: "8px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>+</span>
+            New Chat
+          </button>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            title="Close sidebar (Cmd+B)"
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              fontSize: 16,
+              cursor: "pointer",
+              padding: 4,
+              opacity: 0.7,
+            }}
+          >
+            ←
+          </button>
+        </div>
+
+        {/* Thread List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 8px" }}>
+          {threads.length === 0 ? (
+            <p style={{ color: "var(--text-muted)", fontSize: 13, padding: 12, textAlign: "center" }}>
+              No conversations yet
+            </p>
+          ) : (
+            threadGroups.map((group) => (
+              <div key={group.label} style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: "var(--text-muted)",
+                    padding: "8px 12px 4px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  {group.label}
+                </div>
+                {group.threads.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => handleSelectThread(t.id)}
+                    style={{
+                      padding: "10px 12px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      color: activeThreadId === t.id ? "var(--text-primary)" : "var(--text-secondary)",
+                      background: activeThreadId === t.id ? "var(--bg-tertiary)" : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: 2,
+                    }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      {t.title}
+                    </span>
+                    <button
+                      onClick={(e) => handleDeleteThread(t.id, e)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        opacity: 0,
+                        fontSize: 14,
+                        padding: "0 4px",
+                        transition: "opacity 0.15s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.7")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}
+                      className="thread-delete-btn"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Sidebar Footer */}
+        <div
+          style={{
+            padding: "12px 16px",
+            borderTop: "1px solid var(--border)",
+            fontSize: 11,
+            color: "var(--text-muted)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>{threads.length} conversation{threads.length !== 1 ? "s" : ""}</span>
+          <span style={{ opacity: 0.6 }}>Cmd+B</span>
+        </div>
+      </aside>
+
+      {/* Main chat column */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -765,101 +1299,6 @@ export default function ChatPaneV2() {
         onAddMore={() => fileInputRef.current?.click()}
       />
 
-      {/* Drawer Overlay */}
-      {drawerOpen && (
-        <div
-          onClick={() => setDrawerOpen(false)}
-          style={{ position: "fixed", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.3)" }}
-        />
-      )}
-
-      {/* Thread Drawer */}
-      <aside
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          height: "100%",
-          width: 280,
-          zIndex: 50,
-          background: "var(--bg-secondary)",
-          borderRight: "1px solid var(--border)",
-          transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
-          transition: "transform 0.2s ease",
-          display: "flex",
-          flexDirection: "column",
-          fontFamily: "system-ui, -apple-system, sans-serif",
-        }}
-      >
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>Threads</span>
-          <button
-            onClick={handleNewThread}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 20,
-              cursor: "pointer",
-              padding: "0 4px",
-              lineHeight: 1,
-            }}
-          >
-            +
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-          {threads.length === 0 ? (
-            <p style={{ color: "var(--text-muted)", fontSize: 13, padding: 12 }}>No conversations yet</p>
-          ) : (
-            threads.map((t) => (
-              <div
-                key={t.id}
-                onClick={() => handleSelectThread(t.id)}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  fontSize: 14,
-                  color: activeThreadId === t.id ? "var(--text-primary)" : "var(--text-secondary)",
-                  background: activeThreadId === t.id ? "var(--bg-tertiary)" : "transparent",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 2,
-                }}
-              >
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                  {t.title}
-                </span>
-                <button
-                  onClick={(e) => handleDeleteThread(t.id, e)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    opacity: 0.5,
-                    fontSize: 14,
-                    padding: "0 4px",
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </aside>
-
       {/* Header */}
       <header
         style={{
@@ -871,19 +1310,23 @@ export default function ChatPaneV2() {
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
       >
-        <button
-          onClick={() => setDrawerOpen(true)}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: 4,
-          }}
-        >
-          ☰
-        </button>
+        {!sidebarOpen && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            title="Open sidebar (Cmd+B)"
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              fontSize: 18,
+              cursor: "pointer",
+              padding: 4,
+              marginRight: 8,
+            }}
+          >
+            ☰
+          </button>
+        )}
 
         {/* Model chip - click to open settings */}
         <button
@@ -934,13 +1377,16 @@ export default function ChatPaneV2() {
             </div>
           )}
 
-          {/* Inspector button */}
+          {/* Inspector/Rail button */}
           <button
-            onClick={() => setInspectorOpen(true)}
+            onClick={() => {
+              setRailOpen(!railOpen);
+              if (!railOpen) setRailTab("inspector");
+            }}
             style={{
-              background: inspectorOpen ? "var(--accent)" : "none",
+              background: railOpen ? "var(--accent)" : "none",
               border: "none",
-              color: inspectorOpen ? "var(--bg-primary)" : "var(--text-muted)",
+              color: railOpen ? "var(--bg-primary)" : "var(--text-muted)",
               cursor: "pointer",
               padding: 4,
               borderRadius: 4,
@@ -1006,10 +1452,20 @@ export default function ChatPaneV2() {
                     }}
                   >
                     <MessageRenderer
-                      message={msg}
+                      message={{
+                        ...msg,
+                        // Attach current plan/progress to last assistant message
+                        ...(isLastAssistant && currentPlan ? { plan: currentPlan } : {}),
+                        ...(isLastAssistant && currentProgress ? { progress: currentProgress } : {}),
+                        // Cards: use message's cards if present, otherwise use currentCards for last message
+                        // This ensures cards persist with the message after it's created
+                        ...(msg.cards ? { cards: msg.cards } : (isLastAssistant && currentCards.length > 0 ? { cards: currentCards } : {})),
+                      }}
                       isLoading={isLoading}
                       isLast={idx === messages.length - 1}
                       toolCalls={msgToolCalls}
+                      isThinking={isLastAssistant && (isThinking || isReasoning)}
+                      reasoningContent={isLastAssistant ? reasoningContent : undefined}
                     />
                   </div>
                 );
@@ -1135,17 +1591,18 @@ export default function ChatPaneV2() {
             onClick={() => setVoiceModeOpen(true)}
             disabled={voiceChat.voiceApiStatus === "disconnected"}
             style={{
-              background: "none",
-              border: "none",
+              background: voiceChat.voiceApiStatus === "connected" ? "rgba(139, 92, 246, 0.15)" : "none",
+              border: voiceChat.voiceApiStatus === "connected" ? "1px solid var(--accent)" : "1px solid transparent",
               color: voiceChat.voiceApiStatus === "connected" ? "var(--accent)" : "var(--text-muted)",
               cursor: voiceChat.voiceApiStatus === "connected" ? "pointer" : "not-allowed",
               padding: 6,
-              borderRadius: 6,
+              borderRadius: 8,
               display: "flex",
               alignItems: "center",
               opacity: voiceChat.voiceApiStatus === "disconnected" ? 0.5 : 1,
+              transition: "all 0.2s",
             }}
-            title="Open Voice Mode"
+            title="Open Voice Mode (Full Screen)"
           >
             <VoiceModeIcon size={18} />
           </button>
@@ -1195,12 +1652,13 @@ export default function ChatPaneV2() {
           </button>
         </div>
       </form>
+      </div>
 
       {/* Voice Mode Sheet */}
       <VoiceModeSheet
         isOpen={voiceModeOpen}
         onClose={() => setVoiceModeOpen(false)}
-        threadId={activeThreadId || crypto.randomUUID()}
+        threadId={activeThreadId || fallbackThreadIdRef.current}
         selectedModel={selectedModel}
         onMessageSent={(userMessage, assistantMessage) => {
           // Sync voice messages to chat history
@@ -1214,8 +1672,8 @@ export default function ChatPaneV2() {
             { id: assistantMsgId, role: "assistant", content: assistantMessage },
           ]);
           
-          // Persist to backend
-          const tid = activeThreadId || crypto.randomUUID();
+          // Use consistent thread ID (same as passed to VoiceModeSheet)
+          const tid = activeThreadId || fallbackThreadIdRef.current;
           if (!activeThreadId) {
             // Create thread if needed
             const newThread: Thread = {
@@ -1223,8 +1681,11 @@ export default function ChatPaneV2() {
               title: userMessage.slice(0, 50) + (userMessage.length > 50 ? "..." : ""),
               lastMessageAt: new Date().toISOString(),
             };
-            setThreads(prev => [newThread, ...prev]);
-            setStoredThreads([newThread, ...threads]);
+            setThreads((prev) => {
+              const updated = [newThread, ...prev];
+              setStoredThreads(updated);
+              return updated;
+            });
             setActiveThreadId(tid);
           }
           
@@ -1233,29 +1694,43 @@ export default function ChatPaneV2() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "message", threadId: tid, id: userMsgId, role: "user", content: userMessage }),
-          }).catch(() => {});
+          }).catch((err) => console.error("[ChatPane] Failed to save voice user message:", err));
           
           fetch("/api/threads", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "message", threadId: tid, id: assistantMsgId, role: "assistant", content: assistantMessage }),
-          }).catch(() => {});
+          }).catch((err) => console.error("[ChatPane] Failed to save voice assistant message:", err));
         }}
       />
 
-      {/* Inspector Drawer */}
-      <InspectorDrawer threadId={activeThreadId} />
+      {/* Right Rail */}
+      <RightRail 
+        threadId={activeThreadId} 
+        model={selectedModel}
+        isLoading={isLoading}
+        toolCalls={Array.from(toolCallStates.values())}
+        artifacts={messages.flatMap(m => m.artifacts || [])}
+        onSendMessage={(text) => {
+          setInputValue(text);
+          inputRef.current?.focus();
+        }}
+      />
     </div>
   );
 }
 
 // Icons
 function VoiceModeIcon({ size = 16 }: { size?: number }) {
+  // Voice/audio waves icon - represents voice mode
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 8v4l2 2" />
-      <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
+      {/* Sound wave bars */}
+      <path d="M12 3v18" />
+      <path d="M8 8v8" />
+      <path d="M16 8v8" />
+      <path d="M4 11v2" />
+      <path d="M20 11v2" />
     </svg>
   );
 }

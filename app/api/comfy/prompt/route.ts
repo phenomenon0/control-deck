@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hub } from "@/lib/agui/hub";
 import { createEvent, generateId, type RunStarted, type ToolCallStart } from "@/lib/agui/events";
+import { jsonPayload } from "@/lib/agui/payload";
 import { createRun, saveEvent } from "@/lib/agui/db";
 
 const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     const runStarted = createEvent<RunStarted>("RunStarted", thread, {
       runId,
       model: "comfyui",
-      input: { workflow: typeof workflow === "string" ? workflow : "workflow-object" },
+      input: jsonPayload({ workflow: typeof workflow === "string" ? workflow : "workflow-object" }),
     });
     createRun(runId, thread, "comfyui");
     saveEvent(runStarted);

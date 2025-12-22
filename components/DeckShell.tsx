@@ -18,6 +18,7 @@ const PRIMARY_NAV = [
 ];
 
 const ADVANCED_NAV = [
+  { href: "/deck/dojo", label: "Dojo", icon: "🥋" },
   { href: "/deck/models", label: "Models", icon: "🧠" },
   { href: "/deck/comfy", label: "Comfy", icon: "🎨" },
   { href: "/deck/voice", label: "Voice", icon: "🎤" },

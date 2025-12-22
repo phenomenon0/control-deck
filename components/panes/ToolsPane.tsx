@@ -7,6 +7,13 @@ interface ServiceStatus {
   url: string;
   status: "online" | "offline" | "unknown";
   latencyMs?: number;
+  extra?: {
+    vectors?: number;
+    collections?: number;
+    embedder?: string;
+    model?: string;
+    dimension?: number;
+  };
 }
 
 interface GpuStats {
@@ -138,28 +145,51 @@ export function ToolsPane() {
                 {services.map((svc) => (
                   <div
                     key={svc.name}
-                    className="flex items-center justify-between py-2 px-3 bg-[var(--bg-primary)] rounded-lg"
+                    className="py-2 px-3 bg-[var(--bg-primary)] rounded-lg"
                   >
-                    <div className="flex items-center gap-3">
-                      {statusIcon(svc.status)}
-                      <span>{svc.name}</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {statusIcon(svc.status)}
+                        <span>{svc.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
+                        {svc.latencyMs !== undefined && (
+                          <span>{svc.latencyMs}ms</span>
+                        )}
+                        <span
+                          className={
+                            svc.status === "online"
+                              ? "text-green-400"
+                              : svc.status === "offline"
+                              ? "text-red-400"
+                              : "text-yellow-400"
+                          }
+                        >
+                          {svc.status}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-[var(--text-muted)]">
-                      {svc.latencyMs !== undefined && (
-                        <span>{svc.latencyMs}ms</span>
-                      )}
-                      <span
-                        className={
-                          svc.status === "online"
-                            ? "text-green-400"
-                            : svc.status === "offline"
-                            ? "text-red-400"
-                            : "text-yellow-400"
-                        }
-                      >
-                        {svc.status}
-                      </span>
-                    </div>
+                    {/* VectorDB extra stats */}
+                    {svc.name === "VectorDB" && svc.extra && svc.status === "online" && (
+                      <div className="mt-2 pt-2 border-t border-[var(--border)] grid grid-cols-4 gap-2 text-xs">
+                        <div>
+                          <div className="text-[var(--text-muted)]">Vectors</div>
+                          <div className="font-mono">{svc.extra.vectors?.toLocaleString()}</div>
+                        </div>
+                        <div>
+                          <div className="text-[var(--text-muted)]">Collections</div>
+                          <div className="font-mono">{svc.extra.collections}</div>
+                        </div>
+                        <div>
+                          <div className="text-[var(--text-muted)]">Embedder</div>
+                          <div className="font-mono">{svc.extra.embedder}</div>
+                        </div>
+                        <div>
+                          <div className="text-[var(--text-muted)]">Dimension</div>
+                          <div className="font-mono">{svc.extra.dimension}d</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -182,6 +212,18 @@ export function ToolsPane() {
                   className="btn btn-secondary justify-start"
                 >
                   Open Ollama API
+                </button>
+                <button
+                  onClick={() => window.open("http://localhost:4242/dashboard/", "_blank")}
+                  className="btn btn-secondary justify-start"
+                >
+                  Open VectorDB
+                </button>
+                <button
+                  onClick={() => window.open("http://localhost:8888", "_blank")}
+                  className="btn btn-secondary justify-start"
+                >
+                  Open SearxNG
                 </button>
                 <button
                   onClick={async () => {

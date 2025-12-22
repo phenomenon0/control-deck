@@ -22,12 +22,24 @@ export function VoiceTranscript({
 }: VoiceTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new content
+  // Smart auto-scroll: only scroll if user is near bottom (preserves manual scroll position)
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const el = scrollRef.current;
+
+      // Calculate distance from bottom
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const scrollThreshold = 100; // pixels
+
+      // Only auto-scroll if user is already tracking the bottom
+      if (distanceFromBottom <= scrollThreshold) {
+        // Use requestAnimationFrame to decouple from render cycle (prevents jank)
+        requestAnimationFrame(() => {
+          el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+        });
+      }
     }
-  }, [entries, currentUserSpeech]);
+  }, [entries.length, currentUserSpeech]); // Track length, not full entries object
 
   return (
     <div

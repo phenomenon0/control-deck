@@ -4,6 +4,7 @@ import { hub } from "@/lib/agui/hub";
 import {
   createEvent,
   generateId,
+  wrapPayload,
   type RunStarted,
   type TextMessageStart,
   type TextMessageContent,
@@ -11,18 +12,22 @@ import {
   type RunFinished,
   type RunError,
   type ToolCallStart,
+  type ToolCallArgs,
   type ToolCallResult,
 } from "@/lib/agui/events";
+import { jsonPayload } from "@/lib/agui/payload";
 import {
   createRun,
   finishRun,
   errorRun,
   updateRunPreview,
   saveEvent,
+  saveMessage,
+  type MessageMetadata,
 } from "@/lib/agui/db";
 import { parseToolCall, type ToolCall, type ToolName } from "@/lib/tools/definitions";
 import { buildSystemPrompt } from "@/lib/prompts/system";
-import { executeTool, type ExecutorContext } from "@/lib/tools/executor";
+import { executeToolWithGlyph, type ExecutorContext } from "@/lib/tools/executor";
 import {
   OLLAMA_TOOLS,
   supportsNativeTools,
@@ -42,6 +47,25 @@ const COST_PER_1K_OUTPUT = parseFloat(process.env.COST_PER_1K_OUTPUT ?? "0");
 
 // Ollama API URL
 const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+
+// Type definitions for tool calls
+interface ToolCallMetadata {
+  function: { name: string; arguments: Record<string, unknown> };
+}
+
+interface ProcessedMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_calls?: ToolCallMetadata[];
+  tool_name?: string;
+}
+
+interface ChatRequestBody {
+  messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
+  model?: string;
+  threadId?: string;
+  uploadIds?: string[];
+}
 
 /**
  * Call Ollama with native tool support
@@ -158,7 +182,26 @@ function needsThinking(content: string): boolean {
 }
 
 export async function POST(req: Request) {
-  const { messages, model, threadId, uploadIds } = await req.json();
+  // Parse and validate request body
+  let body: ChatRequestBody;
+  try {
+    body = await req.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const { messages, model, threadId, uploadIds } = body;
+
+  // Validate messages array
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return new Response(JSON.stringify({ error: "messages array is required and must not be empty" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   // Get system profile for mode-based model selection
   const systemProfile = getSystemProfile();
@@ -186,6 +229,11 @@ export async function POST(req: Request) {
   // Skip tool documentation for native tool models (Ollama provides tools directly)
   const systemPrompt = await buildSystemPrompt(selectedModel, uploadIds, useNativeTools);
   
+  // GLYPH verification: prove GLYPH is in the prompt sent to Ollama
+  const glyphInSystemPrompt = systemPrompt.includes("@tab[") || systemPrompt.includes("@[");
+  const tabularCount = (systemPrompt.match(/@tab\[/g) || []).length;
+  console.log(`[Chat] GLYPH catalog: ${glyphInSystemPrompt}, @tab blocks: ${tabularCount}, prompt: ${systemPrompt.length} chars`);
+  
   // Process messages for thinking mode (Qwen3 optimization)
   const lastUserMsg = messages[messages.length - 1];
   const isThinking = lastUserMsg?.role === "user" && 
@@ -193,24 +241,41 @@ export async function POST(req: Request) {
     needsThinking(lastUserMsg.content);
 
   // Add /no_think to last user message if not thinking (faster TTFT)
-  const processedMessages = messages.map((msg: { role: string; content: string }, idx: number) => {
+  // Also extract metadata (tool_calls, tool_name) from messages for proper history
+  const processedMessages: ProcessedMessage[] = messages.map((msg, idx) => {
+    const processed: ProcessedMessage = {
+      role: msg.role as ProcessedMessage["role"],
+      content: msg.content,
+    };
+    
+    // Extract tool metadata from DB-loaded messages
+    if (msg.metadata?.tool_calls) {
+      processed.tool_calls = msg.metadata.tool_calls as ToolCallMetadata[];
+    }
+    if (msg.metadata?.tool_name) {
+      processed.tool_name = msg.metadata.tool_name;
+    }
+    
+    // Add /no_think to last user message
     if (idx === messages.length - 1 && msg.role === "user" && typeof msg.content === "string") {
       const clean = msg.content.replace(/\s*\/(no_)?think\b/g, "").trim();
-      return { ...msg, content: isThinking ? clean : clean + " /no_think" };
+      processed.content = isThinking ? clean : clean + " /no_think";
     }
-    return msg;
+    
+    return processed;
   });
 
-  const messagesWithSystem = [
-    { role: "system", content: systemPrompt },
+  const messagesWithSystem: ProcessedMessage[] = [
+    { role: "system" as const, content: systemPrompt },
     ...processedMessages,
   ];
 
   // Emit RunStarted
+  const lastMessage = messages[messages.length - 1]?.content;
   const runStarted = createEvent<RunStarted>("RunStarted", thread, {
     runId,
     model: selectedModel,
-    input: messages[messages.length - 1]?.content,
+    input: lastMessage ? jsonPayload(lastMessage) : undefined,
     thinking: isThinking,
   });
   createRun(runId, thread, selectedModel);
@@ -234,31 +299,95 @@ export async function POST(req: Request) {
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
 
+  // Track if request was aborted
+  let isAborted = false;
+  req.signal?.addEventListener("abort", () => {
+    isAborted = true;
+  });
+
+  // Safe write helper that handles stream errors gracefully
+  const safeWrite = async (data: string): Promise<boolean> => {
+    if (isAborted) return false;
+    try {
+      await writer.write(encoder.encode(data));
+      return true;
+    } catch (err) {
+      console.error("[Chat] Stream write failed:", err);
+      isAborted = true;
+      return false;
+    }
+  };
+
   // Run the chat loop in background
   (async () => {
     try {
       let currentMessages = [...messagesWithSystem];
       let iteration = 0;
       const maxIterations = 5; // Prevent infinite loops
+      
+      // Track messages to save to DB with proper metadata for tool history
+      interface PendingMessage {
+        role: "assistant" | "tool";
+        content: string;
+        metadata?: MessageMetadata;
+      }
+      const pendingMessages: PendingMessage[] = [];
+      let finalAssistantContent = "";  // The final text response to show user
 
       while (iteration < maxIterations) {
+        // Check if request was aborted
+        if (isAborted) {
+          console.log("[Chat] Request aborted, exiting loop");
+          break;
+        }
+        
         iteration++;
+        console.log(`[Chat] Iteration ${iteration}/${maxIterations}, messages: ${currentMessages.length}`);
         
         let fullText = "";
         let toolCall: ToolCall | null = null;
 
         if (useNativeTools) {
           // Native tool calling path - Ollama handles tool format
-          const ollamaMessages: OllamaMessage[] = currentMessages.map((m) => ({
-            role: m.role as OllamaMessage["role"],
-            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-          }));
+          // IMPORTANT: Preserve tool_calls and tool_name fields for proper conversation history
+          const ollamaMessages: OllamaMessage[] = currentMessages.map((m) => {
+            let content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+            
+            // Strip "[Executing tool_name...]" from history - this is UI chrome, not model output
+            // If we don't strip it, the model learns to output this text instead of calling tools
+            content = content.replace(/\[Executing \w+\.\.\.\]\s*/g, "");
+            
+            const msg: OllamaMessage = {
+              role: m.role as OllamaMessage["role"],
+              content,
+            };
+            // Preserve tool_calls for assistant messages that made tool calls
+            const msgWithMeta = m as ProcessedMessage;
+            if (msgWithMeta.tool_calls) {
+              msg.tool_calls = msgWithMeta.tool_calls;
+            }
+            // Preserve tool_name for tool response messages
+            if (msgWithMeta.tool_name) {
+              msg.tool_name = msgWithMeta.tool_name;
+            }
+            return msg;
+          });
 
+          // GLYPH verification: check for GLYPH in tool results within messages
+          const allMsgContent = ollamaMessages.map(m => m.content || '').join('');
+          const glyphFenceCount = (allMsgContent.match(/```glyph/g) || []).length;
+          const tabBlockCount = (allMsgContent.match(/@tab\[/g) || []).length;
+          if (glyphFenceCount > 0 || tabBlockCount > 0) {
+            console.log(`[Chat] GLYPH in messages: ${glyphFenceCount} fences, ${tabBlockCount} @tab blocks`);
+          }
+          
+          console.log(`[Chat] Calling Ollama with ${ollamaMessages.length} messages, model: ${selectedModel}`);
           const result = await callOllamaWithTools(selectedModel, ollamaMessages);
           
           fullText = result.content;
           totalInputTokens += result.inputTokens;
           totalOutputTokens += result.outputTokens;
+          console.log(`[Chat] Ollama response: ${fullText.length} chars, toolCalls: ${result.toolCalls?.length ?? 0}`);
 
           // Check for native tool calls
           if (result.toolCalls?.length) {
@@ -272,9 +401,14 @@ export async function POST(req: Request) {
           }
         } else {
           // Fallback: text parsing for models without native tool support
+          // Map to simple format for AI SDK (it only needs role/content)
+          const aiMessages = currentMessages.map(m => ({
+            role: m.role as "system" | "user" | "assistant",
+            content: m.content,
+          }));
           const result = await generateText({
             model: ollama(selectedModel),
-            messages: currentMessages,
+            messages: aiMessages,
           });
 
           fullText = result.text;
@@ -286,6 +420,7 @@ export async function POST(req: Request) {
         }
 
         if (toolCall) {
+          console.log(`[Chat] Tool call detected:`, toolCall.name, JSON.stringify(toolCall.args).slice(0, 200));
           // Emit tool status to SSE (UI will show this)
           const toolCallId = generateId();
           const toolStart = createEvent<ToolCallStart>("ToolCallStart", thread, {
@@ -295,11 +430,21 @@ export async function POST(req: Request) {
           });
           saveEvent(toolStart);
           hub.publish(thread, toolStart);
+          
+          // Emit tool args for UI display
+          const toolArgs = createEvent<ToolCallArgs>("ToolCallArgs", thread, {
+            runId,
+            toolCallId,
+            delta: "",
+            args: jsonPayload(toolCall.args),
+          });
+          saveEvent(toolArgs);
+          hub.publish(thread, toolArgs);
 
           // Stream the non-tool part of the response (if any)
           const cleanText = stripToolJson(fullText);
           if (cleanText) {
-            await writer.write(encoder.encode(cleanText + "\n\n"));
+            if (!await safeWrite(cleanText + "\n\n")) break;
             hub.publish(thread, createEvent<TextMessageContent>("TextMessageContent", thread, {
               runId,
               messageId,
@@ -307,8 +452,8 @@ export async function POST(req: Request) {
             }));
           }
 
-          // Stream tool execution status
-          await writer.write(encoder.encode(`[Executing ${toolCall.name}...]\n`));
+          // DON'T stream "[Executing...]" to response - it pollutes conversation history
+          // The UI will show tool status via ToolCallStart SSE event instead
 
           // Execute the tool
           const ctx: ExecutorContext = {
@@ -316,18 +461,22 @@ export async function POST(req: Request) {
             runId,
             toolCallId,
           };
-          const toolResult = await executeTool(toolCall, ctx);
+          const toolResult = await executeToolWithGlyph(toolCall, ctx);
 
-          // Emit tool result (include data for code execution Canvas display)
+          // Emit tool result with DeckPayload envelope
+          // Use executor's payload if available (may be GLYPH-encoded), otherwise wrap
+          const resultPayload = toolResult.payload ?? jsonPayload({
+            success: toolResult.success,
+            message: toolResult.message,
+            artifactCount: toolResult.artifacts?.length ?? 0,
+            data: toolResult.data,
+          });
+          
           const toolResultEvt = createEvent<ToolCallResult>("ToolCallResult", thread, {
             runId,
             toolCallId,
-            result: {
-              success: toolResult.success,
-              message: toolResult.message,
-              artifactCount: toolResult.artifacts?.length ?? 0,
-              data: toolResult.data, // Code execution results, preview data, etc.
-            },
+            result: resultPayload,
+            success: toolResult.success,
           });
           saveEvent(toolResultEvt);
           hub.publish(thread, toolResultEvt);
@@ -342,12 +491,14 @@ export async function POST(req: Request) {
 
           if (useNativeTools) {
             // Native tool format - use proper tool message structure
+            const toolCallsMetadata = [{ function: { name: toolCall.name, arguments: toolCall.args } }];
+            
             currentMessages = [
               ...currentMessages,
               { 
                 role: "assistant", 
                 content: fullText || "",
-                tool_calls: [{ function: { name: toolCall.name, arguments: toolCall.args } }]
+                tool_calls: toolCallsMetadata
               },
               { 
                 role: "tool",
@@ -355,6 +506,20 @@ export async function POST(req: Request) {
                 tool_name: toolCall.name,
               },
             ];
+            
+            // Track for DB save - assistant message with tool_calls
+            pendingMessages.push({
+              role: "assistant",
+              content: fullText || "",
+              metadata: { tool_calls: toolCallsMetadata },
+            });
+            
+            // Track for DB save - tool result message
+            pendingMessages.push({
+              role: "tool",
+              content: toolResultContent,
+              metadata: { tool_name: toolCall.name },
+            });
           } else {
             // Legacy format for text-parsing models
             currentMessages = [
@@ -365,6 +530,9 @@ export async function POST(req: Request) {
                 content: `Tool "${toolCall.name}" result: ${toolResultContent}`
               },
             ];
+            
+            // For legacy, just track the text (no special metadata)
+            pendingMessages.push({ role: "assistant", content: fullText });
           }
 
           // Continue loop for follow-up response
@@ -372,7 +540,7 @@ export async function POST(req: Request) {
         }
 
         // No tool call - stream final response and exit
-        await writer.write(encoder.encode(fullText));
+        await safeWrite(fullText);
         hub.publish(thread, createEvent<TextMessageContent>("TextMessageContent", thread, {
           runId,
           messageId,
@@ -380,7 +548,24 @@ export async function POST(req: Request) {
         }));
         
         updateRunPreview(runId, fullText.slice(0, 200));
+        finalAssistantContent = fullText;
         break;
+      }
+      
+      // Save tool interaction messages to DB with proper metadata
+      // These are the intermediate assistant (with tool_calls) and tool response messages
+      // The final assistant message is saved by the frontend
+      for (const pm of pendingMessages) {
+        const pmId = generateId();
+        saveMessage({
+          id: pmId,
+          threadId: thread,
+          role: pm.role,
+          content: pm.content,
+          runId,
+          metadata: pm.metadata,
+        });
+        console.log(`[Chat] Saved ${pm.role} message with metadata:`, pm.metadata ? Object.keys(pm.metadata) : "none");
       }
 
       // Emit TextMessageEnd
@@ -407,18 +592,22 @@ export async function POST(req: Request) {
       hub.publish(thread, runFinished);
 
     } catch (error) {
-      const errMsg = error instanceof Error ? error.message : "Unknown error";
-      await writer.write(encoder.encode(`\n\nError: ${errMsg}`));
-      
-      const runError = createEvent<RunError>("RunError", thread, {
-        runId,
-        error: { message: errMsg },
-      });
-      errorRun(runId, errMsg);
-      saveEvent(runError);
-      hub.publish(thread, runError);
+      if (isAborted) {
+        console.log("[Chat] Request aborted during processing");
+      } else {
+        const errMsg = error instanceof Error ? error.message : "Unknown error";
+        await safeWrite(`\n\nError: ${errMsg}`);
+        
+        const runError = createEvent<RunError>("RunError", thread, {
+          runId,
+          error: { message: errMsg },
+        });
+        errorRun(runId, errMsg);
+        saveEvent(runError);
+        hub.publish(thread, runError);
+      }
     } finally {
-      await writer.close();
+      await writer.close().catch(() => {}); // Safe close
     }
   })();
 
@@ -441,7 +630,19 @@ export async function POST(req: Request) {
  * PUT /api/chat - Execute a tool directly without LLM
  */
 export async function PUT(req: Request) {
-  const { tool, args, threadId } = await req.json();
+  let body: { tool?: string; args?: Record<string, unknown>; threadId?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ success: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { tool, args, threadId } = body;
+
+  // Validate tool name
+  if (!tool || typeof tool !== "string") {
+    return Response.json({ success: false, error: "tool name is required" }, { status: 400 });
+  }
 
   const thread = threadId ?? generateId();
   const runId = generateId();
@@ -456,8 +657,9 @@ export async function PUT(req: Request) {
   createRun(runId, thread, "tool:" + tool);
 
   try {
-    const toolCall = { name: tool, args } as Parameters<typeof executeTool>[0];
-    const result = await executeTool(toolCall, ctx);
+    // Type assertion is safe here because executeToolWithGlyph handles unknown tools gracefully
+    const toolCall = { name: tool, args: args ?? {} } as Parameters<typeof executeToolWithGlyph>[0];
+    const result = await executeToolWithGlyph(toolCall, ctx);
 
     finishRun(runId, 0, 0, 0);
 

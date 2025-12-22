@@ -3,6 +3,11 @@
  * 
  * ComfyUI API format is different from the web UI format.
  * API format: { "node_id": { class_type, inputs } }
+ * 
+ * Black0S Workflows (FLUX-based):
+ * - flux-gguf: FLUX with GGUF quantization (~8-12GB VRAM)
+ * - flux-nunchaku: FLUX with Nunchaku int4 quantization (~6-8GB VRAM) 
+ * - sdxl-sd: SDXL/SD hybrid workflow (~8-10GB VRAM)
  */
 
 export interface WorkflowParams {
@@ -23,6 +28,12 @@ export interface WorkflowParams {
   // Image input - filename in ComfyUI input folder (not base64)
   image_filename?: string;
   instruction?: string;
+  
+  // FLUX/Black0S specific
+  lora_name?: string;
+  lora_strength?: number;
+  controlnet_strength?: number;
+  upscale?: boolean;
 }
 
 /**
@@ -39,10 +50,15 @@ export function loadWorkflow(
       return buildSDXLWorkflow(params);
     case "sdxl-turbo":
       return buildSDXLTurboWorkflow(params);
-    case "qwen-edit":
-      return buildQwenEditWorkflow(params);
     case "hunyuan-3d":
       return buildHunyuan3DWorkflow(params);
+    // Black0S FLUX-based workflows
+    case "flux-gguf":
+      return buildFluxGGUFWorkflow(params);
+    case "flux-nunchaku":
+      return buildFluxNunchakuWorkflow(params);
+    case "sdxl-sd":
+      return buildSDXLSDWorkflow(params);
     default:
       throw new Error(`Unknown workflow preset: ${preset}`);
   }
@@ -132,8 +148,8 @@ function buildStableAudioWorkflow(params: WorkflowParams): Record<string, unknow
 
 function buildSDXLTurboWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
-  const width = params.width ?? 768;
-  const height = params.height ?? 768;
+  const width = params.width ?? 512;
+  const height = params.height ?? 512;
   const steps = params.steps ?? 4; // Turbo uses 1-4 steps
   const cfg = 1.0; // Turbo requires low CFG (1.0-2.0)
   const prompt = params.prompt ?? "a beautiful landscape";
@@ -274,148 +290,6 @@ function buildSDXLWorkflow(params: WorkflowParams): Record<string, unknown> {
 }
 
 // ============================================================================
-// Qwen Image Edit
-// ============================================================================
-
-function buildQwenEditWorkflow(params: WorkflowParams): Record<string, unknown> {
-  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
-  const instruction = params.instruction ?? "enhance the image";
-  const imageFilename = params.image_filename;
-
-  if (!imageFilename) {
-    throw new Error("image_filename is required for qwen-edit workflow");
-  }
-
-  return {
-    // Load the input image from ComfyUI input folder
-    "1": {
-      class_type: "LoadImage",
-      inputs: {
-        image: imageFilename,
-      },
-    },
-    // Load VAE
-    "39": {
-      class_type: "VAELoader",
-      inputs: {
-        vae_name: "qwen_image_vae.safetensors",
-      },
-    },
-    // Load CLIP (Qwen Image)
-    "38": {
-      class_type: "CLIPLoader",
-      inputs: {
-        clip_name: "qwen_2.5_vl_7b_fp8_scaled.safetensors",
-        type: "qwen_image",
-        device: "default",
-      },
-    },
-    // Load UNET
-    "37": {
-      class_type: "UNETLoader",
-      inputs: {
-        unet_name: "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
-        weight_dtype: "fp8_e4m3fn",
-      },
-    },
-    // Load LoRA for faster inference
-    "89": {
-      class_type: "LoraLoaderModelOnly",
-      inputs: {
-        model: ["37", 0],
-        lora_name: "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
-        strength_model: 1,
-      },
-    },
-    // Model sampling
-    "66": {
-      class_type: "ModelSamplingAuraFlow",
-      inputs: {
-        model: ["89", 0],
-        shift: 6,
-      },
-    },
-    // CFG normalization
-    "75": {
-      class_type: "CFGNorm",
-      inputs: {
-        model: ["66", 0],
-        strength: 1,
-      },
-    },
-    // Encode the input image
-    "88": {
-      class_type: "VAEEncode",
-      inputs: {
-        pixels: ["1", 0],
-        vae: ["39", 0],
-      },
-    },
-    // Encode the edit instruction with image context
-    "110": {
-      class_type: "TextEncodeQwenImageEditPlus",
-      inputs: {
-        clip: ["38", 0],
-        prompt: instruction,
-        vae: ["39", 0],
-        image1: ["1", 0],
-      },
-    },
-    // Empty conditioning for negative
-    "111": {
-      class_type: "TextEncodeQwenImageEditPlus",
-      inputs: {
-        clip: ["38", 0],
-        prompt: "",
-        vae: ["39", 0],
-        image1: ["1", 0],
-      },
-    },
-    // Empty latent for output size matching input
-    "112": {
-      class_type: "EmptySD3LatentImage",
-      inputs: {
-        width: 1024,
-        height: 1024,
-        batch_size: 1,
-      },
-    },
-    // KSampler
-    "3": {
-      class_type: "KSampler",
-      inputs: {
-        model: ["75", 0],
-        positive: ["110", 0],
-        negative: ["111", 0],
-        latent_image: ["88", 0],
-        seed: seed,
-        steps: 4, // Lightning LoRA uses 4 steps
-        cfg: 2.5,
-        sampler_name: "euler",
-        scheduler: "simple",
-        denoise: 0.8,
-      },
-    },
-    // Decode
-    "8": {
-      class_type: "VAEDecode",
-      inputs: {
-        samples: ["3", 0],
-        vae: ["39", 0],
-      },
-    },
-    // Save
-    "60": {
-      class_type: "SaveImage",
-      inputs: {
-        images: ["8", 0],
-        filename_prefix: "deck_edit",
-      },
-    },
-  };
-}
-
-// ============================================================================
 // Hunyuan 3D - Image to 3D Model
 // ============================================================================
 
@@ -537,6 +411,308 @@ function buildHunyuan3DWorkflow(params: WorkflowParams): Record<string, unknown>
       inputs: {
         mesh: ["12", 0],
         filename_prefix: "deck_3d",
+      },
+    },
+  };
+}
+
+// ============================================================================
+// FLUX GGUF - Text to Image (Q8 quantized FLUX)
+// Based on Black0S workflow - requires ~10-12GB VRAM
+// Models: flux1-dev-Q8_0.gguf, clip_l.safetensors, t5xxl_fp16.safetensors
+// ============================================================================
+
+function buildFluxGGUFWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const width = params.width ?? 1024;
+  const height = params.height ?? 1024;
+  const steps = params.steps ?? 20;
+  const cfg = params.cfg ?? 3.5;
+  const prompt = params.prompt ?? "a beautiful landscape";
+
+  return {
+    // Load CLIP models (dual encoder for FLUX)
+    "1": {
+      class_type: "DualCLIPLoaderGGUF",
+      inputs: {
+        clip_name1: "FLUX/clip_l.safetensors",
+        clip_name2: "FLUX/t5xxl_fp16.safetensors",
+        type: "flux",
+      },
+    },
+    // Load FLUX UNET (GGUF quantized)
+    "2": {
+      class_type: "UnetLoaderGGUF",
+      inputs: {
+        unet_name: "FLUX/flux1-dev-Q8_0.gguf",
+      },
+    },
+    // Load VAE
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: "FLUX/diffusion_pytorch_model.safetensors",
+      },
+    },
+    // CLIP Text Encode (positive)
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 0],
+        text: prompt,
+      },
+    },
+    // CLIP Text Encode (negative - empty for FLUX)
+    "5": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 0],
+        text: "",
+      },
+    },
+    // Empty latent
+    "6": {
+      class_type: "EmptyLatentImage",
+      inputs: {
+        width: width,
+        height: height,
+        batch_size: 1,
+      },
+    },
+    // KSampler
+    "7": {
+      class_type: "KSampler",
+      inputs: {
+        model: ["2", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        latent_image: ["6", 0],
+        seed: seed,
+        steps: steps,
+        cfg: cfg,
+        sampler_name: "euler",
+        scheduler: "simple",
+        denoise: 1,
+      },
+    },
+    // VAE Decode
+    "8": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["7", 0],
+        vae: ["3", 0],
+      },
+    },
+    // Save Image
+    "9": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["8", 0],
+        filename_prefix: "deck_flux_gguf",
+      },
+    },
+  };
+}
+
+// ============================================================================
+// FLUX Nunchaku - Text to Image (INT4 quantized FLUX - very fast!)
+// Based on Black0S workflow - requires only ~6-8GB VRAM
+// Models: svdq-int4_r32-flux.1-dev.safetensors (Nunchaku quantized)
+// ============================================================================
+
+function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const width = params.width ?? 1024;
+  const height = params.height ?? 1024;
+  const steps = params.steps ?? 20;
+  const cfg = params.cfg ?? 3.5;
+  const prompt = params.prompt ?? "a beautiful landscape";
+  const loraName = params.lora_name;
+  const loraStrength = params.lora_strength ?? 1.0;
+
+  const workflow: Record<string, unknown> = {
+    // Load CLIP models with Nunchaku loader
+    "1": {
+      class_type: "NunchakuTextEncoderLoaderV2",
+      inputs: {
+        model_type: "flux.1",
+        clip_l: "FLUX/clip_l.safetensors",
+        t5xxl: "FLUX/t5xxl_fp16.safetensors",
+        max_token_length: 512,
+      },
+    },
+    // Load FLUX DiT with Nunchaku INT4 quantization
+    "2": {
+      class_type: "NunchakuFluxDiTLoader",
+      inputs: {
+        model: "NUNCHAKU/svdq-int4_r32-flux.1-dev.safetensors",
+        cache_threshold: 0,
+        attention_mode: "nunchaku-fp16",
+        device: "auto",
+        offload_threshold: 0,
+        dtype: "bfloat16",
+        cpu_offload: "enabled",
+      },
+    },
+    // Load VAE
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: "FLUX/diffusion_pytorch_model.safetensors",
+      },
+    },
+    // CLIP Text Encode (positive)
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 0],
+        text: prompt,
+      },
+    },
+    // CLIP Text Encode (negative - empty for FLUX)
+    "5": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 0],
+        text: "",
+      },
+    },
+    // Empty latent
+    "6": {
+      class_type: "EmptyLatentImage",
+      inputs: {
+        width: width,
+        height: height,
+        batch_size: 1,
+      },
+    },
+    // KSampler
+    "7": {
+      class_type: "KSampler",
+      inputs: {
+        model: loraName ? ["10", 0] : ["2", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        latent_image: ["6", 0],
+        seed: seed,
+        steps: steps,
+        cfg: cfg,
+        sampler_name: "euler",
+        scheduler: "simple",
+        denoise: 1,
+      },
+    },
+    // VAE Decode
+    "8": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["7", 0],
+        vae: ["3", 0],
+      },
+    },
+    // Save Image
+    "9": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["8", 0],
+        filename_prefix: "deck_flux_nunchaku",
+      },
+    },
+  };
+
+  // Add LoRA if specified
+  if (loraName) {
+    workflow["10"] = {
+      class_type: "NunchakuFluxLoraLoader",
+      inputs: {
+        model: ["2", 0],
+        lora_name: loraName,
+        strength: loraStrength,
+      },
+    };
+  }
+
+  return workflow;
+}
+
+// ============================================================================
+// SDXL/SD Hybrid - Text to Image
+// Based on Black0S workflow - supports SDXL, Pony, Illustrious, SD models
+// Requires ~8-10GB VRAM
+// ============================================================================
+
+function buildSDXLSDWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const width = params.width ?? 1024;
+  const height = params.height ?? 1024;
+  const steps = params.steps ?? 25;
+  const cfg = params.cfg ?? 7;
+  const prompt = params.prompt ?? "a beautiful landscape";
+  const negativePrompt = params.negative_prompt ?? "blurry, low quality, distorted, deformed, ugly, bad anatomy";
+
+  return {
+    // Load Checkpoint (SDXL/Pony/Illustrious)
+    "1": {
+      class_type: "CheckpointLoaderSimple",
+      inputs: {
+        ckpt_name: "sd_xl_base_1.0.safetensors", // Default, can be swapped
+      },
+    },
+    // CLIP Text Encode (positive)
+    "2": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 1],
+        text: prompt,
+      },
+    },
+    // CLIP Text Encode (negative)
+    "3": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["1", 1],
+        text: negativePrompt,
+      },
+    },
+    // Empty latent
+    "4": {
+      class_type: "EmptyLatentImage",
+      inputs: {
+        width: width,
+        height: height,
+        batch_size: 1,
+      },
+    },
+    // KSampler
+    "5": {
+      class_type: "KSampler",
+      inputs: {
+        model: ["1", 0],
+        positive: ["2", 0],
+        negative: ["3", 0],
+        latent_image: ["4", 0],
+        seed: seed,
+        steps: steps,
+        cfg: cfg,
+        sampler_name: "dpmpp_2m",
+        scheduler: "karras",
+        denoise: 1,
+      },
+    },
+    // VAE Decode
+    "6": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["5", 0],
+        vae: ["1", 2],
+      },
+    },
+    // Save Image
+    "7": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["6", 0],
+        filename_prefix: "deck_sdxl",
       },
     },
   };

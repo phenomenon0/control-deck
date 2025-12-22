@@ -7,7 +7,25 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
 import { TOOL_DEFINITIONS } from "../tools/definitions";
+import { renderToolCatalogGlyph } from "../tools/render-glyph-catalog";
 import { isLiteMode, getSystemProfile } from "../system";
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+/**
+ * Environment variables for GLYPH control:
+ * - GLYPH_LLM_VIEW=1: Master switch for GLYPH in LLM context
+ * - GLYPH_TOOL_CATALOG=0: Disable GLYPH format for tool docs (enabled by default)
+ * 
+ * GLYPH is now enabled by default since it's tested and working with qwen3:8b.
+ * Set GLYPH_TOOL_CATALOG=0 to fall back to legacy verbose markdown format.
+ */
+const GLYPH_CONFIG = {
+  /** Use GLYPH format for tool catalog in system prompt (enabled by default) */
+  toolCatalog: process.env.GLYPH_TOOL_CATALOG !== "0",
+};
 
 // ============================================================================
 // Environment Detection
@@ -100,8 +118,36 @@ async function getEnvironmentBlock(): Promise<string> {
 // Tool Documentation
 // ============================================================================
 
+/**
+ * Get tool documentation for system prompt
+ * Uses GLYPH format when GLYPH_TOOL_CATALOG=1
+ */
 function getToolDocs(): string {
-  const lines: string[] = [];
+  // GLYPH format: compact, structured, LLM-optimized
+  if (GLYPH_CONFIG.toolCatalog) {
+    return renderToolCatalogGlyph();
+  }
+  
+  // Legacy format: verbose markdown
+  return getToolDocsLegacy();
+}
+
+/**
+ * Legacy tool documentation format (verbose markdown)
+ * Kept for fallback and comparison
+ */
+function getToolDocsLegacy(): string {
+  const lines: string[] = [
+    "# Tools",
+    "",
+    "To use a tool, output JSON in this exact format:",
+    "```json",
+    '{"tool": "tool_name", "args": {"param": "value"}}',
+    "```",
+    "",
+    "## Available Tools",
+    "",
+  ];
   
   for (const tool of TOOL_DEFINITIONS) {
     lines.push(`### ${tool.name}`);

@@ -32,6 +32,13 @@ export function VoiceOrb({ phase, audioLevel, size = 160 }: VoiceOrbProps) {
     const centerY = size / 2;
     const baseRadius = size * 0.25;
 
+    // OPTIMIZATION: Cache CSS variable lookup ONCE at effect start (not every frame)
+    // This prevents forced style recalculation on every animation frame (~60fps)
+    const accentColor = getComputedStyle(document.documentElement)
+      .getPropertyValue("--accent")
+      .trim() || "#8FA67A";
+    const baseRgb = hexToRgb(accentColor) || { r: 143, g: 166, b: 122 };
+
     const draw = () => {
       timeRef.current += 0.016; // ~60fps
       
@@ -42,23 +49,15 @@ export function VoiceOrb({ phase, audioLevel, size = 160 }: VoiceOrbProps) {
 
       ctx.clearRect(0, 0, size, size);
 
-      // Get accent color from CSS
-      const accentColor = getComputedStyle(document.documentElement)
-        .getPropertyValue("--accent")
-        .trim() || "#8FA67A";
-
-      // Parse accent color to RGB
-      const rgb = hexToRgb(accentColor) || { r: 143, g: 166, b: 122 };
-
-      // Phase-specific rendering
+      // Phase-specific rendering (using cached baseRgb)
       if (phase === "idle") {
-        drawIdleOrb(ctx, centerX, centerY, baseRadius, rgb, timeRef.current);
+        drawIdleOrb(ctx, centerX, centerY, baseRadius, baseRgb, timeRef.current);
       } else if (phase === "listening") {
-        drawListeningOrb(ctx, centerX, centerY, baseRadius, rgb, level, timeRef.current);
+        drawListeningOrb(ctx, centerX, centerY, baseRadius, baseRgb, level, timeRef.current);
       } else if (phase === "processing") {
-        drawProcessingOrb(ctx, centerX, centerY, baseRadius, rgb, timeRef.current);
+        drawProcessingOrb(ctx, centerX, centerY, baseRadius, baseRgb, timeRef.current);
       } else if (phase === "speaking") {
-        drawSpeakingOrb(ctx, centerX, centerY, baseRadius, rgb, level, timeRef.current);
+        drawSpeakingOrb(ctx, centerX, centerY, baseRadius, baseRgb, level, timeRef.current);
       }
 
       animationRef.current = requestAnimationFrame(draw);

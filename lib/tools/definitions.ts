@@ -111,6 +111,30 @@ export const ExecuteCodeSchema = z.object({
   }),
 });
 
+/**
+ * Search for semantically similar documents in VectorDB
+ */
+export const VectorSearchSchema = z.object({
+  name: z.literal("vector_search"),
+  args: z.object({
+    query: z.string().min(1).describe("Search query text"),
+    collection: z.string().optional().describe("Collection to search in (default: all)"),
+    k: z.number().int().min(1).max(100).default(5).describe("Number of results to return"),
+  }),
+});
+
+/**
+ * Store a document in VectorDB for semantic retrieval
+ */
+export const VectorStoreSchema = z.object({
+  name: z.literal("vector_store"),
+  args: z.object({
+    text: z.string().min(1).describe("Document text to store"),
+    collection: z.string().default("default").describe("Collection to store in"),
+    metadata: z.record(z.string(), z.string()).optional().describe("Optional metadata key-value pairs"),
+  }),
+});
+
 // ============================================================================
 // Union Schema - All Tools
 // ============================================================================
@@ -124,6 +148,8 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   WebSearchSchema,
   GlyphMotifSchema,
   ExecuteCodeSchema,
+  VectorSearchSchema,
+  VectorStoreSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -138,6 +164,8 @@ export type AnalyzeImageArgs = z.infer<typeof AnalyzeImageSchema>["args"];
 export type WebSearchArgs = z.infer<typeof WebSearchSchema>["args"];
 export type GlyphMotifArgs = z.infer<typeof GlyphMotifSchema>["args"];
 export type ExecuteCodeArgs = z.infer<typeof ExecuteCodeSchema>["args"];
+export type VectorSearchArgs = z.infer<typeof VectorSearchSchema>["args"];
+export type VectorStoreArgs = z.infer<typeof VectorStoreSchema>["args"];
 
 // ============================================================================
 // Tool Metadata for System Prompt Generation
@@ -229,6 +257,24 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "args", type: "array", required: false, description: "Command line arguments" },
       { name: "stdin", type: "string", required: false, description: "Standard input data" },
       { name: "timeout", type: "number", required: false, description: "Timeout in ms (1000-60000)", default: 30000 },
+    ],
+  },
+  {
+    name: "vector_search",
+    description: "Search for semantically similar documents in the local VectorDB. Use for: finding related information, semantic search, knowledge retrieval, finding context for questions.",
+    parameters: [
+      { name: "query", type: "string", required: true, description: "Search query - will find semantically similar documents" },
+      { name: "collection", type: "string", required: false, description: "Collection to search (omit to search all)" },
+      { name: "k", type: "number", required: false, description: "Number of results (1-100)", default: 5 },
+    ],
+  },
+  {
+    name: "vector_store",
+    description: "Store a document in VectorDB for future semantic retrieval. Use for: saving important information, building knowledge bases, storing facts for later retrieval.",
+    parameters: [
+      { name: "text", type: "string", required: true, description: "Document text to store" },
+      { name: "collection", type: "string", required: false, description: "Collection name", default: "default" },
+      { name: "metadata", type: "object", required: false, description: "Optional key-value metadata" },
     ],
   },
 ];

@@ -122,7 +122,7 @@ export function buildSpawnOptions(
   
   const spawnOpts: SpawnOptions = {
     cwd: workDir,
-    env: sandboxEnv,
+    env: sandboxEnv as NodeJS.ProcessEnv,
     stdio: ["pipe", "pipe", "pipe"],
     timeout: 0, // We handle timeout ourselves
   };

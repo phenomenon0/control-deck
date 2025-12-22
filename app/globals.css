@@ -2914,3 +2914,43 @@ model-viewer {
   color: var(--text-secondary);
   font-family: ui-monospace, monospace;
 }
+
+/* =============================================================================
+   LEFT SIDEBAR
+   ============================================================================= */
+
+/* Thread item hover - show delete button */
+.thread-item:hover .thread-delete-btn {
+  opacity: 0.5;
+}
+
+.thread-item:hover .thread-delete-btn:hover {
+  opacity: 1;
+}
+
+/* Sidebar collapse animation */
+.sidebar-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  border-right: none !important;
+}
+
+/* Thread group styling */
+.thread-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 8px 12px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* New chat button */
+.new-chat-btn {
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.new-chat-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border-bright);
+}

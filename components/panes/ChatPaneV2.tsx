@@ -28,10 +28,6 @@ interface Thread {
   lastMessageAt: string;
 }
 
-interface OllamaModel {
-  name: string;
-}
-
 // localStorage keys
 const THREADS_KEY = "deck:threads";
 const ACTIVE_THREAD_KEY = "deck:activeThread";
@@ -237,7 +233,7 @@ function groupThreadsByDate(threads: Thread[]): { label: string; threads: Thread
 
 export default function ChatPaneV2() {
   // Settings from centralized provider
-  const { prefs, setSettingsOpen, railOpen, setRailOpen, setRailTab, sidebarOpen, setSidebarOpen } = useDeckSettings();
+  const { prefs, sidebarOpen, setSidebarOpen } = useDeckSettings();
 
   // Core state
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -245,11 +241,9 @@ export default function ChatPaneV2() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [models, setModels] = useState<OllamaModel[]>([]);
   const [searchStatus, setSearchStatus] = useState<string | null>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [uploadTrayOpen, setUploadTrayOpen] = useState(false);
-  const [serviceStatus, setServiceStatus] = useState({ ollama: false, comfy: false });
 
   // Voice state (using prefs from settings provider)
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
@@ -351,28 +345,6 @@ export default function ChatPaneV2() {
       setSpeakingMessageId(null);
     }
   }, [isLoading, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat, voiceModeOpen]);
-
-  // Fetch models and service status
-  useEffect(() => {
-    const checkStatus = async () => {
-      const [ollamaRes, comfyRes] = await Promise.all([
-        fetch("/api/ollama/tags").then((r) => r.ok).catch(() => false),
-        fetch("/api/comfy/history").then((r) => r.ok).catch(() => false),
-      ]);
-      setServiceStatus({ ollama: ollamaRes, comfy: comfyRes });
-    };
-
-    fetch("/api/ollama/tags")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.models) setModels(data.models);
-      })
-      .catch((err) => console.error("[ChatPane] Failed to fetch models:", err));
-
-    checkStatus();
-    const interval = setInterval(checkStatus, 30000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Subscribe to SSE events with reconnection support
   useEffect(() => {
@@ -1151,6 +1123,7 @@ export default function ChatPaneV2() {
         >
           <button
             onClick={handleNewThread}
+            className="new-chat-btn"
             style={{
               flex: 1,
               background: "var(--bg-tertiary)",
@@ -1212,6 +1185,7 @@ export default function ChatPaneV2() {
                   <div
                     key={t.id}
                     onClick={() => handleSelectThread(t.id)}
+                    className="thread-item"
                     style={{
                       padding: "10px 12px",
                       borderRadius: 6,
@@ -1230,6 +1204,7 @@ export default function ChatPaneV2() {
                     </span>
                     <button
                       onClick={(e) => handleDeleteThread(t.id, e)}
+                      className="thread-delete-btn"
                       style={{
                         background: "none",
                         border: "none",
@@ -1240,9 +1215,6 @@ export default function ChatPaneV2() {
                         padding: "0 4px",
                         transition: "opacity 0.15s",
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.7")}
-                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}
-                      className="thread-delete-btn"
                     >
                       ×
                     </button>
@@ -1299,129 +1271,18 @@ export default function ChatPaneV2() {
         onAddMore={() => fileInputRef.current?.click()}
       />
 
-      {/* Header */}
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 20px",
-          borderBottom: "1px solid var(--separator)",
-          fontFamily: "system-ui, -apple-system, sans-serif",
-        }}
-      >
-        {!sidebarOpen && (
-          <button
-            onClick={() => setSidebarOpen(true)}
-            title="Open sidebar (Cmd+B)"
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: 4,
-              marginRight: 8,
-            }}
-          >
-            ☰
-          </button>
-        )}
-
-        {/* Model chip - click to open settings */}
-        <button
-          onClick={() => setSettingsOpen(true)}
-          style={{
-            background: "var(--bg-secondary)",
-            border: "1px solid var(--border)",
-            color: "var(--text-secondary)",
-            fontSize: 12,
-            fontFamily: "ui-monospace, monospace",
-            cursor: "pointer",
-            padding: "4px 12px",
-            borderRadius: 16,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-          title="Click to change model"
-        >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: serviceStatus.ollama ? "#4ade80" : "#ef4444" }} />
-          {selectedModel}
-        </button>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Service indicators */}
-          <div style={{ display: "flex", gap: 4 }} title={`Ollama: ${serviceStatus.ollama ? "on" : "off"} | Comfy: ${serviceStatus.comfy ? "on" : "off"}`}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: serviceStatus.ollama ? "#4ade80" : "#6b7280" }} />
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: serviceStatus.comfy ? "#4ade80" : "#6b7280" }} />
-          </div>
-
-          {/* Voice status indicator */}
-          {prefs.voice.enabled && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                padding: "2px 8px",
-                borderRadius: 12,
-                background: "var(--bg-secondary)",
-                fontSize: 11,
-                color: "var(--text-muted)",
-              }}
-              title={`Voice: ${prefs.voice.mode} / ${prefs.voice.ttsEngine}`}
-            >
-              <MicIcon size={12} />
-              <span>{prefs.voice.mode === "push-to-talk" ? "PTT" : "VAD"}</span>
-            </div>
-          )}
-
-          {/* Inspector/Rail button */}
-          <button
-            onClick={() => {
-              setRailOpen(!railOpen);
-              if (!railOpen) setRailTab("inspector");
-            }}
-            style={{
-              background: railOpen ? "var(--accent)" : "none",
-              border: "none",
-              color: railOpen ? "var(--bg-primary)" : "var(--text-muted)",
-              cursor: "pointer",
-              padding: 4,
-              borderRadius: 4,
-              display: "flex",
-              alignItems: "center",
-            }}
-            title="Inspector (Cmd+I)"
-          >
-            <InspectorIcon size={16} />
-          </button>
-
-          {/* Settings button */}
-          <button
-            onClick={() => setSettingsOpen(true)}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              padding: 4,
-              display: "flex",
-              alignItems: "center",
-            }}
-            title="Settings (Cmd+,)"
-          >
-            <SettingsIcon size={16} />
-          </button>
-        </div>
-      </header>
-
       {/* Messages */}
       <main style={{ flex: 1, overflowY: "auto" }}>
-        <div style={{ maxWidth: 800, margin: "0 auto", padding: "20px 40px 64px" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", padding: "20px 40px 64px" }}>
           {messages.length === 0 ? (
-            <div style={{ marginTop: 80 }}>
+            <div style={{ 
+              display: "flex", 
+              flexDirection: "column", 
+              alignItems: "center", 
+              justifyContent: "center",
+              minHeight: "50vh",
+              paddingTop: "10vh"
+            }}>
               <p style={{ color: "var(--text-muted)", fontSize: 18, fontStyle: "italic" }}>
                 What&apos;s on your mind?
               </p>
@@ -1433,7 +1294,7 @@ export default function ChatPaneV2() {
               <div style={{ marginTop: 24, display: "flex", flexWrap: "wrap", gap: 8 }}>
                 <ShortcutHint keys={["Cmd", "K"]} label="Commands" />
                 <ShortcutHint keys={["Cmd", ","]} label="Settings" />
-                <ShortcutHint keys={["Cmd", "I"]} label="Inspector" />
+                <ShortcutHint keys={["Cmd", "B"]} label="Sidebar" />
                 {prefs.voice.enabled && <ShortcutHint keys={["Cmd", "Shift", "V"]} label="Voice Mode" />}
               </div>
             </div>
@@ -1493,7 +1354,7 @@ export default function ChatPaneV2() {
           borderTop: "1px solid var(--separator)",
           background: "var(--bg-primary)",
           padding: "12px 20px",
-          maxWidth: 800 + 80,
+          maxWidth: 960 + 80,
           margin: "0 auto",
           width: "100%",
         }}
@@ -1758,27 +1619,6 @@ function SendIcon({ size = 16 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="m22 2-7 20-4-9-9-4Z" />
       <path d="M22 2 11 13" />
-    </svg>
-  );
-}
-
-function SettingsIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-function InspectorIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
     </svg>
   );
 }

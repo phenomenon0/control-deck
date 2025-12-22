@@ -165,13 +165,13 @@ export function RightRail({
           </section>
         )}
 
-        {/* ===== TOOL CALLS (inspectable) ===== */}
-        <section className="sidebar-section">
-          <h4 className="section-title">
-            Tool Calls
-            {toolCalls.length > 0 && <span className="count-badge">{toolCalls.length}</span>}
-          </h4>
-          {toolCalls.length > 0 ? (
+        {/* ===== TOOL CALLS (only show when has calls) ===== */}
+        {toolCalls.length > 0 && (
+          <section className="sidebar-section">
+            <h4 className="section-title">
+              Tool Calls
+              <span className="count-badge">{toolCalls.length}</span>
+            </h4>
             <div className="tool-calls-list">
               {toolCalls.slice(-6).reverse().map((tc) => (
                 tc.status === "complete" && tc.result ? (
@@ -184,23 +184,21 @@ export function RightRail({
                 <div className="more-indicator">+{toolCalls.length - 6} more in Runs →</div>
               )}
             </div>
-          ) : (
-            <div className="empty-hint">No tool calls yet</div>
-          )}
-        </section>
+          </section>
+        )}
 
-        {/* ===== FILES/ARTIFACTS (collapsible) ===== */}
-        <section className="sidebar-section">
-          <button 
-            className="section-title-btn"
-            onClick={() => setFilesExpanded(!filesExpanded)}
-          >
-            <span className={`section-chevron ${filesExpanded ? "open" : ""}`}>›</span>
-            <span>Files</span>
-            {artifacts.length > 0 && <span className="count-badge">{artifacts.length}</span>}
-          </button>
-          {filesExpanded && (
-            artifacts.length > 0 ? (
+        {/* ===== FILES/ARTIFACTS (only show when has files) ===== */}
+        {artifacts.length > 0 && (
+          <section className="sidebar-section">
+            <button 
+              className="section-title-btn"
+              onClick={() => setFilesExpanded(!filesExpanded)}
+            >
+              <span className={`section-chevron ${filesExpanded ? "open" : ""}`}>›</span>
+              <span>Files</span>
+              <span className="count-badge">{artifacts.length}</span>
+            </button>
+            {filesExpanded && (
               <div className="artifacts-grid">
                 {artifacts.slice(-6).map((a, idx) => (
                   <ArtifactThumb 
@@ -210,22 +208,9 @@ export function RightRail({
                   />
                 ))}
               </div>
-            ) : (
-              <div className="empty-hint">Generated files appear here</div>
-            )
-          )}
-        </section>
-
-        {/* ===== QUICK TOOLS ===== */}
-        <section className="sidebar-section">
-          <h4 className="section-title">Quick</h4>
-          <div className="quick-tools">
-            <QuickTool icon="🎨" label="Image" onClick={() => onSendMessage?.("Generate an image of ")} />
-            <QuickTool icon="🎵" label="Audio" onClick={() => onSendMessage?.("Generate audio: ")} />
-            <QuickTool icon="🔍" label="Search" onClick={() => onSendMessage?.("Search for ")} />
-            <QuickTool icon="💻" label="Code" onClick={() => onSendMessage?.("Write code that ")} />
-          </div>
-        </section>
+            )}
+          </section>
+        )}
 
         {/* ===== THEME ===== */}
         <section className="sidebar-section">
@@ -273,7 +258,7 @@ export function RightRail({
             Thread: {threadId.slice(0, 8)}...
           </span>
         ) : (
-          <span className="thread-id">No active thread</span>
+          <span className="thread-id">New conversation</span>
         )}
       </div>
 
@@ -291,18 +276,6 @@ export function RightRail({
 // =============================================================================
 // Sub-components
 // =============================================================================
-
-function ServicePill({ service }: { service: { name: string; status: string; latencyMs?: number } }) {
-  const isOnline = service.status === "online";
-  const shortName = service.name.replace("API", "").replace("UI", "").trim();
-  
-  return (
-    <div className={`service-pill ${isOnline ? "online" : "offline"}`} title={`${service.name}: ${service.status}${service.latencyMs ? ` (${service.latencyMs}ms)` : ""}`}>
-      <span className="service-dot" />
-      <span>{shortName}</span>
-    </div>
-  );
-}
 
 function ToolCallRow({ tool }: { tool: ToolCallData }) {
   const [expanded, setExpanded] = useState(false);
@@ -449,15 +422,6 @@ function ArtifactModal({ artifact, onClose }: { artifact: Artifact; onClose: () 
         </div>
       </div>
     </div>
-  );
-}
-
-function QuickTool({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
-  return (
-    <button className="quick-tool" onClick={onClick} title={label}>
-      <span>{icon}</span>
-      <span>{label}</span>
-    </button>
   );
 }
 

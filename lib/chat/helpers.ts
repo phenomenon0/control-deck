@@ -6,6 +6,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   artifacts?: Artifact[];
+  /** Persisted metadata — tool call summaries, upload refs, etc. */
+  metadata?: Record<string, unknown>;
 }
 
 export interface Thread {

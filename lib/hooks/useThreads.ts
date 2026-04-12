@@ -43,11 +43,13 @@ export function useThreads() {
                 role: string;
                 content: string;
                 artifacts?: Artifact[];
+                metadata?: Record<string, unknown>;
               }) => ({
                 id: m.id,
                 role: m.role as "user" | "assistant",
                 content: m.content,
                 artifacts: m.artifacts,
+                metadata: m.metadata ?? undefined,
               })
             )
           );

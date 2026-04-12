@@ -31,6 +31,39 @@ import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
+import type { AgentActivitySegment, ActivityStep } from "@/lib/types/agentRun";
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+/** Truncate string values in tool args to keep metadata compact */
+function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    result[key] = typeof value === "string" && value.length > 200
+      ? value.slice(0, 200) + "..."
+      : value;
+  }
+  return result;
+}
+
+/** Extract tool call summaries from segments for persistence */
+function extractToolSummaries(segments: import("@/lib/types/agentRun").TimelineSegment[]) {
+  return segments
+    .filter((s): s is AgentActivitySegment => s.type === "agent-activity")
+    .flatMap((s) => s.steps)
+    .filter((step) => step.status !== "running") // Only persist completed/errored steps
+    .map((step) => ({
+      toolCallId: step.toolCallId,
+      toolName: step.toolName,
+      args: step.args ? truncateArgs(step.args) : undefined,
+      status: step.status as "complete" | "error",
+      durationMs: step.durationMs,
+      success: step.result?.success ?? true,
+      error: step.result?.error,
+    }));
+}
 
 // =============================================================================
 // ChatSurface component
@@ -180,6 +213,27 @@ export default function ChatSurface() {
           uploads: uploads?.length ? uploads : undefined,
         });
       } else if (msg.role === "assistant") {
+        // Reconstruct tool activity from persisted metadata (before text)
+        const toolCalls = msg.metadata?.toolCalls;
+        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+          historySegments.push({
+            id: nextId(),
+            type: "agent-activity",
+            timestamp: 0,
+            steps: toolCalls.map((tc: { toolCallId?: string; toolName: string; args?: Record<string, unknown>; status?: string; durationMs?: number; success?: boolean; error?: string }) => ({
+              toolCallId: tc.toolCallId || crypto.randomUUID(),
+              toolName: tc.toolName,
+              args: tc.args,
+              status: (tc.status === "error" ? "error" : "complete") as ActivityStep["status"],
+              result: {
+                success: tc.success ?? true,
+                error: tc.error,
+              },
+              durationMs: tc.durationMs,
+              startedAt: 0,
+            })),
+          });
+        }
         historySegments.push({
           id: nextId(),
           type: "agent-message",
@@ -458,13 +512,14 @@ export default function ChatSurface() {
 
     // Persist assistant message on completion
     if (result.ok && result.fullText) {
-      // Also extract any artifacts from segments and attach to the message
+      // Extract artifacts and tool call summaries from segments
       const runArtifacts: Artifact[] = [];
       for (const seg of agentRun.state.segments) {
         if (seg.type === "artifact") {
           runArtifacts.push(seg.artifact);
         }
       }
+      const toolCallSummaries = extractToolSummaries(agentRun.state.segments);
 
       const assistantMessage: Message = {
         id: assistantId,
@@ -476,6 +531,8 @@ export default function ChatSurface() {
       // Update messages state with the completed assistant message
       setMessages((prev) => [...prev, assistantMessage]);
 
+      // Persist with tool call metadata for history reconstruction
+      const metadata = toolCallSummaries.length > 0 ? { toolCalls: toolCallSummaries } : undefined;
       fetch("/api/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -486,6 +543,7 @@ export default function ChatSurface() {
           role: "assistant",
           content: result.fullText,
           runId: result.runId,
+          metadata,
         }),
       }).catch((err) => console.error("[ChatSurface] Failed to save assistant message:", err));
 

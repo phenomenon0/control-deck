@@ -8,6 +8,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { AlertTriangle } from "lucide-react";
 
 interface InterruptRequest {
   runId: string;
@@ -119,7 +120,7 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
         {/* Header */}
         <div className="interrupt-header">
           <div className={`interrupt-header-icon interrupt-header-icon--${riskModifier}`}>
-            ⚠️
+            <AlertTriangle size={20} />
           </div>
           <div>
             <h3 className="interrupt-title">Approval Required</h3>

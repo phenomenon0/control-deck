@@ -30,8 +30,9 @@ import { UploadTray } from "@/components/chat/UploadTray";
 import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
+import { useCanvas } from "@/lib/hooks/useCanvas";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
-import type { AgentActivitySegment, ActivityStep } from "@/lib/types/agentRun";
+import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
 
 // =============================================================================
 // Helpers
@@ -163,6 +164,38 @@ export default function ChatSurface() {
       toolCalls,
     });
   }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector]);
+
+  // ---------------------------------------------------------------------------
+  // Canvas auto-open: open artifacts in canvas when created during a run
+  // (Restores behavior lost in iteration 6 when useSSE was replaced by useAgentRun)
+  // ---------------------------------------------------------------------------
+  const canvas = useCanvas();
+  const openedArtifactIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const artifactSegments = segments.filter(
+      (s): s is ArtifactSegment => s.type === "artifact"
+    );
+    for (const seg of artifactSegments) {
+      const artifactId = seg.artifact.id;
+      if (openedArtifactIdsRef.current.has(artifactId)) continue;
+      openedArtifactIdsRef.current.add(artifactId);
+
+      // Only auto-open for code execution results and images during a live run
+      if (!isRunning) continue;
+      canvas.openArtifact({
+        id: artifactId,
+        url: seg.artifact.url,
+        name: seg.artifact.name,
+        mimeType: seg.artifact.mimeType,
+      });
+    }
+  }, [segments, isRunning, canvas]);
+
+  // Clear tracked artifact IDs when switching threads
+  useEffect(() => {
+    openedArtifactIdsRef.current.clear();
+  }, [effectiveThreadId]);
 
   // ---------------------------------------------------------------------------
   // Elapsed time for StatusStrip

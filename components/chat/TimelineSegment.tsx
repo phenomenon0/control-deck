@@ -114,7 +114,7 @@ function AgentTextBlock({
       )}
       {segment.complete && !segment.isStreaming && (
         <div className="run-complete-indicator tl-complete-label">
-          <Check size={12} style={{ color: "var(--agent-done)" }} />
+          <Check size={12} />
           <span>Complete</span>
         </div>
       )}

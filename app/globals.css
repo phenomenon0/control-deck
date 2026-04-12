@@ -1159,6 +1159,7 @@ code, pre, .mono, kbd, .font-mono {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
 }
+.tl-complete-label svg { color: var(--agent-done); }
 
 /* --- Artifact Card (DESIGN.md §3.3) --- */
 .tl-artifact {
@@ -2180,6 +2181,164 @@ code, pre, .mono, kbd, .font-mono {
   font-size: var(--text-xs, 13px);
   margin-top: 8px;
   opacity: 0.6;
+}
+
+/* --- ReasoningDisplay: Thinking + Chain-of-thought (BEHAVIOR.md §3.2) --- */
+
+/* ThinkingIndicator */
+.rd-thinking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--sp-2, 8px) var(--sp-3, 14px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 6px);
+  margin-bottom: var(--sp-2, 8px);
+  max-width: 200px;
+}
+
+.rd-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.rd-dot--active {
+  background: var(--accent);
+}
+
+.rd-thinking-text {
+  font-size: var(--text-xs, 13px);
+  color: var(--text-secondary);
+}
+
+/* Shared: bubble + trace container */
+.rd-container {
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  overflow: hidden;
+  margin-bottom: var(--sp-2, 8px);
+}
+.rd-container--bubble { max-width: 500px; }
+.rd-container--trace { max-width: 550px; margin-bottom: var(--sp-3, 12px); }
+
+/* Shared: collapsible header button */
+.rd-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--sp-2, 8px) var(--sp-3, 12px);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: background var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+.rd-header:hover {
+  background: rgba(var(--accent-rgb), 0.04);
+}
+
+.rd-header-title {
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.rd-header-title--bold { font-weight: 600; }
+
+.rd-header-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.rd-chevron {
+  color: var(--text-muted);
+  transform: rotate(0deg);
+  transition: transform var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+.rd-chevron--open {
+  transform: rotate(180deg);
+}
+.rd-chevron--auto-ml {
+  margin-left: auto;
+}
+
+/* ReasoningBubble content */
+.rd-bubble-content {
+  padding: var(--sp-2, 8px) var(--sp-3, 12px) 10px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs, 13px);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-left: 28px;
+}
+
+/* Streaming cursor (blink keyframe already in globals.css) */
+.rd-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: var(--accent);
+  margin-left: 2px;
+  animation: blink 1s infinite;
+}
+.rd-cursor--sm { height: 12px; }
+
+/* ReasoningTrace step count badge */
+.rd-trace-count {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md, 6px);
+  color: var(--text-muted);
+}
+
+.rd-trace-active {
+  font-size: 10px;
+  color: var(--accent);
+  margin-left: auto;
+}
+
+/* ReasoningTrace steps timeline */
+.rd-trace-steps {
+  padding: var(--sp-2, 8px) var(--sp-3, 12px);
+}
+
+.rd-trace-step {
+  position: relative;
+  padding-left: 20px;
+  border-left: 2px solid var(--border);
+  margin-left: 6px;
+}
+.rd-trace-step--gap { padding-bottom: 12px; }
+
+.rd-trace-step-dot {
+  position: absolute;
+  left: -5px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.rd-trace-step-text {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.rd-trace-step-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
 }
 
 /* --- InterruptDialog: Approval Modal (BEHAVIOR.md §7.2) --- */

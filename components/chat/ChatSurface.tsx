@@ -19,7 +19,7 @@ import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { useThreads } from "@/lib/hooks/useThreads";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
-import { useRightRailSlot } from "@/lib/hooks/useRightRail";
+import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
 import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
 import { ThreadSidebar } from "@/components/chat/ThreadSidebar";
@@ -138,16 +138,10 @@ export default function ChatSurface() {
   });
 
   // ---------------------------------------------------------------------------
-  // Right Rail sync
+  // Inspector sync (SURFACE.md §5.4 — single update replaces 6 push effects)
   // ---------------------------------------------------------------------------
-  const rightRail = useRightRailSlot();
+  const updateInspector = useChatInspectorUpdate();
 
-  useEffect(() => { rightRail.setThreadId(activeThreadId); }, [activeThreadId, rightRail]);
-  useEffect(() => { rightRail.setModel(selectedModel); }, [selectedModel, rightRail]);
-  useEffect(() => { rightRail.setIsLoading(isRunning); }, [isRunning, rightRail]);
-  useEffect(() => { rightRail.setArtifacts(messages.flatMap((m) => m.artifacts || [])); }, [messages, rightRail]);
-
-  // Expose tool calls from segments for right rail
   useEffect(() => {
     const toolCalls = segments
       .filter((s) => s.type === "agent-activity")
@@ -161,14 +155,14 @@ export default function ChatSurface() {
         durationMs: step.durationMs,
         startedAt: step.startedAt,
       }));
-    rightRail.setToolCalls(toolCalls);
-  }, [segments, rightRail]);
-
-  const sendMessageToInput = useCallback((text: string) => {
-    setInputValue(text);
-    inputRef.current?.focus();
-  }, []);
-  useEffect(() => { rightRail.setOnSendMessage(sendMessageToInput); }, [sendMessageToInput, rightRail]);
+    updateInspector({
+      threadId: activeThreadId,
+      model: selectedModel,
+      isLoading: isRunning,
+      artifacts: messages.flatMap((m) => m.artifacts || []),
+      toolCalls,
+    });
+  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector]);
 
   // ---------------------------------------------------------------------------
   // Elapsed time for StatusStrip

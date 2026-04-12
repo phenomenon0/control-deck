@@ -8,7 +8,7 @@ import { SettingsDrawer } from "./settings/SettingsDrawer";
 import { CanvasProvider, useCanvas } from "@/lib/hooks/useCanvas";
 import { CanvasPanel } from "./canvas/CanvasPanel";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { RightRailProvider } from "@/lib/hooks/useRightRail";
+import { ChatInspectorProvider } from "@/lib/hooks/useChatInspector";
 import { Sidebar } from "./shell/Sidebar";
 import { TopBar } from "./shell/TopBar";
 import { InspectorSheet } from "./InspectorSheet";
@@ -102,9 +102,9 @@ export function DeckShell({ children }: { children: React.ReactNode }) {
     <DeckSettingsProvider>
       <CanvasProvider>
         <CanvasKeyboardHandler>
-          <RightRailProvider>
+          <ChatInspectorProvider>
             <DeckShellInner>{children}</DeckShellInner>
-          </RightRailProvider>
+          </ChatInspectorProvider>
         </CanvasKeyboardHandler>
       </CanvasProvider>
     </DeckSettingsProvider>

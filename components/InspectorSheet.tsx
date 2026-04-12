@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Cpu, Wrench, FileText } from "lucide-react";
-import { useRightRailData } from "@/lib/hooks/useRightRail";
+import { useChatInspectorData } from "@/lib/hooks/useChatInspector";
 import { useSystemStats } from "@/lib/hooks/useSystemStats";
 import { useModels } from "@/lib/hooks/useModels";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
@@ -37,7 +37,7 @@ function formatModelName(model: string): string {
 // =============================================================================
 
 export function InspectorSheet({ open, onClose }: InspectorSheetProps) {
-  const { threadId, model, isLoading, toolCalls, artifacts } = useRightRailData();
+  const { threadId, model, isLoading, toolCalls, artifacts } = useChatInspectorData();
   const { stats: systemStats } = useSystemStats();
   const { models } = useModels();
   const { prefs, updatePrefs } = useDeckSettings();

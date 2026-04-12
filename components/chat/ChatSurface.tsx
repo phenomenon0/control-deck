@@ -590,12 +590,7 @@ export default function ChatSurface() {
   // ---------------------------------------------------------------------------
   return (
     <div
-      style={{
-        height: "100%",
-        display: "flex",
-        background: "var(--bg-primary)",
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-      }}
+      className="cs-root"
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
     >
@@ -612,17 +607,14 @@ export default function ChatSurface() {
       />
 
       {/* Main chat column */}
-      <main
-        aria-label="Chat"
-        style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}
-      >
+      <main aria-label="Chat" className="cs-main">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
           multiple
-          style={{ display: "none" }}
+          hidden
           onChange={(e) => {
             const files = e.target.files;
             if (files) {
@@ -646,12 +638,12 @@ export default function ChatSurface() {
           isStreaming={isStreaming}
           onRetry={handleRetry}
           emptyState={
-            <div style={{ textAlign: "center", paddingBottom: 32 }}>
-              <p style={{ color: "var(--text-muted)", fontSize: 14, fontWeight: 400, margin: 0 }}>
+            <div className="cs-empty">
+              <p className="cs-empty-primary">
                 What&apos;s on your mind?
               </p>
               {prefs.voice.enabled && (
-                <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 8, opacity: 0.6 }}>
+                <p className="cs-empty-hint">
                   {prefs.voice.mode === "push-to-talk" ? "Hold spacebar to speak" : "Click mic to talk"}
                 </p>
               )}

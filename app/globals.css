@@ -1773,6 +1773,213 @@ code, pre, .mono, kbd, .font-mono {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* --- RichText: Code Block (DESIGN.md §3.2) --- */
+
+.rt-code-block {
+  position: relative;
+  background: var(--bg-secondary, #121215);
+  border-radius: var(--radius-md, 8px);
+  margin: var(--sp-3, 12px) 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.rt-code-pre {
+  padding: 14px 16px;
+  margin: 0;
+  overflow: auto;
+  font-size: var(--text-sm, 13px);
+  line-height: 1.6;
+  font-family: var(--font-mono, 'Geist Mono', 'SF Mono', ui-monospace, Consolas, monospace);
+}
+
+.rt-code-text {
+  color: var(--text-primary);
+}
+
+.rt-code-lang {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.rt-code-actions {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast, 120ms) var(--ease-out, ease-out);
+}
+
+.rt-code-block:hover .rt-code-actions {
+  opacity: 1;
+}
+
+.rt-code-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: background var(--t-micro, 80ms) ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rt-code-btn:hover {
+  background: var(--bg-secondary);
+}
+
+.rt-code-btn--exec {
+  color: var(--success);
+  background: var(--success-muted);
+  border-color: var(--success);
+}
+
+.rt-code-btn--exec:hover {
+  filter: brightness(1.1);
+}
+
+/* --- RichText: Inline Formatting --- */
+
+.rt-bold {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rt-inline-code {
+  font-family: var(--font-mono, 'Geist Mono', monospace);
+  font-size: 0.9em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-tertiary, rgba(255,255,255,0.06));
+  color: var(--text-primary);
+}
+
+.rt-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--t-micro, 80ms) ease;
+}
+
+.rt-link:hover {
+  border-bottom-color: var(--accent);
+}
+
+/* --- RichText: Block Elements --- */
+
+.rt-heading {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.rt-heading--1 {
+  font-size: var(--text-lg, 18px);
+  margin-top: 20px;
+}
+
+.rt-heading--2 {
+  font-size: var(--text-base, 16px);
+  margin-top: 16px;
+}
+
+.rt-heading--3 {
+  font-size: var(--text-sm, 14px);
+  margin-top: 16px;
+}
+
+.rt-heading:first-child {
+  margin-top: 0;
+}
+
+.rt-list {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.rt-list--ul {
+  list-style-type: disc;
+}
+
+.rt-list--ol {
+  list-style-type: decimal;
+}
+
+.rt-list-item {
+  font-size: var(--text-sm, 14px);
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.rt-blockquote {
+  margin: var(--sp-3, 12px) 0;
+  padding-left: 14px;
+  border-left: 3px solid var(--border-bright, rgba(255,255,255,0.12));
+  color: var(--text-secondary);
+  font-style: italic;
+  font-size: var(--text-sm, 14px);
+  line-height: 1.6;
+}
+
+.rt-paragraph {
+  margin: 8px 0;
+  font-size: var(--text-sm, 14px);
+  line-height: 1.6;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* --- ChatSurface: Layout --- */
+
+.cs-root {
+  height: 100%;
+  display: flex;
+  background: var(--bg-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.cs-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cs-empty {
+  text-align: center;
+  padding-bottom: var(--sp-6, 32px);
+}
+
+.cs-empty-primary {
+  color: var(--text-muted);
+  font-size: var(--text-sm, 14px);
+  font-weight: 400;
+  margin: 0;
+}
+
+.cs-empty-hint {
+  color: var(--text-muted);
+  font-size: var(--text-xs, 13px);
+  margin-top: 8px;
+  opacity: 0.6;
+}
+
 /* =============================================================================
    PANE SYSTEM
    ============================================================================= */

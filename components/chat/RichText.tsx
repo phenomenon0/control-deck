@@ -68,7 +68,6 @@ function stripContent(content: string): string {
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const { openCode } = useCanvas();
   const [copied, setCopied] = useState(false);
-  const [hovered, setHovered] = useState(false);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -88,97 +87,20 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
   ].includes(language?.toLowerCase() || "");
 
   return (
-    <div
-      style={{
-        position: "relative",
-        background: "var(--bg-secondary, #121215)",
-        borderRadius: "var(--radius-md, 8px)",
-        margin: "12px 0",
-        overflow: "hidden",
-        border: "1px solid var(--border)",
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <pre
-        style={{
-          padding: "14px 16px",
-          margin: 0,
-          overflow: "auto",
-          fontSize: 13,
-          lineHeight: 1.6,
-          fontFamily: "var(--font-mono, 'Geist Mono', 'SF Mono', ui-monospace, Consolas, monospace)",
-        }}
-      >
-        <code style={{ color: "var(--text-primary)" }}>{code}</code>
+    <div className="rt-code-block">
+      <pre className="rt-code-pre">
+        <code className="rt-code-text">{code}</code>
       </pre>
 
-      {/* Language tag */}
-      {language && (
-        <span
-          style={{
-            position: "absolute",
-            top: 8,
-            right: 12,
-            fontSize: 10,
-            color: "var(--text-tertiary)",
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-            fontWeight: 500,
-            pointerEvents: "none",
-          }}
-        >
-          {language}
-        </span>
-      )}
+      {language && <span className="rt-code-lang">{language}</span>}
 
-      {/* Action buttons — visible on hover */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 8,
-          right: 8,
-          display: "flex",
-          gap: 4,
-          opacity: hovered ? 1 : 0,
-          transition: "opacity var(--t-fast, 120ms) var(--ease-out, ease-out)",
-        }}
-      >
-        <button
-          onClick={handleCopy}
-          style={{
-            padding: "4px 10px",
-            fontSize: 11,
-            fontWeight: 500,
-            color: "var(--text-secondary)",
-            background: "var(--bg-tertiary)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm, 4px)",
-            cursor: "pointer",
-            transition: "background var(--t-micro, 80ms) ease",
-          }}
-        >
+      <div className="rt-code-actions">
+        <button onClick={handleCopy} className="rt-code-btn">
           {copied ? "Copied!" : "Copy"}
         </button>
-
         <button
           onClick={handleOpenCanvas}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            padding: "4px 10px",
-            fontSize: 11,
-            fontWeight: 500,
-            color: isExecutable ? "var(--success)" : "var(--text-secondary)",
-            background: isExecutable ? "var(--success-muted)" : "var(--bg-tertiary)",
-            border: isExecutable
-              ? "1px solid var(--success)"
-              : "1px solid var(--border)",
-            borderRadius: "var(--radius-sm, 4px)",
-            cursor: "pointer",
-            transition: "background var(--t-micro, 80ms) ease",
-          }}
+          className={`rt-code-btn ${isExecutable ? "rt-code-btn--exec" : ""}`}
         >
           <Maximize2 width={10} height={10} />
           {isExecutable ? "Run" : "Canvas"}
@@ -218,7 +140,7 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
         index: boldMatch.index,
         length: boldMatch[0].length,
         node: (
-          <strong key={`${keyPrefix}-b${key}`} style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+          <strong key={`${keyPrefix}-b${key}`} className="rt-bold">
             {parseInline(boldMatch[1], `${keyPrefix}-b${key}`)}
           </strong>
         ),
@@ -232,17 +154,7 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
         index: codeMatch.index,
         length: codeMatch[0].length,
         node: (
-          <code
-            key={`${keyPrefix}-c${key}`}
-            style={{
-              fontFamily: "var(--font-mono, 'Geist Mono', monospace)",
-              fontSize: "0.9em",
-              padding: "2px 6px",
-              borderRadius: "var(--radius-sm, 4px)",
-              background: "var(--bg-tertiary, rgba(255,255,255,0.06))",
-              color: "var(--text-primary)",
-            }}
-          >
+          <code key={`${keyPrefix}-c${key}`} className="rt-inline-code">
             {codeMatch[1]}
           </code>
         ),
@@ -261,14 +173,7 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              color: "var(--accent)",
-              textDecoration: "none",
-              borderBottom: "1px solid transparent",
-              transition: "border-color var(--t-micro, 80ms) ease",
-            }}
-            onMouseEnter={(e) => { (e.target as HTMLElement).style.borderBottomColor = "var(--accent)"; }}
-            onMouseLeave={(e) => { (e.target as HTMLElement).style.borderBottomColor = "transparent"; }}
+            className="rt-link"
           >
             {linkMatch[1]}
           </a>
@@ -283,7 +188,7 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
         index: italicMatch.index,
         length: italicMatch[0].length,
         node: (
-          <em key={`${keyPrefix}-e${key}`} style={{ fontStyle: "italic" }}>
+          <em key={`${keyPrefix}-e${key}`}>
             {parseInline(italicMatch[1], `${keyPrefix}-e${key}`)}
           </em>
         ),
@@ -409,20 +314,9 @@ function parseBlocks(text: string): Block[] {
 function renderBlock(block: Block, index: number): ReactNode {
   switch (block.type) {
     case "heading": {
-      const fontSize = block.level === 1 ? 18 : block.level === 2 ? 16 : 14;
-      const marginTop = block.level === 1 ? 20 : 16;
+      const levelClass = `rt-heading--${block.level || 1}`;
       return (
-        <div
-          key={`block-${index}`}
-          style={{
-            fontSize,
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            marginTop: index === 0 ? 0 : marginTop,
-            marginBottom: 8,
-            lineHeight: 1.4,
-          }}
-        >
+        <div key={`block-${index}`} className={`rt-heading ${levelClass}`}>
           {parseInline(block.content, `h${index}`)}
         </div>
       );
@@ -430,24 +324,9 @@ function renderBlock(block: Block, index: number): ReactNode {
 
     case "ul":
       return (
-        <ul
-          key={`block-${index}`}
-          style={{
-            margin: "8px 0",
-            paddingLeft: 20,
-            listStyleType: "disc",
-          }}
-        >
+        <ul key={`block-${index}`} className="rt-list rt-list--ul">
           {block.items?.map((item, j) => (
-            <li
-              key={j}
-              style={{
-                fontSize: 14,
-                lineHeight: 1.6,
-                color: "var(--text-primary)",
-                marginBottom: 4,
-              }}
-            >
+            <li key={j} className="rt-list-item">
               {parseInline(item, `ul${index}-${j}`)}
             </li>
           ))}
@@ -456,24 +335,9 @@ function renderBlock(block: Block, index: number): ReactNode {
 
     case "ol":
       return (
-        <ol
-          key={`block-${index}`}
-          style={{
-            margin: "8px 0",
-            paddingLeft: 20,
-            listStyleType: "decimal",
-          }}
-        >
+        <ol key={`block-${index}`} className="rt-list rt-list--ol">
           {block.items?.map((item, j) => (
-            <li
-              key={j}
-              style={{
-                fontSize: 14,
-                lineHeight: 1.6,
-                color: "var(--text-primary)",
-                marginBottom: 4,
-              }}
-            >
+            <li key={j} className="rt-list-item">
               {parseInline(item, `ol${index}-${j}`)}
             </li>
           ))}
@@ -482,18 +346,7 @@ function renderBlock(block: Block, index: number): ReactNode {
 
     case "blockquote":
       return (
-        <blockquote
-          key={`block-${index}`}
-          style={{
-            margin: "12px 0",
-            paddingLeft: 14,
-            borderLeft: "3px solid var(--border-bright, rgba(255,255,255,0.12))",
-            color: "var(--text-secondary)",
-            fontStyle: "italic",
-            fontSize: 14,
-            lineHeight: 1.6,
-          }}
-        >
+        <blockquote key={`block-${index}`} className="rt-blockquote">
           {parseInline(block.content, `bq${index}`)}
         </blockquote>
       );
@@ -501,16 +354,7 @@ function renderBlock(block: Block, index: number): ReactNode {
     case "paragraph":
     default:
       return (
-        <p
-          key={`block-${index}`}
-          style={{
-            margin: "8px 0",
-            fontSize: 14,
-            lineHeight: 1.6,
-            color: "var(--text-primary)",
-            wordBreak: "break-word",
-          }}
-        >
+        <p key={`block-${index}`} className="rt-paragraph">
           {parseInline(block.content, `p${index}`)}
         </p>
       );

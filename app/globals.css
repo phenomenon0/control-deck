@@ -1983,6 +1983,148 @@ code, pre, .mono, kbd, .font-mono {
   opacity: 0.6;
 }
 
+/* --- InterruptDialog: Approval Modal (BEHAVIOR.md §7.2) --- */
+
+.interrupt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.interrupt-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  padding: var(--sp-5, 24px);
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+
+.interrupt-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3, 12px);
+  margin-bottom: var(--sp-4, 16px);
+}
+
+.interrupt-header-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md, 8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.interrupt-header-icon--warning {
+  background: var(--warning-muted);
+}
+
+.interrupt-header-icon--error {
+  background: var(--error-muted);
+}
+
+.interrupt-title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.interrupt-subtitle {
+  margin: 0;
+  font-size: var(--text-xs, 13px);
+  color: var(--text-muted);
+}
+
+.interrupt-tool-info {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--sp-3, 12px);
+  margin-bottom: var(--sp-4, 16px);
+}
+
+.interrupt-tool-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  margin-bottom: var(--sp-2, 8px);
+}
+
+.interrupt-tool-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+}
+
+.interrupt-tool-badge--warning {
+  background: var(--warning-muted);
+  color: var(--warning);
+}
+
+.interrupt-tool-badge--error {
+  background: var(--error-muted);
+  color: var(--error);
+}
+
+.interrupt-args {
+  font-size: var(--text-xs, 13px);
+  color: var(--text-secondary);
+}
+
+.interrupt-arg-row {
+  margin-bottom: 4px;
+}
+
+.interrupt-arg-key {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+}
+
+.interrupt-arg-value {
+  font-family: var(--font-mono, monospace);
+}
+
+.interrupt-actions {
+  display: flex;
+  gap: var(--sp-3, 12px);
+  justify-content: flex-end;
+}
+
+.interrupt-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity var(--t-fast, 100ms) var(--ease-out);
+}
+
+.interrupt-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.interrupt-btn--reject {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.interrupt-btn--approve {
+  border: none;
+  background: var(--accent);
+  color: white;
+}
+
 /* =============================================================================
    PANE SYSTEM
    ============================================================================= */

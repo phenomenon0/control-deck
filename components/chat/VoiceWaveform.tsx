@@ -13,32 +13,12 @@ export function VoiceWaveform({ audioLevel, isRecording, transcript, className =
   if (!isRecording) return null;
 
   return (
-    <div
-      className={`voice-waveform ${className}`}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        flex: 1,
-        minWidth: 0,
-      }}
-    >
+    <div className={`voice-waveform vw-container ${className}`}>
       {/* Waveform bars */}
       <WaveformBars level={audioLevel} />
 
       {/* Transcript preview */}
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          color: "var(--text-secondary)",
-          fontSize: 16,
-          fontStyle: "italic",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <div className="vw-transcript">
         {transcript ? `"${transcript}"` : "Listening..."}
       </div>
     </div>
@@ -51,36 +31,24 @@ function WaveformBars({ level }: { level: number }) {
   const maxHeight = 20;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 2,
-        height: maxHeight,
-      }}
-    >
+    <div className="vw-bars" style={{ height: maxHeight }}>
       {Array.from({ length: barCount }).map((_, i) => {
         // Create wave pattern - center bars are taller
         const centerOffset = Math.abs(i - Math.floor(barCount / 2));
         const baseMultiplier = 1 - centerOffset * 0.2;
         const barLevel = level * baseMultiplier;
-        
+
         // Add some randomness for organic feel
         const randomOffset = Math.sin(Date.now() / 100 + i * 0.5) * 0.2;
         const finalLevel = Math.max(0.2, Math.min(1, barLevel + randomOffset));
-        
+
         const height = minHeight + finalLevel * (maxHeight - minHeight);
 
         return (
           <div
             key={i}
-            style={{
-              width: 3,
-              height,
-              borderRadius: 2,
-              background: "var(--accent)",
-              transition: "height 0.05s ease-out",
-            }}
+            className="vw-bar"
+            style={{ height }}
           />
         );
       })}
@@ -151,7 +119,7 @@ export function AnimatedWaveform({ isActive }: { isActive: boolean }) {
       ref={canvasRef}
       width={32}
       height={24}
-      style={{ display: "block" }}
+      className="vw-canvas"
     />
   );
 }
@@ -161,15 +129,7 @@ export function RecordingIndicator({ isRecording }: { isRecording: boolean }) {
   if (!isRecording) return null;
 
   return (
-    <span
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: "50%",
-        background: "var(--error)",
-        animation: "pulse 1s ease-in-out infinite",
-      }}
-    />
+    <span className="vw-rec-dot" />
   );
 }
 
@@ -187,15 +147,7 @@ export function VoiceInputIndicator({
 }) {
   if (isProcessing) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          color: "var(--text-muted)",
-          fontSize: 14,
-        }}
-      >
+      <div className="vw-processing">
         <LoadingSpinner size={16} />
         <span>Processing...</span>
       </div>
@@ -205,28 +157,10 @@ export function VoiceInputIndicator({
   if (!isRecording) return null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        flex: 1,
-        minWidth: 0,
-      }}
-    >
+    <div className="vw-indicator">
       <RecordingIndicator isRecording />
       <WaveformBars level={audioLevel} />
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          color: "var(--text-secondary)",
-          fontSize: 15,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
+      <span className="vw-indicator-text">
         {transcript || "Listening..."}
       </span>
     </div>

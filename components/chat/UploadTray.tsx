@@ -152,7 +152,7 @@ function UploadItem({ upload, onRemove }: { upload: PendingUpload; onRemove: () 
         </div>
         <button
           onClick={onRemove}
-          className="bg-transparent border-none text-[var(--text-muted)] cursor-pointer p-1 rounded transition-all hover:bg-red-500/10 hover:text-red-400"
+          className="bg-transparent border-none text-[var(--text-muted)] cursor-pointer p-1 rounded transition-all hover:bg-[var(--error-muted)] hover:text-[var(--error)]"
           title="Remove"
         >
           <Trash2 size={16} />

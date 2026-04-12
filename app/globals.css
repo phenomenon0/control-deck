@@ -2483,6 +2483,78 @@ code, pre, .mono, kbd, .font-mono {
   color: white;
 }
 
+/* --- VoiceWaveform: Voice UI Components (vw-* namespace) --- */
+
+.vw-container {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  flex: 1;
+  min-width: 0;
+}
+
+.vw-transcript {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-base, 16px);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vw-bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.vw-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: height 0.05s ease-out;
+}
+
+.vw-canvas {
+  display: block;
+}
+
+.vw-rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--error);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.vw-processing {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  color: var(--text-muted);
+  font-size: var(--text-sm, 14px);
+}
+
+.vw-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  flex: 1;
+  min-width: 0;
+}
+
+.vw-indicator-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* =============================================================================
    PANE SYSTEM
    ============================================================================= */

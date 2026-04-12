@@ -53,7 +53,7 @@ export function AudioLevelIndicator({
           style={{
             width: dimensions.ringBase + normalizedLevel * 12,
             height: dimensions.ringBase + normalizedLevel * 12,
-            background: `rgba(94, 106, 210, ${0.06 + normalizedLevel * 0.1})`,
+            background: `rgba(var(--accent-rgb), ${0.06 + normalizedLevel * 0.1})`,
             transition: "all 100ms cubic-bezier(0, 0, 0.2, 1)",
           }}
         />
@@ -71,7 +71,7 @@ export function AudioLevelIndicator({
       >
         <MicIcon
           size={dimensions.icon}
-          color={isActive ? "#FFFFFF" : "var(--text-muted)"}
+          color={isActive ? "var(--text-on-accent)" : "var(--text-muted)"}
         />
       </div>
     </div>
@@ -154,7 +154,7 @@ function PulseIndicator({
       >
         <MicIcon
           size={dimensions.icon}
-          color={isActive ? "#FFFFFF" : "var(--text-muted)"}
+          color={isActive ? "var(--text-on-accent)" : "var(--text-muted)"}
         />
       </div>
     </div>

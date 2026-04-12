@@ -87,6 +87,8 @@ export interface AgentMessageSegment extends SegmentBase {
   isStreaming: boolean;
   /** Set to true by RUN_FINISHED to show completion indicator (BEHAVIOR.md §3.4 step 5) */
   complete?: boolean;
+  /** Set to true by STOP to show "[Response stopped]" indicator (BEHAVIOR.md §7.3 step 4) */
+  stopped?: boolean;
 }
 
 /** Inline error block — shown when a run fails (BEHAVIOR.md §7.1) */

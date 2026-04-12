@@ -9,7 +9,7 @@ import type {
   ArtifactSegment,
   ErrorSegment,
 } from "@/lib/types/agentRun";
-import { Check, AlertCircle, RotateCcw } from "lucide-react";
+import { Check, AlertCircle, RotateCcw, Square } from "lucide-react";
 import { ReasoningBubble } from "./ReasoningDisplay";
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ArtifactRenderer } from "./ArtifactRenderer";
@@ -112,7 +112,13 @@ function AgentTextBlock({
       {segment.isStreaming && isLast && (
         <span className="animate-thinking-pulse tl-streaming-cursor" />
       )}
-      {segment.complete && !segment.isStreaming && (
+      {segment.stopped && !segment.isStreaming && (
+        <div className="tl-stopped-label">
+          <Square size={10} />
+          <span>Response stopped</span>
+        </div>
+      )}
+      {segment.complete && !segment.isStreaming && !segment.stopped && (
         <div className="run-complete-indicator tl-complete-label">
           <Check size={12} />
           <span>Complete</span>

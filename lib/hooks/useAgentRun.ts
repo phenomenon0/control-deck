@@ -362,13 +362,13 @@ export function agentRunReducer(
       };
     }
 
-    // ── User stops the run ──
+    // ── User stops the run (BEHAVIOR.md §7.3) ──
     case "STOP": {
       let segs = state.segments;
       segs = updateLastSegment(
         segs,
         (s) => s.type === "agent-message" && (s as AgentMessageSegment).isStreaming,
-        (s) => ({ ...s, isStreaming: false } as AgentMessageSegment)
+        (s) => ({ ...s, isStreaming: false, stopped: true } as AgentMessageSegment)
       );
       segs = updateLastSegment(
         segs,

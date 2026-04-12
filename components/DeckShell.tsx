@@ -9,6 +9,7 @@ import { CanvasProvider, useCanvas } from "@/lib/hooks/useCanvas";
 import { CanvasPanel } from "./canvas/CanvasPanel";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ChatInspectorProvider } from "@/lib/hooks/useChatInspector";
+import { ThreadManagerProvider } from "@/lib/hooks/useThreadManager";
 import { Sidebar } from "./shell/Sidebar";
 import { TopBar } from "./shell/TopBar";
 import { InspectorSheet } from "./InspectorSheet";
@@ -100,13 +101,15 @@ function CanvasKeyboardHandler({ children }: { children: React.ReactNode }) {
 export function DeckShell({ children }: { children: React.ReactNode }) {
   return (
     <DeckSettingsProvider>
-      <CanvasProvider>
-        <CanvasKeyboardHandler>
-          <ChatInspectorProvider>
-            <DeckShellInner>{children}</DeckShellInner>
-          </ChatInspectorProvider>
-        </CanvasKeyboardHandler>
-      </CanvasProvider>
+      <ThreadManagerProvider>
+        <CanvasProvider>
+          <CanvasKeyboardHandler>
+            <ChatInspectorProvider>
+              <DeckShellInner>{children}</DeckShellInner>
+            </ChatInspectorProvider>
+          </CanvasKeyboardHandler>
+        </CanvasProvider>
+      </ThreadManagerProvider>
     </DeckSettingsProvider>
   );
 }

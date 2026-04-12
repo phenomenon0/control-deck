@@ -16,7 +16,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
-import { useThreads } from "@/lib/hooks/useThreads";
+import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
 import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
@@ -82,7 +82,7 @@ export default function ChatSurface() {
     threadGroups, effectiveThreadId, fallbackThreadId,
     setActiveThreadId, createThread, selectThread, deleteThread,
     setThreads,
-  } = useThreads();
+  } = useThreadManager();
 
   // ---------------------------------------------------------------------------
   // File uploads

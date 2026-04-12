@@ -56,7 +56,7 @@ export function useThreads() {
         }
       })
       .catch((err) =>
-        console.error("[ChatPane] Failed to load messages:", err)
+        console.error("[useThreads] Failed to load messages:", err)
       );
   }, [activeThreadId]);
 
@@ -104,7 +104,7 @@ export function useThreads() {
       setMessages([]);
     }
     fetch(`/api/threads?id=${id}`, { method: "DELETE" }).catch((err) =>
-      console.error("[ChatPane] Failed to delete thread:", err)
+      console.error("[useThreads] Failed to delete thread:", err)
     );
   };
 
@@ -138,7 +138,6 @@ export function useThreads() {
     deleteThread,
     updateThreadTitle,
     resetFallbackThreadId,
-    // Expose setThreads for sendMessage's title polling
     setThreads,
   };
 }

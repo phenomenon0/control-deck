@@ -21,12 +21,14 @@ interface ChatTimelineProps {
   isStreaming?: boolean;
   /** Render when timeline is empty */
   emptyState?: React.ReactNode;
+  /** Callback when user clicks Retry on an error segment */
+  onRetry?: () => void;
 }
 
 /** Distance from bottom (px) within which auto-scroll stays active */
 const SCROLL_THRESHOLD = 100;
 
-export function ChatTimeline({ segments, isStreaming = false, emptyState }: ChatTimelineProps) {
+export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetry }: ChatTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollPill, setShowScrollPill] = useState(false);
@@ -112,6 +114,7 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState }: Chat
               key={segment.id}
               segment={segment}
               isLast={idx === segments.length - 1}
+              onRetry={segment.type === "error" ? onRetry : undefined}
             />
           ))}
           <div ref={bottomRef} />

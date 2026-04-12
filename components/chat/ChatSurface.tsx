@@ -469,6 +469,14 @@ export default function ChatSurface() {
     agentRun.stop();
   }, [agentRun]);
 
+  // Retry: re-send the last user message (BEHAVIOR.md §7.1)
+  // Uses sendMessageRef which is updated every render with latest onSubmit closure
+  const handleRetry = useCallback(() => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    sendMessageRef.current(lastUserMsg.content);
+  }, [messages]);
+
   const handleMicClick = () => {
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
     if (prefs.voice.mode === "vad") {
@@ -544,10 +552,11 @@ export default function ChatSurface() {
           onAddMore={() => fileInputRef.current?.click()}
         />
 
-        {/* Timeline — renders segments from useAgentRun */}
+        {/* Timeline - renders segments from useAgentRun */}
         <ChatTimeline
           segments={segments}
           isStreaming={isStreaming}
+          onRetry={handleRetry}
           emptyState={
             <div style={{ textAlign: "center", paddingBottom: 32 }}>
               <p style={{ color: "var(--text-muted)", fontSize: 14, fontWeight: 400, margin: 0 }}>

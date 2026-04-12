@@ -20,6 +20,7 @@ import type {
   AgentActivitySegment,
   AgentMessageSegment,
   AgentReasoningSegment,
+  ErrorSegment,
 } from "@/lib/types/agentRun";
 import { INITIAL_AGENT_RUN_STATE } from "@/lib/types/agentRun";
 
@@ -139,6 +140,12 @@ export function agentRunReducer(
         (s) => s.type === "agent-reasoning" && (s as AgentReasoningSegment).isStreaming,
         (s) => ({ ...s, isStreaming: false } as AgentReasoningSegment)
       );
+      // Mark the last agent-message as complete (BEHAVIOR.md §3.4 step 5)
+      segs = updateLastSegment(
+        segs,
+        (s) => s.type === "agent-message",
+        (s) => ({ ...s, complete: true } as AgentMessageSegment)
+      );
       return {
         ...state,
         runState: { phase: "idle" },
@@ -155,6 +162,15 @@ export function agentRunReducer(
         (s) => s.type === "agent-message" && (s as AgentMessageSegment).isStreaming,
         (s) => ({ ...s, isStreaming: false } as AgentMessageSegment)
       );
+      // Append inline error segment (BEHAVIOR.md §7.1)
+      const errorSeg: ErrorSegment = {
+        id: nextSegmentId(),
+        type: "error",
+        timestamp: now,
+        error: action.error,
+        retryable: !action.error.toLowerCase().includes("fatal"),
+      };
+      segs = [...segs, errorSeg];
       return {
         ...state,
         runState: { phase: "error", runId: action.runId, error: action.error },

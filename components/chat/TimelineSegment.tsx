@@ -7,7 +7,9 @@ import type {
   AgentActivitySegment,
   AgentMessageSegment,
   ArtifactSegment,
+  ErrorSegment,
 } from "@/lib/types/agentRun";
+import { Check, AlertCircle, RotateCcw } from "lucide-react";
 import { ReasoningBubble } from "./ReasoningDisplay";
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ArtifactRenderer } from "./ArtifactRenderer";
@@ -25,9 +27,11 @@ interface TimelineSegmentProps {
   segment: TSegment;
   /** Whether this is the most recent segment (affects streaming indicators) */
   isLast?: boolean;
+  /** Callback when user clicks Retry on an error segment */
+  onRetry?: () => void;
 }
 
-export function TimelineSegment({ segment, isLast = false }: TimelineSegmentProps) {
+export function TimelineSegment({ segment, isLast = false, onRetry }: TimelineSegmentProps) {
   switch (segment.type) {
     case "user-message":
       return <UserMessageBlock segment={segment} />;
@@ -39,6 +43,8 @@ export function TimelineSegment({ segment, isLast = false }: TimelineSegmentProp
       return <AgentTextBlock segment={segment} isLast={isLast} />;
     case "artifact":
       return <ArtifactBlock segment={segment} />;
+    case "error":
+      return <ErrorBlock segment={segment} onRetry={onRetry} />;
     default:
       return null;
   }
@@ -162,6 +168,26 @@ function AgentTextBlock({
           }}
         />
       )}
+      {/* Completion indicator (BEHAVIOR.md §3.4 step 5) */}
+      {segment.complete && !segment.isStreaming && (
+        <div
+          className="run-complete-indicator"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            marginTop: 8,
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+          }}
+        >
+          <Check
+            size={12}
+            style={{ color: "var(--agent-done)" }}
+          />
+          <span>Complete</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -188,6 +214,72 @@ function ArtifactBlock({ segment }: { segment: ArtifactSegment }) {
       >
         <ArtifactRenderer artifact={segment.artifact} />
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Error — inline error block with retry (BEHAVIOR.md §7.1)
+// =============================================================================
+
+function ErrorBlock({
+  segment,
+  onRetry,
+}: {
+  segment: ErrorSegment;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      className="timeline-enter-assistant"
+      style={{
+        background: "var(--error-muted)",
+        borderLeft: "2px solid var(--error)",
+        borderRadius: "0 var(--radius-md, 6px) var(--radius-md, 6px) 0",
+        padding: "var(--sp-3, 12px) var(--sp-4, 16px)",
+        margin: "var(--sp-3, 12px) 0",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      <AlertCircle
+        size={16}
+        style={{ color: "var(--error)", flexShrink: 0 }}
+      />
+      <span
+        style={{
+          flex: 1,
+          fontSize: 13,
+          color: "var(--text-primary)",
+          lineHeight: 1.5,
+        }}
+      >
+        {segment.error}
+      </span>
+      {segment.retryable && onRetry && (
+        <button
+          onClick={onRetry}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "4px 12px",
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--accent)",
+            background: "var(--accent-muted)",
+            border: "1px solid var(--border-accent)",
+            borderRadius: 9999,
+            cursor: "pointer",
+            flexShrink: 0,
+            transition: "background var(--t-micro, 80ms) ease",
+          }}
+        >
+          <RotateCcw size={12} />
+          Retry
+        </button>
+      )}
     </div>
   );
 }

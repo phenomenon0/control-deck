@@ -85,6 +85,16 @@ export interface AgentMessageSegment extends SegmentBase {
   messageId: string;
   content: string;
   isStreaming: boolean;
+  /** Set to true by RUN_FINISHED to show completion indicator (BEHAVIOR.md §3.4 step 5) */
+  complete?: boolean;
+}
+
+/** Inline error block — shown when a run fails (BEHAVIOR.md §7.1) */
+export interface ErrorSegment extends SegmentBase {
+  type: "error";
+  error: string;
+  /** Whether retry is possible (network errors vs. fatal errors) */
+  retryable: boolean;
 }
 
 /** Work product: image, code, audio, 3D model, etc. */
@@ -100,7 +110,8 @@ export type TimelineSegment =
   | AgentReasoningSegment
   | AgentActivitySegment
   | AgentMessageSegment
-  | ArtifactSegment;
+  | ArtifactSegment
+  | ErrorSegment;
 
 export type TimelineSegmentType = TimelineSegment["type"];
 

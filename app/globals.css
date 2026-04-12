@@ -1056,6 +1056,15 @@ code, pre, .mono, kbd, .font-mono {
   animation: timeline-artifact-enter var(--t-standard, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
 
+/* Run completion indicator (BEHAVIOR.md §3.4 step 5) */
+.run-complete-indicator {
+  animation: run-complete-fade var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+@keyframes run-complete-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* Status strip entrance */
 @keyframes status-strip-enter {
   from { opacity: 0; }

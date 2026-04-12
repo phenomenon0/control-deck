@@ -1343,6 +1343,128 @@ code, pre, .mono, kbd, .font-mono {
   animation: badge-shimmer 2s linear infinite;
 }
 
+/* =============================================================================
+   AgentActivityBlock — grouped tool execution styling (DESIGN.md §3.2)
+   ============================================================================= */
+
+/* Main block container */
+.activity-block {
+  background: var(--agent-surface);
+  border-left: 2px solid var(--border-bright);
+  border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
+  padding: var(--sp-3, 12px) var(--sp-4, 16px);
+  margin: var(--sp-3, 12px) 0;
+  transition: border-color var(--t-fast, 150ms) ease;
+}
+.activity-block--error { border-left-color: var(--error); }
+.activity-block--running { border-left-color: var(--accent); }
+
+/* Collapsible header button */
+.activity-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 0;
+  transition: margin-bottom var(--t-fast, 150ms) ease;
+}
+.activity-header--open { margin-bottom: 4px; }
+
+.activity-header-icon {
+  flex-shrink: 0;
+  color: var(--success);
+}
+.activity-header-icon--error { color: var(--error); }
+
+.activity-header-text {
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.activity-header-chevron {
+  color: var(--text-tertiary);
+  transform: rotate(0deg);
+  transition: transform var(--t-fast, 150ms) cubic-bezier(0, 0, 0.2, 1);
+}
+.activity-header-chevron--open { transform: rotate(180deg); }
+
+/* Step row */
+.activity-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.activity-step-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.activity-step-icon--running { color: var(--agent-working); }
+.activity-step-icon--error { color: var(--error); }
+
+.activity-step-label {
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.activity-step-arg {
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.activity-step-meta {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-step-duration {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+/* Status badge */
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background var(--t-fast, 150ms) ease, color var(--t-fast, 150ms) ease;
+}
+.activity-badge--running {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+.activity-badge--complete {
+  background: var(--success-muted);
+  color: var(--success);
+}
+.activity-badge--error {
+  background: var(--error-muted);
+  color: var(--error);
+}
+
 /* Activity block — smooth height expand/collapse (BEHAVIOR.md §3.2, §3.4)
    Uses CSS grid trick: grid-template-rows 0fr→1fr animates to/from auto height */
 .activity-block-enter {

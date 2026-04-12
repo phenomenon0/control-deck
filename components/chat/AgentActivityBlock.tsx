@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Wrench, Search, Code, Image, Volume2, Sparkles, Check, AlertCircle, Play } from "lucide-react";
+import { ChevronDown, Wrench, Search, Code, Image, Volume2, Sparkles, Check, Play } from "lucide-react";
 import type { ActivityStep, AgentActivitySegment } from "@/lib/types/agentRun";
 import { formatDuration } from "@/lib/constants/status";
 
@@ -31,44 +31,12 @@ function getToolConfig(toolName: string) {
 // =============================================================================
 
 function StepStatusBadge({ status }: { status: ActivityStep["status"] }) {
-  const config = {
-    running: {
-      bg: "var(--accent-muted)",
-      color: "var(--accent)",
-      label: "running",
-      animate: true,
-    },
-    complete: {
-      bg: "var(--success-muted)",
-      color: "var(--success)",
-      label: "done",
-      animate: false,
-    },
-    error: {
-      bg: "var(--error-muted)",
-      color: "var(--error)",
-      label: "error",
-      animate: false,
-    },
-  }[status];
-
+  const label = status === "complete" ? "done" : status;
   return (
     <span
-      className={config.animate ? "activity-badge-shimmer" : ""}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "1px 8px",
-        borderRadius: 9999,
-        fontSize: 11,
-        fontWeight: 500,
-        background: config.bg,
-        color: config.color,
-        transition: "background var(--t-fast, 150ms) ease, color var(--t-fast, 150ms) ease",
-      }}
+      className={`activity-badge activity-badge--${status}${status === "running" ? " activity-badge-shimmer" : ""}`}
     >
-      {config.label}
+      {label}
     </span>
   );
 }
@@ -80,65 +48,25 @@ function StepStatusBadge({ status }: { status: ActivityStep["status"] }) {
 function ActivityStepRow({ step }: { step: ActivityStep }) {
   const config = getToolConfig(step.toolName);
   const Icon = config.icon;
-  const mainArg = step.args
-    ? getMainArg(step.args)
-    : null;
+  const mainArg = step.args ? getMainArg(step.args) : null;
+
+  const iconClass = `activity-step-icon${
+    step.status === "running" ? " activity-step-icon--running" :
+    step.status === "error" ? " activity-step-icon--error" : ""
+  }`;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 0",
-      }}
-    >
-      <Icon
-        size={14}
-        style={{
-          color:
-            step.status === "running"
-              ? "var(--agent-working)"
-              : step.status === "error"
-              ? "var(--error)"
-              : "var(--text-secondary)",
-          flexShrink: 0,
-        }}
-      />
-      <span
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: "var(--text-secondary)",
-          flexShrink: 0,
-        }}
-      >
-        {config.label}
-      </span>
+    <div className="activity-step">
+      <Icon size={14} className={iconClass} />
+      <span className="activity-step-label">{config.label}</span>
       {mainArg && (
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--text-tertiary)",
-            flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
+        <span className="activity-step-arg">
           &ldquo;{truncate(mainArg, 50)}&rdquo;
         </span>
       )}
-      <span style={{ flexShrink: 0, marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+      <span className="activity-step-meta">
         {step.durationMs != null && step.status !== "running" && (
-          <span
-            style={{
-              fontSize: 11,
-              fontFamily: "var(--font-mono)",
-              color: "var(--text-tertiary)",
-            }}
-          >
+          <span className="activity-step-duration">
             {formatDuration(step.durationMs)}
           </span>
         )}
@@ -171,63 +99,26 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
     ? `${steps.length} tool${steps.length > 1 ? "s" : ""} completed${hasError ? " (with errors)" : ""}`
     : `${runningCount} running, ${steps.length - runningCount} done`;
 
-  const borderColor = hasError
-    ? "var(--error)"
-    : !allDone
-    ? "var(--accent)"
-    : "var(--border-bright)";
+  const blockClass = `activity-block activity-block-enter${
+    hasError ? " activity-block--error" : !allDone ? " activity-block--running" : ""
+  }`;
 
   return (
-    <div
-      className="activity-block-enter"
-      style={{
-        background: "var(--agent-surface)",
-        borderLeft: `2px solid ${borderColor}`,
-        borderRadius: "0 var(--radius-md, 6px) var(--radius-md, 6px) 0",
-        padding: "var(--sp-3, 12px) var(--sp-4, 16px)",
-        margin: "var(--sp-3, 12px) 0",
-        transition: "border-color var(--t-fast, 150ms) ease",
-      }}
-    >
+    <div className={blockClass}>
       {/* Collapsible header for multi-step blocks */}
       {hasMultiple && allDone && (
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            width: "100%",
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-            textAlign: "left",
-            marginBottom: isExpanded ? 4 : 0,
-            transition: "margin-bottom var(--t-fast, 150ms) ease",
-          }}
+          className={`activity-header${isExpanded ? " activity-header--open" : ""}`}
         >
           <Check
             size={14}
-            style={{ color: hasError ? "var(--error)" : "var(--success)", flexShrink: 0 }}
+            className={`activity-header-icon${hasError ? " activity-header-icon--error" : ""}`}
           />
-          <span
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--text-secondary)",
-              flex: 1,
-            }}
-          >
-            {summaryText}
-          </span>
+          <span className="activity-header-text">{summaryText}</span>
           <ChevronDown
             size={14}
-            style={{
-              color: "var(--text-tertiary)",
-              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform var(--t-fast, 150ms) cubic-bezier(0, 0, 0.2, 1)",
-            }}
+            className={`activity-header-chevron${isExpanded ? " activity-header-chevron--open" : ""}`}
           />
         </button>
       )}

@@ -113,6 +113,51 @@
 
   /* Borders */
   --border-width: 1px;
+
+  /* ── Agent Activity tokens ── */
+  --agent-thinking: #8B7EC8;
+  --agent-working: #5E6AD2;
+  --agent-done: #3ECF71;
+  --agent-surface: rgba(94, 106, 210, 0.04);
+
+  /* Accent / semantic muted backgrounds */
+  --accent-muted: rgba(94, 106, 210, 0.12);
+  --accent-glow: rgba(94, 106, 210, 0.06);
+  --success-muted: rgba(62, 207, 113, 0.10);
+  --warning-muted: rgba(229, 166, 62, 0.10);
+  --error-muted: rgba(229, 83, 75, 0.10);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-accent: rgba(94, 106, 210, 0.25);
+
+  /* Extended text scale */
+  --text-on-accent: #FFFFFF;
+  --text-tertiary: #5C5C61;
+
+  /* ── Timing tokens (BEHAVIOR.md §3.1) ── */
+  --t-instant: 0ms;
+  --t-micro: 80ms;
+  --t-fast: 150ms;
+  --t-standard: 250ms;
+  --t-emphasis: 400ms;
+  --t-slow: 600ms;
+  --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1.0);
+  --ease-in-out: cubic-bezier(0.4, 0.0, 0.2, 1.0);
+
+  /* ── Chat layout ── */
+  --chat-column-max: 720px;
+  --chat-column-padding: 24px;
+
+  /* Mono font */
+  --font-mono: "Geist Mono", "SF Mono", ui-monospace, Consolas, monospace;
+}
+
+/* ── Reduced motion (BEHAVIOR.md §8) ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* -----------------------------------------------------------------------------
@@ -189,6 +234,21 @@
   --sidebar-accent-foreground: #6E6E73;
   --sidebar-border: rgba(0, 0, 0, 0.08);
   --sidebar-ring: #007AFF;
+
+  /* Agent Activity (apple light) */
+  --agent-thinking: #6E5BAA;
+  --agent-working: #007AFF;
+  --agent-done: #34C759;
+  --agent-surface: rgba(0, 122, 255, 0.04);
+  --accent-muted: rgba(0, 122, 255, 0.10);
+  --accent-glow: rgba(0, 122, 255, 0.04);
+  --success-muted: rgba(52, 199, 89, 0.10);
+  --warning-muted: rgba(255, 149, 0, 0.10);
+  --error-muted: rgba(255, 59, 48, 0.10);
+  --border-subtle: rgba(0, 0, 0, 0.04);
+  --border-accent: rgba(0, 122, 255, 0.20);
+  --text-on-accent: #FFFFFF;
+  --text-tertiary: #AEAEB2;
 
   /* Spacing — generous, comfortable */
   --space-xs: 6px;
@@ -271,6 +331,21 @@
   --sidebar-primary-foreground: #FFFFFF;
   --sidebar-accent: #2C2C2E;
   --sidebar-accent-foreground: #98989D;
+
+  /* Agent Activity (apple dark) */
+  --agent-thinking: #A89EDC;
+  --agent-working: #0A84FF;
+  --agent-done: #30D158;
+  --agent-surface: rgba(10, 132, 255, 0.04);
+  --accent-muted: rgba(10, 132, 255, 0.12);
+  --accent-glow: rgba(10, 132, 255, 0.06);
+  --success-muted: rgba(48, 209, 88, 0.10);
+  --warning-muted: rgba(255, 159, 10, 0.10);
+  --error-muted: rgba(255, 69, 58, 0.10);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-accent: rgba(10, 132, 255, 0.25);
+  --text-on-accent: #FFFFFF;
+  --text-tertiary: #636366;
 
   /* Spacing — generous, comfortable (same as light apple) */
   --space-xs: 6px;

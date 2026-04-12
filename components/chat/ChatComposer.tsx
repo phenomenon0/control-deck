@@ -53,6 +53,9 @@ export interface ChatComposerProps {
   onRemoveUpload?: (id: string) => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
 
+  // Edit last message (BEHAVIOR.md §5.2: Up Arrow when input empty)
+  onEditLastMessage?: () => void;
+
   // Refs
   inputRef: RefObject<HTMLTextAreaElement | null>;
 }
@@ -207,6 +210,7 @@ export function ChatComposer({
   pendingUploads,
   onAttachClick,
   onRemoveUpload,
+  onEditLastMessage,
   fileInputRef,
   inputRef,
 }: ChatComposerProps) {
@@ -237,6 +241,7 @@ export function ChatComposer({
     <form
       onSubmit={onSubmit}
       className="composer-form"
+      aria-label="Message composer"
     >
       <div className={`composer-container ${running ? "composer-container--running" : ""}`}>
         {/* Context row: model + attachment previews */}
@@ -253,6 +258,7 @@ export function ChatComposer({
             type="button"
             onClick={onAttachClick}
             className={`composer-btn-icon ${pendingUploads.length > 0 ? "composer-btn-icon--accent" : ""}`}
+            aria-label={pendingUploads.length > 0 ? "View attachments" : "Attach files"}
             title={pendingUploads.length > 0 ? "View attachments" : "Attach files"}
           >
             <Paperclip size={18} />
@@ -278,12 +284,23 @@ export function ChatComposer({
               disabled={!enabled}
               rows={1}
               className="composer-textarea"
+              aria-label="Message input"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   if (hasContent && enabled) {
                     onSubmit(e);
                   }
+                }
+                // Up Arrow: edit last user message when input is empty (§5.2)
+                if (
+                  e.key === "ArrowUp" &&
+                  !inputValue.trim() &&
+                  enabled &&
+                  onEditLastMessage
+                ) {
+                  e.preventDefault();
+                  onEditLastMessage();
                 }
               }}
             />

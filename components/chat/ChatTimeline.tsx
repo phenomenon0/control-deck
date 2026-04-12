@@ -95,6 +95,9 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
         style={{
           height: "100%",
           overflowY: "auto",
@@ -125,6 +128,7 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
       {showScrollPill && (
         <button
           onClick={scrollToBottom}
+          aria-label="Scroll to bottom"
           className="scroll-pill-enter"
           style={{
             position: "absolute",

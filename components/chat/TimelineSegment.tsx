@@ -58,7 +58,8 @@ function UserMessageBlock({ segment }: { segment: UserMessageSegment }) {
   const hasUploads = segment.uploads && segment.uploads.length > 0;
 
   return (
-    <div
+    <article
+      aria-label="Your message"
       className="timeline-enter-user"
       style={{
         maxWidth: "85%",
@@ -103,7 +104,7 @@ function UserMessageBlock({ segment }: { segment: UserMessageSegment }) {
       >
         {segment.content}
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -144,7 +145,8 @@ function AgentTextBlock({
   isLast: boolean;
 }) {
   return (
-    <div
+    <article
+      aria-label="Agent response"
       className="timeline-enter-assistant"
       style={{
         maxWidth: "90%",
@@ -188,7 +190,7 @@ function AgentTextBlock({
           <span>Complete</span>
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -231,6 +233,7 @@ function ErrorBlock({
 }) {
   return (
     <div
+      role="alert"
       className="timeline-enter-assistant"
       style={{
         background: "var(--error-muted)",

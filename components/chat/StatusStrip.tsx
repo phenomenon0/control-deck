@@ -90,6 +90,9 @@ export function StatusStrip({ runState, onStop, elapsedMs }: StatusStripProps) {
 
   return (
     <div
+      role="status"
+      aria-live="polite"
+      aria-label={config.label}
       style={{
         height: 36,
         display: "flex",

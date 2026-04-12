@@ -204,6 +204,25 @@ export default function ChatSurface() {
   }, [effectiveThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
+  // Handlers (before effects so keyboard shortcuts can reference them)
+  // ---------------------------------------------------------------------------
+  const handleNewThread = useCallback(() => {
+    createThread();
+    setPendingUploads([]);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, [createThread, setPendingUploads]);
+
+  const handleSelectThread = useCallback((id: string) => {
+    selectThread(id);
+    setPendingUploads([]);
+  }, [selectThread, setPendingUploads]);
+
+  const handleDeleteThread = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteThread(id);
+  };
+
+  // ---------------------------------------------------------------------------
   // Effects: Auto-TTS, keyboard shortcuts
   // ---------------------------------------------------------------------------
 
@@ -231,29 +250,98 @@ export default function ChatSurface() {
     }
   }, [isRunning, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat, voiceModeOpen]);
 
-  // Keyboard shortcuts
+  // ---------------------------------------------------------------------------
+  // Keyboard shortcuts (BEHAVIOR.md §5)
+  // Priority: Modal (100) > Floating panel (50) > Composer (20) > Nav (10) > Global (0)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      const inInput =
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement;
+
+      // --- Priority 100: Escape (modals, overlays) ---
       if (e.key === "Escape") {
-        if (uploadTrayOpen) setUploadTrayOpen(false);
-        if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
-        if (voiceChat.isListening) voiceChat.stopListening();
+        if (uploadTrayOpen) { setUploadTrayOpen(false); return; }
+        if (voiceChat.isSpeaking) { voiceChat.stopSpeaking(); return; }
+        if (voiceChat.isListening) { voiceChat.stopListening(); return; }
+        // Composer escape: clear text first, then blur (§5.2)
+        if (inInput && inputRef.current) {
+          if (inputValue.trim()) {
+            setInputValue("");
+          } else {
+            inputRef.current.blur();
+          }
+          return;
+        }
       }
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "v") {
+
+      // --- Priority 0: Global shortcuts ---
+
+      // Cmd+Shift+V — toggle voice mode
+      if (mod && e.shiftKey && e.key.toLowerCase() === "v") {
         e.preventDefault();
         setVoiceModeOpen((prev) => !prev);
+        return;
       }
+
+      // --- Priority 10: Navigation shortcuts (§5.3) ---
+
+      // Cmd+N — new thread
+      if (mod && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleNewThread();
+        return;
+      }
+
+      // Cmd+W — close current thread (with native confirm)
+      if (mod && e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        if (activeThreadId) {
+          const thread = threads.find((t) => t.id === activeThreadId);
+          const title = thread?.title || "this thread";
+          if (window.confirm(`Delete "${title}"?`)) {
+            // Simulate a MouseEvent for the handler signature
+            deleteThread(activeThreadId);
+          }
+        }
+        return;
+      }
+
+      // Cmd+[ — previous thread, Cmd+] — next thread
+      if (mod && (e.key === "[" || e.key === "]")) {
+        e.preventDefault();
+        if (threads.length === 0) return;
+        const currentIdx = activeThreadId
+          ? threads.findIndex((t) => t.id === activeThreadId)
+          : -1;
+        let nextIdx: number;
+        if (e.key === "[") {
+          // Previous (older) — move down the list
+          nextIdx = currentIdx < 0 ? 0 : Math.min(currentIdx + 1, threads.length - 1);
+        } else {
+          // Next (newer) — move up the list
+          nextIdx = currentIdx <= 0 ? 0 : currentIdx - 1;
+        }
+        if (nextIdx >= 0 && nextIdx < threads.length) {
+          handleSelectThread(threads[nextIdx].id);
+        }
+        return;
+      }
+
+      // --- Priority 10: Push-to-talk (Space when not in input) ---
       if (
         prefs.voice.enabled && prefs.voice.mode === "push-to-talk" &&
-        e.code === "Space" && !e.repeat &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
+        e.code === "Space" && !e.repeat && !inInput
       ) {
         e.preventDefault();
         if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
         if (!voiceChat.isListening) voiceChat.startListening();
+        return;
       }
     };
+
     const handleKeyUp = (e: KeyboardEvent) => {
       if (
         prefs.voice.enabled && prefs.voice.mode === "push-to-talk" &&
@@ -263,32 +351,18 @@ export default function ChatSurface() {
         voiceChat.stopListening();
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [uploadTrayOpen, voiceChat, prefs.voice, setUploadTrayOpen]);
-
-  // ---------------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------------
-  const handleNewThread = () => {
-    createThread();
-    setPendingUploads([]);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
-
-  const handleSelectThread = (id: string) => {
-    selectThread(id);
-    setPendingUploads([]);
-  };
-
-  const handleDeleteThread = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    deleteThread(id);
-  };
+  }, [
+    uploadTrayOpen, voiceChat, prefs.voice, setUploadTrayOpen,
+    inputValue, activeThreadId, threads,
+    handleNewThread, handleSelectThread, deleteThread,
+  ]);
 
   const onSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -477,6 +551,14 @@ export default function ChatSurface() {
     sendMessageRef.current(lastUserMsg.content);
   }, [messages]);
 
+  // Edit last message: populate composer with last user message text (§5.2)
+  const handleEditLastMessage = useCallback(() => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (!lastUserMsg) return;
+    setInputValue(lastUserMsg.content);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }, [messages]);
+
   const handleMicClick = () => {
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
     if (prefs.voice.mode === "vad") {
@@ -527,7 +609,10 @@ export default function ChatSurface() {
       />
 
       {/* Main chat column */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <main
+        aria-label="Chat"
+        style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}
+      >
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -595,10 +680,11 @@ export default function ChatSurface() {
           pendingUploads={pendingUploads}
           onAttachClick={handleAttachClick}
           onRemoveUpload={handleRemoveUpload}
+          onEditLastMessage={handleEditLastMessage}
           fileInputRef={fileInputRef}
           inputRef={inputRef}
         />
-      </div>
+      </main>
 
       {/* Voice Mode Sheet */}
       <VoiceModeSheet

@@ -1168,6 +1168,201 @@ code, pre, .mono, kbd, .font-mono {
   overflow: hidden;
 }
 
+/* --- ArtifactRenderer internals (DESIGN.md §3.3 + BEHAVIOR.md §4.6) --- */
+.ar-image-wrap {
+  position: relative;
+  cursor: pointer;
+}
+
+.ar-image-placeholder {
+  width: 300px;
+  height: 200px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg, 8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+
+.ar-image-placeholder::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  animation: ar-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes ar-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.ar-image {
+  max-width: 300px;
+  max-height: 200px;
+  border-radius: var(--radius-lg, 8px);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  transform: scale(0.96);
+  transition: max-width var(--t-standard, 200ms) var(--ease-out),
+    max-height var(--t-standard, 200ms) var(--ease-out),
+    opacity var(--t-standard, 200ms) var(--ease-out),
+    transform var(--t-standard, 200ms) var(--ease-out);
+}
+
+.ar-image--loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ar-image--expanded {
+  max-width: 100%;
+  max-height: none;
+}
+
+.ar-image-error {
+  padding: var(--sp-4, 16px);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg, 8px);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+}
+
+.ar-caption {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: var(--sp-2, 6px);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+}
+
+.ar-caption-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 250px;
+}
+
+.ar-download {
+  color: var(--accent);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ar-download:hover {
+  opacity: 0.8;
+}
+
+.ar-audio {
+  width: 100%;
+  max-width: 400px;
+  border-radius: var(--radius-lg, 8px);
+}
+
+.ar-video {
+  max-width: 100%;
+  border-radius: var(--radius-lg, 8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.ar-model-container {
+  width: 100%;
+  max-width: 400px;
+  height: 300px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg, 8px);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.ar-model-viewer {
+  width: 100%;
+  height: 100%;
+}
+
+.ar-fallback {
+  color: var(--accent);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2, 6px);
+  padding: var(--sp-2, 8px) var(--sp-3, 12px);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--text-sm);
+}
+
+.ar-fallback:hover {
+  opacity: 0.8;
+}
+
+.ar-upload-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--text-xs);
+}
+
+.ar-upload-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.ar-upload-name {
+  color: var(--text-secondary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-upload-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ar-upload-remove:hover {
+  color: var(--error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ar-image-placeholder::after {
+    animation: none;
+  }
+  .ar-image {
+    transition: none;
+  }
+  .ar-image--loaded {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* --- Error Block (BEHAVIOR.md §7.1) --- */
 .tl-error {
   background: var(--error-muted);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Paperclip, Download, Box, ImageOff } from "lucide-react";
 
 export interface Artifact {
   id: string;
@@ -10,7 +11,9 @@ export interface Artifact {
 }
 
 /**
- * Renders artifacts (images, audio, 3D models, video) in chat
+ * Renders artifacts (images, audio, 3D models, video) in chat.
+ * All styling via CSS classes (ar-* namespace, DESIGN.md §3.3).
+ * Icons from lucide-react per DESIGN.md §6.
  */
 export function ArtifactRenderer({ artifact }: { artifact: Artifact }) {
   const { mimeType, url, name } = artifact;
@@ -39,238 +42,120 @@ export function ArtifactRenderer({ artifact }: { artifact: Artifact }) {
 
   // Fallback: download link
   return (
-    <div style={{ marginTop: 12 }}>
+    <a href={url} download={name} className="ar-fallback">
+      <Paperclip size={14} />
+      <span>{name}</span>
+    </a>
+  );
+}
+
+/* ─── Shared caption row ─── */
+
+function ArtifactCaption({
+  name,
+  url,
+}: {
+  name: string;
+  url: string;
+}) {
+  return (
+    <div className="ar-caption">
+      <span className="ar-caption-name">{name}</span>
       <a
         href={url}
         download={name}
-        style={{
-          color: "var(--accent)",
-          textDecoration: "none",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "8px 12px",
-          background: "var(--bg-secondary)",
-          borderRadius: 6,
-          fontSize: 14,
-        }}
+        className="ar-download"
+        onClick={(e) => e.stopPropagation()}
       >
-        <span>📎</span>
-        <span>{name}</span>
+        <Download size={12} />
       </a>
     </div>
   );
 }
 
-/**
- * Image display with click-to-expand
- */
+/* ─── Image with shimmer placeholder + entrance animation ─── */
+
 function ImageCard({ url, name }: { url: string; name: string }) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
   return (
-    <div style={{ marginTop: 12 }}>
+    <div className="ar-image-wrap" onClick={() => !error && setExpanded(!expanded)}>
       {loading && !error && (
-        <div
-          style={{
-            width: 300,
-            height: 200,
-            background: "var(--bg-secondary)",
-            borderRadius: 8,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-muted)",
-            fontSize: 13,
-          }}
-        >
-          Loading...
-        </div>
+        <div className="ar-image-placeholder">Loading...</div>
       )}
       {error ? (
-        <div
-          style={{
-            padding: 16,
-            background: "var(--bg-secondary)",
-            borderRadius: 8,
-            color: "var(--text-muted)",
-            fontSize: 13,
-          }}
-        >
-          Failed to load image
+        <div className="ar-image-error">
+          <ImageOff size={16} />
+          <span>Failed to load image</span>
         </div>
       ) : (
         <img
           src={url}
           alt={name}
-          onClick={() => setExpanded(!expanded)}
           onLoad={() => setLoading(false)}
           onError={() => {
             setLoading(false);
             setError(true);
           }}
-          style={{
-            maxWidth: expanded ? "100%" : 300,
-            maxHeight: expanded ? "none" : 200,
-            borderRadius: 8,
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            display: loading ? "none" : "block",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-          }}
+          className={[
+            "ar-image",
+            !loading && "ar-image--loaded",
+            expanded && "ar-image--expanded",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         />
       )}
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--text-muted)",
-          marginTop: 6,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span>{name}</span>
-        <a
-          href={url}
-          download={name}
-          style={{ color: "var(--accent)", textDecoration: "none" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          ↓
-        </a>
-      </div>
+      <ArtifactCaption name={name} url={url} />
     </div>
   );
 }
 
-/**
- * Audio player
- */
+/* ─── Audio player ─── */
+
 function AudioPlayer({ url, name }: { url: string; name: string }) {
   return (
-    <div style={{ marginTop: 12 }}>
-      <audio
-        controls
-        src={url}
-        style={{
-          width: "100%",
-          maxWidth: 400,
-          borderRadius: 8,
-        }}
-      >
+    <div>
+      <audio controls src={url} className="ar-audio">
         Your browser does not support audio playback.
       </audio>
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--text-muted)",
-          marginTop: 6,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span>{name}</span>
-        <a
-          href={url}
-          download={name}
-          style={{ color: "var(--accent)", textDecoration: "none" }}
-        >
-          ↓
-        </a>
-      </div>
+      <ArtifactCaption name={name} url={url} />
     </div>
   );
 }
 
-/**
- * Video player
- */
+/* ─── Video player ─── */
+
 function VideoPlayer({ url, name }: { url: string; name: string }) {
   return (
-    <div style={{ marginTop: 12 }}>
-      <video
-        controls
-        src={url}
-        style={{
-          maxWidth: "100%",
-          borderRadius: 8,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        }}
-      >
+    <div>
+      <video controls src={url} className="ar-video">
         Your browser does not support video playback.
       </video>
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--text-muted)",
-          marginTop: 6,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span>{name}</span>
-        <a
-          href={url}
-          download={name}
-          style={{ color: "var(--accent)", textDecoration: "none" }}
-        >
-          ↓
-        </a>
-      </div>
+      <ArtifactCaption name={name} url={url} />
     </div>
   );
 }
 
-/**
- * 3D Model viewer using @google/model-viewer
- * Falls back to download link if model-viewer not available
- */
+/* ─── 3D Model viewer ─── */
+
 function ModelViewer({ url, name }: { url: string; name: string }) {
   const [error, setError] = useState(false);
 
   if (error) {
     return (
-      <div style={{ marginTop: 12 }}>
-        <a
-          href={url}
-          download={name}
-          style={{
-            color: "var(--accent)",
-            textDecoration: "none",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "12px 16px",
-            background: "var(--bg-secondary)",
-            borderRadius: 8,
-            fontSize: 14,
-          }}
-        >
-          <span>🎲</span>
-          <span>Download 3D Model: {name}</span>
-        </a>
-      </div>
+      <a href={url} download={name} className="ar-fallback">
+        <Box size={14} />
+        <span>Download 3D Model: {name}</span>
+      </a>
     );
   }
 
   return (
-    <div style={{ marginTop: 12 }}>
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 400,
-          height: 300,
-          background: "var(--bg-secondary)",
-          borderRadius: 8,
-          overflow: "hidden",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        }}
-      >
+    <div>
+      <div className="ar-model-container">
         {/* @ts-expect-error - model-viewer is a web component */}
         <model-viewer
           src={url}
@@ -278,36 +163,17 @@ function ModelViewer({ url, name }: { url: string; name: string }) {
           auto-rotate
           camera-controls
           shadow-intensity="1"
-          style={{ width: "100%", height: "100%" }}
+          className="ar-model-viewer"
           onError={() => setError(true)}
         />
       </div>
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--text-muted)",
-          marginTop: 6,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span>🎲 {name}</span>
-        <a
-          href={url}
-          download={name}
-          style={{ color: "var(--accent)", textDecoration: "none" }}
-        >
-          ↓
-        </a>
-      </div>
+      <ArtifactCaption name={name} url={url} />
     </div>
   );
 }
 
-/**
- * Artifact list renderer
- */
+/* ─── Artifact list ─── */
+
 export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
   if (!artifacts || artifacts.length === 0) return null;
 
@@ -320,9 +186,8 @@ export function ArtifactList({ artifacts }: { artifacts: Artifact[] }) {
   );
 }
 
-/**
- * Upload preview (for showing pending uploads before sending)
- */
+/* ─── Upload preview ─── */
+
 export function UploadPreview({
   file,
   onRemove,
@@ -331,42 +196,18 @@ export function UploadPreview({
   onRemove: () => void;
 }) {
   return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        background: "var(--bg-secondary)",
-        borderRadius: 6,
-        fontSize: 13,
-      }}
-    >
+    <div className="ar-upload-preview">
       {file.mimeType.startsWith("image/") ? (
         <img
           src={file.url}
           alt={file.name}
-          style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover" }}
+          className="ar-upload-thumb"
         />
       ) : (
-        <span>📎</span>
+        <Paperclip size={14} />
       )}
-      <span style={{ color: "var(--text-secondary)", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {file.name}
-      </span>
-      <button
-        onClick={onRemove}
-        style={{
-          background: "none",
-          border: "none",
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          padding: 2,
-          fontSize: 14,
-          lineHeight: 1,
-        }}
-        title="Remove"
-      >
+      <span className="ar-upload-name">{file.name}</span>
+      <button onClick={onRemove} className="ar-upload-remove" title="Remove">
         ×
       </button>
     </div>

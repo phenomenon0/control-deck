@@ -1135,6 +1135,274 @@ code, pre, .mono, kbd, .font-mono {
 }
 
 /* =============================================================================
+   CHAT COMPOSER (DESIGN.md §3.4, BEHAVIOR.md §4)
+   ============================================================================= */
+
+/* Outer form — centers and constrains width */
+.composer-form {
+  background: var(--bg-primary);
+  padding: 12px 24px 16px;
+  max-width: calc(var(--chat-column-max, 720px) + 48px);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Main container — the visible card */
+.composer-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  padding: 0;
+  transition: border-color var(--t-fast, 150ms) var(--ease-out, ease-out);
+}
+
+.composer-container:focus-within {
+  border-color: var(--border-bright);
+}
+
+/* Running state: subtle accent pulse on border */
+.composer-container--running {
+  animation: composer-border-pulse 2s ease-in-out infinite;
+}
+
+@keyframes composer-border-pulse {
+  0%, 100% { border-color: var(--border); }
+  50% { border-color: rgba(94, 106, 210, 0.25); }
+}
+
+/* Context row: model badge + attachment thumbnails */
+.composer-context-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+  flex-wrap: wrap;
+}
+
+.composer-model-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+/* Inline attachment thumbnails */
+.composer-attachments {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.composer-attachment-thumb {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+.composer-attachment-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composer-attachment-remove {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-micro, 80ms) ease;
+  padding: 0;
+}
+
+.composer-attachment-thumb:hover .composer-attachment-remove {
+  opacity: 1;
+}
+
+/* Main input row */
+.composer-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+/* Textarea */
+.composer-textarea {
+  flex: 1;
+  resize: none;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: var(--font-sans, "Inter", -apple-system, BlinkMacSystemFont, sans-serif);
+  padding: 0;
+  outline: none;
+  min-height: 24px;
+  max-height: 200px;
+}
+
+.composer-textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.composer-textarea:disabled {
+  opacity: 0.6;
+}
+
+/* Action buttons cluster */
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Icon button base (attach, voice, mic) */
+.composer-btn-icon {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: all var(--t-micro, 80ms) var(--ease-out, ease-out);
+}
+
+.composer-btn-icon:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.composer-btn-icon:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.composer-btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Accent variant: has uploads */
+.composer-btn-icon--accent {
+  color: var(--accent);
+}
+
+/* Voice connected indicator */
+.composer-btn-icon--voice-active {
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: 1px solid rgba(94, 106, 210, 0.2);
+}
+
+/* Recording state */
+.composer-btn-icon--recording {
+  background: var(--error) !important;
+  color: white !important;
+}
+
+/* Upload count badge */
+.composer-upload-count {
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent);
+  color: var(--text-on-accent, #fff);
+  border-radius: 8px;
+  padding: 0 5px;
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+}
+
+/* Send button — idle state */
+.composer-btn-send {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  cursor: default;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+  opacity: 0.5;
+  transition: all var(--t-fast, 150ms) var(--ease-out, ease-out);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+/* Send button — has content, ready to send */
+.composer-btn-send--active {
+  background: var(--accent);
+  color: var(--text-on-accent, #fff);
+  cursor: pointer;
+  opacity: 1;
+}
+
+.composer-btn-send--active:hover {
+  background: var(--accent-hover);
+}
+
+.composer-btn-send--active:active {
+  transform: scale(0.93);
+}
+
+/* Stop button — agent is running */
+.composer-btn-stop {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--error);
+  color: white;
+  transition: all var(--t-fast, 150ms) var(--ease-out, ease-out);
+  flex-shrink: 0;
+  padding: 0;
+  animation: composer-stop-enter var(--t-fast, 150ms) var(--ease-out, ease-out);
+}
+
+.composer-btn-stop:hover {
+  background: #d1423b;
+}
+
+.composer-btn-stop:active {
+  transform: scale(0.93);
+}
+
+@keyframes composer-stop-enter {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* =============================================================================
    PANE SYSTEM
    ============================================================================= */
 

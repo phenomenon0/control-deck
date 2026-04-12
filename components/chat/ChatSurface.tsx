@@ -8,25 +8,20 @@
  *   - StatusStrip (persistent run status indicator)
  *   - ChatComposer (context-aware input composer)
  *
- * BRIDGE ARCHITECTURE: This version still uses the existing hooks (useThreads,
- * useSSE, useSendMessage) for backend communication. Two bridge functions
- * translate old hook state into the new type system:
- *   - deriveRunState()      → RunState discriminated union
- *   - messagesToSegments()  → TimelineSegment[] for the timeline
- *
- * Phase 4 (backend) will replace this bridge with direct SSE consumption
- * in useAgentRun, eliminating the translation layer.
+ * Phase 4: Uses useAgentRun directly for SSE consumption — no bridge layer.
+ * The hook consumes the SSE event stream from POST /api/chat and drives the
+ * timeline + run state machine. Thread management and message persistence
+ * are handled here in the orchestrator.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
-import { useCanvas } from "@/lib/hooks/useCanvas";
 import { useThreads } from "@/lib/hooks/useThreads";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
-import { useSSE } from "@/lib/hooks/useSSE";
-import { useSendMessage } from "@/lib/hooks/useSendMessage";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
 import { useRightRailSlot } from "@/lib/hooks/useRightRail";
+import { useAgentRun } from "@/lib/hooks/useAgentRun";
+import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
 import { ThreadSidebar } from "@/components/chat/ThreadSidebar";
 import { ChatTimeline } from "@/components/chat/ChatTimeline";
 import { StatusStrip } from "@/components/chat/StatusStrip";
@@ -34,160 +29,8 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { UploadTray } from "@/components/chat/UploadTray";
 import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
-import { setStoredThreads, type Thread } from "@/lib/chat/helpers";
+import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
-import type { ToolCallData } from "@/components/chat/ToolCallCard";
-import type { RunState, TimelineSegment } from "@/lib/types/agentRun";
-import type { Message } from "@/lib/chat/helpers";
-
-// =============================================================================
-// Bridge: old hook state → RunState (BEHAVIOR.md §2)
-// =============================================================================
-
-function deriveRunState(
-  isLoading: boolean,
-  isThinking: boolean,
-  isReasoning: boolean,
-  toolCallStates: Map<string, ToolCallData>,
-  runId: string | null,
-  runStartedAt: number,
-): RunState {
-  if (!isLoading) return { phase: "idle" };
-
-  const id = runId ?? "";
-
-  // Check if any tool is actively running
-  const runningTool = Array.from(toolCallStates.values()).find(
-    (tc) => tc.status === "running"
-  );
-  if (runningTool) {
-    return {
-      phase: "executing",
-      runId: id,
-      toolCallId: runningTool.id,
-      toolName: runningTool.name,
-      startedAt: runningTool.startedAt ?? runStartedAt,
-    };
-  }
-
-  // Thinking / reasoning phase
-  if (isThinking || isReasoning) {
-    return { phase: "thinking", runId: id, startedAt: runStartedAt };
-  }
-
-  // Default: streaming text
-  return { phase: "streaming", runId: id, messageId: "", startedAt: runStartedAt };
-}
-
-// =============================================================================
-// Bridge: Message[] + SSE state → TimelineSegment[]
-// =============================================================================
-
-/** Map ToolCallData.status (ToolStatus) to ActivityStep.status */
-function mapToolStatus(status: string): "running" | "complete" | "error" {
-  if (status === "error") return "error";
-  if (status === "complete" || status === "success") return "complete";
-  return "running";
-}
-
-function messagesToSegments(
-  messages: Message[],
-  isLoading: boolean,
-  toolCallStates: Map<string, ToolCallData>,
-  reasoningContent: string,
-  isReasoning: boolean,
-): TimelineSegment[] {
-  const segments: TimelineSegment[] = [];
-  let segCounter = 0;
-  const nextId = () => `seg_bridge_${++segCounter}`;
-
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    const isLast = i === messages.length - 1;
-    const isLastAssistant = msg.role === "assistant" && isLast;
-
-    if (msg.role === "user") {
-      // Extract upload info from user artifacts (attached images)
-      const uploads = msg.artifacts?.map((a) => ({
-        id: a.id,
-        name: a.name || "attachment",
-        url: a.url,
-      }));
-
-      segments.push({
-        id: nextId(),
-        type: "user-message",
-        timestamp: 0,
-        content: msg.content,
-        uploads: uploads?.length ? uploads : undefined,
-      });
-    } else if (msg.role === "assistant") {
-      // For the LAST assistant message during an active run, interleave
-      // reasoning and activity segments before the text.
-      if (isLastAssistant && isLoading) {
-        // Reasoning segment
-        if (reasoningContent) {
-          segments.push({
-            id: nextId(),
-            type: "agent-reasoning",
-            timestamp: 0,
-            content: reasoningContent,
-            isStreaming: isReasoning,
-          });
-        }
-
-        // Activity segment (grouped tool calls)
-        if (toolCallStates.size > 0) {
-          const steps = Array.from(toolCallStates.values()).map((tc) => ({
-            toolCallId: tc.id,
-            toolName: tc.name,
-            args: tc.args as Record<string, unknown> | undefined,
-            status: mapToolStatus(tc.status),
-            result: tc.result
-              ? {
-                  success: tc.result.success ?? true,
-                  message: tc.result.message,
-                  error: tc.result.error,
-                }
-              : undefined,
-            durationMs: tc.durationMs,
-            startedAt: tc.startedAt ?? 0,
-          }));
-          segments.push({
-            id: nextId(),
-            type: "agent-activity",
-            timestamp: 0,
-            steps,
-          });
-        }
-      }
-
-      // Agent text message
-      segments.push({
-        id: nextId(),
-        type: "agent-message",
-        timestamp: 0,
-        messageId: msg.id,
-        content: msg.content || "",
-        isStreaming: isLastAssistant && isLoading,
-      });
-
-      // Artifact segments (agent-generated work product)
-      if (msg.artifacts && msg.artifacts.length > 0) {
-        for (const artifact of msg.artifacts) {
-          segments.push({
-            id: nextId(),
-            type: "artifact",
-            timestamp: 0,
-            artifact,
-          });
-        }
-      }
-    }
-  }
-
-  return segments;
-}
 
 // =============================================================================
 // ChatSurface component
@@ -195,11 +38,9 @@ function messagesToSegments(
 
 export default function ChatSurface() {
   // ---------------------------------------------------------------------------
-  // External hooks (same as ChatPaneV2 — this is the bridge layer)
+  // External hooks
   // ---------------------------------------------------------------------------
   const { prefs, sidebarOpen, setSidebarOpen } = useDeckSettings();
-  const canvas = useCanvas();
-
   // ---------------------------------------------------------------------------
   // Threads
   // ---------------------------------------------------------------------------
@@ -219,43 +60,34 @@ export default function ChatSurface() {
   } = useFileUploads({ activeThreadId, fallbackThreadId, setActiveThreadId, setThreads });
 
   // ---------------------------------------------------------------------------
-  // SSE streaming
-  // ---------------------------------------------------------------------------
-  const onArtifactAttach = useCallback((artifact: Artifact) => {
-    setMessages((prev) => {
-      const updated = [...prev];
-      const lastIdx = updated.length - 1;
-      if (lastIdx >= 0 && updated[lastIdx]?.role === "assistant") {
-        const existing = updated[lastIdx].artifacts || [];
-        if (!existing.some((a) => a.id === artifact.id)) {
-          updated[lastIdx] = { ...updated[lastIdx], artifacts: [...existing, artifact] };
-        }
-      }
-      return updated;
-    });
-  }, [setMessages]);
-
-  const {
-    toolCallStates, isThinking, reasoningContent, isReasoning,
-    currentPlan, currentProgress, currentCards, setCurrentCards,
-    pendingInterrupt, setPendingInterrupt,
-    currentRunIdRef, resetForNewRun,
-  } = useSSE({ threadId: effectiveThreadId, canvas, onArtifactAttach });
-
-  // ---------------------------------------------------------------------------
   // Local state & refs
   // ---------------------------------------------------------------------------
   const [inputValue, setInputValue] = useState("");
   const [voiceModeOpen, setVoiceModeOpen] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [pendingInterrupt, setPendingInterrupt] = useState<InterruptRequest | null>(null);
   const selectedModel = prefs.model;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
   const sendMessageRef = useRef<(text: string) => void>(() => {});
+  const pendingTTSRef = useRef<string | null>(null);
 
-  // Track when loading started for StatusStrip elapsed time
-  const runStartedAtRef = useRef<number>(0);
+  // ---------------------------------------------------------------------------
+  // Agent Run — unified SSE consumer (replaces useSendMessage + useSSE)
+  // ---------------------------------------------------------------------------
+  const agentRun = useAgentRun({
+    onInterrupt: useCallback((req: InterruptRequest) => {
+      setPendingInterrupt(req);
+    }, []),
+    onInterruptResolved: useCallback(() => {
+      setPendingInterrupt(null);
+    }, []),
+  });
+
+  const { state: agentState, dispatch: agentDispatch, isRunning } = agentRun;
+  const { runState, segments } = agentState;
+  const isStreaming = runState.phase === "streaming" || runState.phase === "executing";
 
   // ---------------------------------------------------------------------------
   // Voice chat
@@ -273,32 +105,31 @@ export default function ChatSurface() {
   });
 
   // ---------------------------------------------------------------------------
-  // Send message
-  // ---------------------------------------------------------------------------
-  const { sendMessage, isLoading, searchStatus, pendingTTSRef } = useSendMessage({
-    activeThreadId, fallbackThreadId, messages, setMessages,
-    setActiveThreadId, setThreads,
-    currentRunIdRef, resetForNewRun, setCurrentCards,
-    selectedModel,
-    voiceEnabled: prefs.voice.enabled,
-    readAloud: prefs.voice.readAloud,
-    stopSpeaking: voiceChat.stopSpeaking,
-    isSpeaking: voiceChat.isSpeaking,
-    pendingUploads, clearUploads,
-  });
-
-  sendMessageRef.current = sendMessage;
-
-  // ---------------------------------------------------------------------------
-  // Right Rail sync (same as ChatPaneV2)
+  // Right Rail sync
   // ---------------------------------------------------------------------------
   const rightRail = useRightRailSlot();
 
   useEffect(() => { rightRail.setThreadId(activeThreadId); }, [activeThreadId, rightRail]);
   useEffect(() => { rightRail.setModel(selectedModel); }, [selectedModel, rightRail]);
-  useEffect(() => { rightRail.setIsLoading(isLoading); }, [isLoading, rightRail]);
-  useEffect(() => { rightRail.setToolCalls(Array.from(toolCallStates.values())); }, [toolCallStates, rightRail]);
+  useEffect(() => { rightRail.setIsLoading(isRunning); }, [isRunning, rightRail]);
   useEffect(() => { rightRail.setArtifacts(messages.flatMap((m) => m.artifacts || [])); }, [messages, rightRail]);
+
+  // Expose tool calls from segments for right rail
+  useEffect(() => {
+    const toolCalls = segments
+      .filter((s) => s.type === "agent-activity")
+      .flatMap((s) => (s as import("@/lib/types/agentRun").AgentActivitySegment).steps)
+      .map((step) => ({
+        id: step.toolCallId,
+        name: step.toolName,
+        status: step.status === "running" ? "running" as const : step.status === "complete" ? "complete" as const : "error" as const,
+        args: step.args,
+        result: step.result ? { success: step.result.success, message: step.result.message, error: step.result.error } : undefined,
+        durationMs: step.durationMs,
+        startedAt: step.startedAt,
+      }));
+    rightRail.setToolCalls(toolCalls);
+  }, [segments, rightRail]);
 
   const sendMessageToInput = useCallback((text: string) => {
     setInputValue(text);
@@ -307,58 +138,70 @@ export default function ChatSurface() {
   useEffect(() => { rightRail.setOnSendMessage(sendMessageToInput); }, [sendMessageToInput, rightRail]);
 
   // ---------------------------------------------------------------------------
-  // Track run start time for elapsed display
+  // Elapsed time for StatusStrip
   // ---------------------------------------------------------------------------
-  const prevLoadingRef = useRef(false);
-  useEffect(() => {
-    if (isLoading && !prevLoadingRef.current) {
-      runStartedAtRef.current = Date.now();
-    }
-    prevLoadingRef.current = isLoading;
-  }, [isLoading]);
-
-  // ---------------------------------------------------------------------------
-  // Bridge: derive RunState and TimelineSegment[] from old hook state
-  // ---------------------------------------------------------------------------
-  const runState: RunState = useMemo(
-    () =>
-      deriveRunState(
-        isLoading,
-        isThinking,
-        isReasoning,
-        toolCallStates,
-        currentRunIdRef.current,
-        runStartedAtRef.current,
-      ),
-    [isLoading, isThinking, isReasoning, toolCallStates, currentRunIdRef]
-  );
-
-  const segments: TimelineSegment[] = useMemo(
-    () =>
-      messagesToSegments(
-        messages,
-        isLoading,
-        toolCallStates,
-        reasoningContent,
-        isReasoning,
-      ),
-    [messages, isLoading, toolCallStates, reasoningContent, isReasoning]
-  );
-
-  const isStreaming = runState.phase === "streaming" || runState.phase === "executing";
-
-  // Elapsed ms for StatusStrip
   const [elapsedMs, setElapsedMs] = useState(0);
   useEffect(() => {
-    if (!isLoading || runStartedAtRef.current === 0) {
+    if (!isRunning) {
       setElapsedMs(0);
       return;
     }
+    const startedAt = "startedAt" in runState ? (runState as { startedAt: number }).startedAt : Date.now();
     const interval = setInterval(() => {
-      setElapsedMs(Date.now() - runStartedAtRef.current);
+      setElapsedMs(Date.now() - startedAt);
     }, 500);
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [isRunning, runState]);
+
+  // ---------------------------------------------------------------------------
+  // Load history: convert persisted messages → segments on thread change
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!messages.length) {
+      agentDispatch({ type: "LOAD_HISTORY", segments: [] });
+      return;
+    }
+    const historySegments: import("@/lib/types/agentRun").TimelineSegment[] = [];
+    let segCounter = 0;
+    const nextId = () => `seg_hist_${++segCounter}`;
+
+    for (const msg of messages) {
+      if (msg.role === "user") {
+        const uploads = msg.artifacts?.map((a) => ({
+          id: a.id,
+          name: a.name || "attachment",
+          url: a.url,
+        }));
+        historySegments.push({
+          id: nextId(),
+          type: "user-message",
+          timestamp: 0,
+          content: msg.content,
+          uploads: uploads?.length ? uploads : undefined,
+        });
+      } else if (msg.role === "assistant") {
+        historySegments.push({
+          id: nextId(),
+          type: "agent-message",
+          timestamp: 0,
+          messageId: msg.id,
+          content: msg.content || "",
+          isStreaming: false,
+        });
+        if (msg.artifacts?.length) {
+          for (const artifact of msg.artifacts) {
+            historySegments.push({
+              id: nextId(),
+              type: "artifact",
+              timestamp: 0,
+              artifact,
+            });
+          }
+        }
+      }
+    }
+    agentDispatch({ type: "LOAD_HISTORY", segments: historySegments });
+  }, [effectiveThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
   // Effects: Auto-TTS, keyboard shortcuts
@@ -366,7 +209,7 @@ export default function ChatSurface() {
 
   // Auto-TTS when assistant message completes
   useEffect(() => {
-    if (!prefs.voice.enabled || !prefs.voice.readAloud || isLoading || voiceModeOpen) return;
+    if (!prefs.voice.enabled || !prefs.voice.readAloud || isRunning || voiceModeOpen) return;
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant" || !lastMsg.content) return;
     if (lastSpokenIdRef.current === lastMsg.id) return;
@@ -386,7 +229,7 @@ export default function ChatSurface() {
     } else {
       setSpeakingMessageId(null);
     }
-  }, [isLoading, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat, voiceModeOpen, pendingTTSRef]);
+  }, [isRunning, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat, voiceModeOpen]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -447,18 +290,184 @@ export default function ChatSurface() {
     deleteThread(id);
   };
 
-  const onSubmit = (e: React.FormEvent) => {
+  const onSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    sendMessage(inputValue);
+    const text = inputValue.trim();
+    if (!text && pendingUploads.length === 0) return;
+    if (isRunning) return;
+
+    // Stop any ongoing speech
+    if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
+
+    // Resolve thread ID (create if needed)
+    let threadId = activeThreadId;
+    if (!threadId) {
+      threadId = fallbackThreadId;
+      const newThread: Thread = {
+        id: threadId,
+        title: text.slice(0, 50) + (text.length > 50 ? "..." : ""),
+        lastMessageAt: new Date().toISOString(),
+      };
+      setThreads((prev) => {
+        const updated = [newThread, ...prev];
+        setStoredThreads(updated);
+        return updated;
+      });
+      setActiveThreadId(threadId);
+    }
+
+    // Build message content with upload refs
+    let messageContent = text;
+    const uploadIds = pendingUploads.map((u) => u.id);
+    if (pendingUploads.length > 0) {
+      const uploadRefs = pendingUploads.map((u) => `[Image: ${u.name}] (image_id: ${u.id})`).join("\n");
+      messageContent = uploadRefs + (text ? `\n\n${text}` : "");
+    }
+
+    // Create user message for persistence
+    const userMessageId = crypto.randomUUID();
+    const userMessage: Message = {
+      id: userMessageId,
+      role: "user",
+      content: messageContent,
+      artifacts: pendingUploads.map((u) => ({
+        id: u.id,
+        url: u.url,
+        name: u.name,
+        mimeType: u.mimeType,
+      })),
+    };
+
+    // Update local messages state
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
+
+    // Clear input + uploads
     setInputValue("");
+    clearUploads();
+
+    // Persist user message to DB
+    fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "message",
+        threadId,
+        id: userMessageId,
+        role: "user",
+        content: messageContent,
+      }),
+    }).catch((err) => console.error("[ChatSurface] Failed to save user message:", err));
+
+    // TTS tracking
+    const assistantId = crypto.randomUUID();
+    if (prefs.voice.enabled && prefs.voice.readAloud) {
+      pendingTTSRef.current = assistantId;
+    }
+
+    // Build API messages (using all messages in the conversation)
+    const apiMessages = updatedMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    // Send via useAgentRun — this POSTs to /api/chat and consumes the SSE stream
+    const result = await agentRun.send(messageContent, {
+      messages: apiMessages,
+      threadId,
+      model: selectedModel,
+      uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
+    });
+
+    // Persist assistant message on completion
+    if (result.ok && result.fullText) {
+      // Also extract any artifacts from segments and attach to the message
+      const runArtifacts: Artifact[] = [];
+      for (const seg of agentRun.state.segments) {
+        if (seg.type === "artifact") {
+          runArtifacts.push(seg.artifact);
+        }
+      }
+
+      const assistantMessage: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: result.fullText,
+        artifacts: runArtifacts.length > 0 ? runArtifacts : undefined,
+      };
+
+      // Update messages state with the completed assistant message
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      fetch("/api/threads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "message",
+          threadId: result.threadId,
+          id: assistantId,
+          role: "assistant",
+          content: result.fullText,
+          runId: result.runId,
+        }),
+      }).catch((err) => console.error("[ChatSurface] Failed to save assistant message:", err));
+
+      // Update thread title after first message
+      setThreads((currentThreads) => {
+        const thread = currentThreads.find((t) => t.id === threadId);
+        if (thread && thread.title === text.slice(0, 50) + (text.length > 50 ? "..." : "")) {
+          // Poll for LLM-generated title
+          setTimeout(async () => {
+            try {
+              const res = await fetch(`/api/threads?id=${threadId}`);
+              if (res.ok) {
+                const data = await res.json();
+                if (data.thread?.title) {
+                  setThreads((prev) => {
+                    const newThreads = prev.map((t) =>
+                      t.id === threadId ? { ...t, title: data.thread.title } : t
+                    );
+                    setStoredThreads(newThreads);
+                    return newThreads;
+                  });
+                }
+              }
+            } catch (e) {
+              console.error("[ChatSurface] Failed to fetch updated title:", e);
+            }
+          }, 2500);
+        }
+        return currentThreads;
+      });
+    } else if (!result.ok && result.fullText) {
+      // Partial content — save what we have with error indicator
+      const assistantMessage: Message = {
+        id: assistantId,
+        role: "assistant",
+        content: result.fullText + "\n\n*[Response interrupted]*",
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    }
+
+    // Refocus input
     setTimeout(() => inputRef.current?.focus(), 100);
+  }, [
+    inputValue, pendingUploads, isRunning, activeThreadId, fallbackThreadId,
+    messages, selectedModel, agentRun, voiceChat, prefs.voice,
+    setMessages, setActiveThreadId, setThreads, clearUploads,
+  ]);
+
+  // Wire voice auto-send
+  sendMessageRef.current = (text: string) => {
+    setInputValue(text);
+    // Simulate form submit
+    const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+    setTimeout(() => onSubmit(fakeEvent), 50);
   };
 
   const handleStop = useCallback(() => {
-    // The old hooks don't expose a clean stop — we'd need the abort controller.
-    // For now, this is a placeholder; Phase 4 will wire useAgentRun.stop().
-    console.log("[ChatSurface] Stop requested");
-  }, []);
+    agentRun.stop();
+  }, [agentRun]);
 
   const handleMicClick = () => {
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
@@ -535,7 +544,7 @@ export default function ChatSurface() {
           onAddMore={() => fileInputRef.current?.click()}
         />
 
-        {/* Timeline — replaces the message list */}
+        {/* Timeline — renders segments from useAgentRun */}
         <ChatTimeline
           segments={segments}
           isStreaming={isStreaming}
@@ -553,14 +562,14 @@ export default function ChatSurface() {
           }
         />
 
-        {/* Status strip — replaces scattered status indicators */}
+        {/* Status strip — driven by useAgentRun state */}
         <StatusStrip
           runState={runState}
           onStop={handleStop}
           elapsedMs={elapsedMs}
         />
 
-        {/* Composer — replaces ChatInput */}
+        {/* Composer — driven by useAgentRun state */}
         <ChatComposer
           runState={runState}
           inputValue={inputValue}

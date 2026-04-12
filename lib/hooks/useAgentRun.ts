@@ -2,15 +2,13 @@
  * useAgentRun — Unified hook for agent run state management
  *
  * Replaces the split useSendMessage + useSSE coordination with a single
- * state machine driven by useReducer. This is Phase 1 of the chat surface
- * redesign (SURFACE.md §5.2).
+ * state machine driven by useReducer. Consumes the SSE event stream
+ * returned by POST /api/chat directly (SURFACE.md §5.2, §6.1).
  *
  * This file contains:
  *   1. agentRunReducer — pure reducer function (testable, no side effects)
- *   2. useAgentRun — React hook that wires the reducer to SSE events + fetch
- *
- * The hook is NOT wired into the UI yet. ChatPaneV2 continues to use the
- * old hooks. ChatSurface (Phase 2) will consume this hook.
+ *   2. dispatchSSEEvent — maps AGUI events to reducer actions
+ *   3. useAgentRun — React hook that wires the reducer to SSE stream + fetch
  */
 
 import { useReducer, useCallback, useRef } from "react";
@@ -374,54 +372,310 @@ export function agentRunReducer(
 }
 
 // =============================================================================
+// SSE Event → Reducer Action mapping
+// =============================================================================
+
+/** Map an AGUI event from the SSE stream to a reducer dispatch */
+function dispatchSSEEvent(
+  dispatch: React.Dispatch<RunAction>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  event: any,
+): void {
+  switch (event.type) {
+    case "RunStarted":
+      dispatch({ type: "RUN_STARTED", runId: event.runId, thinking: event.thinking });
+      break;
+
+    case "TextMessageStart":
+      dispatch({ type: "TEXT_START", messageId: event.messageId });
+      break;
+
+    case "TextMessageContent":
+      dispatch({ type: "TEXT_DELTA", delta: event.delta ?? "" });
+      break;
+
+    case "TextMessageEnd":
+      dispatch({ type: "TEXT_END" });
+      break;
+
+    // Reasoning events (from Agent-GO extended protocol)
+    case "ReasoningStart":
+      dispatch({ type: "REASONING_START" });
+      break;
+
+    case "ReasoningMessageContent":
+    case "ReasoningContent":
+      dispatch({ type: "REASONING_DELTA", delta: event.content || event.delta || "" });
+      break;
+
+    case "ReasoningEnd":
+      dispatch({ type: "REASONING_END" });
+      break;
+
+    case "ToolCallStart":
+      dispatch({
+        type: "TOOL_START",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+      });
+      break;
+
+    case "ToolCallArgs": {
+      // Unwrap DeckPayload envelope
+      const args = event.args?.kind === "json" ? event.args.data : event.args;
+      if (args && event.toolCallId) {
+        dispatch({ type: "TOOL_ARGS", toolCallId: event.toolCallId, args });
+      }
+      break;
+    }
+
+    case "ToolCallResult": {
+      const success = event.success ?? true;
+      // Extract result data from DeckPayload
+      let resultData: Record<string, unknown> | undefined;
+      if (event.result?.kind === "json") {
+        resultData = event.result.data as Record<string, unknown>;
+      } else if (event.result?.kind === "glyph") {
+        resultData = { _glyph: event.result.glyph, _approxBytes: event.result.approxBytes };
+      } else if (event.result?.kind === "text") {
+        resultData = { message: event.result.text };
+      } else if (event.result && typeof event.result === "object") {
+        resultData = event.result;
+      }
+
+      dispatch({
+        type: "TOOL_RESULT",
+        toolCallId: event.toolCallId,
+        result: {
+          success,
+          message: resultData?.message as string | undefined,
+          error: success ? undefined : ((resultData?.error as string) ?? "Tool execution failed"),
+          data: resultData,
+        },
+        durationMs: event.durationMs,
+      });
+      break;
+    }
+
+    case "ArtifactCreated":
+      dispatch({
+        type: "ARTIFACT_CREATED",
+        artifact: {
+          id: event.artifactId,
+          url: event.url,
+          name: event.name,
+          mimeType: event.mimeType,
+        },
+        toolCallId: event.toolCallId,
+      });
+      break;
+
+    case "RunFinished":
+      dispatch({ type: "RUN_FINISHED", runId: event.runId });
+      break;
+
+    case "RunError":
+      dispatch({
+        type: "RUN_ERROR",
+        runId: event.runId ?? "",
+        error: event.error?.message ?? "Unknown error",
+      });
+      break;
+  }
+}
+
+// =============================================================================
 // React Hook
 // =============================================================================
 
+/** Interrupt request passed to the UI */
+export interface InterruptRequest {
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  args?: any;
+}
+
 export interface UseAgentRunOptions {
-  threadId: string;
-  model?: string;
+  /** Called when Agent-GO requests tool approval */
+  onInterrupt?: (request: InterruptRequest) => void;
+  /** Called when an interrupt is resolved */
+  onInterruptResolved?: () => void;
 }
 
 export interface UseAgentRunReturn {
-  /** Current run phase (idle, submitted, thinking, streaming, executing, resuming, error) */
+  /** Full state: runState + segments + threadTitle */
   state: AgentRunState;
   /** Dispatch an action to the state machine */
   dispatch: React.Dispatch<RunAction>;
   /** Send a message to start a new run */
-  send: (content: string, uploads?: { id: string; name: string; url?: string }[]) => void;
+  send: (
+    content: string,
+    options: {
+      messages: Array<{ role: string; content: string }>;
+      threadId: string;
+      model: string;
+      uploadIds?: string[];
+    }
+  ) => Promise<SendResult>;
   /** Stop the current run */
   stop: () => void;
+  /** Whether a run is currently in progress */
+  isRunning: boolean;
+}
+
+export interface SendResult {
+  /** Thread ID (may be from response headers if server assigned one) */
+  threadId: string;
+  /** Run ID from response headers */
+  runId: string | null;
+  /** Message ID from response headers */
+  messageId: string | null;
+  /** Full assistant text accumulated during the run */
+  fullText: string;
+  /** Whether the run completed without error */
+  ok: boolean;
 }
 
 /**
  * Unified hook for agent run state management.
  *
- * Phase 1: Exposes reducer + dispatch. Does NOT manage SSE or fetch yet.
- * Phase 2 will wire this to the actual /api/chat endpoint and SSE stream,
- * replacing useSendMessage and useSSE.
+ * Consumes the SSE event stream from POST /api/chat directly,
+ * replacing the dual useSendMessage + useSSE pattern.
  */
-export function useAgentRun({ threadId, model }: UseAgentRunOptions): UseAgentRunReturn {
+export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
   const [state, dispatch] = useReducer(agentRunReducer, INITIAL_AGENT_RUN_STATE);
   const abortRef = useRef<AbortController | null>(null);
+  const isRunningRef = useRef(false);
+
+  // Stable refs for callbacks
+  const onInterruptRef = useRef(options?.onInterrupt);
+  onInterruptRef.current = options?.onInterrupt;
+  const onInterruptResolvedRef = useRef(options?.onInterruptResolved);
+  onInterruptResolvedRef.current = options?.onInterruptResolved;
 
   const send = useCallback(
-    (content: string, uploads?: { id: string; name: string; url?: string }[]) => {
-      dispatch({ type: "SUBMIT", content, uploads });
-      // Phase 2: This will POST to /api/chat and subscribe to SSE events,
-      // dispatching RUN_STARTED, TEXT_DELTA, TOOL_START, etc. as they arrive.
-      // For now, ChatSurface can call dispatch directly to wire into the
-      // existing useSendMessage/useSSE event flow.
+    async (
+      content: string,
+      opts: {
+        messages: Array<{ role: string; content: string }>;
+        threadId: string;
+        model: string;
+        uploadIds?: string[];
+      }
+    ): Promise<SendResult> => {
+      if (isRunningRef.current) {
+        return { threadId: opts.threadId, runId: null, messageId: null, fullText: "", ok: false };
+      }
+
+      isRunningRef.current = true;
+
+      // Dispatch user message to the timeline
+      dispatch({ type: "SUBMIT", content });
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      let fullText = "";
+      let runId: string | null = null;
+      let messageId: string | null = null;
+      let threadId = opts.threadId;
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: opts.messages,
+            model: opts.model,
+            threadId: opts.threadId,
+            uploadIds: opts.uploadIds,
+          }),
+          signal: controller.signal,
+        });
+
+        // Extract IDs from response headers
+        threadId = res.headers.get("X-Thread-Id") ?? opts.threadId;
+        runId = res.headers.get("X-Run-Id");
+        messageId = res.headers.get("X-Message-Id");
+
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => `HTTP ${res.status}`);
+          throw new Error(errorText);
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response body");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6).trim();
+            if (!data || data === "[DONE]") continue;
+
+            try {
+              const event = JSON.parse(data);
+
+              // Track full text for message persistence
+              if (event.type === "TextMessageContent" && event.delta) {
+                fullText += event.delta;
+              }
+
+              // Handle interrupt events via callbacks (not reducer state)
+              if (event.type === "InterruptRequested") {
+                onInterruptRef.current?.({
+                  runId: event.runId ?? "",
+                  toolCallId: event.toolCallId ?? "",
+                  toolName: event.toolName ?? "unknown",
+                  args: event.args?.kind === "json" ? event.args.data : event.args,
+                });
+              } else if (event.type === "InterruptResolved") {
+                onInterruptResolvedRef.current?.();
+              } else {
+                // Dispatch all other events to the state machine
+                dispatchSSEEvent(dispatch, event);
+              }
+            } catch {
+              // Ignore malformed SSE lines
+            }
+          }
+        }
+
+        return { threadId, runId, messageId, fullText, ok: true };
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // User-initiated stop — already dispatched via stop()
+        } else {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          dispatch({ type: "RUN_ERROR", runId: runId ?? "", error: errMsg });
+        }
+        return { threadId, runId, messageId, fullText, ok: false };
+      } finally {
+        abortRef.current = null;
+        isRunningRef.current = false;
+      }
     },
-    [dispatch]
+    []
   );
 
   const stop = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
+    abortRef.current?.abort();
+    abortRef.current = null;
     dispatch({ type: "STOP" });
-  }, [dispatch]);
+  }, []);
 
-  return { state, dispatch, send, stop };
+  const isRunning = state.runState.phase !== "idle" && state.runState.phase !== "error";
+
+  return { state, dispatch, send, stop, isRunning };
 }

@@ -119,7 +119,7 @@ function mapAndPublishEvent(
   threadId: string,
   runId: string,
   messageId: string
-): void {
+): AGUIEvent | null {
   let aguiEvent: AGUIEvent | null = null;
 
   switch (event.type) {
@@ -258,6 +258,7 @@ function mapAndPublishEvent(
     saveEvent(aguiEvent);
     hub.publish(threadId, aguiEvent);
   }
+  return aguiEvent;
 }
 
 /**
@@ -398,7 +399,7 @@ export async function POST(req: Request) {
     tool_bridge_url: TOOL_BRIDGE_URL,
   };
 
-  // Create streaming response
+  // Create SSE streaming response
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
@@ -408,10 +409,11 @@ export async function POST(req: Request) {
     isAborted = true;
   });
 
-  const safeWrite = async (data: string): Promise<boolean> => {
+  /** Write an SSE-formatted event to the response stream */
+  const safeWriteSSE = async (event: object): Promise<boolean> => {
     if (isAborted) return false;
     try {
-      await writer.write(encoder.encode(data));
+      await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       return true;
     } catch (err) {
       console.error("[Chat] Stream write failed:", err);
@@ -420,12 +422,16 @@ export async function POST(req: Request) {
     }
   };
 
-  // Background task to proxy Agent-GO events
+  // Background task to proxy Agent-GO events as SSE
   (async () => {
     let agentRunId: string | null = null;
     let fullText = "";
 
     try {
+      // Write initial locally-emitted events to the SSE stream
+      await safeWriteSSE(runStarted);
+      await safeWriteSSE(msgStart);
+
       // Start run on Agent-GO
       const startResponse = await fetch(`${AGENTGO_URL}/runs`, {
         method: "POST",
@@ -476,14 +482,18 @@ export async function POST(req: Request) {
             const event = parseSSE(data);
             if (!event) continue;
 
-            // Handle text content - stream to response body
+            // Track text for run preview
             if (event.type === "TextMessageContent" && event.delta) {
               fullText += event.delta;
-              if (!await safeWrite(event.delta)) break;
             }
 
-            // Map and publish event to local hub
-            mapAndPublishEvent(event, thread, runId, messageId);
+            // Map to AGUI event, save to DB, publish to hub (for other consumers)
+            const aguiEvent = mapAndPublishEvent(event, thread, runId, messageId);
+
+            // Write the AGUI event to the SSE response stream
+            if (aguiEvent) {
+              if (!await safeWriteSSE(aguiEvent)) break;
+            }
 
             // Check for run completion
             if (event.type === "RunFinished" || event.type === "RunError") {
@@ -503,21 +513,23 @@ export async function POST(req: Request) {
         updateRunPreview(runId, fullText.slice(0, 200));
       }
 
-      // Emit local TextMessageEnd
+      // Emit and stream TextMessageEnd
       const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", thread, {
         runId,
         messageId,
       });
       saveEvent(msgEnd);
       hub.publish(thread, msgEnd);
+      await safeWriteSSE(msgEnd);
 
-      // Emit local RunFinished
+      // Emit and stream RunFinished
       const runFinished = createEvent<RunFinished>("RunFinished", thread, {
         runId,
       });
       finishRun(runId, 0, 0, 0);
       saveEvent(runFinished);
       hub.publish(thread, runFinished);
+      await safeWriteSSE(runFinished);
 
     } catch (error) {
       if (isAborted) {
@@ -525,7 +537,6 @@ export async function POST(req: Request) {
       } else {
         const errMsg = error instanceof Error ? error.message : "Unknown error";
         console.error("[Chat] Agent-GO proxy error:", error);
-        await safeWrite(`\n\nError: ${errMsg}`);
 
         const runError = createEvent<RunError>("RunError", thread, {
           runId,
@@ -534,17 +545,19 @@ export async function POST(req: Request) {
         errorRun(runId, errMsg);
         saveEvent(runError);
         hub.publish(thread, runError);
+        await safeWriteSSE(runError);
       }
     } finally {
       await writer.close().catch((err) => console.warn("[Chat] writer.close failed:", err));
     }
   })();
 
-  // Return streaming response
+  // Return SSE streaming response
   return new Response(stream.readable, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
       "X-Thread-Id": thread,
       "X-Run-Id": runId,
       "X-Message-Id": messageId,

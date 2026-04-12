@@ -420,7 +420,7 @@ export default function ChatSurface() {
     setInputValue("");
     clearUploads();
 
-    // Persist user message to DB
+    // Persist user message to DB (include upload artifacts as metadata)
     fetch("/api/threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -430,6 +430,9 @@ export default function ChatSurface() {
         id: userMessageId,
         role: "user",
         content: messageContent,
+        metadata: pendingUploads.length > 0
+          ? { uploads: pendingUploads.map((u) => ({ id: u.id, url: u.url, name: u.name, mimeType: u.mimeType })) }
+          : undefined,
       }),
     }).catch((err) => console.error("[ChatSurface] Failed to save user message:", err));
 

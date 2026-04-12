@@ -35,6 +35,7 @@ import {
   updateRunPreview,
   saveEvent,
   saveMessage,
+  relinkArtifactRun,
   type MessageMetadata,
 } from "@/lib/agui/db";
 import { getBackendConfig, getDefaultModel } from "@/lib/llm";
@@ -237,17 +238,30 @@ function mapAndPublishEvent(
       });
       break;
 
-    case "ArtifactCreated":
+    case "ArtifactCreated": {
       console.log("[Chat] ArtifactCreated:", event.name, event.mimeType, event.url);
+      const artifactId = event.artifactId ?? generateId();
       aguiEvent = createEvent<ArtifactCreated>("ArtifactCreated", threadId, {
         runId,
         toolCallId: event.toolCallId,
-        artifactId: event.artifactId ?? generateId(),
+        artifactId,
         url: event.url ?? "",
         name: event.name ?? "artifact",
         mimeType: event.mimeType ?? "application/octet-stream",
       });
+      // Relink the artifact's run_id to the AGUI runId so it matches
+      // the assistant message's runId when loading thread history
+      relinkArtifactRun({
+        artifactId,
+        aguiRunId: runId,
+        threadId,
+        toolCallId: event.toolCallId,
+        mimeType: event.mimeType,
+        name: event.name,
+        url: event.url,
+      });
       break;
+    }
 
     default:
       // Log unknown event types

@@ -258,6 +258,22 @@ export default function ChatSurface() {
   }, [effectiveThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
+  // Reactive thread title update from RunFinished event (SURFACE.md §6.2)
+  // Replaces the old setTimeout polling pattern with event-driven updates
+  // ---------------------------------------------------------------------------
+  const threadTitle = agentState.threadTitle;
+  useEffect(() => {
+    if (!threadTitle || !activeThreadId) return;
+    setThreads((prev) => {
+      const updated = prev.map((t) =>
+        t.id === activeThreadId ? { ...t, title: threadTitle } : t
+      );
+      setStoredThreads(updated);
+      return updated;
+    });
+  }, [threadTitle, activeThreadId, setThreads]);
+
+  // ---------------------------------------------------------------------------
   // Handlers (before effects so keyboard shortcuts can reference them)
   // ---------------------------------------------------------------------------
   const handleNewThread = useCallback(() => {
@@ -547,33 +563,8 @@ export default function ChatSurface() {
         }),
       }).catch((err) => console.error("[ChatSurface] Failed to save assistant message:", err));
 
-      // Update thread title after first message
-      setThreads((currentThreads) => {
-        const thread = currentThreads.find((t) => t.id === threadId);
-        if (thread && thread.title === text.slice(0, 50) + (text.length > 50 ? "..." : "")) {
-          // Poll for LLM-generated title
-          setTimeout(async () => {
-            try {
-              const res = await fetch(`/api/threads?id=${threadId}`);
-              if (res.ok) {
-                const data = await res.json();
-                if (data.thread?.title) {
-                  setThreads((prev) => {
-                    const newThreads = prev.map((t) =>
-                      t.id === threadId ? { ...t, title: data.thread.title } : t
-                    );
-                    setStoredThreads(newThreads);
-                    return newThreads;
-                  });
-                }
-              }
-            } catch (e) {
-              console.error("[ChatSurface] Failed to fetch updated title:", e);
-            }
-          }, 2500);
-        }
-        return currentThreads;
-      });
+      // Thread title update is handled reactively via agentState.threadTitle
+      // (see useEffect below) — no setTimeout polling needed (SURFACE.md §6.2)
     } else if (!result.ok && result.fullText) {
       // Partial content — save what we have with error indicator
       const assistantMessage: Message = {

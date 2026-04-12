@@ -49,6 +49,8 @@ export interface RunFinished extends AGUIBase {
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
+  /** LLM-generated thread title (SURFACE.md §6.2) */
+  threadTitle?: string;
 }
 
 export interface RunError extends AGUIBase {

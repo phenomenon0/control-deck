@@ -36,6 +36,7 @@ import {
   saveEvent,
   saveMessage,
   relinkArtifactRun,
+  getThread,
   type MessageMetadata,
 } from "@/lib/agui/db";
 import { getBackendConfig, getDefaultModel } from "@/lib/llm";
@@ -536,9 +537,11 @@ export async function POST(req: Request) {
       hub.publish(thread, msgEnd);
       await safeWriteSSE(msgEnd);
 
-      // Emit and stream RunFinished
+      // Emit and stream RunFinished — include LLM-generated title (SURFACE.md §6.2)
+      const threadRow = getThread(thread);
       const runFinished = createEvent<RunFinished>("RunFinished", thread, {
         runId,
+        threadTitle: threadRow?.title || undefined,
       });
       finishRun(runId, 0, 0, 0);
       saveEvent(runFinished);

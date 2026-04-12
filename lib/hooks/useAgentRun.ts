@@ -487,7 +487,7 @@ function dispatchSSEEvent(
       break;
 
     case "RunFinished":
-      dispatch({ type: "RUN_FINISHED", runId: event.runId });
+      dispatch({ type: "RUN_FINISHED", runId: event.runId, threadTitle: event.threadTitle });
       break;
 
     case "RunError":

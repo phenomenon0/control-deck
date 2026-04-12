@@ -48,7 +48,8 @@
   --ease-apple: cubic-bezier(0, 0, 0.2, 1);
   --ease-apple-soft: cubic-bezier(0, 0, 0.2, 1);
   --ease-apple-decel: cubic-bezier(0, 0, 0.2, 1);
-  --ease-spring: cubic-bezier(0, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1.0); /* Overshoot — BEHAVIOR.md §3.1, rare use */
+  --ease-linear: linear; /* Progress bars only — BEHAVIOR.md §3.1 */
 
   /* Shadcn / Tailwind compat */
   --background: #0A0A0B;
@@ -1405,7 +1406,7 @@ code, pre, .mono, kbd, .font-mono {
   border-radius: 9999px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background var(--t-micro) ease;
+  transition: background var(--t-micro) var(--ease-out);
 }
 
 .tl-error-retry:hover {
@@ -1466,7 +1467,7 @@ code, pre, .mono, kbd, .font-mono {
   border-radius: 9999px;
   cursor: pointer;
   z-index: 10;
-  transition: background var(--t-micro) ease;
+  transition: background var(--t-micro) var(--ease-out);
 }
 
 .chat-scroll-pill:hover {
@@ -1510,7 +1511,7 @@ code, pre, .mono, kbd, .font-mono {
   border-radius: 9999px;
   cursor: pointer;
   margin-left: var(--sp-1);
-  transition: background var(--t-micro) ease;
+  transition: background var(--t-micro) var(--ease-out);
 }
 
 .status-strip-stop:hover {
@@ -1557,7 +1558,7 @@ code, pre, .mono, kbd, .font-mono {
   border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
   padding: var(--sp-3, 12px) var(--sp-4, 16px);
   margin: var(--sp-3, 12px) 0;
-  transition: border-color var(--t-fast, 150ms) ease;
+  transition: border-color var(--t-fast, 150ms) var(--ease-out);
 }
 .activity-block--error { border-left-color: var(--error); }
 .activity-block--running { border-left-color: var(--accent); }
@@ -1574,7 +1575,7 @@ code, pre, .mono, kbd, .font-mono {
   cursor: pointer;
   text-align: left;
   margin-bottom: 0;
-  transition: margin-bottom var(--t-fast, 150ms) ease;
+  transition: margin-bottom var(--t-fast, 150ms) var(--ease-out);
 }
 .activity-header--open { margin-bottom: 4px; }
 
@@ -1653,7 +1654,7 @@ code, pre, .mono, kbd, .font-mono {
   border-radius: 9999px;
   font-size: 11px;
   font-weight: 500;
-  transition: background var(--t-fast, 150ms) ease, color var(--t-fast, 150ms) ease;
+  transition: background var(--t-fast, 150ms) var(--ease-out), color var(--t-fast, 150ms) var(--ease-out);
 }
 .activity-badge--running {
   background: var(--accent-muted);
@@ -1801,7 +1802,7 @@ code, pre, .mono, kbd, .font-mono {
   border: none;
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--t-micro, 80ms) ease;
+  transition: opacity var(--t-micro, 80ms) var(--ease-out);
   padding: 0;
 }
 
@@ -2035,7 +2036,7 @@ code, pre, .mono, kbd, .font-mono {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 4px);
   cursor: pointer;
-  transition: background var(--t-micro, 80ms) ease;
+  transition: background var(--t-micro, 80ms) var(--ease-out);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -2075,7 +2076,7 @@ code, pre, .mono, kbd, .font-mono {
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px solid transparent;
-  transition: border-color var(--t-micro, 80ms) ease;
+  transition: border-color var(--t-micro, 80ms) var(--ease-out);
 }
 
 .rt-link:hover {

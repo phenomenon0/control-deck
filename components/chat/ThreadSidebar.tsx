@@ -4,6 +4,15 @@ import { ChevronsRight, Plus, ChevronsLeft, MessageSquare, X } from "lucide-reac
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 
+/** Format ISO timestamp as relative time string (e.g., "2h ago") */
+function relativeTime(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
 /**
  * ThreadSidebar — self-contained thread list that consumes context directly.
  * Rendered at the shell level (DeckShell) per DESIGN.md §4, not inside ChatSurface.
@@ -81,6 +90,9 @@ export function ThreadSidebar() {
                     </div>
                     <div className="thread-item-content">
                       <div className="thread-item-title">{t.title}</div>
+                      {t.lastMessageAt && (
+                        <div className="thread-item-time">{relativeTime(t.lastMessageAt)}</div>
+                      )}
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}

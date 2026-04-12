@@ -4,6 +4,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import type { TimelineSegment as TSegment } from "@/lib/types/agentRun";
 import { TimelineSegment } from "./TimelineSegment";
+import { useReducedMotion } from "@/lib/hooks/useReducedMotion";
 
 // =============================================================================
 // ChatTimeline — renders the segment list with scroll management
@@ -32,6 +33,10 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollPill, setShowScrollPill] = useState(false);
+  const reducedMotion = useReducedMotion();
+
+  /** Scroll behavior: "auto" (instant) when reduced motion active (BEHAVIOR.md §8) */
+  const scrollBehavior: ScrollBehavior = reducedMotion ? "auto" : "smooth";
 
   // Track whether user is near the bottom
   const isNearBottom = useCallback(() => {
@@ -43,9 +48,9 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
   // Auto-scroll when new content arrives and user is near bottom
   useEffect(() => {
     if (isStreaming && isNearBottom()) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      bottomRef.current?.scrollIntoView({ behavior: scrollBehavior });
     }
-  }, [segments, isStreaming, isNearBottom]);
+  }, [segments, isStreaming, isNearBottom, scrollBehavior]);
 
   // Scroll to bottom on initial load
   useEffect(() => {
@@ -58,8 +63,8 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
   }, [isNearBottom]);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    bottomRef.current?.scrollIntoView({ behavior: scrollBehavior });
+  }, [scrollBehavior]);
 
   // Empty state
   if (segments.length === 0) {

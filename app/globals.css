@@ -173,14 +173,7 @@
   --font-mono: "Geist Mono", "SF Mono", ui-monospace, Consolas, monospace;
 }
 
-/* ── Reduced motion (BEHAVIOR.md §8) ── */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* ── Reduced motion: see consolidated block near voice section (BEHAVIOR.md §8) ── */
 
 /* -----------------------------------------------------------------------------
    DARK MODE
@@ -3428,6 +3421,7 @@ model-viewer {
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --radius-full: 9999px;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -4275,6 +4269,7 @@ model-viewer {
   animation: none !important;
 }
 
+/* ── Reduced motion — canonical block (BEHAVIOR.md §8) ── */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

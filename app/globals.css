@@ -1037,6 +1037,104 @@ code, pre, .mono, kbd, .font-mono {
 .voice-bar:nth-child(5) { animation-delay: 0s; }
 
 /* =============================================================================
+   AGENT TIMELINE ANIMATIONS (BEHAVIOR.md §3)
+   ============================================================================= */
+
+/* Thinking / loading pulse (6px accent dot) */
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.animate-thinking-pulse {
+  animation: thinking-pulse 1.5s ease-in-out infinite;
+}
+
+/* Status dot pulse (tool running indicator) */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.animate-status-pulse {
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+/* Expand/collapse for tool detail panels */
+.animate-expand {
+  animation: toolExpand 200ms var(--ease-out, cubic-bezier(0, 0, 0.2, 1)) forwards;
+}
+
+/* Timeline segment entrances (BEHAVIOR.md §3.2) */
+@keyframes timeline-user-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes timeline-assistant-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes timeline-artifact-enter {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.timeline-enter-user {
+  animation: timeline-user-enter var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+.timeline-enter-assistant {
+  animation: timeline-assistant-enter var(--t-standard, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+  animation-delay: 80ms;
+  animation-fill-mode: backwards;
+}
+
+.timeline-enter-artifact {
+  animation: timeline-artifact-enter var(--t-standard, 250ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+/* Status strip entrance */
+@keyframes status-strip-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Status icon pulse (brain/wrench during active phase) */
+.status-icon-pulse {
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+/* Activity badge shimmer for running tools (BEHAVIOR.md §4.5) */
+@keyframes badge-shimmer {
+  0% { background-position: -100% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.activity-badge-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 40%,
+    rgba(255, 255, 255, 0.06) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: badge-shimmer 2s linear infinite;
+}
+
+/* Scroll-to-bottom pill entrance */
+@keyframes scroll-pill-up {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.scroll-pill-enter {
+  animation: scroll-pill-up var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+/* =============================================================================
    PANE SYSTEM
    ============================================================================= */
 

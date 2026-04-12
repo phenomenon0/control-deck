@@ -3148,6 +3148,85 @@ code {
 }
 
 /* =============================================================================
+   TOOL CALL CARD (tc-* namespace)
+   ============================================================================= */
+
+/* -- Compact pill ----------------------------------------------------------- */
+.tc-pill {
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+
+.tc-pill-icon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.5;
+}
+
+/* -- Full card -------------------------------------------------------------- */
+.tc-card {
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tc-header {
+  transition: background var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+.tc-header-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.5;
+}
+
+/* -- Icon status colors ----------------------------------------------------- */
+.tc-icon--running  { color: var(--accent); }
+.tc-icon--complete,
+.tc-icon--success  { color: var(--success); }
+.tc-icon--error    { color: var(--error); }
+.tc-icon--pending  { color: var(--text-muted); }
+
+/* -- Chevron ---------------------------------------------------------------- */
+.tc-chevron {
+  transform: rotate(0deg);
+  transition: transform var(--t-fast, 150ms) var(--ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+.tc-chevron--open {
+  transform: rotate(180deg);
+}
+
+/* -- Error display ---------------------------------------------------------- */
+.tc-error-label {
+  color: var(--error);
+}
+
+.tc-error-box {
+  background: var(--error-muted);
+  border: 1px solid rgba(var(--error-rgb), 0.30);
+  color: var(--error);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* -- Search result link ----------------------------------------------------- */
+.tc-search-link {
+  color: var(--accent);
+}
+
+.tc-search-link:hover {
+  text-decoration: underline;
+}
+
+/* -- Glyph badge ------------------------------------------------------------ */
+.tc-glyph-badge {
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+}
+
+/* =============================================================================
    INPUT BAR
    ============================================================================= */
 

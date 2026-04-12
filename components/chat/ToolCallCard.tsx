@@ -132,21 +132,11 @@ export function ToolCallCard(props: ToolCallCardProps) {
   // Compact pill mode
   // ---------------------------------------------------------------------------
   if (compact) {
-    const compactDotColor = effectiveStatus === "running" ? "var(--accent)"
-      : effectiveStatus === "complete" || effectiveStatus === "success" ? "var(--success)"
-      : effectiveStatus === "error" ? "var(--error)"
-      : "var(--text-muted)";
+    const iconStatusClass = getIconStatusClass(effectiveStatus);
 
     return (
-      <span
-        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] mr-1 mb-1"
-        style={{
-          border: "1px solid var(--border)",
-          background: "var(--bg-primary)",
-          color: "var(--text-secondary)",
-        }}
-      >
-        <config.Icon className="shrink-0" style={{ width: 12, height: 12, color: compactDotColor, strokeWidth: 1.5 }} />
+      <span className="tc-pill inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] mr-1 mb-1">
+        <config.Icon className={`tc-pill-icon shrink-0 ${iconStatusClass}`} />
         <span className="font-medium">{config.label}</span>
       </span>
     );
@@ -156,37 +146,21 @@ export function ToolCallCard(props: ToolCallCardProps) {
   // Full card - Apple Physical style
   // ---------------------------------------------------------------------------
 
-  const dotColor = effectiveStatus === "running" ? "var(--accent)"
-    : effectiveStatus === "complete" || effectiveStatus === "success" ? "var(--success)"
-    : effectiveStatus === "error" ? "var(--error)"
-    : "var(--text-muted)";
-
-  const dotClass = effectiveStatus === "running" ? "animate-status-pulse" : "";
-  const cardClass = ""; // No shake animation — errors shown inline
+  const iconStatusClass = getIconStatusClass(effectiveStatus);
+  const pulseClass = effectiveStatus === "running" ? "animate-status-pulse" : "";
 
   return (
-    <div
-      className={`overflow-hidden my-2 max-w-md ${cardClass}`}
-      style={{
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        background: "rgba(255, 255, 255, 0.02)",
-      }}
-    >
+    <div className="tc-card overflow-hidden my-2 max-w-md">
       {/* Header - compact single line */}
       <button
         onClick={() => canToggle && setIsExpanded(!isExpanded)}
         disabled={!canToggle}
-        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left ${
+        className={`tc-header w-full flex items-center gap-2.5 px-3 py-2.5 text-left ${
           canToggle ? "hover:bg-[var(--bg-secondary)] cursor-pointer" : "cursor-default"
         }`}
-        style={{ transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)" }}
       >
         {/* Tool Icon */}
-        <config.Icon
-          className={`shrink-0 ${dotClass}`}
-          style={{ width: 14, height: 14, color: dotColor, strokeWidth: 1.5 }}
-        />
+        <config.Icon className={`tc-header-icon shrink-0 ${iconStatusClass} ${pulseClass}`} />
 
         {/* Tool Name */}
         <span className="text-sm font-medium text-[var(--text-primary)]">
@@ -215,11 +189,7 @@ export function ToolCallCard(props: ToolCallCardProps) {
           <div className="tool-spinner" />
         ) : canToggle ? (
           <ChevronDown
-            className="w-3.5 h-3.5 text-[var(--text-muted)]"
-            style={{
-              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 150ms cubic-bezier(0, 0, 0.2, 1)",
-            }}
+            className={`tc-chevron w-3.5 h-3.5 text-[var(--text-muted)] ${isExpanded ? "tc-chevron--open" : ""}`}
           />
         ) : null}
       </button>
@@ -292,10 +262,10 @@ export function ToolCallCard(props: ToolCallCardProps) {
               {/* Error */}
               {richResult.error && richResult.error.trim() && (
                 <div className="mb-2">
-                  <div className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">
+                  <div className="tc-error-label text-[10px] font-semibold uppercase tracking-wide mb-1">
                     Error
                   </div>
-                  <div className="text-sm p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 whitespace-pre-wrap break-words">
+                  <div className="tc-error-box text-sm p-2 rounded">
                     {richResult.error}
                   </div>
                 </div>
@@ -324,7 +294,7 @@ export function ToolCallCard(props: ToolCallCardProps) {
                   <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1 flex items-center gap-1.5">
                     Data
                     {"_glyph" in (richResult.data as Record<string, unknown>) && (
-                      <span className="text-[9px] px-1.5 py-px bg-purple-500/20 text-purple-400 rounded font-medium">
+                      <span className="tc-glyph-badge text-[9px] px-1.5 py-px rounded font-medium">
                         GLYPH
                       </span>
                     )}
@@ -354,10 +324,10 @@ export function ToolCallCard(props: ToolCallCardProps) {
           {/* Plain error string (from dojo flat props) */}
           {!richResult && plainError && (
             <div>
-              <div className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">
+              <div className="tc-error-label text-[10px] font-semibold uppercase tracking-wide mb-1">
                 Error
               </div>
-              <div className="text-sm p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400">
+              <div className="tc-error-box text-sm p-2 rounded">
                 {plainError}
               </div>
             </div>
@@ -406,7 +376,7 @@ function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
               href={result.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs font-medium text-blue-400 block mb-1 hover:underline"
+              className="tc-search-link text-xs font-medium block mb-1"
             >
               {result.title || "Untitled"}
             </a>
@@ -493,6 +463,16 @@ function getEffectiveStatus(tool: ToolCallData): ToolStatus {
     return hasError ? "error" : "complete";
   }
   return tool.status;
+}
+
+function getIconStatusClass(status: ToolStatus): string {
+  switch (status) {
+    case "running": return "tc-icon--running";
+    case "complete":
+    case "success": return "tc-icon--complete";
+    case "error": return "tc-icon--error";
+    default: return "tc-icon--pending";
+  }
 }
 
 function getMainPrompt(args?: Record<string, unknown>): string | null {

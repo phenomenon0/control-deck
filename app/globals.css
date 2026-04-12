@@ -696,28 +696,6 @@ code, pre, .mono, kbd, .font-mono {
   }
 }
 
-@keyframes messageSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 /* Animation utility classes */
 .animate-fade-in {
   animation: fadeIn var(--duration-exit) var(--ease-apple);
@@ -789,23 +767,6 @@ code, pre, .mono, kbd, .font-mono {
 }
 
 /* Apple pill input */
-.apple-pill-input {
-  border-radius: 20px;
-  padding: 0.5rem 1rem;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  transition: all var(--duration-standard) var(--ease-apple);
-}
-
-.apple-pill-input:focus {
-  border-color: var(--accent);
-  outline: none;
-  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.15);
-  background-color: var(--bg-primary);
-}
-
 /* Apple grid button */
 .apple-grid-btn {
   display: flex;
@@ -1429,11 +1390,6 @@ code, pre, .mono, kbd, .font-mono {
   letter-spacing: -0.01em;
 }
 
-.pane-body {
-  padding: 1rem;
-  overflow: auto;
-}
-
 /* =============================================================================
    BUTTONS — Apple press scale
    ============================================================================= */
@@ -1995,49 +1951,6 @@ code, pre, .mono, kbd, .font-mono {
    INPUT VARIANTS
    ============================================================================= */
 
-.input-zen {
-  width: 100%;
-  padding: 0.875rem 1rem;
-  background: transparent;
-  border: none;
-  border-top: 1px solid var(--separator);
-  color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-  font-size: 1.0625rem;
-  line-height: 1.47;
-}
-
-.input-zen::placeholder {
-  color: var(--text-muted);
-}
-
-.input-zen:focus {
-  outline: none;
-  background: var(--bg-secondary);
-}
-
-.select-zen {
-  padding: 0.25rem 0.5rem;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.75rem;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.select-zen:focus {
-  outline: none;
-  color: var(--text-secondary);
-}
-
-.select-zen option {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-}
-
 /* =============================================================================
    CODE BLOCKS
    ============================================================================= */
@@ -2118,35 +2031,6 @@ code {
    INPUT BAR
    ============================================================================= */
 
-.input-bar {
-  transition: all var(--duration-standard) var(--ease-apple);
-}
-
-.input-bar:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.1);
-}
-
-.input-bar-recording {
-  border-color: var(--error);
-  box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.1);
-}
-
-/* =============================================================================
-   MESSAGE ANIMATIONS
-   ============================================================================= */
-
-.message-appear {
-  animation: messageSlideIn var(--duration-exit) var(--ease-apple);
-}
-
-.image-preview {
-  transition: transform var(--duration-standard) var(--ease-apple);
-}
-
-.image-preview:hover {
-  transform: scale(1.02);
-}
 
 /* =============================================================================
    ARTIFACT CARDS
@@ -2303,44 +2187,6 @@ model-viewer {
 /* =============================================================================
    TWO-LANE CHAT LAYOUT
    ============================================================================= */
-
-.chat-lanes {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--space-xl) var(--space-xl) 64px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chat-row {
-  display: flex;
-  width: 100%;
-}
-
-.chat-row-assistant {
-  justify-content: flex-start;
-  padding-right: 15%;
-}
-
-.chat-row-user {
-  justify-content: flex-end;
-  padding-left: 25%;
-}
-
-.chat-row-assistant > * {
-  max-width: 90%;
-}
-
-.chat-row-user > * {
-  max-width: 80%;
-}
-
-.artifact-wide {
-  width: 100%;
-  max-width: min(1100px, 92vw);
-  margin: 8px auto;
-}
 
 /* =============================================================================
    RIGHT RAIL

@@ -179,6 +179,7 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
 
   return (
     <div
+      className="activity-block-enter"
       style={{
         background: "var(--agent-surface)",
         borderLeft: `2px solid ${borderColor}`,
@@ -203,6 +204,7 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
             cursor: "pointer",
             textAlign: "left",
             marginBottom: isExpanded ? 4 : 0,
+            transition: "margin-bottom var(--t-fast, 150ms) ease",
           }}
         >
           <Check
@@ -230,19 +232,14 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
         </button>
       )}
 
-      {/* Step list */}
-      {isExpanded && (
+      {/* Step list — uses CSS grid trick for smooth height animation (BEHAVIOR.md §3.4) */}
+      <div className={`activity-grid-collapse ${isExpanded ? "expanded" : ""}`}>
         <div>
           {steps.map((step) => (
             <ActivityStepRow key={step.toolCallId} step={step} />
           ))}
         </div>
-      )}
-
-      {/* Single-step collapsed summary (when collapsed and single step) */}
-      {!isExpanded && !hasMultiple && steps[0] && (
-        <ActivityStepRow step={steps[0]} />
-      )}
+      </div>
     </div>
   );
 }

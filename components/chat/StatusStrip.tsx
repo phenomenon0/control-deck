@@ -143,7 +143,7 @@ export function StatusStrip({ runState, onStop, elapsedMs }: StatusStripProps) {
             fontWeight: 500,
             color: "var(--error)",
             background: "var(--error-muted)",
-            border: "1px solid rgba(229, 83, 75, 0.2)",
+            border: "1px solid var(--error-muted)",
             borderRadius: 9999,
             cursor: "pointer",
             marginLeft: 4,

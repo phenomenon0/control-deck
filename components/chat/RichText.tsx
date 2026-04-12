@@ -171,9 +171,9 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
             fontSize: 11,
             fontWeight: 500,
             color: isExecutable ? "var(--success)" : "var(--text-secondary)",
-            background: isExecutable ? "rgba(62, 207, 113, 0.08)" : "var(--bg-tertiary)",
+            background: isExecutable ? "var(--success-muted)" : "var(--bg-tertiary)",
             border: isExecutable
-              ? "1px solid rgba(62, 207, 113, 0.15)"
+              ? "1px solid var(--success)"
               : "1px solid var(--border)",
             borderRadius: "var(--radius-sm, 4px)",
             cursor: "pointer",

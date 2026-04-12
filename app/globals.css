@@ -37,7 +37,8 @@
   /* Radius — 6px max */
   --radius: 6px;
 
-  /* Animation tokens — 150ms, no springs */
+  /* Animation tokens — variant-adaptive transitions (apple overrides with slower values).
+     Chat surface animations use --t-* tokens from BEHAVIOR.md §3.1 instead. */
   --duration-micro: 20ms;
   --duration-standard: 150ms;
   --duration-emphasis: 150ms;
@@ -79,7 +80,8 @@
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-ring: #5E6AD2;
 
-  /* Spacing scale */
+  /* Spacing scale — variant-adaptive layout (apple overrides with more generous values).
+     Chat surface layout uses --sp-* tokens from DESIGN.md §2.3 (fixed 4px base) instead. */
   --space-xs: 4px;
   --space-sm: 6px;
   --space-md: 10px;
@@ -131,9 +133,10 @@
 
   /* Extended text scale */
   --text-on-accent: #FFFFFF;
-  --text-tertiary: #5C5C61;
+  --text-tertiary: var(--text-muted); /* alias — same role, single source of truth */
 
-  /* ── Timing tokens (BEHAVIOR.md §3.1) ── */
+  /* ── Timing tokens (BEHAVIOR.md §3.1) — chat surface state animations.
+       General UI transitions use --duration-* tokens (variant-adaptive) instead. ── */
   --t-instant: 0ms;
   --t-micro: 80ms;
   --t-fast: 150ms;
@@ -143,7 +146,8 @@
   --ease-out: cubic-bezier(0.0, 0.0, 0.2, 1.0);
   --ease-in-out: cubic-bezier(0.4, 0.0, 0.2, 1.0);
 
-  /* ── Spacing scale (DESIGN.md §2.3, 4px base) ── */
+  /* ── Spacing scale (DESIGN.md §2.3, 4px base) — chat surface fixed layout.
+       General UI layout uses --space-* tokens (variant-adaptive) instead. ── */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
@@ -152,13 +156,12 @@
   --sp-6: 32px;
   --sp-8: 48px;
 
-  /* ── Typography scale (DESIGN.md §2.2) ── */
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 14px;
-  --text-lg: 16px;
-  --text-xl: 20px;
+  /* ── Typography scale (DESIGN.md §2.2) — aliases into --font-size-* so
+       apple variant overrides propagate automatically ── */
+  --text-xs: var(--font-size-xs);
+  --text-sm: var(--font-size-sm);
+  --text-base: var(--font-size-base);
+  --text-md: var(--font-size-md);
 
   /* ── Chat layout ── */
   --chat-column-max: 720px;
@@ -265,7 +268,7 @@
   --border-subtle: rgba(0, 0, 0, 0.04);
   --border-accent: rgba(0, 122, 255, 0.20);
   --text-on-accent: #FFFFFF;
-  --text-tertiary: #AEAEB2;
+  --text-tertiary: var(--text-muted); /* alias — same role, single source of truth */
 
   /* Spacing — generous, comfortable */
   --space-xs: 6px;
@@ -362,7 +365,7 @@
   --border-subtle: rgba(255, 255, 255, 0.04);
   --border-accent: rgba(10, 132, 255, 0.25);
   --text-on-accent: #FFFFFF;
-  --text-tertiary: #636366;
+  --text-tertiary: var(--text-muted); /* alias — same role, single source of truth */
 
   /* Spacing — generous, comfortable (same as light apple) */
   --space-xs: 6px;

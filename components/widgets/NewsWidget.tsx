@@ -11,7 +11,8 @@ interface NewsWidgetProps {
 }
 
 export function NewsWidget({ data, isLoading, error, onRefresh }: NewsWidgetProps) {
-  const badge = data ? `${data.items.length}` : undefined;
+  const count = data?.items.length;
+  const badge = count ? `${count}` : undefined;
 
   return (
     <WidgetContainer
@@ -25,20 +26,17 @@ export function NewsWidget({ data, isLoading, error, onRefresh }: NewsWidgetProp
       defaultExpanded={false}
     >
       {data && (
-        <div className="news-content">
-          {data.items.slice(0, 5).map((item) => (
+        <div className="news-content-compact">
+          {data.items.slice(0, 4).map((item, index) => (
             <a
-              key={item.id}
+              key={`${item.id}-${index}`}
               href={item.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="news-item"
+              className="news-item-compact"
+              title={item.title}
             >
-              <div className="news-item-header">
-                <span className="news-source">{item.source}</span>
-                {item.time && <span className="news-time">{item.time}</span>}
-              </div>
-              <div className="news-title">{item.title}</div>
+              {item.title}
             </a>
           ))}
         </div>

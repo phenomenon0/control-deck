@@ -147,17 +147,13 @@ export function wrapWithNetworkIsolation(
     return { command, args };
   }
   
-  // Try to use unshare for network namespace
-  // This requires CAP_SYS_ADMIN or running as root
-  // Most likely will fail on a regular system, so we make it optional
-  try {
-    return {
-      command: "unshare",
-      args: ["--net", "--map-root-user", command, ...args],
-    };
-  } catch {
-    return { command, args };
-  }
+  // Use unshare for network namespace isolation.
+  // Requires CAP_SYS_ADMIN or root — if unshare isn't available at runtime,
+  // the spawn itself will fail and runSandboxed handles that via proc.on("error").
+  return {
+    command: "unshare",
+    args: ["--net", "--map-root-user", command, ...args],
+  };
 }
 
 /**

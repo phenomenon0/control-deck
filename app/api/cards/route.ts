@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const DECK_BASE_URL = process.env.DECK_BASE_URL ?? "http://localhost:3333";
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -413,7 +415,7 @@ export async function GET(req: NextRequest) {
   
   // Fetch search results
   try {
-    const searchRes = await fetch(`http://localhost:3333/api/search?q=${encodeURIComponent(query)}&max=5`);
+    const searchRes = await fetch(`${DECK_BASE_URL}/api/search?q=${encodeURIComponent(query)}&max=5`);
     if (!searchRes.ok) {
       return NextResponse.json({ query, cards: [], type: queryType });
     }

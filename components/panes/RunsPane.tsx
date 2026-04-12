@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { X, ChevronRight } from "lucide-react";
 import { PayloadViewer } from "@/components/inspector/PayloadViewer";
 import type { DeckPayload } from "@/lib/agui/payload";
 
@@ -69,8 +70,8 @@ export function RunsPane() {
       const data = await res.json();
       setRuns(data.runs ?? []);
       setTodayCost(data.todayCost ?? null);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[RunsPane] fetch failed:", err);
     } finally {
       setLoading(false);
     }
@@ -86,7 +87,8 @@ export function RunsPane() {
       });
       const data = await res.json();
       setRunEvents(data.events ?? []);
-    } catch {
+    } catch (err) {
+      console.warn("[RunsPane] fetch run events failed:", err);
       setRunEvents([]);
     } finally {
       setLoadingEvents(false);
@@ -141,8 +143,8 @@ export function RunsPane() {
             });
           }
         }
-      } catch {
-        // ignore individual run fetch errors
+      } catch (err) {
+        console.warn("[RunsPane] fetch run events failed:", err);
       }
     }
     
@@ -203,14 +205,15 @@ export function RunsPane() {
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const statusBadge = (status: Run["status"]) => {
+  const statusDot = (status: Run["status"]) => {
+    const base = "inline-block w-[6px] h-[6px] rounded-full flex-shrink-0";
     switch (status) {
       case "running":
-        return <span className="px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-400">Running</span>;
+        return <span className={`${base} bg-[var(--accent)]`} />;
       case "finished":
-        return <span className="px-2 py-0.5 rounded text-xs bg-green-500/20 text-green-400">Done</span>;
+        return <span className={`${base} bg-[var(--success)]`} />;
       case "error":
-        return <span className="px-2 py-0.5 rounded text-xs bg-red-500/20 text-red-400">Error</span>;
+        return <span className={`${base} bg-[var(--error)]`} />;
     }
   };
 
@@ -250,22 +253,22 @@ export function RunsPane() {
   // GLYPH view mode
   if (viewMode === "glyph") {
     return (
-      <div className="h-full flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+      <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+        {/* Frosted Header */}
+        <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold">Payload Inspector</span>
+            <span className="text-sm font-semibold tracking-tight">Payload Inspector</span>
             {/* View mode toggle */}
-            <div className="flex rounded-md overflow-hidden border border-[var(--border)]">
+            <div className="flex rounded-[6px] overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]">
               <button
                 onClick={() => setViewMode("list")}
-                className="px-2 py-1 text-xs transition-colors bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                className="px-3 py-1 text-xs font-medium transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               >
                 List
               </button>
               <button
                 onClick={() => setViewMode("glyph")}
-                className="px-2 py-1 text-xs transition-colors bg-purple-600 text-white"
+                className="px-3 py-1 text-xs font-medium transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] bg-[var(--accent)] text-white rounded-[6px]"
               >
                 GLYPH
               </button>
@@ -290,13 +293,13 @@ export function RunsPane() {
                 }
               }}
               disabled={evalRunning}
-              className="px-2 py-1 text-xs rounded bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors disabled:opacity-50"
+              className="btn btn-secondary text-xs"
             >
               {evalRunning ? "Testing..." : "Test GLYPH Parsing"}
             </button>
             <button
               onClick={() => fetchAllGlyphPayloads()}
-              className="px-2 py-1 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] transition-colors"
+              className="btn btn-secondary text-xs"
             >
               Refresh
             </button>
@@ -351,17 +354,22 @@ export function RunsPane() {
         {/* GLYPH payloads grid */}
         <div className="flex-1 overflow-y-auto p-4">
           {allGlyphPayloads.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-4">@</div>
-              <p className="text-lg text-[var(--text-muted)] mb-2">No tool payloads found</p>
-              <p className="text-sm text-[var(--text-muted)]">
-                Run a tool to see payloads here. GLYPH-encoded payloads will be highlighted in purple.
+            <div className="text-center py-16">
+              <div className="text-5xl mb-4 opacity-40">@</div>
+              <p className="text-base font-medium text-[var(--text-secondary)] mb-2">No tool payloads found</p>
+              <p className="text-sm text-[var(--text-muted)] mb-6">
+                Run a tool to see payloads here.
               </p>
+              <button onClick={() => fetchAllGlyphPayloads()} className="btn btn-primary text-sm">
+                Refresh Payloads
+              </button>
             </div>
           ) : (
             <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
               {allGlyphPayloads.map((item, idx) => (
-                <GlyphCard key={`${item.runId}-${idx}`} item={item} />
+                <div key={`${item.runId}-${idx}`}>
+                  <GlyphCard item={item} />
+                </div>
               ))}
             </div>
           )}
@@ -371,28 +379,28 @@ export function RunsPane() {
   }
 
   return (
-    <div className="h-full flex">
+    <div className="h-full flex bg-[var(--bg-primary)]">
       {/* Runs list */}
       <div className={`flex flex-col ${selectedRun ? "w-1/2 border-r border-[var(--border)]" : "w-full"}`}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
+        {/* Frosted Header */}
+        <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold">Runs</span>
+            <span className="text-sm font-semibold tracking-tight">Runs</span>
             {/* View mode toggle */}
-            <div className="flex rounded-md overflow-hidden border border-[var(--border)]">
+            <div className="flex rounded-[6px] overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]">
               <button
                 onClick={() => setViewMode("list")}
-                className={`px-2 py-1 text-xs transition-colors ${
+                className={`px-3 py-1 text-xs font-medium transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] ${
                   viewMode === "list"
-                    ? "bg-[var(--accent)] text-white"
-                    : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    ? "bg-[var(--accent)] text-white rounded-[6px]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                 }`}
               >
                 List
               </button>
               <button
                 onClick={() => setViewMode("glyph")}
-                className="px-2 py-1 text-xs transition-colors bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                className="px-3 py-1 text-xs font-medium transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               >
                 GLYPH
               </button>
@@ -405,7 +413,7 @@ export function RunsPane() {
                 {todayCost.costUsd > 0 && ` ($${todayCost.costUsd.toFixed(4)})`}
               </div>
             )}
-            <button onClick={handleClear} className="px-2 py-1 text-xs rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] transition-colors">
+            <button onClick={handleClear} className="btn btn-secondary text-xs">
               Clear
             </button>
           </div>
@@ -414,48 +422,50 @@ export function RunsPane() {
         {/* Runs list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="p-8 text-center text-[var(--text-muted)]">Loading...</div>
+            <div className="p-12 text-center text-[var(--text-muted)]">Loading...</div>
           ) : runs.length === 0 ? (
-            <div className="p-8 text-center text-[var(--text-muted)]">
-              <p className="text-lg mb-2">No runs yet</p>
-              <p className="text-sm">Chat with the AI to see runs appear here</p>
+            <div className="p-16 text-center">
+              <div className="text-5xl mb-4 opacity-30">&#9654;</div>
+              <p className="text-base font-medium text-[var(--text-secondary)] mb-2">No runs yet</p>
+              <p className="text-sm text-[var(--text-muted)] mb-6">Chat with the AI to see runs appear here</p>
             </div>
           ) : (
-            <div className="divide-y divide-[var(--border)]">
+            <div>
               {runs.map((run) => (
                 <div
                   key={run.id}
                   onClick={() => setSelectedRun(run.id === selectedRun ? null : run.id)}
-                  className={`px-4 py-3 cursor-pointer transition-colors ${
+                  className={`px-4 py-3 cursor-pointer border-b border-[var(--border)] transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] ${
                     selectedRun === run.id
-                      ? "bg-[var(--accent)]/10"
-                      : "hover:bg-[var(--bg-tertiary)]"
+                      ? "bg-[rgba(255,255,255,0.06)]"
+                      : "hover:bg-[rgba(255,255,255,0.04)]"
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
+                      {statusDot(run.status)}
+                      <span className="text-sm font-medium text-[var(--text-primary)]">
+                        {run.model ?? "unknown"}
+                      </span>
                       <span className="font-mono text-xs text-[var(--text-muted)]">
                         {formatTime(run.started_at)}
                       </span>
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                        {run.model ?? "unknown"}
-                      </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {statusBadge(run.status)}
+                    <div className="flex items-center gap-3">
+                      {(run.input_tokens > 0 || run.output_tokens > 0) && (
+                        <span className="text-xs text-[var(--text-muted)] font-mono">
+                          {run.input_tokens + run.output_tokens} tok
+                        </span>
+                      )}
                       <span className="text-xs text-[var(--text-muted)]">
                         {formatDuration(run.started_at, run.ended_at)}
                       </span>
+                      <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />
                     </div>
                   </div>
                   {run.preview && (
-                    <p className="text-sm text-[var(--text-muted)] truncate">
+                    <p className="text-sm text-[var(--text-muted)] truncate ml-[23px]">
                       {run.preview}
-                    </p>
-                  )}
-                  {(run.input_tokens > 0 || run.output_tokens > 0) && (
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
-                      {run.input_tokens} in / {run.output_tokens} out
                     </p>
                   )}
                 </div>
@@ -465,75 +475,81 @@ export function RunsPane() {
         </div>
       </div>
 
-      {/* Run detail panel */}
+      {/* Run detail panel — slide-in */}
       {selectedRun && (
-        <div className="w-1/2 flex flex-col">
-          {/* Detail header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-            <span className="text-sm font-semibold">Run Details</span>
+        <div className="w-1/2 flex flex-col animate-fade-in bg-[var(--bg-primary)]">
+          {/* Detail frosted header */}
+          <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+            <span className="text-sm font-semibold tracking-tight">Run Details</span>
             <button
               onClick={() => setSelectedRun(null)}
-              className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-all duration-[240ms]"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-4 h-4 text-[var(--text-muted)]" />
             </button>
           </div>
 
           {/* Detail content */}
           <div className="flex-1 overflow-y-auto p-4">
             {loadingEvents ? (
-              <div className="text-center text-[var(--text-muted)]">Loading events...</div>
+              <div className="text-center text-[var(--text-muted)] py-8">Loading events...</div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {/* Run ID */}
                 <div>
-                  <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1">
-                    Run ID
-                  </h4>
+                  <h4 className="section-title mb-1">Run ID</h4>
                   <code className="text-xs text-[var(--text-secondary)]">{selectedRun}</code>
                 </div>
 
                 {/* Tool Calls */}
                 {toolCallList.length > 0 && (
                   <div>
-                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                    <h4 className="section-title mb-3">
                       Tool Calls ({toolCallList.length})
                     </h4>
                     <div className="space-y-3">
-                      {toolCallList.map((tc) => (
-                        <ToolCallDetail key={tc.id} toolCall={tc} />
+                      {toolCallList.map((tc, idx) => (
+                        <div key={tc.id}>
+                          <ToolCallDetail toolCall={tc} />
+                        </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* Raw Events (collapsible) */}
+                {/* Raw Events — timeline */}
                 <details className="group">
-                  <summary className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider cursor-pointer hover:text-[var(--text-primary)]">
+                  <summary className="section-title cursor-pointer hover:text-[var(--text-primary)] transition-colors">
                     Raw Events ({runEvents.length})
                   </summary>
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-3 event-timeline space-y-3">
                     {runEvents.map((evt, i) => (
-                      <div key={i} className="text-xs font-mono p-2 rounded bg-[var(--bg-tertiary)] overflow-x-auto">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`px-1.5 py-0.5 rounded ${getEventBadgeColor(evt.type)}`}>
-                            {evt.type}
-                          </span>
-                          <span className="text-[var(--text-muted)]">
-                            {new Date(evt.timestamp).toLocaleTimeString()}
-                          </span>
+                      <div key={i} className="relative">
+                        <div className={`event-timeline-dot ${
+                          evt.type.includes("Error") ? "bg-[var(--error)]"
+                          : evt.type.includes("Start") ? "bg-[var(--accent)]"
+                          : evt.type.includes("Result") ? "bg-[var(--success)]"
+                          : "bg-[var(--text-muted)]"
+                        }`} />
+                        <div className="text-xs font-mono p-3 rounded-[6px] bg-[rgba(255,255,255,0.02)] border border-[var(--border)]">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="badge badge-neutral text-[10px]">
+                              {evt.type}
+                            </span>
+                            <span className="text-[var(--text-muted)]">
+                              {new Date(evt.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          {evt.type === "ToolCallArgs" && evt.args && (
+                            <PayloadViewer payload={evt.args} label="Args" maxPreviewLines={3} />
+                          )}
+                          {evt.type === "ToolCallResult" && evt.result && (
+                            <PayloadViewer payload={evt.result} label="Result" maxPreviewLines={5} />
+                          )}
+                          {evt.type === "RunError" && evt.error && (
+                            <div className="text-[var(--error)] mt-1">{evt.error.message}</div>
+                          )}
                         </div>
-                        {evt.type === "ToolCallArgs" && evt.args && (
-                          <PayloadViewer payload={evt.args} label="Args" maxPreviewLines={3} />
-                        )}
-                        {evt.type === "ToolCallResult" && evt.result && (
-                          <PayloadViewer payload={evt.result} label="Result" maxPreviewLines={5} />
-                        )}
-                        {evt.type === "RunError" && evt.error && (
-                          <div className="text-red-400 mt-1">{evt.error.message}</div>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -567,32 +583,27 @@ function ToolCallDetail({ toolCall }: {
     : null;
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] overflow-hidden">
+    <div className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] overflow-hidden">
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-2 bg-[var(--bg-tertiary)] cursor-pointer"
+        className="flex items-center justify-between px-3 py-2.5 bg-[rgba(255,255,255,0.04)] cursor-pointer"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="flex items-center gap-2">
-          <svg
-            className={`w-3 h-3 text-[var(--text-muted)] transition-transform ${expanded ? "rotate-90" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
+        <div className="flex items-center gap-2.5">
+          <ChevronRight
+            className={`w-3.5 h-3.5 text-[var(--text-muted)] transition-transform duration-150 ease-[cubic-bezier(0,0,0.2,1)] ${expanded ? "rotate-90" : ""}`}
+          />
           <span className="text-sm font-medium text-[var(--text-primary)]">{toolCall.name}</span>
-          
-          {/* Status indicator */}
+
+          {/* Status dot */}
           {toolCall.status === "running" && (
-            <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+            <span className="inline-block w-[6px] h-[6px] rounded-full bg-[var(--accent)]" />
           )}
           {toolCall.status === "complete" && (
-            <span className="w-2 h-2 bg-green-400 rounded-full" />
+            <span className="inline-block w-[6px] h-[6px] rounded-full bg-[var(--success)]" />
           )}
           {toolCall.status === "error" && (
-            <span className="w-2 h-2 bg-red-400 rounded-full" />
+            <span className="inline-block w-[6px] h-[6px] rounded-full bg-[var(--error)]" />
           )}
           
           {/* Payload type badge with savings */}
@@ -691,17 +702,12 @@ function GlyphCard({ item }: {
     navigator.clipboard.writeText(text);
   };
 
-  // Border color based on payload type
-  const borderColor = isGlyph ? "border-purple-500/30" : "border-blue-500/30";
-  const headerBg = isGlyph ? "bg-purple-500/10 border-purple-500/20" : "bg-blue-500/10 border-blue-500/20";
-  const titleColor = isGlyph ? "text-purple-300" : "text-blue-300";
-
   return (
-    <div className={`rounded-lg border ${borderColor} bg-[var(--bg-secondary)] overflow-hidden`}>
+    <div className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] overflow-hidden">
       {/* Header */}
-      <div className={`flex items-center justify-between px-3 py-2 ${headerBg} border-b`}>
+      <div className="flex items-center justify-between px-3 py-2.5 bg-[rgba(255,255,255,0.04)] border-b border-[var(--border)]">
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-medium ${titleColor}`}>{item.toolName}</span>
+          <span className="text-sm font-medium text-[var(--text-primary)]">{item.toolName}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded ${
             item.type === "args" 
               ? "bg-orange-500/20 text-orange-400" 
@@ -722,7 +728,7 @@ function GlyphCard({ item }: {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center gap-4 px-3 py-2 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+      <div className="flex items-center gap-4 px-3 py-2 border-b border-[var(--border)] bg-[rgba(255,255,255,0.04)]">
         <div className="flex items-center gap-1">
           <span className="text-xs text-[var(--text-muted)]">Size:</span>
           <span className={`text-xs font-mono ${isGlyph ? "text-purple-400" : "text-blue-400"}`}>
@@ -793,12 +799,8 @@ function GlyphCard({ item }: {
           </div>
         )}
 
-        {/* Code block */}
-        <pre className={`text-xs font-mono whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto p-2 rounded ${
-          isGlyph 
-            ? (showDecoded ? "bg-blue-500/5 text-blue-200" : "bg-purple-500/5 text-purple-200")
-            : "bg-blue-500/5 text-blue-200"
-        }`}>
+        {/* Code block — Xcode-style */}
+        <pre className="xcode-preview whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto p-3">
           {content.length > 500
             ? content.slice(0, 500) + "\n..."
             : content
@@ -807,7 +809,7 @@ function GlyphCard({ item }: {
       </div>
 
       {/* Run ID */}
-      <div className="px-3 py-2 border-t border-[var(--border)] bg-[var(--bg-tertiary)]">
+      <div className="px-3 py-2 border-t border-[var(--border)] bg-[rgba(255,255,255,0.04)]">
         <code className="text-[10px] text-[var(--text-muted)]">Run: {item.runId.slice(0, 8)}...</code>
       </div>
     </div>

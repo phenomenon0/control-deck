@@ -23,30 +23,33 @@ export function VoiceToolResult({
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          gap: "12px",
-          padding: "20px",
+          gap: "10px",
+          padding: "16px 20px",
           background: "var(--bg-secondary)",
-          borderRadius: "12px",
-          border: "1px solid var(--border)",
+          borderRadius: "16px",
+          border: "none",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          animation: "voiceBubbleIn 200ms cubic-bezier(0.4, 0, 0.6, 1) both",
         }}
       >
         <div
           style={{
-            width: "48px",
-            height: "48px",
-            borderRadius: "8px",
+            width: "40px",
+            height: "40px",
+            borderRadius: "10px",
             background: "var(--bg-tertiary)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <LoadingSpinner size={24} />
+          <LoadingSpinner size={20} />
         </div>
         <span
           style={{
             fontSize: "13px",
             color: "var(--text-muted)",
+            fontWeight: "400",
           }}
         >
           {toolName === "generate_image"
@@ -77,11 +80,12 @@ export function VoiceToolResult({
         flexDirection: "column",
         alignItems: "center",
         gap: "8px",
-        padding: "12px",
+        padding: "10px",
         background: "var(--bg-secondary)",
-        borderRadius: "12px",
-        border: "1px solid var(--border)",
-        animation: "fadeSlideIn 0.3s ease-out",
+        borderRadius: "16px",
+        border: "none",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+        animation: "voiceBubbleIn 200ms cubic-bezier(0.4, 0, 0.6, 1) both",
       }}
     >
       {/* Image */}
@@ -90,9 +94,9 @@ export function VoiceToolResult({
           src={artifact.url}
           alt={artifact.name}
           style={{
-            maxWidth: "200px",
-            maxHeight: "150px",
-            borderRadius: "8px",
+            maxWidth: "180px",
+            maxHeight: "140px",
+            borderRadius: "10px",
             objectFit: "cover",
           }}
         />
@@ -105,7 +109,7 @@ export function VoiceToolResult({
           src={artifact.url}
           style={{
             width: "200px",
-            height: "40px",
+            height: "36px",
           }}
         />
       )}
@@ -114,15 +118,16 @@ export function VoiceToolResult({
       {isModel && (
         <div
           style={{
-            width: "150px",
-            height: "100px",
+            width: "140px",
+            height: "90px",
             background: "var(--bg-tertiary)",
-            borderRadius: "8px",
+            borderRadius: "10px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             color: "var(--text-muted)",
             fontSize: "12px",
+            fontWeight: "500",
           }}
         >
           3D Model
@@ -134,10 +139,11 @@ export function VoiceToolResult({
         style={{
           fontSize: "11px",
           color: "var(--text-muted)",
-          maxWidth: "200px",
+          maxWidth: "180px",
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          fontWeight: "400",
         }}
       >
         {artifact.name}
@@ -163,9 +169,9 @@ export function VoiceToolResults({
       style={{
         display: "flex",
         flexWrap: "wrap",
-        gap: "12px",
+        gap: "10px",
         justifyContent: "center",
-        padding: "12px 0",
+        padding: "8px 0",
       }}
     >
       {artifacts.map((artifact) => (

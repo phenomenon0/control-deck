@@ -11,11 +11,10 @@ interface StocksWidgetProps {
 }
 
 export function StocksWidget({ data, isLoading, error, onRefresh }: StocksWidgetProps) {
-  // Show top mover in badge
-  const topMover = data?.quotes[0];
-  const badge = topMover
-    ? `${topMover.symbol} ${topMover.changePercent > 0 ? "+" : ""}${topMover.changePercent}%`
-    : undefined;
+  // Show multiple tickers in badge for quick overview
+  const badge = data?.quotes.slice(0, 3).map(q => 
+    `${q.symbol} ${q.changePercent >= 0 ? "+" : ""}${q.changePercent.toFixed(1)}%`
+  ).join("  ") || undefined;
 
   return (
     <WidgetContainer

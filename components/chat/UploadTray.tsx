@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import { Plus, Trash2, Paperclip } from "lucide-react";
 
 export interface PendingUpload {
   id: string;
@@ -61,93 +62,47 @@ export function UploadTray({ isOpen, onClose, uploads, onRemove, onAddMore }: Up
     <>
       {/* Backdrop */}
       <div
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.2)",
-          zIndex: 40,
-        }}
+        className="fixed inset-0 bg-black/20 z-40"
         onClick={onClose}
       />
 
       {/* Tray */}
       <div
         ref={trayRef}
-        className="upload-tray"
-        style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: 280,
-          background: "var(--bg-secondary)",
-          borderLeft: "1px solid var(--border)",
-          zIndex: 50,
-          display: "flex",
-          flexDirection: "column",
-          animation: "slideInRight 0.2s ease-out",
-        }}
+        className="fixed top-0 right-0 bottom-0 w-[280px] bg-[var(--bg-secondary)] border-l border-[var(--border)] z-50 flex flex-col animate-[slideInRight_0.2s_ease-out]"
       >
         {/* Header */}
-        <div
-          style={{
-            padding: "16px 20px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
+        <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+          <span className="text-sm font-medium text-[var(--text-primary)]">
             Attachments
             {uploads.length > 0 && (
-              <span
-                style={{
-                  marginLeft: 8,
-                  fontSize: 12,
-                  color: "var(--text-muted)",
-                  fontWeight: 400,
-                }}
-              >
+              <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
                 ({uploads.length})
               </span>
             )}
           </span>
           <button
             onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              padding: 4,
-              fontSize: 18,
-              lineHeight: 1,
-            }}
+            className="bg-transparent border-none text-[var(--text-muted)] cursor-pointer p-1 text-lg leading-none hover:text-[var(--text-primary)] transition-colors"
           >
             ×
           </button>
         </div>
 
         {/* Upload list */}
-        <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        <div className="flex-1 overflow-y-auto p-4">
           {uploads.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                color: "var(--text-muted)",
-                fontSize: 14,
-                marginTop: 40,
-              }}
-            >
-              <div style={{ fontSize: 32, marginBottom: 12 }}>📎</div>
+            <div className="text-center text-[var(--text-muted)] text-sm mt-10">
+              <div className="mb-3">
+                <Paperclip size={32} className="mx-auto" />
+              </div>
               <div>No files attached</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>
+              <div className="text-xs mt-1">
                 Click below or drag & drop files
               </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="flex flex-col gap-3">
               {uploads.map((upload) => (
                 <UploadItem key={upload.id} upload={upload} onRemove={() => onRemove(upload.id)} />
               ))}
@@ -156,36 +111,12 @@ export function UploadTray({ isOpen, onClose, uploads, onRemove, onAddMore }: Up
         </div>
 
         {/* Add more button */}
-        <div style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
+        <div className="p-4 border-t border-[var(--border)]">
           <button
             onClick={onAddMore}
-            style={{
-              width: "100%",
-              padding: "10px 16px",
-              background: "var(--bg-tertiary)",
-              border: "1px dashed var(--border-bright)",
-              borderRadius: 8,
-              color: "var(--text-secondary)",
-              cursor: "pointer",
-              fontSize: 14,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--bg-secondary)";
-              e.currentTarget.style.borderColor = "var(--accent)";
-              e.currentTarget.style.color = "var(--accent)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "var(--bg-tertiary)";
-              e.currentTarget.style.borderColor = "var(--border-bright)";
-              e.currentTarget.style.color = "var(--text-secondary)";
-            }}
+            className="w-full py-2.5 px-4 bg-[var(--bg-tertiary)] border border-dashed border-[var(--border-bright)] rounded-lg text-[var(--text-secondary)] cursor-pointer text-sm flex items-center justify-center gap-2 transition-all hover:bg-[var(--bg-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
           >
-            <PlusIcon size={16} />
+            <Plus size={16} />
             Add files
           </button>
         </div>
@@ -198,82 +129,33 @@ function UploadItem({ upload, onRemove }: { upload: PendingUpload; onRemove: () 
   const isImage = upload.mimeType.startsWith("image/");
 
   return (
-    <div
-      style={{
-        background: "var(--bg-primary)",
-        borderRadius: 8,
-        overflow: "hidden",
-        border: "1px solid var(--border)",
-      }}
-    >
+    <div className="bg-[var(--bg-primary)] rounded-lg overflow-hidden border border-[var(--border)]">
       {isImage && (
-        <div
-          style={{
-            width: "100%",
-            height: 140,
-            overflow: "hidden",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
+        <div className="w-full h-[140px] overflow-hidden border-b border-[var(--border)]">
           <img
             src={upload.url}
             alt={upload.name}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
+            className="w-full h-full object-cover"
           />
         </div>
       )}
 
-      <div
-        style={{
-          padding: "10px 12px",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        {!isImage && <span style={{ fontSize: 20 }}>📎</span>}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 13,
-              color: "var(--text-primary)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
+      <div className="py-2.5 px-3 flex items-center gap-2">
+        {!isImage && <Paperclip size={20} />}
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] text-[var(--text-primary)] overflow-hidden text-ellipsis whitespace-nowrap">
             {upload.name}
           </div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          <div className="text-[11px] text-[var(--text-muted)]">
             {upload.mimeType.split("/")[1]?.toUpperCase() || "File"}
           </div>
         </div>
         <button
           onClick={onRemove}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            padding: 4,
-            borderRadius: 4,
-            transition: "all 0.2s",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
-            e.currentTarget.style.color = "#ef4444";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "none";
-            e.currentTarget.style.color = "var(--text-muted)";
-          }}
+          className="bg-transparent border-none text-[var(--text-muted)] cursor-pointer p-1 rounded transition-all hover:bg-red-500/10 hover:text-red-400"
           title="Remove"
         >
-          <TrashIcon size={16} />
+          <Trash2 size={16} />
         </button>
       </div>
     </div>
@@ -293,59 +175,11 @@ export function UploadBadge({
   return (
     <button
       onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-        padding: "4px 8px",
-        background: "var(--accent)",
-        border: "none",
-        borderRadius: 12,
-        color: "var(--bg-primary)",
-        cursor: "pointer",
-        fontSize: 12,
-        fontWeight: 500,
-      }}
+      className="flex items-center gap-1 py-1 px-2 bg-[var(--accent)] border-none rounded-xl text-[var(--bg-primary)] cursor-pointer text-xs font-medium"
       title="View attachments"
     >
-      <span>📎</span>
+      <Paperclip size={14} />
       <span>{count}</span>
     </button>
-  );
-}
-
-function PlusIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}
-
-function TrashIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    </svg>
   );
 }

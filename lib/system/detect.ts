@@ -102,14 +102,14 @@ function getRecommendedSettings(
 ): SystemProfile["recommended"] {
   if (mode === "power" && gpu) {
     return {
-      textModel: "qwen3:8b",
+      textModel: process.env.LLM_MODEL ?? "qwen2",
       imageBackend: "comfy",
       imageResolution: 768,
     };
   }
 
   return {
-    textModel: "qwen2.5:1.5b",
+    textModel: process.env.LLM_MODEL ?? "qwen2",
     imageBackend: "lite",
     imageResolution: 256,
   };

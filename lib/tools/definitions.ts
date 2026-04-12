@@ -120,6 +120,8 @@ export const VectorSearchSchema = z.object({
     query: z.string().min(1).describe("Search query text"),
     collection: z.string().optional().describe("Collection to search in (default: all)"),
     k: z.number().int().min(1).max(100).default(5).describe("Number of results to return"),
+    mode: z.enum(["hybrid", "vector", "lexical"]).optional().describe("Search mode: hybrid (best), vector (semantic), or lexical (keyword)"),
+    filter: z.record(z.string(), z.string()).optional().describe("Metadata filter - documents must match all key-value pairs"),
   }),
 });
 
@@ -130,6 +132,18 @@ export const VectorStoreSchema = z.object({
   name: z.literal("vector_store"),
   args: z.object({
     text: z.string().min(1).describe("Document text to store"),
+    collection: z.string().default("default").describe("Collection to store in"),
+    metadata: z.record(z.string(), z.string()).optional().describe("Optional metadata key-value pairs"),
+  }),
+});
+
+/**
+ * Ingest content from a URL into VectorDB with automatic chunking
+ */
+export const VectorIngestSchema = z.object({
+  name: z.literal("vector_ingest"),
+  args: z.object({
+    url: z.string().url().describe("URL to fetch and ingest"),
     collection: z.string().default("default").describe("Collection to store in"),
     metadata: z.record(z.string(), z.string()).optional().describe("Optional metadata key-value pairs"),
   }),
@@ -150,6 +164,7 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   ExecuteCodeSchema,
   VectorSearchSchema,
   VectorStoreSchema,
+  VectorIngestSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -166,6 +181,7 @@ export type GlyphMotifArgs = z.infer<typeof GlyphMotifSchema>["args"];
 export type ExecuteCodeArgs = z.infer<typeof ExecuteCodeSchema>["args"];
 export type VectorSearchArgs = z.infer<typeof VectorSearchSchema>["args"];
 export type VectorStoreArgs = z.infer<typeof VectorStoreSchema>["args"];
+export type VectorIngestArgs = z.infer<typeof VectorIngestSchema>["args"];
 
 // ============================================================================
 // Tool Metadata for System Prompt Generation
@@ -261,11 +277,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "vector_search",
-    description: "Search for semantically similar documents in the local VectorDB. Use for: finding related information, semantic search, knowledge retrieval, finding context for questions.",
+    description: "Search for semantically similar documents in the local VectorDB. Use for: finding related information, semantic search, knowledge retrieval, finding context for questions. Supports hybrid search (combined vector + keyword) for best results.",
     parameters: [
       { name: "query", type: "string", required: true, description: "Search query - will find semantically similar documents" },
       { name: "collection", type: "string", required: false, description: "Collection to search (omit to search all)" },
       { name: "k", type: "number", required: false, description: "Number of results (1-100)", default: 5 },
+      { name: "mode", type: "string", required: false, description: "Search mode: 'hybrid' (best quality), 'vector' (semantic only), 'lexical' (keyword only)", default: "hybrid" },
+      { name: "filter", type: "object", required: false, description: "Metadata filter - only return docs matching all key-value pairs" },
     ],
   },
   {
@@ -273,6 +291,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Store a document in VectorDB for future semantic retrieval. Use for: saving important information, building knowledge bases, storing facts for later retrieval.",
     parameters: [
       { name: "text", type: "string", required: true, description: "Document text to store" },
+      { name: "collection", type: "string", required: false, description: "Collection name", default: "default" },
+      { name: "metadata", type: "object", required: false, description: "Optional key-value metadata" },
+    ],
+  },
+  {
+    name: "vector_ingest",
+    description: "Fetch content from a URL and store it in VectorDB with automatic chunking. Use for: ingesting web pages, documentation, articles, or any URL content into the knowledge base. Automatically splits large documents into searchable chunks.",
+    parameters: [
+      { name: "url", type: "string", required: true, description: "URL to fetch and ingest" },
       { name: "collection", type: "string", required: false, description: "Collection name", default: "default" },
       { name: "metadata", type: "object", required: false, description: "Optional key-value metadata" },
     ],

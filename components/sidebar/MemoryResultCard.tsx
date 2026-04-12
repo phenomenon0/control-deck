@@ -5,12 +5,16 @@ import type { ToolCallData } from "@/components/chat/ToolCallCard";
 
 interface MemoryResult {
   id: string;
-  content: string;
+  text: string;        // VectorDB returns 'text' not 'content'
+  content?: string;    // Legacy fallback
   score: number;
   metadata?: {
     source?: string;
+    source_url?: string;
     collection?: string;
     timestamp?: string;
+    chunk_index?: string;
+    total_chunks?: string;
     [key: string]: unknown;
   };
 }
@@ -34,6 +38,50 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
 
   const results: MemoryResult[] = data?.results || [];
   const isStore = tool.name === "vector_store" || tool.name === "memory_store";
+  const isIngest = tool.name === "vector_ingest";
+
+  // For ingest operations (URL ingestion)
+  if (isIngest) {
+    const success = tool.result?.success;
+    const ingestData = tool.result?.data as {
+      url?: string;
+      chunks?: number;
+      collection?: string;
+    } | undefined;
+    const url = tool.args?.url as string || ingestData?.url || "";
+    const chunks = ingestData?.chunks || 0;
+    const targetCollection = ingestData?.collection || collection;
+    
+    return (
+      <div className="result-card memory-card">
+        <div className="result-card-header">
+          <span className="result-icon">📥</span>
+          <span className="result-title">url ingest</span>
+          <span className={`exit-badge ${success ? "success" : "error"}`}>
+            {success ? "✓" : "✗"}
+          </span>
+          <span className="result-duration">
+            {tool.durationMs ? `${tool.durationMs}ms` : ""}
+          </span>
+        </div>
+        <div className="result-card-body">
+          <div className="memory-collection">
+            <span className="memory-label">URL</span>
+            <span className="memory-value" title={url}>
+              {truncate(url.replace(/^https?:\/\//, ""), 40)}
+            </span>
+          </div>
+          <div className="memory-meta-row">
+            <span className="memory-collection-badge">{targetCollection}</span>
+            {success && <span className="memory-chunk-count">{chunks} chunks</span>}
+          </div>
+          {!success && tool.result?.error && (
+            <div className="memory-error">{tool.result.error}</div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   // For store operations
   if (isStore) {
@@ -127,7 +175,12 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
             const isExpanded = expandedItems.has(result.id || String(idx));
             const scoreLevel = getScoreLevel(result.score);
             
-            return (
+              // Use 'text' field (from VectorDB) or fall back to 'content' (legacy)
+              const resultText = result.text || result.content || "";
+              const sourceDisplay = result.metadata?.source_url || result.metadata?.source;
+              const isChunked = result.metadata?.total_chunks && parseInt(result.metadata.total_chunks) > 1;
+              
+              return (
               <button
                 key={result.id || idx}
                 className={`memory-result-item ${isExpanded ? "expanded" : ""}`}
@@ -144,9 +197,14 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
                       {(result.score * 100).toFixed(0)}%
                     </span>
                   </div>
-                  {result.metadata?.source && (
-                    <span className="memory-source">
-                      {truncate(result.metadata.source, 20)}
+                  {isChunked && (
+                    <span className="memory-chunk-badge" title={`Chunk ${parseInt(result.metadata!.chunk_index!) + 1} of ${result.metadata!.total_chunks}`}>
+                      {parseInt(result.metadata!.chunk_index!) + 1}/{result.metadata!.total_chunks}
+                    </span>
+                  )}
+                  {sourceDisplay && (
+                    <span className="memory-source" title={sourceDisplay}>
+                      {truncate(sourceDisplay.replace(/^https?:\/\//, ""), 25)}
                     </span>
                   )}
                   <span className={`memory-chevron ${isExpanded ? "open" : ""}`}>›</span>
@@ -154,15 +212,15 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
                 
                 <div className="memory-result-content">
                   {isExpanded 
-                    ? result.content 
-                    : truncate(result.content, 100)
+                    ? resultText 
+                    : truncate(resultText, 100)
                   }
                 </div>
 
                 {isExpanded && result.metadata && (
                   <div className="memory-result-metadata">
                     {Object.entries(result.metadata)
-                      .filter(([key]) => !["source", "collection"].includes(key))
+                      .filter(([key]) => !["source", "source_url", "collection", "chunk_index", "total_chunks"].includes(key))
                       .map(([key, value]) => (
                         <span key={key} className="memory-meta-item">
                           <span className="meta-key">{key}:</span>
@@ -189,7 +247,7 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
             className="action-btn"
             onClick={() => {
               const text = results
-                .map((r, i) => `${i + 1}. [${(r.score * 100).toFixed(0)}%] ${r.content}`)
+                .map((r, i) => `${i + 1}. [${(r.score * 100).toFixed(0)}%] ${r.text || r.content || ""}`)
                 .join("\n\n");
               navigator.clipboard.writeText(text);
             }}

@@ -150,6 +150,26 @@ export interface CostIncurred extends AGUIBase {
 }
 
 // =============================================================================
+// Interrupt Events (Agent-GO approval workflow)
+// =============================================================================
+
+export interface InterruptRequested extends AGUIBase {
+  type: "InterruptRequested";
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  args?: DeckPayload;
+}
+
+export interface InterruptResolved extends AGUIBase {
+  type: "InterruptResolved";
+  runId: string;
+  toolCallId?: string;
+  approved: boolean;
+  reason?: string;
+}
+
+// =============================================================================
 // Event Union
 // =============================================================================
 
@@ -164,7 +184,9 @@ export type AGUIEvent =
   | ToolCallArgs
   | ToolCallResult
   | ArtifactCreated
-  | CostIncurred;
+  | CostIncurred
+  | InterruptRequested
+  | InterruptResolved;
 
 export type AGUIEventType = AGUIEvent["type"];
 

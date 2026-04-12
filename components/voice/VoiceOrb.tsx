@@ -10,7 +10,7 @@ interface VoiceOrbProps {
   size?: number;
 }
 
-export function VoiceOrb({ phase, audioLevel, size = 160 }: VoiceOrbProps) {
+export function VoiceOrb({ phase, audioLevel, size = 80 }: VoiceOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
   const timeRef = useRef(0);
@@ -24,40 +24,39 @@ export function VoiceOrb({ phase, audioLevel, size = 160 }: VoiceOrbProps) {
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
+    // Canvas sized larger than orb for the spinner arc in processing state
+    const canvasSize = size * 2.5;
+    canvas.width = canvasSize * dpr;
+    canvas.height = canvasSize * dpr;
     ctx.scale(dpr, dpr);
 
-    const centerX = size / 2;
-    const centerY = size / 2;
-    const baseRadius = size * 0.25;
+    const cx = canvasSize / 2;
+    const cy = canvasSize / 2;
+    const orbRadius = size / 2;
 
-    // OPTIMIZATION: Cache CSS variable lookup ONCE at effect start (not every frame)
-    // This prevents forced style recalculation on every animation frame (~60fps)
+    // Accent color (indigo)
     const accentColor = getComputedStyle(document.documentElement)
       .getPropertyValue("--accent")
-      .trim() || "#8FA67A";
-    const baseRgb = hexToRgb(accentColor) || { r: 143, g: 166, b: 122 };
+      .trim() || "#5E6AD2";
+    const rgb = hexToRgb(accentColor) || { r: 94, g: 106, b: 210 };
 
     const draw = () => {
-      timeRef.current += 0.016; // ~60fps
-      
-      // Smooth audio level transitions
-      const targetLevel = audioLevel;
-      smoothLevelRef.current += (targetLevel - smoothLevelRef.current) * 0.15;
+      timeRef.current += 0.016;
+
+      // Smooth audio level
+      smoothLevelRef.current += (audioLevel - smoothLevelRef.current) * 0.12;
       const level = smoothLevelRef.current;
 
-      ctx.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, canvasSize, canvasSize);
 
-      // Phase-specific rendering (using cached baseRgb)
       if (phase === "idle") {
-        drawIdleOrb(ctx, centerX, centerY, baseRadius, baseRgb, timeRef.current);
+        drawIdleOrb(ctx, cx, cy, orbRadius, rgb, timeRef.current);
       } else if (phase === "listening") {
-        drawListeningOrb(ctx, centerX, centerY, baseRadius, baseRgb, level, timeRef.current);
+        drawListeningOrb(ctx, cx, cy, orbRadius, rgb, level, timeRef.current);
       } else if (phase === "processing") {
-        drawProcessingOrb(ctx, centerX, centerY, baseRadius, baseRgb, timeRef.current);
+        drawProcessingOrb(ctx, cx, cy, orbRadius, rgb, timeRef.current);
       } else if (phase === "speaking") {
-        drawSpeakingOrb(ctx, centerX, centerY, baseRadius, baseRgb, level, timeRef.current);
+        drawSpeakingOrb(ctx, cx, cy, orbRadius, rgb, level, timeRef.current);
       }
 
       animationRef.current = requestAnimationFrame(draw);
@@ -72,13 +71,25 @@ export function VoiceOrb({ phase, audioLevel, size = 160 }: VoiceOrbProps) {
     };
   }, [phase, audioLevel, size]);
 
+  const canvasSize = size * 2.5;
+
   return (
-    <div className="voice-orb-container" style={{ width: size, height: size }}>
+    <div
+      className="voice-orb-container"
+      style={{
+        width: canvasSize,
+        height: canvasSize,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        margin: `${-size * 0.75}px`,
+      }}
+    >
       <canvas
         ref={canvasRef}
         style={{
-          width: size,
-          height: size,
+          width: canvasSize,
+          height: canvasSize,
           display: "block",
         }}
       />
@@ -86,37 +97,29 @@ export function VoiceOrb({ phase, audioLevel, size = 160 }: VoiceOrbProps) {
   );
 }
 
+// ---------- Precision orb drawing (minimal, no glow/spring) ----------
+
 function drawIdleOrb(
   ctx: CanvasRenderingContext2D,
   cx: number,
   cy: number,
   radius: number,
   rgb: { r: number; g: number; b: number },
-  time: number
+  _time: number
 ) {
-  // Subtle breathing animation
-  const breathe = 1 + Math.sin(time * 0.8) * 0.05;
-  const r = radius * breathe;
+  const r = radius;
 
-  // Outer glow
-  const gradient = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2);
-  gradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)`);
-  gradient.addColorStop(0.5, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`);
-  gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, r * 2, 0, Math.PI * 2);
-  ctx.fillStyle = gradient;
-  ctx.fill();
-
-  // Main orb
-  const mainGradient = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
-  mainGradient.addColorStop(0, `rgba(${rgb.r + 40}, ${rgb.g + 40}, ${rgb.b + 40}, 0.9)`);
-  mainGradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.7)`);
-
+  // Border ring only
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = mainGradient;
+  ctx.strokeStyle = `rgba(255, 255, 255, 0.08)`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Flat fill
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(255, 255, 255, 0.04)`;
   ctx.fill();
 }
 
@@ -127,45 +130,21 @@ function drawListeningOrb(
   radius: number,
   rgb: { r: number; g: number; b: number },
   level: number,
-  time: number
+  _time: number
 ) {
-  // Audio-reactive expansion
-  const expansion = 1 + level * 0.4;
-  const r = radius * expansion;
+  const r = radius;
 
-  // Pulsing outer rings (audio reactive)
-  for (let i = 3; i >= 0; i--) {
-    const ringRadius = r * (1.2 + i * 0.25 + level * 0.3);
-    const opacity = (0.3 - i * 0.07) * (0.5 + level * 0.5);
-    const wave = Math.sin(time * 3 - i * 0.5) * 0.1;
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, ringRadius * (1 + wave), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity})`;
-    ctx.lineWidth = 2 + level * 3;
-    ctx.stroke();
-  }
-
-  // Glowing aura
-  const gradient = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.5);
-  gradient.addColorStop(0, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.4 + level * 0.3})`);
-  gradient.addColorStop(0.5, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.15 + level * 0.15})`);
-  gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0)`);
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, r * 2.5, 0, Math.PI * 2);
-  ctx.fillStyle = gradient;
-  ctx.fill();
-
-  // Main orb with audio-reactive brightness
-  const brightness = 40 + level * 60;
-  const mainGradient = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
-  mainGradient.addColorStop(0, `rgba(${Math.min(255, rgb.r + brightness)}, ${Math.min(255, rgb.g + brightness)}, ${Math.min(255, rgb.b + brightness)}, 1)`);
-  mainGradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.9)`);
-
+  // Accent border ring - intensity tracks audio level
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = mainGradient;
+  ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.4 + level * 0.4})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Fill with subtle accent tint
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.08 + level * 0.12})`;
   ctx.fill();
 }
 
@@ -179,30 +158,27 @@ function drawProcessingOrb(
 ) {
   const r = radius;
 
-  // Spinning arcs
-  for (let i = 0; i < 3; i++) {
-    const startAngle = time * (2 + i * 0.5) + (i * Math.PI * 2) / 3;
-    const arcLength = Math.PI * 0.6;
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * (1.3 + i * 0.2), startAngle, startAngle + arcLength);
-    ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.6 - i * 0.15})`;
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.stroke();
-  }
-
-  // Pulsing center
-  const pulse = 1 + Math.sin(time * 4) * 0.1;
-  
-  const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * pulse);
-  gradient.addColorStop(0, `rgba(${rgb.r + 60}, ${rgb.g + 60}, ${rgb.b + 60}, 1)`);
-  gradient.addColorStop(0.7, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.8)`);
-  gradient.addColorStop(1, `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.6)`);
-
+  // Spinning arc indicator
+  const spinAngle = time * 3;
+  const arcLen = Math.PI * 0.7;
   ctx.beginPath();
-  ctx.arc(cx, cy, r * pulse, 0, Math.PI * 2);
-  ctx.fillStyle = gradient;
+  ctx.arc(cx, cy, r + 3, spinAngle, spinAngle + arcLen);
+  ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.5)`;
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.stroke();
+
+  // Static border
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(255, 255, 255, 0.06)`;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Muted fill
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.06)`;
   ctx.fill();
 }
 
@@ -213,52 +189,21 @@ function drawSpeakingOrb(
   radius: number,
   rgb: { r: number; g: number; b: number },
   level: number,
-  time: number
+  _time: number
 ) {
-  // TTS audio-reactive - different color tint for speaking
-  const speakRgb = {
-    r: Math.min(255, rgb.r + 20),
-    g: Math.min(255, rgb.g + 30),
-    b: Math.min(255, rgb.b + 10),
-  };
+  const r = radius;
 
-  const expansion = 1 + level * 0.3;
-  const r = radius * expansion;
-
-  // Sound wave rings emanating outward
-  for (let i = 0; i < 4; i++) {
-    const waveTime = (time * 2 + i * 0.7) % 3;
-    const waveRadius = r * (1 + waveTime * 0.6);
-    const waveOpacity = Math.max(0, 0.4 - waveTime * 0.15) * (0.5 + level * 0.5);
-
-    if (waveOpacity > 0) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, waveRadius, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${speakRgb.r}, ${speakRgb.g}, ${speakRgb.b}, ${waveOpacity})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }
-
-  // Glowing aura
-  const gradient = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r * 2);
-  gradient.addColorStop(0, `rgba(${speakRgb.r}, ${speakRgb.g}, ${speakRgb.b}, ${0.5 + level * 0.3})`);
-  gradient.addColorStop(0.6, `rgba(${speakRgb.r}, ${speakRgb.g}, ${speakRgb.b}, 0.15)`);
-  gradient.addColorStop(1, `rgba(${speakRgb.r}, ${speakRgb.g}, ${speakRgb.b}, 0)`);
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, r * 2, 0, Math.PI * 2);
-  ctx.fillStyle = gradient;
-  ctx.fill();
-
-  // Main orb
-  const mainGradient = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, 0, cx, cy, r);
-  mainGradient.addColorStop(0, `rgba(${Math.min(255, speakRgb.r + 50)}, ${Math.min(255, speakRgb.g + 50)}, ${Math.min(255, speakRgb.b + 50)}, 1)`);
-  mainGradient.addColorStop(1, `rgba(${speakRgb.r}, ${speakRgb.g}, ${speakRgb.b}, 0.9)`);
-
+  // Border ring - softer accent
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = mainGradient;
+  ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.3 + level * 0.2})`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Fill
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${0.06 + level * 0.08})`;
   ctx.fill();
 }
 

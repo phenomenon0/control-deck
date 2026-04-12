@@ -47,6 +47,7 @@ export interface SportScore {
   status: "live" | "final" | "upcoming";
   time?: string;
   startTime?: string;
+  highlight?: boolean; // Featured team match
 }
 
 export interface SportsData {

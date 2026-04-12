@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Play, Code2 } from "lucide-react";
 
 // =============================================================================
 // Types
@@ -201,6 +202,78 @@ emit({
   title: "Contact Info",
   schema: { /* generated based on context */ }
 });`,
+
+  soccer_scout: `// Soccer Scouting Report Demo
+// Progressive state updates for player analysis
+
+// 1. Initial state snapshot
+emit({ type: "STATE_SNAPSHOT", snapshot: { player: { name: "..." } } });
+
+// 2. Activity tracking (6-step pipeline)
+emit({
+  type: "ACTIVITY_SNAPSHOT",
+  activityType: "PLAN",
+  content: {
+    title: "Scouting Report",
+    steps: [
+      { id: "1", label: "Gathering player data", status: "in_progress" },
+      { id: "2", label: "Analyzing physical attributes", status: "pending" },
+      // ...
+    ]
+  }
+});
+
+// 3. Progressive state deltas
+emit({
+  type: "STATE_DELTA",
+  delta: [
+    { op: "replace", path: "/physicalAttributes/pace", value: 89 },
+    { op: "replace", path: "/technicalSkills/dribbling", value: 86 }
+  ]
+});
+
+// 4. Scout input form + final recommendation
+emit({ type: "CUSTOM", name: "generative_ui", value: { jsonSchema: {...} } });`,
+
+  horoscope: `// Cosmic Profile Generator Demo
+// Personality analysis based on birth data
+
+// 1. Input form for birth details
+emit({
+  type: "CUSTOM",
+  name: "generative_ui",
+  value: {
+    jsonSchema: {
+      properties: {
+        name: { type: "string" },
+        birthDate: { type: "string", format: "date" },
+        birthTime: { type: "string" }
+      }
+    }
+  }
+});
+
+// 2. Calculate zodiac sign & build profile
+emit({
+  type: "STATE_DELTA",
+  delta: [
+    { op: "replace", path: "/basics/zodiacSign", value: "Cancer" },
+    { op: "replace", path: "/basics/element", value: "Water" },
+    { op: "replace", path: "/traits/positive", value: ["Loyal", "Intuitive"] }
+  ]
+});
+
+// 3. Compatibility & forecast
+emit({
+  type: "STATE_DELTA",
+  delta: [
+    { op: "replace", path: "/compatibility/bestMatches", value: ["Pisces", "Scorpio"] },
+    { op: "replace", path: "/currentForecast/luckyNumbers", value: [7, 21, 33] }
+  ]
+});
+
+// 4. AI-generated mystical message (Ollama)
+emit({ type: "TEXT_MESSAGE_CONTENT", delta: "The stars align..." });`,
 };
 
 // =============================================================================
@@ -273,9 +346,7 @@ export function DemoCard({ demo, isActive, isRunning, onRun }: DemoCardProps) {
             </>
           ) : (
             <>
-              <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z" />
-              </svg>
+              <Play className="w-3 h-3 mr-1" fill="currentColor" />
               Run
             </>
           )}
@@ -285,14 +356,7 @@ export function DemoCard({ demo, isActive, isRunning, onRun }: DemoCardProps) {
           className="btn btn-ghost text-xs"
           title="View Code"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-            />
-          </svg>
+          <Code2 className="w-4 h-4" />
         </button>
       </div>
 

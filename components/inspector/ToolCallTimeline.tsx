@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { ChevronRight, X, Check } from "lucide-react";
 import type { DeckPayload } from "@/lib/agui/payload";
 import { PayloadViewer } from "./PayloadViewer";
 
@@ -80,14 +81,9 @@ function ToolCallItem({ event, isLast }: { event: ToolCallEvent; isLast: boolean
           <div className="flex items-center gap-2 min-w-0">
             {/* Expand arrow if we have details */}
             {hasDetails && (
-              <svg 
+              <ChevronRight
                 className={`w-3 h-3 text-[var(--text-muted)] transition-transform flex-shrink-0 ${expanded ? "rotate-90" : ""}`}
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              />
             )}
             
             <span className="text-sm font-medium text-[var(--text-primary)] truncate">
@@ -182,18 +178,14 @@ function StatusDot({ status }: { status: "running" | "complete" | "error" }) {
   if (status === "error") {
     return (
       <div className={`${baseClasses} bg-red-500/20`}>
-        <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <X className="w-3 h-3 text-red-400" />
       </div>
     );
   }
 
   return (
     <div className={`${baseClasses} bg-green-500/20`}>
-      <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-      </svg>
+      <Check className="w-3 h-3 text-green-400" />
     </div>
   );
 }

@@ -140,6 +140,8 @@ function getDemoInput(demoId: string): string {
     research: "What are the latest advances in AI?",
     approval: "Transfer $500 to external account",
     form: "Collect user contact information",
+    soccer_scout: "Scout Marcus Rashford - Manchester United forward, 26 years old",
+    horoscope: "Generate my cosmic profile - born March 15, 1992 at 3:42 AM in Seattle",
   };
   return inputs[demoId] || "Run demo";
 }

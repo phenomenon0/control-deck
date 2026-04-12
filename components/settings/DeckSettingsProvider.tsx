@@ -9,6 +9,7 @@ import React, {
   useState,
   useCallback,
 } from "react";
+import { useShortcut } from "@/lib/hooks/useShortcuts";
 
 // =============================================================================
 // Types
@@ -16,7 +17,8 @@ import React, {
 
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
-export type ThemeName = "default" | "paper" | "terminal" | "glass" | "brutal" | "cinema";
+export type ThemeName = "light" | "dark" | "system";
+export type DesignSystem = "apple" | "cursor";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 
 export interface VoicePrefs {
@@ -31,6 +33,7 @@ export interface VoicePrefs {
 export interface DeckPrefs {
   model: string;
   theme: ThemeName;
+  designSystem: DesignSystem;
   reduceMotion: boolean;
   voice: VoicePrefs;
 }
@@ -42,9 +45,6 @@ interface DeckSettingsContextValue {
   updateVoicePrefs: (partial: Partial<VoicePrefs>) => void;
   settingsOpen: boolean;
   setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  // Legacy inspector (deprecated - use rail instead)
-  inspectorOpen: boolean;
-  setInspectorOpen: React.Dispatch<React.SetStateAction<boolean>>;
   // Right rail
   railOpen: boolean;
   setRailOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -61,16 +61,17 @@ interface DeckSettingsContextValue {
 
 const DEFAULT_VOICE_PREFS: VoicePrefs = {
   enabled: true,
-  readAloud: false,        // TTS only in Voice Mode, not regular chat
-  mode: "vad",             // Open conversational mode by default
-  ttsEngine: "piper",      // Fast Piper TTS (~100ms vs 500ms Chatterbox)
+  readAloud: false,
+  mode: "vad",
+  ttsEngine: "piper",
   silenceTimeoutMs: 1200,
   silenceThreshold: 0.14,
 };
 
 const DEFAULT_PREFS: DeckPrefs = {
-  model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "qwen3:8b",
-  theme: "default",
+  model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "qwen2",
+  theme: "dark",
+  designSystem: "cursor" as DesignSystem,
   reduceMotion: false,
   voice: DEFAULT_VOICE_PREFS,
 };
@@ -96,38 +97,43 @@ function safeParse<T>(value: string | null): T | null {
   }
 }
 
-interface OldVoiceSettings {
-  enabled?: boolean;
-  mode?: "push-to-talk" | "toggle";
-  engine?: TTSEngine;
-  autoSpeak?: boolean;
+/** Map legacy 6-theme names to light/dark/system */
+function migrateThemeName(raw: string): ThemeName {
+  if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  // Legacy theme names: paper was light, everything else was dark
+  if (raw === "paper") return "light";
+  return "dark";
 }
 
 function migratePrefs(): DeckPrefs {
-  // Check for new format first
   const newPrefs = safeParse<DeckPrefs>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
-    // Merge with defaults to handle any new fields
     return {
       ...DEFAULT_PREFS,
       ...newPrefs,
+      designSystem: (newPrefs as any).designSystem || "cursor",
+      theme: migrateThemeName(newPrefs.theme),
       voice: { ...DEFAULT_VOICE_PREFS, ...newPrefs.voice },
     };
   }
 
   // Migrate from old keys
-  const oldVoice = safeParse<OldVoiceSettings>(localStorage.getItem(OLD_VOICE_KEY));
+  const oldVoice = safeParse<{
+    enabled?: boolean;
+    mode?: "push-to-talk" | "toggle";
+    engine?: TTSEngine;
+    autoSpeak?: boolean;
+  }>(localStorage.getItem(OLD_VOICE_KEY));
   const oldTheme = localStorage.getItem(OLD_THEME_KEY);
 
   const migrated: DeckPrefs = {
     ...DEFAULT_PREFS,
-    // Map old "light" theme to "paper" theme
-    theme: oldTheme === "light" ? "paper" : "default",
+    theme: oldTheme === "light" || oldTheme === "paper" ? "light" : "system",
     voice: oldVoice
       ? {
           enabled: oldVoice.enabled ?? false,
           readAloud: oldVoice.autoSpeak ?? true,
-          mode: "vad",  // Always use VAD for continuous conversation
+          mode: "vad",
           ttsEngine: oldVoice.engine ?? "chatterbox",
           silenceTimeoutMs: DEFAULT_VOICE_PREFS.silenceTimeoutMs,
           silenceThreshold: DEFAULT_VOICE_PREFS.silenceThreshold,
@@ -135,32 +141,45 @@ function migratePrefs(): DeckPrefs {
       : DEFAULT_VOICE_PREFS,
   };
 
-  // Persist new format
   localStorage.setItem(PREFS_KEY, JSON.stringify(migrated));
-
-  // Clean up old keys
   localStorage.removeItem(OLD_VOICE_KEY);
   localStorage.removeItem(OLD_THEME_KEY);
 
   return migrated;
 }
 
-function applyTheme(theme: ThemeName, reduceMotion: boolean) {
-  const root = document.documentElement;
-
-  // Set theme attribute
-  root.dataset.theme = theme;
-
-  // Set reduce motion attribute
-  root.dataset.reduceMotion = reduceMotion ? "1" : "0";
-
-  // For backward compatibility: also toggle .light class for paper theme
-  // (in case any components still use it)
-  if (theme === "paper") {
-    root.classList.add("light");
-  } else {
-    root.classList.remove("light");
+/** Resolve effective mode ("light" | "dark") from preference + system */
+function resolveMode(theme: ThemeName): "light" | "dark" {
+  if (theme === "light" || theme === "dark") return theme;
+  // system
+  if (typeof window !== "undefined") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
   }
+  return "dark";
+}
+
+function applyTheme(theme: ThemeName, reduceMotion: boolean, designSystem: DesignSystem) {
+  const root = document.documentElement;
+  root.dataset.design = designSystem;
+
+  if (designSystem === "cursor") {
+    root.classList.add("dark");
+    root.classList.remove("light");
+  } else {
+    const mode = resolveMode(theme);
+    if (mode === "dark") {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    } else {
+      root.classList.remove("dark");
+      root.classList.add("light");
+    }
+  }
+
+  delete root.dataset.theme;
+  root.dataset.reduceMotion = reduceMotion ? "1" : "0";
 }
 
 // =============================================================================
@@ -176,7 +195,6 @@ const DeckSettingsContext = createContext<DeckSettingsContextValue | null>(null)
 export function DeckSettingsProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<DeckPrefs>(DEFAULT_PREFS);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
   const [railTab, setRailTab] = useState<RailTab>("inspector");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -189,12 +207,21 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
     setHydrated(true);
   }, []);
 
-  // Apply theme immediately after hydration (useLayoutEffect to avoid flash)
+  // Apply theme immediately after hydration
   useLayoutEffect(() => {
     if (hydrated) {
-      applyTheme(prefs.theme, prefs.reduceMotion);
+      applyTheme(prefs.theme, prefs.reduceMotion, prefs.designSystem);
     }
-  }, [hydrated, prefs.theme, prefs.reduceMotion]);
+  }, [hydrated, prefs.theme, prefs.reduceMotion, prefs.designSystem]);
+
+  // Listen for system color-scheme changes when theme is "system"
+  useEffect(() => {
+    if (!hydrated || prefs.theme !== "system") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => applyTheme("system", prefs.reduceMotion, prefs.designSystem);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [hydrated, prefs.theme, prefs.reduceMotion, prefs.designSystem]);
 
   // Persist prefs whenever they change (after hydration)
   useEffect(() => {
@@ -204,49 +231,17 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   }, [prefs, hydrated]);
 
   // Keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      // Cmd+, for settings
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault();
-        setSettingsOpen((o) => !o);
-        return;
-      }
+  useShortcut("mod+,", () => setSettingsOpen((o) => !o), {
+    label: "Toggle settings",
+  });
 
-      // Cmd+I for rail/inspector toggle
-      if ((e.metaKey || e.ctrlKey) && e.key === "i") {
-        // Don't override browser dev tools (Cmd+Shift+I)
-        if (e.shiftKey) return;
-        e.preventDefault();
-        // Toggle rail, always open to inspector tab
-        setRailOpen((o) => {
-          if (!o) setRailTab("inspector");
-          return !o;
-        });
-        return;
-      }
+  // Note: mod+i (inspector) is handled in DeckShell.tsx
+  // Note: mod+. (sidebar) is handled in Sidebar.tsx
 
-      // Cmd+B for sidebar toggle
-      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
-        e.preventDefault();
-        setSidebarOpen((o) => !o);
-        return;
-      }
-
-      // Cmd+Shift+V for voice mode (reserved for future voice sheet toggle)
-      // Implemented in ChatPaneV2
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
-  // Helper to update partial prefs
   const updatePrefs = useCallback((partial: Partial<DeckPrefs>) => {
     setPrefs((p) => ({ ...p, ...partial }));
   }, []);
 
-  // Helper to update partial voice prefs
   const updateVoicePrefs = useCallback((partial: Partial<VoicePrefs>) => {
     setPrefs((p) => ({ ...p, voice: { ...p.voice, ...partial } }));
   }, []);
@@ -259,8 +254,6 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
       updateVoicePrefs,
       settingsOpen,
       setSettingsOpen,
-      inspectorOpen,
-      setInspectorOpen,
       railOpen,
       setRailOpen,
       railTab,
@@ -268,7 +261,7 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
       sidebarOpen,
       setSidebarOpen,
     }),
-    [prefs, updatePrefs, updateVoicePrefs, settingsOpen, inspectorOpen, railOpen, railTab, sidebarOpen]
+    [prefs, updatePrefs, updateVoicePrefs, settingsOpen, railOpen, railTab, sidebarOpen]
   );
 
   return (
@@ -289,16 +282,3 @@ export function useDeckSettings() {
   }
   return ctx;
 }
-
-// =============================================================================
-// Theme metadata for UI
-// =============================================================================
-
-export const THEME_META: Record<ThemeName, { label: string; description: string }> = {
-  default: { label: "Forest Floor", description: "Nature-inspired dark theme" },
-  paper: { label: "Paper Lab", description: "Warm light theme for readability" },
-  terminal: { label: "Terminal", description: "Green-on-black hacker aesthetic" },
-  glass: { label: "Glass Cockpit", description: "Translucent purple sci-fi" },
-  brutal: { label: "Brutalist", description: "High contrast black & white" },
-  cinema: { label: "Cinema Grade", description: "Dark with amber accents" },
-};

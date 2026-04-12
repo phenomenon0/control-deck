@@ -1,7 +1,6 @@
 export {
   DeckSettingsProvider,
   useDeckSettings,
-  THEME_META,
   type DeckPrefs,
   type VoicePrefs,
   type ThemeName,

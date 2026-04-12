@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { WidgetContainer, TodoIcon } from "./WidgetContainer";
 import type { TodoData, TodoItem } from "@/lib/widgets/types";
 
@@ -51,10 +52,10 @@ export function TodoWidget({ data, onUpdate }: TodoWidgetProps) {
 
   return (
     <WidgetContainer
-      title="Todo"
+      title="Tasks"
       icon={<TodoIcon />}
       badge={badge}
-      defaultExpanded={false}
+      defaultExpanded={true}
     >
       <div className="todo-content">
         {/* Add new todo */}
@@ -112,9 +113,5 @@ export function TodoWidget({ data, onUpdate }: TodoWidgetProps) {
 }
 
 function CheckIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
+  return <Check width={12} height={12} strokeWidth={3} />;
 }

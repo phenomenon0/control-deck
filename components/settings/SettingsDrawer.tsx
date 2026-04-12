@@ -1,41 +1,157 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useDeckSettings, THEME_META, type ThemeName, type TTSEngine, type VoiceMode } from "./DeckSettingsProvider";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import { X } from "lucide-react";
+import { useShortcut } from "@/lib/hooks/useShortcuts";
+import {
+  useDeckSettings,
+  type TTSEngine,
+  type VoiceMode,
+  type ThemeName,
+  type DesignSystem,
+} from "./DeckSettingsProvider";
 
 // =============================================================================
-// Model Fetcher
+// Types
 // =============================================================================
 
-interface OllamaModel {
+interface ProviderOption {
+  id: string;
   name: string;
-  size: number;
-  modified_at: string;
+  description: string;
+  requiresApiKey: boolean;
 }
 
-function useAvailableModels() {
+interface SlotInfo {
+  provider: string;
+  name: string;
+  model?: string;
+  healthy: boolean;
+  hasApiKey: boolean;
+}
+
+interface ProviderInfoResponse {
+  provider: string;
+  name: string;
+  baseURL?: string;
+  defaultModel?: string;
+  healthy: boolean;
+  models: string[];
+  slots: {
+    primary: SlotInfo;
+    fast?: SlotInfo;
+    vision?: SlotInfo;
+    embedding?: SlotInfo;
+  };
+  availableProviders: ProviderOption[];
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function formatModelName(model: string): string {
+  if (model.includes("/") || model.includes("\\")) {
+    const parts = model.split(/[/\\]/);
+    const filename = parts[parts.length - 1];
+    return filename.replace(/\.gguf$/i, "");
+  }
+  return model;
+}
+
+// =============================================================================
+// Provider & Model Fetcher
+// =============================================================================
+
+function useProviderInfo() {
+  const [info, setInfo] = useState<ProviderInfoResponse | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [providerModels, setProviderModels] = useState<Map<string, string[]>>(
+    new Map()
+  );
 
   useEffect(() => {
-    async function fetchModels() {
+    async function fetchInfo() {
       try {
-        const res = await fetch("/api/ollama/tags");
+        const res = await fetch("/api/backend");
         if (res.ok) {
-          const data = await res.json();
-          const modelNames = (data.models || []).map((m: OllamaModel) => m.name);
-          setModels(modelNames);
+          const data: ProviderInfoResponse = await res.json();
+          setInfo(data);
+          setModels(data.models || []);
+          setSelectedProvider(data.provider);
+          setProviderModels(new Map([[data.provider, data.models]]));
         }
       } catch {
-        // Fallback to empty, user can type manually
+        // Fallback to empty
       } finally {
         setLoading(false);
       }
     }
-    fetchModels();
+    fetchInfo();
   }, []);
 
-  return { models, loading };
+  const fetchModelsForProvider = useCallback(
+    async (
+      provider: string,
+      options?: { apiKey?: string; setActive?: boolean; model?: string }
+    ) => {
+      const { apiKey, setActive, model } = options || {};
+
+      if (!apiKey && !setActive && providerModels.has(provider)) {
+        setModels(providerModels.get(provider) || []);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/backend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, apiKey, setActive, model }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const newModels = data.models || [];
+          setModels(newModels);
+          setProviderModels((prev) =>
+            new Map(prev).set(provider, newModels)
+          );
+
+          if (setActive && info) {
+            setInfo({
+              ...info,
+              provider: provider,
+              name: data.name,
+              healthy: data.healthy,
+              models: newModels,
+            });
+          }
+        }
+      } catch {
+        // silent
+      }
+    },
+    [providerModels, info]
+  );
+
+  const selectProvider = useCallback(
+    (provider: string) => {
+      setSelectedProvider(provider);
+      fetchModelsForProvider(provider, { setActive: true });
+    },
+    [fetchModelsForProvider]
+  );
+
+  return {
+    info,
+    models,
+    loading,
+    selectedProvider,
+    selectProvider,
+    fetchModelsForProvider,
+    availableProviders: info?.availableProviders || [],
+  };
 }
 
 // =============================================================================
@@ -43,349 +159,476 @@ function useAvailableModels() {
 // =============================================================================
 
 export function SettingsDrawer() {
-  const { prefs, updatePrefs, updateVoicePrefs, settingsOpen, setSettingsOpen } = useDeckSettings();
-  const { models, loading: modelsLoading } = useAvailableModels();
+  const { prefs, updatePrefs, updateVoicePrefs, settingsOpen, setSettingsOpen } =
+    useDeckSettings();
+  const {
+    models,
+    loading: modelsLoading,
+    selectedProvider,
+    selectProvider,
+    availableProviders,
+  } = useProviderInfo();
+
+  const [visible, setVisible] = useState(false);
+  const [animating, setAnimating] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Animate in/out
+  useEffect(() => {
+    if (settingsOpen) {
+      setVisible(true);
+      // Trigger enter animation on next frame
+      requestAnimationFrame(() => setAnimating(true));
+    } else if (visible) {
+      setAnimating(false);
+      const timer = setTimeout(() => setVisible(false), 150);
+      return () => clearTimeout(timer);
+    }
+  }, [settingsOpen, visible]);
 
   // Close on Escape
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && settingsOpen) {
-        e.preventDefault();
-        setSettingsOpen(false);
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [settingsOpen, setSettingsOpen]);
+  useShortcut("escape", () => setSettingsOpen(false), {
+    enabled: settingsOpen,
+    priority: 50,
+    label: "Close settings drawer",
+  });
 
-  if (!settingsOpen) return null;
+  if (!visible) return null;
 
   return (
     <div className="fixed inset-0 z-50">
-      {/* Backdrop */}
-      <button
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+      {/* Scrim backdrop — no blur */}
+      <div
+        className="absolute inset-0 transition-opacity"
+        style={{
+          backgroundColor: "rgba(0,0,0,0.85)",
+          opacity: animating ? 1 : 0,
+          transitionDuration: "150ms",
+        }}
         onClick={() => setSettingsOpen(false)}
         aria-label="Close settings"
       />
 
-      {/* Panel */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-md bg-[var(--bg-primary)] border-l border-[var(--border)] shadow-2xl overflow-hidden flex flex-col animate-slide-in-right">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-          <div className="text-base font-semibold">Settings</div>
-          <div className="flex items-center gap-2">
-            <kbd className="kbd text-xs">Esc</kbd>
-            <button
-              className="p-1.5 rounded-md hover:bg-[var(--bg-tertiary)] transition-colors"
-              onClick={() => setSettingsOpen(false)}
-              aria-label="Close"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+      {/* Panel — 380px, slide from right */}
+      <div
+        ref={panelRef}
+        className="absolute right-0 top-0 h-full flex flex-col overflow-hidden"
+        style={{
+          width: 380,
+          maxWidth: "100vw",
+          backgroundColor: "var(--bg-secondary)",
+          borderLeft: "1px solid var(--border)",
+          transform: animating ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 150ms cubic-bezier(0, 0, 0.2, 1)",
+        }}
+      >
+        {/* Header — solid bg, no frosted glass */}
+        <div
+          className="flex items-center justify-between px-5 py-4 shrink-0"
+          style={{
+            backgroundColor: "var(--bg-secondary)",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 14,
+              fontWeight: 500,
+              letterSpacing: "0",
+              color: "var(--text-primary)",
+              margin: 0,
+            }}
+          >
+            Settings
+          </h2>
+          <button
+            className="flex items-center justify-center rounded-md hover:bg-[var(--bg-tertiary)] transition-colors"
+            style={{ width: 28, height: 28 }}
+            onClick={() => setSettingsOpen(false)}
+            aria-label="Close"
+          >
+            <X style={{ width: 16, height: 16, color: "var(--text-muted)" }} />
+          </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Model Section */}
+        {/* Scrollable content */}
+        <div
+          className="flex-1 overflow-y-auto"
+          style={{ padding: "24px 20px", display: "flex", flexDirection: "column", gap: 32 }}
+        >
+          {/* ─── DESIGN SYSTEM ─── */}
           <section>
-            <SectionHeader title="Model" />
-            <div className="space-y-2">
-              {modelsLoading ? (
-                <div className="text-sm text-[var(--text-muted)]">Loading models...</div>
-              ) : models.length > 0 ? (
-                <select
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm"
-                  value={prefs.model}
-                  onChange={(e) => updatePrefs({ model: e.target.value })}
-                >
-                  {models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm"
-                  value={prefs.model}
-                  onChange={(e) => updatePrefs({ model: e.target.value })}
-                  placeholder="e.g. qwen3:8b"
-                />
-              )}
-              <p className="text-xs text-[var(--text-muted)]">
-                Default model for new conversations. Per-thread override coming soon.
-              </p>
-            </div>
-          </section>
-
-          {/* Voice Section */}
-          <section>
-            <SectionHeader title="Voice" />
-            <div className="space-y-4">
-              {/* Enable toggles */}
-              <div className="space-y-2">
-                <ToggleRow
-                  label="Enable voice input"
-                  description="Use microphone for speech-to-text"
-                  checked={prefs.voice.enabled}
-                  onChange={(enabled) => updateVoicePrefs({ enabled })}
-                />
-                <ToggleRow
-                  label="Read assistant aloud"
-                  description="Text-to-speech for responses"
-                  checked={prefs.voice.readAloud}
-                  onChange={(readAloud) => updateVoicePrefs({ readAloud })}
-                />
-              </div>
-
-              {/* Mode selection */}
-              <div>
-                <label className="text-xs font-medium text-[var(--text-secondary)] mb-2 block">
-                  Input mode
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <ModeButton
-                    active={prefs.voice.mode === "push-to-talk"}
-                    onClick={() => updateVoicePrefs({ mode: "push-to-talk" })}
-                    label="Push-to-talk"
-                    description="Hold mic button"
-                  />
-                  <ModeButton
-                    active={prefs.voice.mode === "vad"}
-                    onClick={() => updateVoicePrefs({ mode: "vad" })}
-                    label="VAD"
-                    description="Auto-detect speech"
-                  />
-                </div>
-              </div>
-
-              {/* TTS Engine */}
-              <div>
-                <label className="text-xs font-medium text-[var(--text-secondary)] mb-2 block">
-                  TTS engine
-                </label>
-                <select
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] px-3 py-2 text-sm"
-                  value={prefs.voice.ttsEngine}
-                  onChange={(e) => updateVoicePrefs({ ttsEngine: e.target.value as TTSEngine })}
-                >
-                  <option value="piper">Piper (CPU, fast)</option>
-                  <option value="xtts">XTTS (GPU, high quality)</option>
-                  <option value="chatterbox">Chatterbox (GPU, high quality)</option>
-                </select>
-              </div>
-
-              {/* VAD Settings (only show when VAD mode) */}
-              {prefs.voice.mode === "vad" && (
-                <div className="space-y-3 pt-2 border-t border-[var(--border)]">
-                  <p className="text-xs text-[var(--text-muted)]">VAD tuning</p>
-                  
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[var(--text-secondary)]">Silence timeout</span>
-                      <span className="text-[var(--text-muted)]">{prefs.voice.silenceTimeoutMs}ms</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={400}
-                      max={3000}
-                      step={100}
-                      value={prefs.voice.silenceTimeoutMs}
-                      onChange={(e) => updateVoicePrefs({ silenceTimeoutMs: Number(e.target.value) })}
-                      className="w-full accent-[var(--accent)]"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-[var(--text-secondary)]">Silence threshold</span>
-                      <span className="text-[var(--text-muted)]">{prefs.voice.silenceThreshold.toFixed(2)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0.01}
-                      max={0.5}
-                      step={0.01}
-                      value={prefs.voice.silenceThreshold}
-                      onChange={(e) => updateVoicePrefs({ silenceThreshold: Number(e.target.value) })}
-                      className="w-full accent-[var(--accent)]"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* Theme Section */}
-          <section>
-            <SectionHeader title="Theme" />
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {(Object.keys(THEME_META) as ThemeName[]).map((theme) => (
-                  <ThemeButton
-                    key={theme}
-                    theme={theme}
-                    active={prefs.theme === theme}
-                    onClick={() => updatePrefs({ theme })}
-                  />
-                ))}
-              </div>
-
-              <ToggleRow
-                label="Reduce motion"
-                description="Disable animations"
-                checked={prefs.reduceMotion}
-                onChange={(reduceMotion) => updatePrefs({ reduceMotion })}
+            <SectionHeader>Design System</SectionHeader>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <SegmentControl
+                options={[
+                  { value: "cursor", label: "Cursor" },
+                  { value: "apple", label: "Apple" },
+                ]}
+                value={prefs.designSystem}
+                onChange={(v: string) => updatePrefs({ designSystem: v as DesignSystem })}
               />
             </div>
           </section>
 
-          {/* Keyboard Shortcuts */}
+          {/* ─── APPEARANCE ─── */}
+          {prefs.designSystem === "apple" && (
+            <section>
+              <SectionHeader>Appearance</SectionHeader>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <SegmentControl
+                  options={[
+                    { value: "light", label: "Light" },
+                    { value: "dark", label: "Dark" },
+                    { value: "system", label: "System" },
+                  ]}
+                  value={prefs.theme}
+                  onChange={(v: string) => updatePrefs({ theme: v as ThemeName })}
+                />
+              </div>
+            </section>
+          )}
+
+          {/* ─── MODEL ─── */}
           <section>
-            <SectionHeader title="Keyboard Shortcuts" />
-            <div className="space-y-1.5 text-sm">
-              <ShortcutRow keys={["Cmd", ","]} description="Open settings" />
-              <ShortcutRow keys={["Cmd", "I"]} description="Toggle inspector" />
-              <ShortcutRow keys={["Cmd", "K"]} description="Command palette" />
-              <ShortcutRow keys={["Cmd", "Shift", "V"]} description="Voice mode" />
-              <ShortcutRow keys={["1-3"]} description="Navigate tabs" />
+            <SectionHeader>Model</SectionHeader>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Provider */}
+              <SettingRow label="Provider">
+                <AppleSelect
+                  value={selectedProvider || "ollama"}
+                  onChange={(v) => selectProvider(v)}
+                  options={availableProviders.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                  }))}
+                />
+              </SettingRow>
+
+              {/* Model */}
+              <SettingRow label="Model">
+                {modelsLoading ? (
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    Loading...
+                  </span>
+                ) : models.length > 0 ? (
+                  <AppleSelect
+                    value={prefs.model}
+                    onChange={(v) => updatePrefs({ model: v })}
+                    options={models.map((m) => ({
+                      value: m,
+                      label: formatModelName(m),
+                    }))}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={prefs.model}
+                    onChange={(e) => updatePrefs({ model: e.target.value })}
+                    placeholder="e.g. gpt-4o, qwen2.5:7b"
+                    style={{
+                      fontSize: 13,
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--bg-secondary)",
+                      color: "var(--text-primary)",
+                      outline: "none",
+                      width: "100%",
+                      maxWidth: 180,
+                    }}
+                  />
+                )}
+              </SettingRow>
+            </div>
+          </section>
+
+          {/* ─── VOICE ─── */}
+          <section>
+            <SectionHeader>Voice</SectionHeader>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {/* Enable voice */}
+              <SettingRow label="Enable Voice">
+                <AppleToggle
+                  checked={prefs.voice.enabled}
+                  onChange={(v) => updateVoicePrefs({ enabled: v })}
+                />
+              </SettingRow>
+
+              {/* Read aloud */}
+              <SettingRow label="Read Aloud">
+                <AppleToggle
+                  checked={prefs.voice.readAloud}
+                  onChange={(v) => updateVoicePrefs({ readAloud: v })}
+                />
+              </SettingRow>
+
+              {/* Mode: 2-segment */}
+              <SettingRow label="Mode">
+                <SegmentControl
+                  options={[
+                    { value: "push-to-talk", label: "Push-to-talk" },
+                    { value: "vad", label: "VAD" },
+                  ]}
+                  value={prefs.voice.mode === "push-to-talk" ? "push-to-talk" : "vad"}
+                  onChange={(v) => updateVoicePrefs({ mode: v as VoiceMode })}
+                />
+              </SettingRow>
+
+              {/* TTS Engine — only show when voice enabled */}
+              {prefs.voice.enabled && (
+                <SettingRow label="TTS Engine">
+                  <AppleSelect
+                    value={prefs.voice.ttsEngine}
+                    onChange={(v) =>
+                      updateVoicePrefs({ ttsEngine: v as TTSEngine })
+                    }
+                    options={[
+                      { value: "piper", label: "Piper (fast)" },
+                      { value: "xtts", label: "XTTS (quality)" },
+                      { value: "chatterbox", label: "Chatterbox" },
+                    ]}
+                  />
+                </SettingRow>
+              )}
+            </div>
+          </section>
+
+          {/* ─── PREFERENCES ─── */}
+          <section>
+            <SectionHeader>Preferences</SectionHeader>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <SettingRow label="Reduce Motion">
+                <PrecisionToggle
+                  checked={prefs.reduceMotion}
+                  onChange={(v) => updatePrefs({ reduceMotion: v })}
+                />
+              </SettingRow>
             </div>
           </section>
         </div>
-
-        {/* Footer */}
-        <div className="px-4 py-3 border-t border-[var(--border)] bg-[var(--bg-secondary)] text-xs text-[var(--text-muted)]">
-          Settings are saved automatically.
-        </div>
       </div>
-
-      <style jsx>{`
-        @keyframes slideInRight {
-          from {
-            transform: translateX(100%);
-          }
-          to {
-            transform: translateX(0);
-          }
-        }
-        .animate-slide-in-right {
-          animation: slideInRight 0.2s ease-out;
-        }
-      `}</style>
     </div>
   );
 }
 
 // =============================================================================
-// Sub-components
+// Apple-style Sub-components
 // =============================================================================
 
-function SectionHeader({ title }: { title: string }) {
+function SectionHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">{title}</h3>
+    <h3
+      style={{
+        fontSize: 13,
+        fontWeight: 600,
+        color: "var(--text-secondary)",
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        marginBottom: 12,
+      }}
+    >
+      {children}
+    </h3>
   );
 }
 
-function ToggleRow({
+/** Label on the left, control on the right */
+function SettingRow({
   label,
-  description,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        minHeight: 32,
+        gap: 12,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 14,
+          color: "var(--text-primary)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** Precision toggle: small, accent when on, no shadows */
+function AppleToggle({
   checked,
   onChange,
 }: {
-  label: string;
-  description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-start gap-3 cursor-pointer group">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 w-4 h-4 rounded border-[var(--border)] bg-[var(--bg-secondary)] accent-[var(--accent)]"
+    <PrecisionToggle checked={checked} onChange={onChange} />
+  );
+}
+
+function PrecisionToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 36,
+        height: 20,
+        borderRadius: 10,
+        border: "none",
+        cursor: "pointer",
+        position: "relative",
+        backgroundColor: checked ? "var(--accent)" : "var(--bg-tertiary)",
+        transition: "background-color 150ms cubic-bezier(0, 0, 0.2, 1)",
+        flexShrink: 0,
+        outline: "none",
+      }}
+    >
+      <span
+        style={{
+          position: "absolute",
+          top: 2,
+          left: checked ? 18 : 2,
+          width: 16,
+          height: 16,
+          borderRadius: 6,
+          backgroundColor: "#fff",
+          transition: "left 150ms cubic-bezier(0, 0, 0.2, 1)",
+        }}
       />
-      <div className="flex-1">
-        <div className="text-sm text-[var(--text-primary)] group-hover:text-[var(--accent)] transition-colors">
-          {label}
-        </div>
-        <div className="text-xs text-[var(--text-muted)]">{description}</div>
-      </div>
-    </label>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  label,
-  description,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  description: string;
-}) {
-  return (
-    <button
-      className={`rounded-lg border px-3 py-2 text-left transition-all ${
-        active
-          ? "bg-[var(--accent)] text-white border-[var(--accent)]"
-          : "bg-[var(--bg-secondary)] border-[var(--border)] hover:border-[var(--accent)]"
-      }`}
-      onClick={onClick}
-    >
-      <div className="text-sm font-medium">{label}</div>
-      <div className={`text-xs ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-        {description}
-      </div>
     </button>
   );
 }
 
-function ThemeButton({
-  theme,
-  active,
-  onClick,
+/** Precision segment control with sliding indicator */
+function SegmentControl({
+  options,
+  value,
+  onChange,
 }: {
-  theme: ThemeName;
-  active: boolean;
-  onClick: () => void;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
 }) {
-  const meta = THEME_META[theme];
-  return (
-    <button
-      className={`rounded-lg border px-3 py-2 text-left transition-all ${
-        active
-          ? "bg-[var(--accent)] text-white border-[var(--accent)]"
-          : "bg-[var(--bg-secondary)] border-[var(--border)] hover:border-[var(--accent)]"
-      }`}
-      onClick={onClick}
-    >
-      <div className="text-sm font-medium">{meta.label}</div>
-      <div className={`text-xs ${active ? "text-white/70" : "text-[var(--text-muted)]"}`}>
-        {meta.description}
-      </div>
-    </button>
-  );
-}
+  const activeIdx = options.findIndex((o) => o.value === value);
+  const count = options.length;
 
-function ShortcutRow({ keys, description }: { keys: string[]; description: string }) {
   return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-[var(--text-secondary)]">{description}</span>
-      <div className="flex gap-1">
-        {keys.map((key, i) => (
-          <kbd key={i} className="kbd text-xs">
-            {key}
-          </kbd>
-        ))}
-      </div>
+    <div
+      style={{
+        display: "flex",
+        position: "relative",
+        backgroundColor: "var(--bg-tertiary)",
+        borderRadius: 6,
+        padding: 2,
+        height: 28,
+        flexShrink: 0,
+      }}
+    >
+      {/* Sliding indicator */}
+      <div
+        style={{
+          position: "absolute",
+          top: 2,
+          bottom: 2,
+          left: `calc(${(activeIdx / count) * 100}% + 2px)`,
+          width: `calc(${100 / count}% - 4px)`,
+          borderRadius: 4,
+          backgroundColor: "rgba(255, 255, 255, 0.08)",
+          transition: "left 150ms cubic-bezier(0, 0, 0.2, 1)",
+          zIndex: 0,
+        }}
+      />
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          style={{
+            position: "relative",
+            zIndex: 1,
+            flex: 1,
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: opt.value === value ? 500 : 400,
+            color:
+              opt.value === value
+                ? "var(--text-primary)"
+                : "var(--text-muted)",
+            transition: "color 150ms cubic-bezier(0, 0, 0.2, 1)",
+            padding: "0 8px",
+            whiteSpace: "nowrap",
+            borderRadius: 4,
+            outline: "none",
+          }}
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
+  );
+}
+
+/** Native select with Precision styling */
+function AppleSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        fontSize: 13,
+        padding: "5px 24px 5px 10px",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        backgroundColor: "var(--bg-secondary)",
+        color: "var(--text-primary)",
+        outline: "none",
+        cursor: "pointer",
+        appearance: "none",
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 8px center",
+        maxWidth: 180,
+      }}
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
   );
 }

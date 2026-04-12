@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
+import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
 
 // =============================================================================
 // Types
 // =============================================================================
 
-export type ToolStatus = "pending" | "running" | "complete" | "error";
+export type { ToolStatus };
 
 export interface ToolCallData {
   id: string;
@@ -25,391 +27,329 @@ export interface ToolCallData {
   durationMs?: number;
 }
 
+/**
+ * Unified props interface for ToolCallCard.
+ *
+ * Supports two usage patterns:
+ *  1. Object style (chat):   <ToolCallCard tool={toolCallData} />
+ *  2. Flat style   (dojo):   <ToolCallCard name="web_search" status="success" ... />
+ *
+ * When `tool` is provided the flat props are ignored.
+ */
+export interface ToolCallCardProps {
+  // ---- Object style (chat) ----
+  tool?: ToolCallData;
+  defaultExpanded?: boolean;
+  compact?: boolean;
+
+  // ---- Flat style (dojo / agentgo) ----
+  name?: string;
+  args?: Record<string, unknown>;
+  result?: string;
+  status?: ToolStatus;
+  duration?: number;
+  error?: string;
+  isCollapsible?: boolean;
+}
+
 // =============================================================================
 // Tool Display Config
 // =============================================================================
 
-const TOOL_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
-  generate_image: { icon: "🖼️", label: "Image", color: "#8b5cf6" },
-  edit_image: { icon: "✏️", label: "Edit", color: "#8b5cf6" },
-  generate_audio: { icon: "🔊", label: "Audio", color: "#f59e0b" },
-  image_to_3d: { icon: "🎲", label: "3D", color: "#ec4899" },
-  analyze_image: { icon: "👁️", label: "Vision", color: "#06b6d4" },
-  web_search: { icon: "🔍", label: "Search", color: "#3b82f6" },
-  glyph_motif: { icon: "✨", label: "Glyph", color: "#a855f7" },
-  execute_code: { icon: "💻", label: "Code", color: "#22c55e" },
-  vector_search: { icon: "📚", label: "Lookup", color: "#6366f1" },
-  vector_store: { icon: "💾", label: "Store", color: "#6366f1" },
+const TOOL_CONFIG: Record<string, { icon: string; label: string }> = {
+  generate_image: { icon: "🖼️", label: "Image" },
+  edit_image: { icon: "✏️", label: "Edit" },
+  generate_audio: { icon: "🔊", label: "Audio" },
+  image_to_3d: { icon: "🎲", label: "3D" },
+  analyze_image: { icon: "👁️", label: "Vision" },
+  web_search: { icon: "🔍", label: "Search" },
+  glyph_motif: { icon: "✨", label: "Glyph" },
+  execute_code: { icon: "💻", label: "Code" },
+  vector_search: { icon: "📚", label: "Lookup" },
+  vector_store: { icon: "💾", label: "Store" },
 };
 
-const DEFAULT_CONFIG = { icon: "🔧", label: "Tool", color: "#6b7280" };
+const DEFAULT_CONFIG = { icon: "🔧", label: "Tool" };
 
 // Keys to show as the "prompt" or main argument
 const PROMPT_KEYS = ["prompt", "query", "instruction", "code", "text", "question", "message"];
 
 // =============================================================================
-// Status Styles
-// =============================================================================
-
-const STATUS_STYLES = {
-  pending: {
-    border: "rgba(107, 114, 128, 0.3)",
-    bg: "rgba(107, 114, 128, 0.05)",
-    dot: "#6b7280",
-    text: "#9ca3af",
-    label: "Pending",
-  },
-  running: {
-    border: "rgba(59, 130, 246, 0.3)",
-    bg: "rgba(59, 130, 246, 0.05)",
-    dot: "#3b82f6",
-    text: "#60a5fa",
-    label: "Running",
-  },
-  complete: {
-    border: "rgba(34, 197, 94, 0.3)",
-    bg: "rgba(34, 197, 94, 0.05)",
-    dot: "#22c55e",
-    text: "#4ade80",
-    label: "Complete",
-  },
-  error: {
-    border: "rgba(239, 68, 68, 0.3)",
-    bg: "rgba(239, 68, 68, 0.05)",
-    dot: "#ef4444",
-    text: "#f87171",
-    label: "Error",
-  },
-};
-
-// =============================================================================
 // ToolCallCard Component
 // =============================================================================
 
-interface ToolCallCardProps {
-  tool: ToolCallData;
-  defaultExpanded?: boolean;
-  compact?: boolean;
-}
+export function ToolCallCard(props: ToolCallCardProps) {
+  // Normalise into a single internal representation regardless of which
+  // prop-style the caller used.
+  const resolved = resolveProps(props);
 
-export function ToolCallCard({ tool, defaultExpanded = false, compact = false }: ToolCallCardProps) {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  
-  const config = TOOL_CONFIG[tool.name] || DEFAULT_CONFIG;
-  const effectiveStatus = getEffectiveStatus(tool);
+  const {
+    toolName,
+    args,
+    richResult,
+    plainResult,
+    plainError,
+    effectiveStatus,
+    durationMs,
+    compact,
+    defaultExpanded,
+    isCollapsible,
+  } = resolved;
+
+  const [isExpanded, setIsExpanded] = useState(
+    defaultExpanded ?? (isCollapsible === false)
+  );
+
+  const config = TOOL_CONFIG[toolName] || DEFAULT_CONFIG;
   const styles = STATUS_STYLES[effectiveStatus];
-  const mainPrompt = getMainPrompt(tool.args);
-  const hasDetails = mainPrompt || (tool.args && Object.keys(tool.args).length > 0) || tool.result;
+  const mainPrompt = getMainPrompt(args);
 
-  const formatDuration = (ms: number): string => {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
-  };
+  // Determine whether the card has expandable details
+  const hasDetails =
+    mainPrompt ||
+    (args && Object.keys(args).length > 0) ||
+    richResult ||
+    plainResult ||
+    plainError;
 
-  // Compact mode - just a pill
+  const canToggle = isCollapsible !== false && hasDetails;
+
+  // ---------------------------------------------------------------------------
+  // Compact pill mode
+  // ---------------------------------------------------------------------------
   if (compact) {
+    const compactDotColor = effectiveStatus === "running" ? "var(--accent)"
+      : effectiveStatus === "complete" || effectiveStatus === "success" ? "var(--success)"
+      : effectiveStatus === "error" ? "var(--error)"
+      : "var(--text-muted)";
+
     return (
       <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] mr-1 mb-1"
         style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 4,
-          padding: "2px 8px",
-          background: styles.bg,
-          border: `1px solid ${styles.border}`,
-          borderRadius: 12,
-          fontSize: 11,
-          color: styles.text,
-          marginRight: 4,
-          marginBottom: 4,
+          border: "1px solid var(--border)",
+          background: "var(--bg-primary)",
+          color: "var(--text-secondary)",
         }}
       >
-        <span>{config.icon}</span>
-        <span style={{ fontWeight: 500 }}>{config.label}</span>
-        {effectiveStatus === "running" && (
-          <span
-            style={{
-              width: 4,
-              height: 4,
-              borderRadius: "50%",
-              background: styles.dot,
-              animation: "pulse 1.5s infinite",
-            }}
-          />
-        )}
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: compactDotColor, flexShrink: 0 }} />
+        <span className="font-medium">{config.label}</span>
       </span>
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Full card - Apple Physical style
+  // ---------------------------------------------------------------------------
+
+  const dotColor = effectiveStatus === "running" ? "var(--accent)"
+    : effectiveStatus === "complete" || effectiveStatus === "success" ? "var(--success)"
+    : effectiveStatus === "error" ? "var(--error)"
+    : "var(--text-muted)";
+
+  const dotClass = effectiveStatus === "running" ? "animate-status-pulse" : "";
+  const cardClass = ""; // No shake animation — errors shown inline
+
   return (
     <div
+      className={`overflow-hidden my-2 max-w-md ${cardClass}`}
       style={{
-        borderRadius: 8,
-        border: `1px solid ${styles.border}`,
-        background: styles.bg,
-        overflow: "hidden",
-        marginTop: 8,
-        marginBottom: 8,
-        maxWidth: 450,
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: "rgba(255, 255, 255, 0.02)",
       }}
     >
-      {/* Header */}
+      {/* Header - compact single line */}
       <button
-        onClick={() => hasDetails && setIsExpanded(!isExpanded)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          background: "transparent",
-          border: "none",
-          cursor: hasDetails ? "pointer" : "default",
-          textAlign: "left",
-          font: "inherit",
-          color: "inherit",
-        }}
+        onClick={() => canToggle && setIsExpanded(!isExpanded)}
+        disabled={!canToggle}
+        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left ${
+          canToggle ? "hover:bg-[var(--bg-secondary)] cursor-pointer" : "cursor-default"
+        }`}
+        style={{ transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)" }}
       >
         {/* Status Dot */}
         <span
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: styles.dot,
-            flexShrink: 0,
-            animation: effectiveStatus === "running" ? "pulse 1.5s infinite" : "none",
-          }}
+          className={`shrink-0 ${dotClass}`}
+          style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor }}
         />
 
-        {/* Tool Icon */}
-        <span style={{ fontSize: 16 }}>{config.icon}</span>
-
         {/* Tool Name */}
-        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+        <span className="text-sm font-medium text-[var(--text-primary)]">
           {config.label}
         </span>
 
-        {/* Main Prompt Preview (truncated) */}
+        {/* Main Prompt Preview (truncated) - shown when collapsed & prompt exists */}
         {mainPrompt && !isExpanded && (
-          <span
-            style={{
-              flex: 1,
-              fontSize: 12,
-              color: "var(--text-muted)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              marginLeft: 4,
-            }}
-          >
+          <span className="flex-1 text-xs text-[var(--text-muted)] truncate ml-0.5">
             {truncate(mainPrompt, 40)}
           </span>
         )}
 
         {/* Spacer */}
-        <span style={{ flex: mainPrompt && !isExpanded ? 0 : 1 }} />
-
-        {/* Status Label */}
-        <span style={{ fontSize: 11, color: styles.text }}>
-          {effectiveStatus === "running" ? "Running..." : styles.label}
-        </span>
+        {!(mainPrompt && !isExpanded) && <span className="flex-1" />}
 
         {/* Duration */}
-        {tool.durationMs !== undefined && effectiveStatus !== "running" && (
-          <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "ui-monospace, monospace" }}>
-            {formatDuration(tool.durationMs)}
+        {durationMs !== undefined && effectiveStatus !== "running" && (
+          <span className="text-[10px] font-mono text-[var(--text-muted)]">
+            {formatDuration(durationMs)}
           </span>
         )}
 
         {/* Spinner or Chevron */}
         {effectiveStatus === "running" ? (
-          <span
+          <div className="tool-spinner" />
+        ) : canToggle ? (
+          <ChevronDown
+            className="w-3.5 h-3.5 text-[var(--text-muted)]"
             style={{
-              width: 12,
-              height: 12,
-              border: "2px solid var(--border)",
-              borderTopColor: styles.dot,
-              borderRadius: "50%",
-              animation: "spin 0.8s linear infinite",
+              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 150ms cubic-bezier(0, 0, 0.2, 1)",
             }}
           />
-        ) : hasDetails ? (
-          <svg
-            width={12}
-            height={12}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            style={{
-              color: "var(--text-muted)",
-              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 0.15s",
-            }}
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
         ) : null}
       </button>
 
       {/* Expanded Content */}
       {isExpanded && hasDetails && (
-        <div
-          style={{
-            padding: "8px 12px",
-            borderTop: `1px solid ${styles.border}`,
-            background: "var(--bg-primary)",
-          }}
-        >
-          {/* Main Prompt */}
+        <div className="animate-expand px-3 pb-3 space-y-2 border-t border-[var(--border)]">
+          {/* Main Prompt (chat-style rich view) */}
           {mainPrompt && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>
+            <div className="pt-2">
+              <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
                 Input
               </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  fontFamily: "ui-monospace, monospace",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  lineHeight: 1.5,
-                  padding: 8,
-                  background: "var(--bg-secondary)",
-                  borderRadius: 4,
-                  border: "1px solid var(--border)",
-                }}
-              >
+              <div className="text-xs font-mono p-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] whitespace-pre-wrap break-words leading-relaxed">
                 {mainPrompt}
               </div>
             </div>
           )}
 
-          {/* Other Args */}
-          {tool.args && Object.keys(tool.args).filter(k => !PROMPT_KEYS.includes(k)).length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>
+          {/* Other Args (parameter pills for chat, or raw JSON for dojo) */}
+          {args && Object.keys(args).filter((k) => !PROMPT_KEYS.includes(k)).length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
                 Parameters
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {Object.entries(tool.args)
-                  .filter(([key]) => !PROMPT_KEYS.includes(key))
-                  .map(([key, value]) => (
-                    <span
-                      key={key}
-                      style={{
-                        fontSize: 10,
-                        padding: "2px 6px",
-                        background: "var(--bg-tertiary)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 4,
-                        color: "var(--text-secondary)",
-                      }}
-                    >
-                      <span style={{ color: "var(--text-muted)" }}>{key}:</span>{" "}
-                      <span style={{ fontFamily: "ui-monospace, monospace" }}>{formatArg(value)}</span>
-                    </span>
-                  ))}
+              {/* If there's a main prompt we show non-prompt args as pills; otherwise show raw JSON */}
+              {mainPrompt ? (
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(args)
+                    .filter(([key]) => !PROMPT_KEYS.includes(key))
+                    .map(([key, value]) => (
+                      <span
+                        key={key}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-secondary)]"
+                      >
+                        <span className="text-[var(--text-muted)]">{key}:</span>{" "}
+                        <span className="font-mono">{formatArg(value)}</span>
+                      </span>
+                    ))}
+                </div>
+              ) : (
+                <pre className="text-xs font-mono p-2 rounded bg-[var(--bg-primary)] border border-[var(--border)] overflow-x-auto">
+                  {JSON.stringify(
+                    Object.fromEntries(
+                      Object.entries(args).filter(([k]) => !PROMPT_KEYS.includes(k))
+                    ),
+                    null,
+                    2,
+                  )}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Full args JSON fallback (dojo-style, when no main prompt detected) */}
+          {args && !mainPrompt && Object.keys(args).filter((k) => !PROMPT_KEYS.includes(k)).length === 0 && Object.keys(args).length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                Arguments
+              </div>
+              <pre className="text-xs font-mono p-2 rounded bg-[var(--bg-primary)] border border-[var(--border)] overflow-x-auto">
+                {JSON.stringify(args, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {/* Rich result (from chat ToolCallData) */}
+          {richResult && (
+            <div>
+              {/* Error */}
+              {richResult.error && richResult.error.trim() && (
+                <div className="mb-2">
+                  <div className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">
+                    Error
+                  </div>
+                  <div className="text-sm p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 whitespace-pre-wrap break-words">
+                    {richResult.error}
+                  </div>
+                </div>
+              )}
+
+              {/* Search results */}
+              {toolName === "web_search" && richResult.data && (
+                <SearchResultsDisplay data={richResult.data} />
+              )}
+
+              {/* Message */}
+              {richResult.message && !richResult.error && toolName !== "web_search" && (
+                <div>
+                  <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                    Result
+                  </div>
+                  <div className="text-sm p-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] whitespace-pre-wrap break-words">
+                    {richResult.message}
+                  </div>
+                </div>
+              )}
+
+              {/* Raw data (non-search, no message) */}
+              {richResult.data && !richResult.message && toolName !== "web_search" && (
+                <div>
+                  <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                    Data
+                    {"_glyph" in (richResult.data as Record<string, unknown>) && (
+                      <span className="text-[9px] px-1.5 py-px bg-purple-500/20 text-purple-400 rounded font-medium">
+                        GLYPH
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] font-mono p-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] whitespace-pre-wrap break-words max-h-[200px] overflow-auto">
+                    {(richResult.data as Record<string, unknown>)?._glyph
+                      ? String((richResult.data as Record<string, unknown>)._glyph)
+                      : JSON.stringify(richResult.data, null, 2)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Plain result string (from dojo flat props) */}
+          {!richResult && plainResult && (
+            <div>
+              <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
+                Result
+              </div>
+              <div className="text-sm p-2 rounded bg-[var(--bg-primary)] border border-[var(--border)]">
+                {plainResult}
               </div>
             </div>
           )}
 
-          {/* Result */}
-          {tool.result && (
+          {/* Plain error string (from dojo flat props) */}
+          {!richResult && plainError && (
             <div>
-              {/* Show error only if there's an actual error message */}
-              {tool.result.error && tool.result.error.trim() && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "#ef4444", textTransform: "uppercase", marginBottom: 4 }}>
-                    Error
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "#f87171",
-                      padding: 8,
-                      background: "rgba(239, 68, 68, 0.1)",
-                      borderRadius: 4,
-                      border: "1px solid rgba(239, 68, 68, 0.3)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {tool.result.error}
-                  </div>
-                </div>
-              )}
-              
-              {/* Show search results nicely */}
-              {tool.name === "web_search" && tool.result.data && (
-                <SearchResultsDisplay data={tool.result.data} />
-              )}
-              
-              {/* Show message if present */}
-              {tool.result.message && !tool.result.error && tool.name !== "web_search" && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>
-                    Result
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "var(--text-secondary)",
-                      padding: 8,
-                      background: "var(--bg-secondary)",
-                      borderRadius: 4,
-                      border: "1px solid var(--border)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {tool.result.message}
-                  </div>
-                </div>
-              )}
-              
-              {/* Show raw data for other tools (if no message and not search) */}
-              {tool.result.data && !tool.result.message && tool.name !== "web_search" && (
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>
-                    Data
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: "var(--text-secondary)",
-                      padding: 8,
-                      background: "var(--bg-secondary)",
-                      borderRadius: 4,
-                      border: "1px solid var(--border)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      fontFamily: "ui-monospace, monospace",
-                      maxHeight: 200,
-                      overflow: "auto",
-                    }}
-                  >
-                    {JSON.stringify(tool.result.data, null, 2)}
-                  </div>
-                </div>
-              )}
+              <div className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">
+                Error
+              </div>
+              <div className="text-sm p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400">
+                {plainError}
+              </div>
             </div>
           )}
         </div>
       )}
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -426,13 +366,12 @@ interface SearchResult {
 }
 
 function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
-  // Handle both direct results array and nested structure
   const results = (data.results as SearchResult[]) || [];
   const count = (data.count as number) || results.length;
-  
+
   if (results.length === 0) {
     return (
-      <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+      <div className="text-xs text-[var(--text-muted)] italic">
         No results found
       </div>
     );
@@ -440,73 +379,33 @@ function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 6 }}>
+      <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1.5">
         Results ({count})
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="flex flex-col gap-2">
         {results.slice(0, 5).map((result, idx) => (
           <div
             key={idx}
-            style={{
-              padding: 8,
-              background: "var(--bg-secondary)",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-            }}
+            className="p-2 rounded-md bg-[var(--bg-secondary)] border border-[var(--border)]"
           >
-            {/* Title with link */}
             <a
               href={result.url}
               target="_blank"
               rel="noopener noreferrer"
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: "#60a5fa",
-                textDecoration: "none",
-                display: "block",
-                marginBottom: 4,
-              }}
+              className="text-xs font-medium text-blue-400 block mb-1 hover:underline"
             >
               {result.title || "Untitled"}
             </a>
-            
-            {/* URL */}
-            <div
-              style={{
-                fontSize: 10,
-                color: "var(--text-muted)",
-                marginBottom: 4,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
+            <div className="text-[10px] text-[var(--text-muted)] mb-1 truncate">
               {result.url}
             </div>
-            
-            {/* Snippet */}
             {result.snippet && (
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-secondary)",
-                  lineHeight: 1.4,
-                }}
-              >
+              <div className="text-[11px] text-[var(--text-secondary)] leading-snug">
                 {result.snippet}
               </div>
             )}
-            
-            {/* Published date */}
             {result.publishedDate && (
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginTop: 4,
-                }}
-              >
+              <div className="text-[10px] text-[var(--text-muted)] mt-1">
                 {result.publishedDate}
               </div>
             )}
@@ -521,11 +420,62 @@ function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
 // Helpers
 // =============================================================================
 
+interface ResolvedProps {
+  toolName: string;
+  args?: Record<string, unknown>;
+  richResult?: ToolCallData["result"];
+  plainResult?: string;
+  plainError?: string;
+  effectiveStatus: ToolStatus;
+  durationMs?: number;
+  compact: boolean;
+  defaultExpanded?: boolean;
+  isCollapsible?: boolean;
+}
+
+/** Normalise the two calling conventions into a single internal shape. */
+function resolveProps(props: ToolCallCardProps): ResolvedProps {
+  if (props.tool) {
+    const tool = props.tool;
+    return {
+      toolName: tool.name,
+      args: tool.args,
+      richResult: tool.result,
+      plainResult: undefined,
+      plainError: undefined,
+      effectiveStatus: getEffectiveStatus(tool),
+      durationMs: tool.durationMs,
+      compact: props.compact ?? false,
+      defaultExpanded: props.defaultExpanded,
+      isCollapsible: undefined, // chat style is always collapsible when there are details
+    };
+  }
+
+  // Flat props (dojo / agentgo style)
+  // Map "success" to "complete" for STATUS_STYLES lookup consistency
+  const rawStatus = props.status ?? "pending";
+
+  return {
+    toolName: props.name ?? "unknown",
+    args: props.args,
+    richResult: undefined,
+    plainResult: props.result,
+    plainError: props.error,
+    effectiveStatus: rawStatus,
+    durationMs: props.duration,
+    compact: props.compact ?? false,
+    defaultExpanded: undefined,
+    isCollapsible: props.isCollapsible,
+  };
+}
+
 function getEffectiveStatus(tool: ToolCallData): ToolStatus {
   if (tool.status === "error") return "error";
   if (tool.status === "complete") {
-    // Only mark as error if success is explicitly false AND there's an actual error message
-    const hasError = tool.result?.success === false && tool.result?.error && tool.result.error.trim();
+    const hasError =
+      tool.result?.success === false &&
+      tool.result?.error &&
+      tool.result.error.trim();
     return hasError ? "error" : "complete";
   }
   return tool.status;
@@ -545,7 +495,8 @@ function formatArg(value: unknown): string {
   if (value === null || value === undefined) return "null";
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") return String(value);
-  if (typeof value === "string") return value.length > 30 ? value.slice(0, 30) + "..." : value;
+  if (typeof value === "string")
+    return value.length > 30 ? value.slice(0, 30) + "..." : value;
   if (Array.isArray(value)) return `[${value.length}]`;
   return "{...}";
 }
@@ -562,7 +513,7 @@ export function ToolCallPills({ tools }: { tools: ToolCallData[] }) {
   if (tools.length === 0) return null;
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+    <div className="flex flex-wrap gap-1 mt-2">
       {tools.map((tool) => (
         <ToolCallCard key={tool.id} tool={tool} compact />
       ))}

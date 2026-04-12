@@ -246,7 +246,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
           const timeSinceUtterance = Date.now() - utteranceEndTimeRef.current;
           if (timeSinceUtterance < FILLER_SKIP_THRESHOLD_MS) {
             if (audioSourceRef.current) {
-              try { audioSourceRef.current.stop(); } catch {}
+              try { audioSourceRef.current.stop(); } catch { /* already stopped */ }
               audioSourceRef.current = null;
             }
             fillerPlayingRef.current = false;
@@ -612,7 +612,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     if (audioSourceRef.current) {
       try {
         audioSourceRef.current.stop();
-      } catch {}
+      } catch { /* already stopped */ }
       audioSourceRef.current = null;
     }
 

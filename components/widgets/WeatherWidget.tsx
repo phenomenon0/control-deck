@@ -11,7 +11,8 @@ interface WeatherWidgetProps {
 }
 
 export function WeatherWidget({ data, isLoading, error, onRefresh }: WeatherWidgetProps) {
-  const badge = data ? `${data.temp}°F` : undefined;
+  // Show temp + condition in badge for more info when collapsed
+  const badge = data ? `${data.temp}°F ${data.condition}` : undefined;
 
   return (
     <WidgetContainer

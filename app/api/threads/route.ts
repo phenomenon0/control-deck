@@ -12,39 +12,33 @@ import {
   type ArtifactRow,
 } from "@/lib/agui/db";
 
-// Ollama API for title generation
-const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const TITLE_MODEL = "qwen2.5:1.5b"; // Fast small model for titles
+// LLM API for title generation
+const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:8080/v1";
+const TITLE_MODEL = process.env.LLM_MODEL ?? "qwen2.5:1.5b";
 
 /**
  * Generate a concise chat title using LLM
  */
 async function generateTitle(userMessage: string): Promise<string> {
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: TITLE_MODEL,
-        prompt: `Generate a very short title (2-5 words) for a chat that starts with this message. Return ONLY the title, nothing else. No quotes, no explanation.
-
-Message: "${userMessage.slice(0, 200)}"
-
-Title:`,
+        messages: [{ role: "user", content: `Generate a very short title (2-5 words) for a chat that starts with this message. Return ONLY the title, nothing else. No quotes, no explanation.\n\nMessage: "${userMessage.slice(0, 200)}"` }],
         stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 20,
-        },
+        temperature: 0.3,
+        max_tokens: 20,
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Ollama returned ${response.status}`);
+      throw new Error(`LLM returned ${response.status}`);
     }
 
     const data = await response.json();
-    let title = (data.response || "").trim();
+    let title = (data.choices?.[0]?.message?.content || "").trim();
     
     // Clean up the title
     title = title.replace(/^["']|["']$/g, ""); // Remove quotes

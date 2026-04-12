@@ -3,7 +3,6 @@
  * Uses onnxruntime-node for cross-platform CPU inference
  */
 
-// @ts-ignore - onnxruntime-node types may not be available until installed
 import * as ort from "onnxruntime-node";
 import path from "path";
 import { readFile } from "fs/promises";

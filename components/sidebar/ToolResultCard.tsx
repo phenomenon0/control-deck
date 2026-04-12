@@ -60,6 +60,7 @@ export function ToolResultCard({ tool }: ToolResultCardProps) {
     // Memory/vector tools
     case "vector_search":
     case "vector_store":
+    case "vector_ingest":
     case "memory_search":
     case "memory_store":
     case "semantic_search":

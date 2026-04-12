@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { Mic } from "lucide-react";
 
 interface AudioLevelIndicatorProps {
   level: number; // 0-1
@@ -36,7 +37,7 @@ export function AudioLevelIndicator({
     return <PulseIndicator level={normalizedLevel} isActive={isActive} size={size} />;
   }
 
-  // Default: rings variant
+  // Default: rings variant (Apple clean style)
   return (
     <div
       className="relative flex items-center justify-center"
@@ -45,56 +46,32 @@ export function AudioLevelIndicator({
         height: dimensions.container,
       }}
     >
-      {/* Outer animated rings */}
+      {/* Subtle ring — no glow, no shadow */}
       {isActive && (
-        <>
-          <div
-            className="absolute rounded-full bg-[var(--accent)] opacity-20 voice-ring"
-            style={{
-              width: dimensions.ringBase + normalizedLevel * 30,
-              height: dimensions.ringBase + normalizedLevel * 30,
-              animationDuration: "1.5s",
-            }}
-          />
-          <div
-            className="absolute rounded-full bg-[var(--accent)] opacity-15 voice-ring"
-            style={{
-              width: dimensions.ringBase + normalizedLevel * 20,
-              height: dimensions.ringBase + normalizedLevel * 20,
-              animationDuration: "2s",
-              animationDelay: "0.3s",
-            }}
-          />
-        </>
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: dimensions.ringBase + normalizedLevel * 12,
+            height: dimensions.ringBase + normalizedLevel * 12,
+            background: `rgba(94, 106, 210, ${0.06 + normalizedLevel * 0.1})`,
+            transition: "all 100ms cubic-bezier(0, 0, 0.2, 1)",
+          }}
+        />
       )}
-
-      {/* Level ring (scales with audio level) */}
-      <div
-        className="absolute rounded-full transition-all duration-75"
-        style={{
-          width: dimensions.ringBase + (isActive ? normalizedLevel * 24 : 0),
-          height: dimensions.ringBase + (isActive ? normalizedLevel * 24 : 0),
-          background: isActive
-            ? `rgba(var(--accent-rgb), ${0.2 + normalizedLevel * 0.3})`
-            : "rgba(var(--accent-rgb), 0.1)",
-          boxShadow: isActive && normalizedLevel > 0.1
-            ? `0 0 ${normalizedLevel * 20}px rgba(var(--accent-rgb), ${normalizedLevel * 0.5})`
-            : "none",
-        }}
-      />
 
       {/* Center circle with mic icon */}
       <div
-        className="relative z-10 rounded-full flex items-center justify-center transition-colors"
+        className="relative z-10 rounded-full flex items-center justify-center"
         style={{
           width: dimensions.ringBase,
           height: dimensions.ringBase,
           background: isActive ? "var(--accent)" : "var(--bg-tertiary)",
+          transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)",
         }}
       >
         <MicIcon
           size={dimensions.icon}
-          color={isActive ? "var(--bg-primary)" : "var(--text-muted)"}
+          color={isActive ? "#FFFFFF" : "var(--text-muted)"}
         />
       </div>
     </div>
@@ -110,11 +87,12 @@ function BarsIndicator({
   isActive: boolean;
   size: "sm" | "md" | "lg";
 }) {
-  const barCount = size === "sm" ? 3 : size === "md" ? 5 : 7;
-  const barWidth = size === "sm" ? 3 : size === "md" ? 4 : 5;
-  const maxHeight = size === "sm" ? 16 : size === "md" ? 24 : 32;
-  const minHeight = size === "sm" ? 4 : size === "md" ? 6 : 8;
-  const gap = size === "sm" ? 2 : size === "md" ? 3 : 4;
+  // Thin bars, indigo accent, no bounce
+  const barCount = size === "sm" ? 3 : size === "md" ? 4 : 5;
+  const barWidth = size === "sm" ? 2.5 : size === "md" ? 3 : 3.5;
+  const maxHeight = size === "sm" ? 14 : size === "md" ? 20 : 28;
+  const minHeight = size === "sm" ? 3 : size === "md" ? 4 : 5;
+  const gap = size === "sm" ? 2 : size === "md" ? 2.5 : 3;
 
   return (
     <div
@@ -122,21 +100,23 @@ function BarsIndicator({
       style={{ gap, height: maxHeight }}
     >
       {Array.from({ length: barCount }).map((_, i) => {
-        // Create a wave-like pattern
+        // Staggered wave pattern from center out
         const centerOffset = Math.abs(i - Math.floor(barCount / 2));
-        const heightMultiplier = 1 - centerOffset * 0.15;
+        const stagger = centerOffset * 0.18;
+        const heightMultiplier = 1 - centerOffset * 0.12;
         const barLevel = isActive ? level * heightMultiplier : 0;
         const height = minHeight + barLevel * (maxHeight - minHeight);
 
         return (
           <div
             key={i}
-            className="rounded-full transition-all duration-75"
             style={{
               width: barWidth,
               height,
+              borderRadius: barWidth,
               background: isActive ? "var(--accent)" : "var(--text-muted)",
-              opacity: isActive ? 0.5 + barLevel * 0.5 : 0.3,
+              opacity: isActive ? 0.5 + barLevel * 0.5 : 0.15,
+              transition: `height 80ms cubic-bezier(0, 0, 0.2, 1) ${stagger * 30}ms, opacity 80ms cubic-bezier(0, 0, 0.2, 1)`,
             }}
           />
         );
@@ -155,8 +135,6 @@ function PulseIndicator({
   size: "sm" | "md" | "lg";
 }) {
   const dimensions = SIZES[size];
-  const scale = isActive ? 1 + level * 0.2 : 1;
-
   return (
     <div
       className="relative flex items-center justify-center"
@@ -166,20 +144,17 @@ function PulseIndicator({
       }}
     >
       <div
-        className="rounded-full flex items-center justify-center transition-transform duration-75"
+        className="rounded-full flex items-center justify-center"
         style={{
           width: dimensions.ringBase,
           height: dimensions.ringBase,
           background: isActive ? "var(--accent)" : "var(--bg-tertiary)",
-          transform: `scale(${scale})`,
-          boxShadow: isActive && level > 0.1
-            ? `0 0 ${level * 30}px rgba(var(--accent-rgb), ${level * 0.6})`
-            : "none",
+          transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)",
         }}
       >
         <MicIcon
           size={dimensions.icon}
-          color={isActive ? "var(--bg-primary)" : "var(--text-muted)"}
+          color={isActive ? "#FFFFFF" : "var(--text-muted)"}
         />
       </div>
     </div>
@@ -187,22 +162,7 @@ function PulseIndicator({
 }
 
 function MicIcon({ size, color }: { size: number; color: string }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-      <line x1="12" x2="12" y1="19" y2="22" />
-    </svg>
-  );
+  return <Mic width={size} height={size} color={color} />;
 }
 
 // Speaker icon for TTS playback indication

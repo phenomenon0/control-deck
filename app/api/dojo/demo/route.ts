@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { emitDojoEvent } from "../stream/route";
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:8080/v1";
 
 type DemoType = 
   | "shared_state"
@@ -21,7 +21,9 @@ type DemoType =
   | "travel"
   | "research"
   | "approval"
-  | "form";
+  | "form"
+  | "soccer_scout"
+  | "horoscope";
 
 interface DemoRequest {
   threadId: string;
@@ -33,7 +35,7 @@ interface DemoRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: DemoRequest = await request.json();
-    const { threadId, demo, model = "llama3.2", input = {} } = body;
+    const { threadId, demo, model = process.env.LLM_MODEL ?? "llama3.2", input = {} } = body;
     
     const runId = crypto.randomUUID();
     
@@ -97,6 +99,14 @@ export async function POST(request: NextRequest) {
       
       case "form":
         await runFormDemo(threadId, runId, model, input);
+        break;
+      
+      case "soccer_scout":
+        await runSoccerScoutDemo(threadId, runId, model, input);
+        break;
+      
+      case "horoscope":
+        await runHoroscopeDemo(threadId, runId, model, input);
         break;
       
       default:
@@ -628,18 +638,18 @@ async function runPoetryDemo(threadId: string, runId: string, model: string, inp
   const topic = (input.topic as string) || "the beauty of code";
   const messageId = crypto.randomUUID();
   
-  // Try to call Ollama for real poetry
+  // Try to call LLM for real poetry
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        prompt: `Write a short, beautiful poem about: ${topic}. Make it 4-6 lines.`,
+        messages: [{ role: "user", content: `Write a short, beautiful poem about: ${topic}. Make it 4-6 lines.` }],
         stream: true,
       }),
     });
-    
+
     emitDojoEvent(threadId, {
       type: "TEXT_MESSAGE_START",
       threadId,
@@ -648,34 +658,39 @@ async function runPoetryDemo(threadId: string, runId: string, model: string, inp
       role: "assistant",
       timestamp: new Date().toISOString(),
     });
-    
+
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
-    
+
     while (reader) {
       const { done, value } = await reader.read();
       if (done) break;
-      
+
       const chunk = decoder.decode(value);
       const lines = chunk.split("\n").filter(Boolean);
-      
+
       for (const line of lines) {
+        const stripped = line.startsWith("data: ") ? line.slice(6) : line;
+        if (!stripped || stripped === "[DONE]") continue;
         try {
-          const data = JSON.parse(line);
-          if (data.response) {
+          const data = JSON.parse(stripped);
+          const delta = data.choices?.[0]?.delta?.content;
+          if (delta) {
             emitDojoEvent(threadId, {
               type: "TEXT_MESSAGE_CONTENT",
               threadId,
               runId,
               messageId,
-              delta: data.response,
+              delta,
               timestamp: new Date().toISOString(),
             });
           }
-        } catch {}
+        } catch {
+            // Partial JSON line from SSE stream — skip
+          }
       }
     }
-    
+
     emitDojoEvent(threadId, {
       type: "TEXT_MESSAGE_END",
       threadId,
@@ -1106,4 +1121,823 @@ async function runFormDemo(threadId: string, runId: string, model: string, input
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// =============================================================================
+// Soccer Scouting Report Demo
+// =============================================================================
+
+interface ScoutingReport {
+  player: {
+    name: string;
+    age: number;
+    position: string;
+    currentClub: string;
+    nationality: string;
+    marketValue: string;
+  };
+  physicalAttributes: {
+    height: string;
+    weight: string;
+    preferredFoot: string;
+    pace: number;
+    stamina: number;
+    strength: number;
+  };
+  technicalSkills: {
+    passing: number;
+    shooting: number;
+    dribbling: number;
+    firstTouch: number;
+    crossing: number;
+    heading: number;
+  };
+  mentalAttributes: {
+    vision: number;
+    composure: number;
+    leadership: number;
+    workRate: number;
+    positioning: number;
+  };
+  matchStats: {
+    appearances: number;
+    goals: number;
+    assists: number;
+    minutesPlayed: number;
+  };
+  scoutNotes: string[];
+  recommendation: "sign" | "monitor" | "pass";
+  overallRating: number;
+}
+
+async function runSoccerScoutDemo(threadId: string, runId: string, model: string, input: Record<string, unknown>) {
+  const playerName = (input.player as string) || "Marcus Rashford";
+  
+  // Initial empty state
+  const initialReport: Partial<ScoutingReport> = {
+    player: {
+      name: playerName,
+      age: 0,
+      position: "",
+      currentClub: "",
+      nationality: "",
+      marketValue: "",
+    },
+    physicalAttributes: {
+      height: "",
+      weight: "",
+      preferredFoot: "",
+      pace: 0,
+      stamina: 0,
+      strength: 0,
+    },
+    technicalSkills: {
+      passing: 0,
+      shooting: 0,
+      dribbling: 0,
+      firstTouch: 0,
+      crossing: 0,
+      heading: 0,
+    },
+    mentalAttributes: {
+      vision: 0,
+      composure: 0,
+      leadership: 0,
+      workRate: 0,
+      positioning: 0,
+    },
+    matchStats: {
+      appearances: 0,
+      goals: 0,
+      assists: 0,
+      minutesPlayed: 0,
+    },
+    scoutNotes: [],
+    overallRating: 0,
+  };
+  
+  // Emit initial state snapshot
+  emitDojoEvent(threadId, {
+    type: "STATE_SNAPSHOT",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    snapshot: initialReport,
+  });
+  
+  await delay(300);
+  
+  // Show activity - scouting in progress
+  const activityId = crypto.randomUUID();
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_SNAPSHOT",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    content: {
+      title: `Scouting Report: ${playerName}`,
+      steps: [
+        { id: "1", label: "Gathering player data", status: "in_progress" },
+        { id: "2", label: "Analyzing physical attributes", status: "pending" },
+        { id: "3", label: "Evaluating technical skills", status: "pending" },
+        { id: "4", label: "Assessing mental attributes", status: "pending" },
+        { id: "5", label: "Compiling match statistics", status: "pending" },
+        { id: "6", label: "Generating recommendation", status: "pending" },
+      ],
+    },
+    replace: true,
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(600);
+  
+  // Step 1: Player basic info
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/player/age", value: 26 },
+      { op: "replace", path: "/player/position", value: "Left Wing / Striker" },
+      { op: "replace", path: "/player/currentClub", value: "Manchester United" },
+      { op: "replace", path: "/player/nationality", value: "England" },
+      { op: "replace", path: "/player/marketValue", value: "€55M" },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/0/status", value: "completed" },
+      { op: "replace", path: "/steps/1/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(500);
+  
+  // Step 2: Physical attributes
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/physicalAttributes/height", value: "180 cm" },
+      { op: "replace", path: "/physicalAttributes/weight", value: "70 kg" },
+      { op: "replace", path: "/physicalAttributes/preferredFoot", value: "Right" },
+      { op: "replace", path: "/physicalAttributes/pace", value: 89 },
+      { op: "replace", path: "/physicalAttributes/stamina", value: 82 },
+      { op: "replace", path: "/physicalAttributes/strength", value: 71 },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/1/status", value: "completed" },
+      { op: "replace", path: "/steps/2/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(500);
+  
+  // Step 3: Technical skills
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/technicalSkills/passing", value: 78 },
+      { op: "replace", path: "/technicalSkills/shooting", value: 84 },
+      { op: "replace", path: "/technicalSkills/dribbling", value: 86 },
+      { op: "replace", path: "/technicalSkills/firstTouch", value: 83 },
+      { op: "replace", path: "/technicalSkills/crossing", value: 76 },
+      { op: "replace", path: "/technicalSkills/heading", value: 72 },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/2/status", value: "completed" },
+      { op: "replace", path: "/steps/3/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(500);
+  
+  // Step 4: Mental attributes
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/mentalAttributes/vision", value: 77 },
+      { op: "replace", path: "/mentalAttributes/composure", value: 74 },
+      { op: "replace", path: "/mentalAttributes/leadership", value: 72 },
+      { op: "replace", path: "/mentalAttributes/workRate", value: 85 },
+      { op: "replace", path: "/mentalAttributes/positioning", value: 81 },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/3/status", value: "completed" },
+      { op: "replace", path: "/steps/4/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(500);
+  
+  // Step 5: Match stats
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/matchStats/appearances", value: 38 },
+      { op: "replace", path: "/matchStats/goals", value: 17 },
+      { op: "replace", path: "/matchStats/assists", value: 6 },
+      { op: "replace", path: "/matchStats/minutesPlayed", value: 3124 },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/4/status", value: "completed" },
+      { op: "replace", path: "/steps/5/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(500);
+  
+  // Step 6: Notes and recommendation
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "add", path: "/scoutNotes/-", value: "Explosive pace, excellent at running behind defenses" },
+      { op: "add", path: "/scoutNotes/-", value: "Strong on the ball, good at drawing fouls" },
+      { op: "add", path: "/scoutNotes/-", value: "Inconsistent finishing, sometimes wasteful" },
+      { op: "add", path: "/scoutNotes/-", value: "High work rate on both sides of the ball" },
+      { op: "add", path: "/scoutNotes/-", value: "Academy product with strong mentality" },
+      { op: "replace", path: "/recommendation", value: "sign" },
+      { op: "replace", path: "/overallRating", value: 82 },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/5/status", value: "completed" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(300);
+  
+  // Generate form for user input/edits
+  emitDojoEvent(threadId, {
+    type: "CUSTOM",
+    threadId,
+    runId,
+    name: "generative_ui",
+    value: {
+      jsonSchema: {
+        type: "object",
+        title: "Scout Input",
+        properties: {
+          watchedLive: { type: "boolean", title: "Watched Live?" },
+          matchDate: { type: "string", title: "Match Date", format: "date" },
+          opposition: { type: "string", title: "Opposition Team" },
+          personalNotes: { type: "string", title: "Personal Notes" },
+          recommendedFee: { type: "string", title: "Recommended Fee" },
+          priority: { type: "string", title: "Signing Priority", enum: ["High", "Medium", "Low"] },
+        },
+      },
+      uiSchema: {
+        type: "VerticalLayout",
+        elements: [
+          { type: "HorizontalLayout", elements: [
+            { type: "Control", scope: "#/properties/watchedLive" },
+            { type: "Control", scope: "#/properties/matchDate" },
+          ]},
+          { type: "Control", scope: "#/properties/opposition" },
+          { type: "Control", scope: "#/properties/personalNotes", options: { multi: true } },
+          { type: "HorizontalLayout", elements: [
+            { type: "Control", scope: "#/properties/recommendedFee" },
+            { type: "Control", scope: "#/properties/priority" },
+          ]},
+        ],
+      },
+      initialData: {},
+    },
+    timestamp: new Date().toISOString(),
+  });
+  
+  // Final message
+  const messageId = crypto.randomUUID();
+  emitDojoEvent(threadId, {
+    type: "TEXT_MESSAGE_START",
+    threadId,
+    runId,
+    messageId,
+    role: "assistant",
+    timestamp: new Date().toISOString(),
+  });
+  
+  const content = `Scouting report for ${playerName} is complete. Overall rating: 82/100. Recommendation: SIGN. Add your personal observations above.`;
+  for (const char of content) {
+    emitDojoEvent(threadId, {
+      type: "TEXT_MESSAGE_CONTENT",
+      threadId,
+      runId,
+      messageId,
+      delta: char,
+      timestamp: new Date().toISOString(),
+    });
+    await delay(15);
+  }
+  
+  emitDojoEvent(threadId, {
+    type: "TEXT_MESSAGE_END",
+    threadId,
+    runId,
+    messageId,
+    timestamp: new Date().toISOString(),
+  });
+}
+
+// =============================================================================
+// Horoscope / Personality Demo
+// =============================================================================
+
+interface PersonalityProfile {
+  basics: {
+    name: string;
+    birthDate: string;
+    zodiacSign: string;
+    element: string;
+    rulingPlanet: string;
+  };
+  traits: {
+    positive: string[];
+    negative: string[];
+    loveStyle: string;
+    careerStrengths: string[];
+  };
+  compatibility: {
+    bestMatches: string[];
+    challengingMatches: string[];
+    friendshipStyle: string;
+  };
+  currentForecast: {
+    overall: string;
+    love: string;
+    career: string;
+    health: string;
+    luckyNumbers: number[];
+    luckyColor: string;
+  };
+  personalityScore: {
+    introversion: number;
+    intuition: number;
+    thinking: number;
+    judging: number;
+  };
+}
+
+const ZODIAC_DATA: Record<string, { element: string; planet: string; traits: { positive: string[]; negative: string[] } }> = {
+  aries: { element: "Fire", planet: "Mars", traits: { positive: ["Courageous", "Confident", "Enthusiastic", "Optimistic"], negative: ["Impatient", "Impulsive", "Short-tempered"] } },
+  taurus: { element: "Earth", planet: "Venus", traits: { positive: ["Reliable", "Patient", "Devoted", "Practical"], negative: ["Stubborn", "Possessive", "Uncompromising"] } },
+  gemini: { element: "Air", planet: "Mercury", traits: { positive: ["Adaptable", "Curious", "Quick-witted", "Expressive"], negative: ["Nervous", "Inconsistent", "Indecisive"] } },
+  cancer: { element: "Water", planet: "Moon", traits: { positive: ["Loyal", "Protective", "Intuitive", "Caring"], negative: ["Moody", "Suspicious", "Manipulative"] } },
+  leo: { element: "Fire", planet: "Sun", traits: { positive: ["Creative", "Passionate", "Generous", "Warm-hearted"], negative: ["Arrogant", "Stubborn", "Self-centered"] } },
+  virgo: { element: "Earth", planet: "Mercury", traits: { positive: ["Analytical", "Practical", "Diligent", "Modest"], negative: ["Worry-prone", "Critical", "Perfectionist"] } },
+  libra: { element: "Air", planet: "Venus", traits: { positive: ["Diplomatic", "Fair-minded", "Social", "Cooperative"], negative: ["Indecisive", "Avoids confrontation", "Self-pity"] } },
+  scorpio: { element: "Water", planet: "Pluto", traits: { positive: ["Resourceful", "Brave", "Passionate", "Loyal"], negative: ["Jealous", "Secretive", "Resentful"] } },
+  sagittarius: { element: "Fire", planet: "Jupiter", traits: { positive: ["Generous", "Idealistic", "Adventurous", "Optimistic"], negative: ["Impatient", "Tactless", "Overconfident"] } },
+  capricorn: { element: "Earth", planet: "Saturn", traits: { positive: ["Responsible", "Disciplined", "Self-controlled", "Ambitious"], negative: ["Pessimistic", "Fatalistic", "Condescending"] } },
+  aquarius: { element: "Air", planet: "Uranus", traits: { positive: ["Progressive", "Original", "Independent", "Humanitarian"], negative: ["Aloof", "Unpredictable", "Stubborn"] } },
+  pisces: { element: "Water", planet: "Neptune", traits: { positive: ["Compassionate", "Artistic", "Intuitive", "Gentle"], negative: ["Fearful", "Overly trusting", "Escapist"] } },
+};
+
+function getZodiacSign(month: number, day: number): string {
+  if ((month === 3 && day >= 21) || (month === 4 && day <= 19)) return "aries";
+  if ((month === 4 && day >= 20) || (month === 5 && day <= 20)) return "taurus";
+  if ((month === 5 && day >= 21) || (month === 6 && day <= 20)) return "gemini";
+  if ((month === 6 && day >= 21) || (month === 7 && day <= 22)) return "cancer";
+  if ((month === 7 && day >= 23) || (month === 8 && day <= 22)) return "leo";
+  if ((month === 8 && day >= 23) || (month === 9 && day <= 22)) return "virgo";
+  if ((month === 9 && day >= 23) || (month === 10 && day <= 22)) return "libra";
+  if ((month === 10 && day >= 23) || (month === 11 && day <= 21)) return "scorpio";
+  if ((month === 11 && day >= 22) || (month === 12 && day <= 21)) return "sagittarius";
+  if ((month === 12 && day >= 22) || (month === 1 && day <= 19)) return "capricorn";
+  if ((month === 1 && day >= 20) || (month === 2 && day <= 18)) return "aquarius";
+  return "pisces";
+}
+
+async function runHoroscopeDemo(threadId: string, runId: string, model: string, input: Record<string, unknown>) {
+  const name = (input.name as string) || "Cosmic Traveler";
+  const birthDate = (input.birthDate as string) || "1990-07-15";
+  
+  const date = new Date(birthDate);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const sign = getZodiacSign(month, day);
+  const signData = ZODIAC_DATA[sign];
+  
+  // Initial form for user input
+  emitDojoEvent(threadId, {
+    type: "CUSTOM",
+    threadId,
+    runId,
+    name: "generative_ui",
+    value: {
+      jsonSchema: {
+        type: "object",
+        title: "Your Cosmic Profile",
+        properties: {
+          name: { type: "string", title: "Your Name" },
+          birthDate: { type: "string", title: "Birth Date", format: "date" },
+          birthTime: { type: "string", title: "Birth Time (optional)" },
+          birthPlace: { type: "string", title: "Birth Place (optional)" },
+          currentMood: { type: "string", title: "Current Mood", enum: ["Excited", "Calm", "Anxious", "Curious", "Hopeful"] },
+          focusArea: { type: "string", title: "Focus Area", enum: ["Love", "Career", "Health", "Finances", "Personal Growth"] },
+        },
+        required: ["name", "birthDate"],
+      },
+      uiSchema: {
+        type: "VerticalLayout",
+        elements: [
+          { type: "HorizontalLayout", elements: [
+            { type: "Control", scope: "#/properties/name" },
+            { type: "Control", scope: "#/properties/birthDate" },
+          ]},
+          { type: "HorizontalLayout", elements: [
+            { type: "Control", scope: "#/properties/birthTime" },
+            { type: "Control", scope: "#/properties/birthPlace" },
+          ]},
+          { type: "HorizontalLayout", elements: [
+            { type: "Control", scope: "#/properties/currentMood" },
+            { type: "Control", scope: "#/properties/focusArea" },
+          ]},
+        ],
+      },
+      initialData: { name, birthDate },
+    },
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(500);
+  
+  // Initial state
+  const initialProfile: Partial<PersonalityProfile> = {
+    basics: {
+      name,
+      birthDate,
+      zodiacSign: "",
+      element: "",
+      rulingPlanet: "",
+    },
+    traits: {
+      positive: [],
+      negative: [],
+      loveStyle: "",
+      careerStrengths: [],
+    },
+    compatibility: {
+      bestMatches: [],
+      challengingMatches: [],
+      friendshipStyle: "",
+    },
+    currentForecast: {
+      overall: "",
+      love: "",
+      career: "",
+      health: "",
+      luckyNumbers: [],
+      luckyColor: "",
+    },
+    personalityScore: {
+      introversion: 0,
+      intuition: 0,
+      thinking: 0,
+      judging: 0,
+    },
+  };
+  
+  emitDojoEvent(threadId, {
+    type: "STATE_SNAPSHOT",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    snapshot: initialProfile,
+  });
+  
+  // Activity tracking
+  const activityId = crypto.randomUUID();
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_SNAPSHOT",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    content: {
+      title: "Reading the Stars...",
+      steps: [
+        { id: "1", label: "Calculating zodiac sign", status: "in_progress" },
+        { id: "2", label: "Analyzing personality traits", status: "pending" },
+        { id: "3", label: "Determining compatibility", status: "pending" },
+        { id: "4", label: "Generating daily forecast", status: "pending" },
+        { id: "5", label: "Computing personality matrix", status: "pending" },
+      ],
+    },
+    replace: true,
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(400);
+  
+  // Step 1: Zodiac basics
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/basics/zodiacSign", value: sign.charAt(0).toUpperCase() + sign.slice(1) },
+      { op: "replace", path: "/basics/element", value: signData.element },
+      { op: "replace", path: "/basics/rulingPlanet", value: signData.planet },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/0/status", value: "completed" },
+      { op: "replace", path: "/steps/1/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(400);
+  
+  // Step 2: Personality traits
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/traits/positive", value: signData.traits.positive },
+      { op: "replace", path: "/traits/negative", value: signData.traits.negative },
+      { op: "replace", path: "/traits/loveStyle", value: signData.element === "Fire" ? "Passionate and bold" : signData.element === "Earth" ? "Steady and devoted" : signData.element === "Air" ? "Intellectual and playful" : "Deep and emotional" },
+      { op: "replace", path: "/traits/careerStrengths", value: ["Leadership", "Creativity", "Persistence", "Adaptability"].slice(0, 3) },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/1/status", value: "completed" },
+      { op: "replace", path: "/steps/2/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(400);
+  
+  // Step 3: Compatibility
+  const compatMap: Record<string, { best: string[]; challenging: string[] }> = {
+    Fire: { best: ["Leo", "Sagittarius", "Aries"], challenging: ["Cancer", "Capricorn"] },
+    Earth: { best: ["Virgo", "Capricorn", "Taurus"], challenging: ["Gemini", "Sagittarius"] },
+    Air: { best: ["Libra", "Aquarius", "Gemini"], challenging: ["Scorpio", "Taurus"] },
+    Water: { best: ["Pisces", "Cancer", "Scorpio"], challenging: ["Aries", "Leo"] },
+  };
+  
+  const compat = compatMap[signData.element];
+  
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/compatibility/bestMatches", value: compat.best },
+      { op: "replace", path: "/compatibility/challengingMatches", value: compat.challenging },
+      { op: "replace", path: "/compatibility/friendshipStyle", value: signData.element === "Fire" ? "Adventurous companion" : signData.element === "Earth" ? "Reliable confidant" : signData.element === "Air" ? "Stimulating conversationalist" : "Empathetic listener" },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/2/status", value: "completed" },
+      { op: "replace", path: "/steps/3/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(400);
+  
+  // Step 4: Forecast
+  const forecasts = [
+    "The stars align in your favor today",
+    "New opportunities are on the horizon",
+    "Trust your intuition in matters of the heart",
+    "Focus on self-care and inner peace",
+  ];
+  const luckyNums = [Math.floor(Math.random() * 50) + 1, Math.floor(Math.random() * 50) + 1, Math.floor(Math.random() * 50) + 1];
+  const colors = ["Royal Blue", "Emerald Green", "Golden Yellow", "Deep Purple", "Coral Pink"];
+  
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/currentForecast/overall", value: forecasts[Math.floor(Math.random() * forecasts.length)] },
+      { op: "replace", path: "/currentForecast/love", value: "Venus smiles upon your romantic endeavors" },
+      { op: "replace", path: "/currentForecast/career", value: "Professional recognition is within reach" },
+      { op: "replace", path: "/currentForecast/health", value: "Prioritize rest and mindfulness" },
+      { op: "replace", path: "/currentForecast/luckyNumbers", value: luckyNums },
+      { op: "replace", path: "/currentForecast/luckyColor", value: colors[Math.floor(Math.random() * colors.length)] },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/3/status", value: "completed" },
+      { op: "replace", path: "/steps/4/status", value: "in_progress" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(400);
+  
+  // Step 5: Personality matrix
+  emitDojoEvent(threadId, {
+    type: "STATE_DELTA",
+    threadId,
+    runId,
+    timestamp: new Date().toISOString(),
+    delta: [
+      { op: "replace", path: "/personalityScore/introversion", value: Math.floor(Math.random() * 40) + 30 },
+      { op: "replace", path: "/personalityScore/intuition", value: Math.floor(Math.random() * 40) + 30 },
+      { op: "replace", path: "/personalityScore/thinking", value: Math.floor(Math.random() * 40) + 30 },
+      { op: "replace", path: "/personalityScore/judging", value: Math.floor(Math.random() * 40) + 30 },
+    ],
+  });
+  
+  emitDojoEvent(threadId, {
+    type: "ACTIVITY_DELTA",
+    threadId,
+    messageId: activityId,
+    activityType: "PLAN",
+    patch: [
+      { op: "replace", path: "/steps/4/status", value: "completed" },
+    ],
+    timestamp: new Date().toISOString(),
+  });
+  
+  await delay(300);
+  
+  // Final message with AI (if available)
+  const messageId = crypto.randomUUID();
+  
+  try {
+    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: `You are a mystical astrologer. Give a brief, poetic 2-sentence personalized message for ${name}, a ${sign} born on ${birthDate}. Be encouraging and mysterious.` }],
+        stream: true,
+      }),
+    });
+
+    emitDojoEvent(threadId, {
+      type: "TEXT_MESSAGE_START",
+      threadId,
+      runId,
+      messageId,
+      role: "assistant",
+      timestamp: new Date().toISOString(),
+    });
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split("\n").filter(Boolean);
+
+      for (const line of lines) {
+        const stripped = line.startsWith("data: ") ? line.slice(6) : line;
+        if (!stripped || stripped === "[DONE]") continue;
+        try {
+          const data = JSON.parse(stripped);
+          const delta = data.choices?.[0]?.delta?.content;
+          if (delta) {
+            emitDojoEvent(threadId, {
+              type: "TEXT_MESSAGE_CONTENT",
+              threadId,
+              runId,
+              messageId,
+              delta,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch {
+            // Partial JSON line from SSE stream — skip
+          }
+      }
+    }
+
+    emitDojoEvent(threadId, {
+      type: "TEXT_MESSAGE_END",
+      threadId,
+      runId,
+      messageId,
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    // Fallback message
+    emitDojoEvent(threadId, {
+      type: "TEXT_MESSAGE_START",
+      threadId,
+      runId,
+      messageId,
+      role: "assistant",
+      timestamp: new Date().toISOString(),
+    });
+    
+    const fallback = `Dear ${name}, as a ${sign.charAt(0).toUpperCase() + sign.slice(1)}, the cosmos have aligned to reveal your unique path. Your ${signData.element} energy flows through all you do, guiding you toward your destiny.`;
+    for (const char of fallback) {
+      emitDojoEvent(threadId, {
+        type: "TEXT_MESSAGE_CONTENT",
+        threadId,
+        runId,
+        messageId,
+        delta: char,
+        timestamp: new Date().toISOString(),
+      });
+      await delay(20);
+    }
+    
+    emitDojoEvent(threadId, {
+      type: "TEXT_MESSAGE_END",
+      threadId,
+      runId,
+      messageId,
+      timestamp: new Date().toISOString(),
+    });
+  }
 }

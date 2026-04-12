@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useDeckSettings, THEME_META, type ThemeName } from "@/components/settings/DeckSettingsProvider";
+import { useState } from "react";
+import { useRightRailData } from "@/lib/hooks/useRightRail";
+import { ChevronLeft, ChevronRight, Cpu, Wrench, FileText, Plus } from "lucide-react";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { useSystemStats } from "@/lib/hooks/useSystemStats";
+import { useModels } from "@/lib/hooks/useModels";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import { ToolResultCard } from "@/components/sidebar/ToolResultCard";
@@ -9,105 +13,77 @@ import { useWidgets } from "@/lib/hooks/useWidgets";
 import { 
   WeatherWidget, 
   NewsWidget, 
-  SportsWidget, 
-  StocksWidget, 
-  StatsWidget, 
-  TodoWidget 
+  SportsWidget,
+  StocksWidget,
+  TodoWidget,
+  WidgetDock
 } from "@/components/widgets";
+import { PluginMaker } from "@/components/plugins";
+import type { PluginBundle } from "@/lib/plugins/types";
 
 // =============================================================================
-// Types
+// Helpers
 // =============================================================================
 
-interface SystemStats {
-  gpu: {
-    name: string;
-    memoryUsed: number;
-    memoryTotal: number;
-    memoryPercent: number;
-    utilization: number;
-    temperature: number;
-  } | null;
-  services: Array<{
-    name: string;
-    url: string;
-    status: "online" | "offline" | "unknown";
-    latencyMs?: number;
-  }>;
-}
-
-interface RightRailProps {
-  threadId: string | null;
-  model: string;
-  isLoading: boolean;
-  toolCalls: ToolCallData[];
-  artifacts: Artifact[];
-  onSendMessage?: (text: string) => void;
+/**
+ * Format model name for display - extracts friendly name from full paths
+ */
+function formatModelName(model: string): string {
+  if (model.includes("/") || model.includes("\\")) {
+    const parts = model.split(/[/\\]/);
+    const filename = parts[parts.length - 1];
+    return filename.replace(/\.gguf$/i, "");
+  }
+  return model;
 }
 
 // =============================================================================
-// RightRail Component - Unified Sidebar
+// RightRail Component - Informative Sidebar with Collapsible Widgets
 // =============================================================================
 
-export function RightRail({ 
-  threadId, 
-  model, 
-  isLoading, 
-  toolCalls, 
-  artifacts,
-  onSendMessage 
-}: RightRailProps) {
+export function RightRail() {
+  const { threadId, model, isLoading, toolCalls, artifacts, onSendMessage } = useRightRailData();
   const { railOpen, setRailOpen, prefs, updatePrefs } = useDeckSettings();
-  const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
-  const [models, setModels] = useState<string[]>([]);
+  const { stats: systemStats } = useSystemStats();
+  const { models } = useModels();
   const [expandedArtifact, setExpandedArtifact] = useState<Artifact | null>(null);
-  const [filesExpanded, setFilesExpanded] = useState(false);
+  const [showPluginMaker, setShowPluginMaker] = useState(false);
   
   // Widgets data
   const widgets = useWidgets();
-
-  // Fetch system stats
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await fetch("/api/system/stats");
-        if (res.ok) setSystemStats(await res.json());
-      } catch {}
-    };
-    fetchStats();
-    const interval = setInterval(fetchStats, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Fetch models
-  useEffect(() => {
-    fetch("/api/ollama/tags")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.models) setModels(data.models.map((m: { name: string }) => m.name));
-      })
-      .catch(() => {});
-  }, []);
+  
+  // Plugin Maker handlers
+  const handleSavePlugin = async (bundle: PluginBundle) => {
+    const res = await fetch("/api/plugins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bundle }),
+    });
+    
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to save plugin");
+    }
+    
+    setShowPluginMaker(false);
+    // TODO: Refresh plugins list or show success toast
+  };
 
   const onlineServices = systemStats?.services.filter(s => s.status === "online").length ?? 0;
   const totalServices = systemStats?.services.length ?? 0;
 
+  // Collapsed mini bar
   if (!railOpen) {
-    // Collapsed mini bar
     return (
       <aside className="right-rail collapsed">
         <button className="rail-expand-btn" onClick={() => setRailOpen(true)} title="Expand sidebar">
-          <ChevronLeftIcon size={16} />
+          <ChevronLeftIcon />
         </button>
         
-        {/* Mini status indicators */}
         <div className="rail-mini-status">
           {isLoading && <div className="mini-dot loading" title="Running..." />}
           {systemStats?.gpu && (
-            <div 
-              className="mini-gpu" 
-              title={`GPU: ${systemStats.gpu.memoryPercent}% • ${systemStats.gpu.temperature}°C`}
-            >
+            <div className="mini-gpu" title={`GPU: ${systemStats.gpu.memoryPercent}% | ${systemStats.gpu.temperature}°C`}>
               {systemStats.gpu.memoryPercent}%
             </div>
           )}
@@ -126,190 +102,171 @@ export function RightRail({
 
   return (
     <aside className="right-rail expanded">
-      {/* Header */}
+      {/* ===== HEADER: Status + Model ===== */}
       <div className="sidebar-header">
-        <span className="sidebar-title">Control Panel</span>
+        <div className="header-left">
+          <span className={`status-dot ${isLoading ? "running" : "idle"}`} />
+          <select
+            className="model-select"
+            value={prefs.model}
+            onChange={(e) => updatePrefs({ model: e.target.value })}
+            title="Select model"
+          >
+            {/* Always show current model, even if not in list */}
+            {!models.includes(prefs.model) && prefs.model && (
+              <option value={prefs.model}>{formatModelName(prefs.model)}</option>
+            )}
+            {models.map((m) => (
+              <option key={m} value={m}>{formatModelName(m)}</option>
+            ))}
+            {models.length === 0 && !prefs.model && (
+              <option value="">Loading...</option>
+            )}
+          </select>
+        </div>
         <button className="rail-close" onClick={() => setRailOpen(false)} title="Collapse">
-          <ChevronRightIcon size={14} />
+          <ChevronRightIcon />
         </button>
       </div>
 
+      {/* ===== MAIN CONTENT ===== */}
       <div className="sidebar-content">
-        {/* ===== STATUS + MODEL ===== */}
-        <section className="sidebar-section">
-          <div className="section-row">
-            <div className="status-chip">
-              <span className={`status-dot ${isLoading ? "running" : "idle"}`} />
-              <span>{isLoading ? "Running" : "Idle"}</span>
-            </div>
-            <select
-              className="model-select"
-              value={prefs.model}
-              onChange={(e) => updatePrefs({ model: e.target.value })}
-              title="Select model"
-            >
-              {models.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-        </section>
-
-        {/* ===== GPU ===== */}
+        
+        {/* GPU Bar - Always visible, compact */}
         {systemStats?.gpu && (
-          <section className="sidebar-section">
-            <div className="gpu-compact">
-              <div className="gpu-header">
-                <span className="gpu-label">GPU</span>
-                <span className="gpu-temp">{systemStats.gpu.temperature}°C</span>
-              </div>
-              <div className="gpu-bar-compact">
-                <div 
-                  className="gpu-bar-fill" 
-                  style={{ width: `${systemStats.gpu.memoryPercent}%` }} 
-                />
-              </div>
-              <div className="gpu-stats">
-                <span>{systemStats.gpu.memoryUsed}MB / {systemStats.gpu.memoryTotal}MB</span>
-                <span>{systemStats.gpu.utilization}% util</span>
-              </div>
+          <div className="gpu-compact">
+            <div className="gpu-header">
+              <span className="gpu-label">
+                <GpuIcon /> GPU
+              </span>
+              <span className="gpu-temp">{systemStats.gpu.temperature}°C</span>
             </div>
-          </section>
+            <div className="gpu-bar-compact">
+              <div 
+                className="gpu-bar-fill" 
+                style={{ width: `${systemStats.gpu.memoryPercent}%` }} 
+              />
+            </div>
+            <div className="gpu-stats">
+              <span>{systemStats.gpu.memoryUsed}MB / {systemStats.gpu.memoryTotal}MB</span>
+              <span>{systemStats.gpu.utilization}% util</span>
+            </div>
+          </div>
         )}
 
-        {/* ===== TOOL CALLS (only show when has calls) ===== */}
+        {/* Tool Calls - Only show when active */}
         {toolCalls.length > 0 && (
           <section className="sidebar-section">
             <h4 className="section-title">
-              Tool Calls
+              <ToolIcon /> Tools
               <span className="count-badge">{toolCalls.length}</span>
             </h4>
             <div className="tool-calls-list">
-              {toolCalls.slice(-6).reverse().map((tc) => (
+              {toolCalls.slice(-4).reverse().map((tc) => (
                 tc.status === "complete" && tc.result ? (
                   <ToolResultCard key={tc.id} tool={tc} />
                 ) : (
                   <ToolCallRow key={tc.id} tool={tc} />
                 )
               ))}
-              {toolCalls.length > 6 && (
-                <div className="more-indicator">+{toolCalls.length - 6} more in Runs →</div>
-              )}
             </div>
           </section>
         )}
 
-        {/* ===== FILES/ARTIFACTS (only show when has files) ===== */}
+        {/* Artifacts - Only show when present */}
         {artifacts.length > 0 && (
           <section className="sidebar-section">
-            <button 
-              className="section-title-btn"
-              onClick={() => setFilesExpanded(!filesExpanded)}
-            >
-              <span className={`section-chevron ${filesExpanded ? "open" : ""}`}>›</span>
-              <span>Files</span>
+            <h4 className="section-title">
+              <FileIcon /> Files
               <span className="count-badge">{artifacts.length}</span>
-            </button>
-            {filesExpanded && (
-              <div className="artifacts-grid">
-                {artifacts.slice(-6).map((a, idx) => (
-                  <ArtifactThumb 
-                    key={`${a.id}-${idx}`} 
-                    artifact={a} 
-                    onClick={() => setExpandedArtifact(a)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* ===== THEME (compact) ===== */}
-        <section className="sidebar-section">
-          <h4 className="section-title">Theme</h4>
-          <div className="theme-pills">
-            {(Object.keys(THEME_META) as ThemeName[]).map((t) => (
-              <button
-                key={t}
-                className={`theme-pill ${prefs.theme === t ? "active" : ""}`}
-                onClick={() => updatePrefs({ theme: t })}
-                title={THEME_META[t].description}
-              >
-                {THEME_META[t].label.split(" ")[0]}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {/* ===== INFO WIDGETS ===== */}
-        <div className="widgets-section">
-          <WeatherWidget
-            data={widgets.data.weather}
-            isLoading={widgets.loading.weather}
-            error={widgets.errors.weather}
-            onRefresh={() => widgets.refresh("weather")}
-          />
-          
-          <NewsWidget
-            data={widgets.data.news}
-            isLoading={widgets.loading.news}
-            error={widgets.errors.news}
-            onRefresh={() => widgets.refresh("news")}
-          />
-          
-          <SportsWidget
-            data={widgets.data.sports}
-            isLoading={widgets.loading.sports}
-            error={widgets.errors.sports}
-            onRefresh={() => widgets.refresh("sports")}
-          />
-          
-          <StocksWidget
-            data={widgets.data.stocks}
-            isLoading={widgets.loading.stocks}
-            error={widgets.errors.stocks}
-            onRefresh={() => widgets.refresh("stocks")}
-          />
-          
-          <StatsWidget data={widgets.data.stats} />
-          
-          <TodoWidget 
-            data={widgets.data.todo}
-            onUpdate={widgets.updateTodo}
-          />
-        </div>
-
-        {/* ===== LINKS + SERVICES (bottom) ===== */}
-        <section className="sidebar-section sidebar-bottom">
-          <div className="bottom-row">
-            <div className="external-links">
-              <a href="http://localhost:8188" target="_blank" rel="noopener noreferrer" title="ComfyUI">🎨</a>
-              <a href="http://localhost:8888" target="_blank" rel="noopener noreferrer" title="SearxNG">🔍</a>
-              <a href="http://localhost:4242/health" target="_blank" rel="noopener noreferrer" title="VectorDB">📚</a>
-              <a href="http://localhost:11434" target="_blank" rel="noopener noreferrer" title="Ollama">🧠</a>
-            </div>
-            <div className="services-compact">
-              {systemStats?.services.map((svc) => (
-                <span 
-                  key={svc.name} 
-                  className={`service-dot-only ${svc.status === "online" ? "online" : "offline"}`}
-                  title={`${svc.name}: ${svc.status}`}
+            </h4>
+            <div className="artifacts-grid">
+              {artifacts.slice(-6).map((a, i) => (
+                <ArtifactThumb 
+                  key={i} 
+                  artifact={a} 
+                  onClick={() => setExpandedArtifact(a)} 
                 />
               ))}
             </div>
+          </section>
+        )}
+
+        {/* ===== WIDGETS SECTION - Draggable ===== */}
+        <div className="widgets-section">
+          <div className="widgets-header">
+            <span className="widgets-title">Widgets</span>
+            <button 
+              className="add-plugin-btn" 
+              onClick={() => setShowPluginMaker(true)}
+              title="Create new plugin"
+            >
+              <PlusIcon />
+            </button>
           </div>
-        </section>
+          <WidgetDock 
+            widgetIds={["todo", "sports", "weather", "news", "stocks"]}
+            storageKey="deck:widget-order"
+          >
+            {/* Todo - Priority 1, always expanded */}
+            <TodoWidget 
+              data={widgets.data.todo}
+              onUpdate={widgets.updateTodo}
+            />
+            
+            {/* Sports - Priority 2 (Arsenal scores) */}
+            <SportsWidget
+              data={widgets.data.sports}
+              isLoading={widgets.loading.sports}
+              error={widgets.errors.sports}
+              onRefresh={() => widgets.refresh("sports")}
+            />
+            
+            {/* Weather - Priority 3 */}
+            <WeatherWidget
+              data={widgets.data.weather}
+              isLoading={widgets.loading.weather}
+              error={widgets.errors.weather}
+              onRefresh={() => widgets.refresh("weather")}
+            />
+            
+            {/* News - Priority 4 (Arsenal + AI/Tech) */}
+            <NewsWidget
+              data={widgets.data.news}
+              isLoading={widgets.loading.news}
+              error={widgets.errors.news}
+              onRefresh={() => widgets.refresh("news")}
+            />
+            
+            {/* Stocks - Priority 5 */}
+            <StocksWidget
+              data={widgets.data.stocks}
+              isLoading={widgets.loading.stocks}
+              error={widgets.errors.stocks}
+              onRefresh={() => widgets.refresh("stocks")}
+            />
+          </WidgetDock>
+        </div>
       </div>
 
-      {/* Footer with thread info */}
+      {/* ===== FOOTER: Theme ===== */}
       <div className="sidebar-footer">
-        {threadId ? (
-          <span className="thread-id" title={threadId}>
-            Thread: {threadId.slice(0, 8)}...
-          </span>
-        ) : (
-          <span className="thread-id">New conversation</span>
-        )}
+        {/* Theme selector — light / dark / system */}
+        <div className="theme-row">
+          <span className="theme-label">theme</span>
+          {(["light", "dark", "system"] as const).map((t) => (
+            <button
+              key={t}
+              className={`theme-btn ${prefs.theme === t ? "active" : ""}`}
+              onClick={() => updatePrefs({ theme: t })}
+              title={t.charAt(0).toUpperCase() + t.slice(1)}
+              style={{
+                borderColor: "var(--accent)",
+                color: "var(--accent)",
+              }}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Artifact Modal */}
@@ -318,6 +275,18 @@ export function RightRail({
           artifact={expandedArtifact} 
           onClose={() => setExpandedArtifact(null)} 
         />
+      )}
+      
+      {/* Plugin Maker Modal */}
+      {showPluginMaker && (
+        <div className="modal-overlay" onClick={() => setShowPluginMaker(false)}>
+          <div className="modal-content modal-lg" onClick={(e) => e.stopPropagation()}>
+            <PluginMaker
+              onSave={handleSavePlugin}
+              onCancel={() => setShowPluginMaker(false)}
+            />
+          </div>
+        </div>
       )}
     </aside>
   );
@@ -328,109 +297,19 @@ export function RightRail({
 // =============================================================================
 
 function ToolCallRow({ tool }: { tool: ToolCallData }) {
-  const [expanded, setExpanded] = useState(false);
   const statusColor = tool.status === "complete" ? "success" : tool.status === "error" ? "error" : "running";
-  const duration = tool.durationMs ? (tool.durationMs > 1000 ? `${(tool.durationMs / 1000).toFixed(1)}s` : `${tool.durationMs}ms`) : null;
-  
-  // Get the main argument (prompt, query, code, etc.)
-  const mainArg = tool.args ? getMainArg(tool.args) : null;
-  const resultMessage = getResultMessage(tool.result);
-  const hasDetails = mainArg || resultMessage || (tool.args && Object.keys(tool.args).length > 0);
+  const duration = tool.durationMs 
+    ? (tool.durationMs > 1000 ? `${(tool.durationMs / 1000).toFixed(1)}s` : `${tool.durationMs}ms`) 
+    : null;
   
   return (
-    <div className={`tool-call-row ${statusColor} ${expanded ? "expanded" : ""}`}>
-      <button 
-        className="tool-call-header"
-        onClick={() => hasDetails && setExpanded(!expanded)}
-        style={{ cursor: hasDetails ? "pointer" : "default" }}
-      >
-        <span className="tool-status-dot" />
-        <span className="tool-name">{tool.name.replace(/_/g, " ")}</span>
-        {duration && <span className="tool-duration">{duration}</span>}
-        {tool.status === "running" && <span className="tool-running">...</span>}
-        {hasDetails && (
-          <span className={`tool-chevron ${expanded ? "open" : ""}`}>›</span>
-        )}
-      </button>
-      
-      {expanded && hasDetails && (
-        <div className="tool-call-details">
-          {mainArg && (
-            <div className="tool-detail-row">
-              <span className="tool-detail-label">Input</span>
-              <span className="tool-detail-value">{truncate(mainArg, 150)}</span>
-            </div>
-          )}
-          {resultMessage && (
-            <div className="tool-detail-row">
-              <span className="tool-detail-label">Result</span>
-              <span className={`tool-detail-value ${tool.result?.success === false ? "error" : ""}`}>
-                {truncate(resultMessage, 200)}
-              </span>
-            </div>
-          )}
-          {tool.args && Object.keys(tool.args).filter(k => !["prompt", "query", "code", "text", "instruction"].includes(k)).length > 0 && (
-            <div className="tool-detail-row">
-              <span className="tool-detail-label">Params</span>
-              <span className="tool-detail-value mono">
-                {Object.entries(tool.args)
-                  .filter(([k]) => !["prompt", "query", "code", "text", "instruction"].includes(k))
-                  .map(([k, v]) => `${k}=${formatArg(v)}`)
-                  .join(", ")}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
+    <div className={`tool-call-row ${statusColor}`}>
+      <span className="tool-status-dot" />
+      <span className="tool-name">{tool.name.replace(/_/g, " ")}</span>
+      {duration && <span className="tool-duration">{duration}</span>}
+      {tool.status === "running" && <span className="tool-spinner" />}
     </div>
   );
-}
-
-function getMainArg(args: Record<string, unknown>): string | null {
-  const keys = ["prompt", "query", "code", "text", "instruction", "question"];
-  for (const key of keys) {
-    if (args[key] && typeof args[key] === "string") {
-      return args[key] as string;
-    }
-  }
-  return null;
-}
-
-function getResultMessage(result: ToolCallData["result"]): string | null {
-  if (!result) return null;
-  
-  // Check for explicit message or error
-  if (result.error) return result.error;
-  if (result.message) return result.message;
-  
-  // Check for output in data (code execution results)
-  if (result.data) {
-    const data = result.data as Record<string, unknown>;
-    if (data.output && typeof data.output === "string") return data.output;
-    if (data.stdout && typeof data.stdout === "string") return data.stdout;
-    if (data.result && typeof data.result === "string") return data.result;
-    // For searches
-    if (data.results && Array.isArray(data.results)) {
-      return `Found ${data.results.length} results`;
-    }
-  }
-  
-  // Fallback
-  if (result.success === false) return "Failed";
-  if (result.success === true) return "Success";
-  
-  return null;
-}
-
-function formatArg(value: unknown): string {
-  if (typeof value === "string") return value.length > 20 ? value.slice(0, 20) + "..." : value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return `[${value.length}]`;
-  return "{...}";
-}
-
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
 }
 
 function ArtifactThumb({ artifact, onClick }: { artifact: Artifact; onClick: () => void }) {
@@ -476,21 +355,29 @@ function ArtifactModal({ artifact, onClose }: { artifact: Artifact; onClose: () 
 }
 
 // =============================================================================
-// Icons
+// Icons — provided by lucide-react (imported at top of file)
 // =============================================================================
 
-function ChevronLeftIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  );
+function ChevronLeftIcon() {
+  return <ChevronLeft width={16} height={16} />;
 }
 
-function ChevronRightIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
+function ChevronRightIcon() {
+  return <ChevronRight width={14} height={14} />;
+}
+
+function GpuIcon() {
+  return <Cpu width={12} height={12} />;
+}
+
+function ToolIcon() {
+  return <Wrench width={12} height={12} />;
+}
+
+function FileIcon() {
+  return <FileText width={12} height={12} />;
+}
+
+function PlusIcon() {
+  return <Plus width={14} height={14} />;
 }

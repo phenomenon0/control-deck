@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // =============================================================================
 // Types
@@ -48,18 +48,27 @@ export function GenerativeForm({
   isGenerating = false,
   title,
 }: GenerativeFormProps) {
-  const [formData, setFormData] = useState<Record<string, unknown>>(initialData);
+  const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const initializedRef = useRef(false);
+  const schemaKeyRef = useRef<string>("");
 
   useEffect(() => {
-    // Initialize with defaults from schema
-    const defaults: Record<string, unknown> = {};
-    Object.entries(schema.properties || {}).forEach(([key, prop]) => {
-      if (prop.default !== undefined) {
-        defaults[key] = prop.default;
-      }
-    });
-    setFormData({ ...defaults, ...initialData });
+    // Create a stable key from schema to detect actual schema changes
+    const schemaKey = schema.title || JSON.stringify(Object.keys(schema.properties || {}));
+    
+    // Only reinitialize if schema actually changed (by key) or first mount
+    if (!initializedRef.current || schemaKeyRef.current !== schemaKey) {
+      const defaults: Record<string, unknown> = {};
+      Object.entries(schema.properties || {}).forEach(([key, prop]) => {
+        if (prop.default !== undefined) {
+          defaults[key] = prop.default;
+        }
+      });
+      setFormData({ ...defaults, ...initialData });
+      initializedRef.current = true;
+      schemaKeyRef.current = schemaKey;
+    }
   }, [schema, initialData]);
 
   const handleChange = (name: string, value: unknown) => {

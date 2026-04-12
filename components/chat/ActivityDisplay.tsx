@@ -35,13 +35,13 @@ export interface ActivitySearchProps {
 
 export function ActivityPlan({ title, steps, currentStep = 0 }: ActivityPlanProps) {
   const completedCount = steps.filter(s => s.status === "complete").length;
-  
+
   return (
     <div
       style={{
-        borderRadius: 8,
-        border: "1px solid rgba(99, 102, 241, 0.25)",
-        background: "rgba(99, 102, 241, 0.05)",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: "var(--bg-secondary)",
         overflow: "hidden",
         marginBottom: 8,
         maxWidth: 400,
@@ -54,19 +54,17 @@ export function ActivityPlan({ title, steps, currentStep = 0 }: ActivityPlanProp
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
-          background: "rgba(99, 102, 241, 0.08)",
-          borderBottom: "1px solid rgba(99, 102, 241, 0.15)",
+          borderBottom: "1px solid var(--border)",
         }}
       >
-        <span style={{ fontSize: 14 }}>📋</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#818cf8" }}>{title}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{title}</span>
         <span
           style={{
             fontSize: 10,
             padding: "2px 6px",
-            background: "rgba(99, 102, 241, 0.2)",
+            background: "var(--bg-tertiary)",
             borderRadius: 8,
-            color: "#a5b4fc",
+            color: "var(--text-muted)",
             marginLeft: "auto",
           }}
         >
@@ -83,16 +81,20 @@ export function ActivityPlan({ title, steps, currentStep = 0 }: ActivityPlanProp
               display: "flex",
               alignItems: "center",
               gap: 8,
-              padding: "4px 0",
+              padding: "5px 0",
             }}
           >
-            {/* Status icon */}
-            <span style={{ fontSize: 12, width: 16, textAlign: "center" }}>
-              {step.status === "complete" && "✓"}
-              {step.status === "active" && "◐"}
-              {step.status === "pending" && "○"}
-              {step.status === "error" && "✕"}
-            </span>
+            {/* Status dot */}
+            <span style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: step.status === "complete" ? "var(--success)"
+                : step.status === "active" ? "var(--accent)"
+                : step.status === "error" ? "var(--error)"
+                : "var(--border-bright)",
+              flexShrink: 0,
+            }} />
             {/* Label */}
             <span
               style={{
@@ -100,7 +102,7 @@ export function ActivityPlan({ title, steps, currentStep = 0 }: ActivityPlanProp
                 color:
                   step.status === "complete" ? "var(--text-muted)" :
                   step.status === "active" ? "var(--text-primary)" :
-                  step.status === "error" ? "#f87171" :
+                  step.status === "error" ? "var(--error)" :
                   "var(--text-secondary)",
                 textDecoration: step.status === "complete" ? "line-through" : "none",
                 flex: 1,
@@ -111,25 +113,18 @@ export function ActivityPlan({ title, steps, currentStep = 0 }: ActivityPlanProp
             {/* Active indicator */}
             {step.status === "active" && (
               <span
+                className="animate-status-pulse"
                 style={{
                   width: 6,
                   height: 6,
                   borderRadius: "50%",
-                  background: "#818cf8",
-                  animation: "pulse 1.5s infinite",
+                  background: "var(--accent)",
                 }}
               />
             )}
           </div>
         ))}
       </div>
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -140,13 +135,13 @@ export function ActivityPlan({ title, steps, currentStep = 0 }: ActivityPlanProp
 
 export function ActivityProgress({ title, current, total, message }: ActivityProgressProps) {
   const percent = total > 0 ? Math.round((current / total) * 100) : 0;
-  
+
   return (
     <div
       style={{
-        borderRadius: 8,
-        border: "1px solid rgba(99, 102, 241, 0.25)",
-        background: "rgba(99, 102, 241, 0.05)",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: "var(--bg-secondary)",
         padding: "10px 12px",
         marginBottom: 8,
         maxWidth: 350,
@@ -154,19 +149,18 @@ export function ActivityProgress({ title, current, total, message }: ActivityPro
     >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 14 }}>⏳</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#818cf8" }}>{title}</span>
-        <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto", fontFamily: "ui-monospace, monospace" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{title}</span>
+        <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto", fontFamily: "'Geist Mono', 'SF Mono', ui-monospace, monospace" }}>
           {percent}%
         </span>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar - Apple style thin rounded */}
       <div
         style={{
-          height: 6,
-          background: "rgba(99, 102, 241, 0.15)",
-          borderRadius: 3,
+          height: 4,
+          background: "var(--bg-tertiary)",
+          borderRadius: 2,
           overflow: "hidden",
           marginBottom: message ? 8 : 0,
         }}
@@ -175,9 +169,9 @@ export function ActivityProgress({ title, current, total, message }: ActivityPro
           style={{
             height: "100%",
             width: `${percent}%`,
-            background: "linear-gradient(90deg, #6366f1, #8b5cf6)",
-            borderRadius: 3,
-            transition: "width 0.3s ease",
+            background: "var(--accent)",
+            borderRadius: 2,
+            transition: "width 150ms cubic-bezier(0, 0, 0.2, 1)",
           }}
         />
       </div>
@@ -207,20 +201,19 @@ export function ActivitySearch({ query, isSearching = false, resultCount }: Acti
         alignItems: "center",
         gap: 8,
         padding: "6px 12px",
-        borderRadius: 8,
-        border: "1px solid rgba(59, 130, 246, 0.25)",
-        background: "rgba(59, 130, 246, 0.05)",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: "var(--bg-secondary)",
         marginBottom: 8,
         maxWidth: 400,
       }}
     >
-      <span style={{ fontSize: 14 }}>🔍</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
-            fontSize: 11,
-            color: "#60a5fa",
-            fontFamily: "ui-monospace, monospace",
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            fontFamily: "'Geist Mono', 'SF Mono', ui-monospace, monospace",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -234,8 +227,8 @@ export function ActivitySearch({ query, isSearching = false, resultCount }: Acti
           style={{
             width: 12,
             height: 12,
-            border: "2px solid rgba(59, 130, 246, 0.3)",
-            borderTopColor: "#3b82f6",
+            border: "2px solid var(--border)",
+            borderTopColor: "var(--accent)",
             borderRadius: "50%",
             animation: "spin 0.8s linear infinite",
           }}
@@ -245,9 +238,9 @@ export function ActivitySearch({ query, isSearching = false, resultCount }: Acti
           style={{
             fontSize: 10,
             padding: "2px 6px",
-            background: "rgba(59, 130, 246, 0.2)",
+            background: "var(--bg-tertiary)",
             borderRadius: 8,
-            color: "#93c5fd",
+            color: "var(--text-muted)",
           }}
         >
           {resultCount} result{resultCount !== 1 ? "s" : ""}
@@ -282,13 +275,13 @@ export interface ActivityChecklistProps {
 
 export function ActivityChecklist({ title, items, onToggle }: ActivityChecklistProps) {
   const checkedCount = items.filter(i => i.checked).length;
-  
+
   return (
     <div
       style={{
-        borderRadius: 8,
-        border: "1px solid rgba(34, 197, 94, 0.25)",
-        background: "rgba(34, 197, 94, 0.05)",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: "var(--bg-secondary)",
         overflow: "hidden",
         marginBottom: 8,
         maxWidth: 350,
@@ -301,19 +294,17 @@ export function ActivityChecklist({ title, items, onToggle }: ActivityChecklistP
           alignItems: "center",
           gap: 8,
           padding: "8px 12px",
-          background: "rgba(34, 197, 94, 0.08)",
-          borderBottom: "1px solid rgba(34, 197, 94, 0.15)",
+          borderBottom: "1px solid var(--border)",
         }}
       >
-        <span style={{ fontSize: 14 }}>☑️</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#4ade80" }}>{title}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{title}</span>
         <span
           style={{
             fontSize: 10,
             padding: "2px 6px",
-            background: "rgba(34, 197, 94, 0.2)",
+            background: "var(--bg-tertiary)",
             borderRadius: 8,
-            color: "#86efac",
+            color: "var(--text-muted)",
             marginLeft: "auto",
           }}
         >
@@ -330,7 +321,7 @@ export function ActivityChecklist({ title, items, onToggle }: ActivityChecklistP
               display: "flex",
               alignItems: "center",
               gap: 8,
-              padding: "4px 0",
+              padding: "5px 0",
               cursor: onToggle ? "pointer" : "default",
             }}
           >
@@ -340,9 +331,10 @@ export function ActivityChecklist({ title, items, onToggle }: ActivityChecklistP
               onChange={(e) => onToggle?.(item.id, e.target.checked)}
               disabled={!onToggle}
               style={{
-                width: 14,
-                height: 14,
-                accentColor: "#22c55e",
+                width: 16,
+                height: 16,
+                accentColor: "var(--accent)",
+                borderRadius: 4,
               }}
             />
             <span
@@ -350,6 +342,7 @@ export function ActivityChecklist({ title, items, onToggle }: ActivityChecklistP
                 fontSize: 12,
                 color: item.checked ? "var(--text-muted)" : "var(--text-primary)",
                 textDecoration: item.checked ? "line-through" : "none",
+                transition: "color 150ms cubic-bezier(0, 0, 0.2, 1)",
               }}
             >
               {item.label}

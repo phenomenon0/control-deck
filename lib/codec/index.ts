@@ -22,15 +22,11 @@
 
 // Types
 export type {
-  EncodedPayload,
   GlyphEncodeOptions,
   SmartEncodeResult,
 } from "./types";
 
 export {
-  isEncodedPayload,
-  toJsonPayload,
-  toGlyphPayload,
   DEFAULT_ENCODE_OPTIONS,
 } from "./types";
 
@@ -48,3 +44,13 @@ export {
   tryDecodeGlyph,
   decodeGlyphToJson,
 } from "./decode";
+
+// Tool Parsing (GLYPH-native only, no JSON fallback)
+export {
+  parseGlyphToolCall,
+  parseAllGlyphToolCalls,
+  hasGlyphToolCall,
+  parseTool,
+  type GlyphToolCall,
+  type ParsedToolResult,
+} from "./tool-parser";

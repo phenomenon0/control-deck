@@ -86,8 +86,8 @@ const EVAL_QUESTIONS: EvalQuestion[] = [
 // =============================================================================
 
 export async function POST() {
-  const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-  const MODEL = process.env.DEFAULT_MODEL ?? "qwen3:8b";
+  const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:8080/v1";
+  const MODEL = process.env.LLM_MODEL ?? process.env.DEFAULT_MODEL ?? "qwen2";
   
   try {
     // Encode test data as GLYPH
@@ -116,26 +116,24 @@ Question: ${q.question}
 Answer concisely:`;
 
       try {
-        const response = await fetch(`${OLLAMA_URL}/api/generate`, {
+        const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: MODEL,
-            prompt,
+            messages: [{ role: "user", content: prompt }],
             stream: false,
-            options: {
-              temperature: 0,
-              num_predict: 50,
-            },
+            temperature: 0,
+            max_tokens: 1024,
           }),
         });
 
         if (!response.ok) {
-          throw new Error(`Ollama returned ${response.status}`);
+          throw new Error(`LLM returned ${response.status}`);
         }
 
         const data = await response.json();
-        const answer = data.response?.trim() ?? "";
+        const answer = data.choices?.[0]?.message?.content?.trim() ?? "";
         const passed = q.checkFn(answer, q.expectedAnswer);
         
         results.push({

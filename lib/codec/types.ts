@@ -1,21 +1,9 @@
 /**
  * GLYPH Codec Types
- * 
- * DEPRECATED: Use DeckPayload from @/lib/agui/payload instead
- * This file re-exports for backward compatibility during migration
  */
 
-// Re-export DeckPayload as EncodedPayload for backward compatibility
-// TODO: Update all imports to use DeckPayload directly
-export type { DeckPayload as EncodedPayload } from "@/lib/agui/payload";
-export { 
-  isDeckPayload as isEncodedPayload,
-  jsonPayload as toJsonPayload,
-  glyphPayload as toGlyphPayload,
-} from "@/lib/agui/payload";
-
 // =============================================================================
-// Encoding Options (still canonical here)
+// Encoding Options
 // =============================================================================
 
 /**

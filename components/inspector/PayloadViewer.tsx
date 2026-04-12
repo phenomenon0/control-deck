@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
+import { ChevronRight } from "lucide-react";
 import type { DeckPayload } from "@/lib/agui/payload";
 
 // =============================================================================
@@ -393,14 +394,9 @@ export function PayloadViewer({
       >
         <div className="flex items-center gap-2">
           {/* Expand/collapse arrow */}
-          <svg 
+          <ChevronRight
             className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${expanded ? "rotate-90" : ""}`}
-            fill="none" 
-            stroke="currentColor" 
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
+          />
           
           {/* Label */}
           {label && <span className="text-sm text-[var(--text-primary)]">{label}</span>}

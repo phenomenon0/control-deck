@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { Download, Loader2 } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 
 export interface ToolInfo {
@@ -98,7 +99,7 @@ function ImageBlock({
             justifyContent: "center",
             color: "var(--text-muted)",
             background: "var(--bg-tertiary)",
-            borderRadius: 8,
+            borderRadius: 6,
           }}
         >
           <LoadingSpinner size={20} />
@@ -114,7 +115,7 @@ function ImageBlock({
             justifyContent: "center",
             color: "var(--text-muted)",
             background: "var(--bg-tertiary)",
-            borderRadius: 8,
+            borderRadius: 6,
           }}
         >
           Failed to load
@@ -133,9 +134,10 @@ function ImageBlock({
             maxWidth: expanded ? 600 : 350,
             height: "auto",
             display: loaded ? "block" : "none",
-            borderRadius: 8,
+            borderRadius: 6,
             cursor: "pointer",
-            transition: "max-width 0.2s ease",
+            transition: "max-width 150ms cubic-bezier(0, 0, 0.2, 1)",
+            /* no shadow */
           }}
         />
       )}
@@ -162,7 +164,7 @@ function AudioBlock({ artifact, toolInfo }: { artifact: Artifact; toolInfo?: Too
     <div
       style={{
         background: "var(--bg-secondary)",
-        borderRadius: 8,
+        borderRadius: 6,
         overflow: "hidden",
         border: "1px solid var(--border)",
         padding: 12,
@@ -247,11 +249,12 @@ function ModelBlock({ artifact, toolInfo }: { artifact: Artifact; toolInfo?: Too
     <div
       style={{
         background: "var(--bg-secondary)",
-        borderRadius: 8,
+        borderRadius: 6,
         overflow: "hidden",
         border: "1px solid var(--border)",
         maxWidth: 400,
         marginBottom: 8,
+        /* no shadow */
       }}
     >
       {/* 3D Viewer */}
@@ -326,9 +329,9 @@ function FileBlock({ artifact, toolInfo }: { artifact: Artifact; toolInfo?: Tool
     <div
       style={{
         background: "var(--bg-secondary)",
-        borderRadius: 8,
+        borderRadius: 6,
         border: "1px solid var(--border)",
-        padding: "10px 12px",
+        padding: "10px 14px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -363,11 +366,10 @@ function ToolInfoPopover({ toolInfo }: { toolInfo: ToolInfo }) {
         marginBottom: 8,
         background: "var(--bg-primary)",
         border: "1px solid var(--border)",
-        borderRadius: 8,
+        borderRadius: 6,
         padding: 12,
         minWidth: 200,
         maxWidth: 280,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
         zIndex: 100,
         fontSize: 12,
       }}
@@ -403,7 +405,6 @@ function ToolInfoPopover({ toolInfo }: { toolInfo: ToolInfo }) {
 
 // Running indicator - shown while tool is executing
 export function RunningIndicator({ toolName }: { toolName: string }) {
-  const icon = TOOL_ICONS[toolName] || "⚡";
   const label = formatToolName(toolName);
 
   return (
@@ -412,15 +413,18 @@ export function RunningIndicator({ toolName }: { toolName: string }) {
         display: "flex",
         alignItems: "center",
         gap: 10,
-        padding: "10px 14px",
+        padding: "8px 14px",
         background: "var(--bg-secondary)",
         border: "1px solid var(--border)",
-        borderRadius: 8,
+        borderRadius: 6,
         margin: "12px 0",
         maxWidth: 300,
       }}
     >
-      <span style={{ fontSize: 16 }}>{icon}</span>
+      <span
+        className="animate-status-pulse"
+        style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }}
+      />
       <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{label}...</span>
       <LoadingSpinner size={14} />
     </div>
@@ -445,29 +449,9 @@ function formatValue(value: unknown): string {
 }
 
 function LoadingSpinner({ size = 16 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className="animate-spin">
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
-      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-    </svg>
-  );
+  return <Loader2 width={size} height={size} className="animate-spin" />;
 }
 
 function DownloadIcon({ size = 16 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" x2="12" y1="15" y2="3" />
-    </svg>
-  );
+  return <Download width={size} height={size} />;
 }

@@ -1,11 +1,11 @@
 /**
  * AG-UI Dojo Chat API
- * Handles chat messages with Ollama integration
+ * Handles chat messages with LLM backend integration
  */
 
 import { NextRequest, NextResponse } from "next/server";
-
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+import { generateText } from "ai";
+import { createProviderClient, getProviderConfig, getDefaultModel } from "@/lib/llm";
 
 interface ChatRequest {
   threadId: string;
@@ -23,7 +23,18 @@ interface ChatRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: ChatRequest = await request.json();
-    const { threadId, message, model = "llama3.2", tools = [], state = {}, systemPrompt } = body;
+    const config = getProviderConfig().primary;
+    console.log("[Dojo Chat] Provider config:", JSON.stringify(config, null, 2));
+    const defaultModel = getDefaultModel("primary") ?? "llama3.2";
+    
+    const { 
+      threadId, 
+      message, 
+      model = defaultModel, 
+      tools = [], 
+      state = {}, 
+      systemPrompt 
+    } = body;
     
     // Build system prompt with state context
     let system = systemPrompt || "You are a helpful AI assistant.";
@@ -40,26 +51,19 @@ export async function POST(request: NextRequest) {
       system += `\n\nTo use a tool, respond with JSON: {"tool": "tool_name", "args": {...}}`;
     }
     
-    // Call Ollama
-    const ollamaResponse = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: message },
-        ],
-        stream: false,
-      }),
+    // Get the LLM client and create model instance
+    const client = createProviderClient(config);
+    
+    // Call LLM via AI SDK
+    const result = await generateText({
+      model: client(model) as Parameters<typeof generateText>[0]["model"],
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: message },
+      ],
     });
     
-    if (!ollamaResponse.ok) {
-      throw new Error(`Ollama error: ${ollamaResponse.status}`);
-    }
-    
-    const ollamaData = await ollamaResponse.json();
-    const responseContent = ollamaData.message?.content || "";
+    const responseContent = result.text;
     
     // Check for tool call
     let toolCall = null;
@@ -79,8 +83,8 @@ export async function POST(request: NextRequest) {
       toolCall,
       model,
       usage: {
-        promptTokens: ollamaData.prompt_eval_count,
-        completionTokens: ollamaData.eval_count,
+        promptTokens: result.usage?.inputTokens ?? 0,
+        completionTokens: result.usage?.outputTokens ?? 0,
       },
     });
   } catch (error) {

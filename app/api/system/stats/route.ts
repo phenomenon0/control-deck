@@ -86,17 +86,25 @@ async function checkVectorDB(url: string): Promise<ServiceStatus> {
 
     if (res.ok) {
       const data = await res.json();
+      // Health response includes: ok, total, active, deleted, collections (array), embedder, mode
+      const collectionCount = Array.isArray(data.collections) 
+        ? data.collections.length 
+        : (typeof data.collections === "number" ? data.collections : 0);
+      
       return {
         name: "VectorDB",
         url,
         status: "online",
         latencyMs: Date.now() - start,
         extra: {
-          vectors: data.total ?? 0,
-          collections: data.collections?.length ?? 0,
-          embedder: data.embedder?.type ?? "unknown",
+          vectors: data.active ?? data.total ?? 0,
+          deleted: data.deleted ?? 0,
+          collections: collectionCount,
+          embedder: data.embedder?.type ?? data.mode?.embedder_type ?? "unknown",
           model: data.mode?.embedder_model ?? "unknown",
           dimension: data.mode?.dimension ?? 0,
+          walBytes: data.wal_bytes ?? 0,
+          indexBytes: data.index_bytes ?? 0,
         },
       };
     }

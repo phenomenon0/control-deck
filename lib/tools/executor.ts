@@ -25,8 +25,9 @@ import type {
   ExecuteCodeArgs,
   VectorSearchArgs,
   VectorStoreArgs,
+  VectorIngestArgs,
 } from "./definitions";
-import { vectorSearch, vectorStore } from "./vectordb";
+import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
 import { getUpload, createArtifact, saveEvent } from "@/lib/agui/db";
@@ -124,6 +125,8 @@ export async function executeTool(
         return await executeVectorSearch(tool.args);
       case "vector_store":
         return await executeVectorStore(tool.args);
+      case "vector_ingest":
+        return await executeVectorIngest(tool.args);
       default:
         return {
           success: false,
@@ -347,6 +350,7 @@ async function executeAnalyzeImage(
   }
 
   const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+  const VISION_MODEL = process.env.VISION_MODEL ?? "llama3.2-vision:11b";
   const question = args.question ?? "Describe this image in detail.";
 
   try {
@@ -354,7 +358,7 @@ async function executeAnalyzeImage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama3.2-vision:11b",
+        model: VISION_MODEL,
         prompt: question,
         images: [upload.data], // base64 without data: prefix
         stream: false,
@@ -394,7 +398,8 @@ async function executeWebSearch(
       max: String(args.max_results ?? 5),
     });
 
-    const response = await fetch(`http://localhost:3333/api/search?${params}`);
+    const DECK_BASE_URL = process.env.DECK_BASE_URL ?? "http://localhost:3333";
+    const response = await fetch(`${DECK_BASE_URL}/api/search?${params}`);
     
     if (!response.ok) {
       throw new Error(`Search API returned ${response.status}`);
@@ -728,9 +733,18 @@ async function executeVectorSearch(
   args: VectorSearchArgs
 ): Promise<ToolExecutionResult> {
   try {
+    // Map search mode to score_mode
+    let scoreMode: "vector" | "lexical" | "hybrid" | undefined;
+    if (args.mode === "hybrid") scoreMode = "hybrid";
+    else if (args.mode === "vector") scoreMode = "vector";
+    else if (args.mode === "lexical") scoreMode = "lexical";
+
     const results = await vectorSearch(args.query, {
       collection: args.collection,
       k: args.k ?? 5,
+      includeMeta: true,
+      scoreMode,
+      meta: args.filter,
     });
 
     if (results.length === 0) {
@@ -752,8 +766,15 @@ async function executeVectorSearch(
     } else {
       // Plain text format for small results
       const formattedResults = results
-        .map((r, i) => `${i + 1}. [${r.score.toFixed(3)}] ${r.text}`)
-        .join("\n");
+        .map((r, i) => {
+          let line = `${i + 1}. [${r.score.toFixed(3)}] ${r.text}`;
+          // Show source URL if available
+          if (r.metadata?.source_url) {
+            line += `\n   Source: ${r.metadata.source_url}`;
+          }
+          return line;
+        })
+        .join("\n\n");
       message += formattedResults;
     }
 
@@ -775,11 +796,39 @@ async function executeVectorSearch(
 
 /**
  * Store a document in VectorDB
+ * Automatically chunks large documents for better retrieval
  */
 async function executeVectorStore(
   args: VectorStoreArgs
 ): Promise<ToolExecutionResult> {
   try {
+    // Use chunked storage for large documents (>1500 chars)
+    if (args.text.length > 1500) {
+      const result = await vectorStoreChunked(args.text, {
+        collection: args.collection ?? "default",
+        metadata: validateMetadata(args.metadata),
+      });
+
+      if (!result.success) {
+        return {
+          success: false,
+          message: `Failed to store document: ${result.error}`,
+          error: result.error,
+        };
+      }
+
+      return {
+        success: true,
+        message: `Document stored as ${result.chunks} chunks in collection "${args.collection ?? "default"}"`,
+        data: { 
+          chunks: result.chunks, 
+          ids: result.ids, 
+          collection: args.collection ?? "default" 
+        },
+      };
+    }
+
+    // Small document, use regular insert
     const result = await vectorStore(args.text, {
       collection: args.collection ?? "default",
       metadata: validateMetadata(args.metadata),
@@ -800,6 +849,48 @@ async function executeVectorStore(
   }
 }
 
+/**
+ * Ingest content from a URL into VectorDB with automatic chunking
+ */
+async function executeVectorIngest(
+  args: VectorIngestArgs
+): Promise<ToolExecutionResult> {
+  try {
+    console.log(`[Executor] Ingesting URL: ${args.url}`);
+    
+    const result = await vectorIngestUrl(args.url, {
+      collection: args.collection ?? "default",
+      metadata: validateMetadata(args.metadata),
+    });
+
+    if (!result.success) {
+      return {
+        success: false,
+        message: `Failed to ingest URL: ${result.error}`,
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      message: `Successfully ingested "${args.url}" as ${result.chunks} chunks into collection "${result.collection}"`,
+      data: {
+        url: result.url,
+        chunks: result.chunks,
+        ids: result.ids,
+        collection: result.collection,
+      },
+    };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Ingest failed";
+    return {
+      success: false,
+      message: `Failed to ingest URL: ${errMsg}`,
+      error: errMsg,
+    };
+  }
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -809,21 +900,14 @@ async function executeVectorStore(
  * Returns DeckPayload for use in AG-UI events
  */
 function encodeForLLM(data: unknown): DeckPayload {
-  console.log("[encodeForLLM] Called, GLYPH enabled:", GLYPH_CONFIG.enabled);
-  
   if (!GLYPH_CONFIG.enabled) {
-    console.log("[encodeForLLM] GLYPH disabled, using JSON");
     return jsonPayload(data);
   }
-  
-  const result = smartEncode(data, {
+
+  return smartEncode(data, {
     minBytes: GLYPH_CONFIG.minJsonBytes,
     minSavings: GLYPH_CONFIG.minSavings,
-    forceGlyph: true, // Always use GLYPH for testing
   });
-  
-  console.log("[encodeForLLM] Result kind:", result.kind);
-  return result;
 }
 
 /**

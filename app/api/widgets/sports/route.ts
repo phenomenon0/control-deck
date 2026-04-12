@@ -38,9 +38,11 @@ const MOCK_SCORES: SportScore[] = [
 ];
 
 async function fetchESPNScores(): Promise<SportScore[]> {
+  const scores: SportScore[] = [];
+  
   try {
-    // ESPN has a public scoreboard API
-    const res = await fetch(
+    // Fetch current scoreboard (live + upcoming)
+    const scoreboardRes = await fetch(
       "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard",
       {
         headers: { "User-Agent": "Control-Deck/1.0" },
@@ -48,45 +50,114 @@ async function fetchESPNScores(): Promise<SportScore[]> {
       }
     );
     
-    if (!res.ok) throw new Error("ESPN API error");
-    
-    const data = await res.json();
-    const scores: SportScore[] = [];
-    
-    for (const event of (data.events || []).slice(0, 5)) {
-      const competition = event.competitions?.[0];
-      if (!competition) continue;
+    if (scoreboardRes.ok) {
+      const data = await scoreboardRes.json();
       
-      const homeTeam = competition.competitors?.find((c: { homeAway: string }) => c.homeAway === "home");
-      const awayTeam = competition.competitors?.find((c: { homeAway: string }) => c.homeAway === "away");
-      
-      if (!homeTeam || !awayTeam) continue;
-      
-      let status: SportScore["status"] = "upcoming";
-      if (event.status?.type?.completed) {
-        status = "final";
-      } else if (event.status?.type?.state === "in") {
-        status = "live";
+      for (const event of (data.events || []).slice(0, 5)) {
+        const score = parseESPNEvent(event);
+        if (score) scores.push(score);
       }
-      
-      scores.push({
-        id: event.id,
-        league: "EPL",
-        homeTeam: homeTeam.team?.abbreviation || homeTeam.team?.shortDisplayName || "HOME",
-        awayTeam: awayTeam.team?.abbreviation || awayTeam.team?.shortDisplayName || "AWAY",
-        homeScore: parseInt(homeTeam.score) || 0,
-        awayScore: parseInt(awayTeam.score) || 0,
-        status,
-        time: status === "live" ? event.status?.displayClock : undefined,
-        startTime: status === "upcoming" ? formatStartTime(event.date) : undefined,
-      });
     }
-    
-    return scores;
   } catch (error) {
-    console.error("[Sports Widget] ESPN fetch failed:", error);
-    return [];
+    console.error("[Sports Widget] ESPN scoreboard fetch failed:", error);
   }
+  
+  // Also fetch Arsenal's recent results specifically
+  try {
+    const arsenalRes = await fetch(
+      "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams/359/schedule",
+      {
+        headers: { "User-Agent": "Control-Deck/1.0" },
+        next: { revalidate: 300 },
+      }
+    );
+    
+    if (arsenalRes.ok) {
+      const data = await arsenalRes.json();
+      const events = data.events || [];
+      
+      // Get last 3 completed Arsenal matches
+      const completedMatches = events
+        .filter((e: Record<string, unknown>) => {
+          const comp = (e.competitions as Array<Record<string, unknown>>)?.[0];
+          const statusType = (comp?.status as Record<string, unknown>)?.type as Record<string, unknown> | undefined;
+          return statusType?.completed === true;
+        })
+        .slice(-3);
+      
+      console.log(`[Sports Widget] Found ${completedMatches.length} completed Arsenal matches`);
+      
+      for (const event of completedMatches) {
+        const score = parseESPNEvent(event as Record<string, unknown>, true);
+        if (score) {
+          score.status = "final"; // Force status since we filtered for completed
+          // Remove any existing entry with same ID and add to front
+          const existingIdx = scores.findIndex(s => s.id === score.id);
+          if (existingIdx >= 0) scores.splice(existingIdx, 1);
+          scores.unshift(score);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[Sports Widget] Arsenal schedule fetch failed:", error);
+  }
+  
+  return scores;
+}
+
+interface ESPNScore {
+  value?: number;
+  displayValue?: string;
+}
+
+interface ESPNCompetitor {
+  homeAway: string;
+  team?: { abbreviation?: string; shortDisplayName?: string };
+  score?: string | ESPNScore;
+}
+
+function parseScore(score: string | ESPNScore | undefined): number {
+  if (!score) return 0;
+  if (typeof score === "string") return parseInt(score) || 0;
+  if (typeof score === "object") {
+    if (score.displayValue) return parseInt(score.displayValue) || 0;
+    if (score.value !== undefined) return Math.floor(score.value);
+  }
+  return 0;
+}
+
+function parseESPNEvent(event: Record<string, unknown>, isArsenal = false): SportScore | null {
+  const competition = (event.competitions as Array<Record<string, unknown>>)?.[0];
+  if (!competition) return null;
+  
+  const competitors = competition.competitors as ESPNCompetitor[];
+  const homeTeam = competitors?.find((c) => c.homeAway === "home");
+  const awayTeam = competitors?.find((c) => c.homeAway === "away");
+  
+  if (!homeTeam || !awayTeam) return null;
+  
+  const statusType = (event.status as Record<string, unknown>)?.type as Record<string, unknown> | undefined;
+  const statusState = statusType?.state as string | undefined;
+  
+  let status: SportScore["status"] = "upcoming";
+  if (statusType?.completed) {
+    status = "final";
+  } else if (statusState === "in") {
+    status = "live";
+  }
+  
+  return {
+    id: String(event.id),
+    league: "EPL",
+    homeTeam: homeTeam.team?.abbreviation || homeTeam.team?.shortDisplayName || "HOME",
+    awayTeam: awayTeam.team?.abbreviation || awayTeam.team?.shortDisplayName || "AWAY",
+    homeScore: parseScore(homeTeam.score),
+    awayScore: parseScore(awayTeam.score),
+    status,
+    time: status === "live" ? String((event.status as Record<string, unknown>)?.displayClock || "") : undefined,
+    startTime: status === "upcoming" ? formatStartTime(String(event.date)) : undefined,
+    highlight: isArsenal,
+  };
 }
 
 function formatStartTime(dateStr: string): string {

@@ -169,7 +169,9 @@ export function VoiceModeSheet({
           };
           setCurrentArtifacts((prev) => [...prev, artifact]);
         }
-      } catch {}
+      } catch (err) {
+        console.warn("[VoiceModeSheet] Failed to parse SSE event:", err);
+      }
     };
 
     return () => {
@@ -427,7 +429,17 @@ export function VoiceModeSheet({
   if (!isOpen) return null;
 
   return (
-    <div className="voice-mode-overlay" onClick={handleClose}>
+    <div
+      className="voice-mode-overlay"
+      onClick={handleClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0, 0, 0, 0.85)",
+        zIndex: 999,
+        animation: "fadeIn 0.15s cubic-bezier(0, 0, 0.2, 1)",
+      }}
+    >
       <div
         className="voice-mode-sheet"
         onClick={(e) => e.stopPropagation()}
@@ -437,86 +449,65 @@ export function VoiceModeSheet({
           left: 0,
           right: 0,
           height: "70vh",
-          maxHeight: "600px",
-          background: "var(--bg-primary)",
-          borderRadius: "24px 24px 0 0",
+          maxHeight: "640px",
+          background: "var(--bg-secondary)",
+          borderRadius: "6px 6px 0 0",
+          borderTop: "1px solid var(--border)",
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 -4px 30px rgba(0, 0, 0, 0.3)",
-          animation: "slideUp 0.3s ease-out",
+          animation: "slideUpSheet 0.15s cubic-bezier(0, 0, 0.2, 1)",
           zIndex: 1000,
         }}
       >
-        {/* Handle bar */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            padding: "12px",
-          }}
-        >
-          <div
-            style={{
-              width: "40px",
-              height: "4px",
-              borderRadius: "2px",
-              background: "var(--border)",
-            }}
-          />
-        </div>
 
-        {/* Header */}
+        {/* Minimal header */}
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            padding: "0 20px 16px",
-            borderBottom: "1px solid var(--border)",
+            padding: "4px 20px 12px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <h2
-              style={{
-                fontSize: "18px",
-                fontWeight: "600",
-                color: "var(--text-primary)",
-                margin: 0,
-              }}
-            >
-              Voice Mode
-            </h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <span
               style={{
-                fontSize: "12px",
-                padding: "2px 8px",
-                borderRadius: "4px",
-                background:
-                  voiceChat.voiceApiStatus === "connected"
-                    ? "rgba(34, 197, 94, 0.2)"
-                    : "rgba(239, 68, 68, 0.2)",
-                color:
-                  voiceChat.voiceApiStatus === "connected"
-                    ? "rgb(34, 197, 94)"
-                    : "rgb(239, 68, 68)",
+                fontSize: "15px",
+                fontWeight: "600",
+                color: "var(--text-primary)",
+                letterSpacing: "-0.01em",
               }}
             >
-              {voiceChat.voiceApiStatus === "connected" ? "Connected" : "Disconnected"}
+              Voice
             </span>
+            <span
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background:
+                  voiceChat.voiceApiStatus === "connected"
+                    ? "var(--success)"
+                    : "var(--error)",
+                flexShrink: 0,
+              }}
+            />
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            {/* Mode toggle */}
+            {/* Mode toggle pill */}
             <button
               onClick={() => updateVoicePrefs({ mode: mode === "vad" ? "push-to-talk" : "vad" })}
               style={{
-                padding: "6px 12px",
+                padding: "4px 10px",
                 borderRadius: "6px",
                 border: "1px solid var(--border)",
-                background: "var(--bg-secondary)",
-                color: "var(--text-secondary)",
+                background: "rgba(255, 255, 255, 0.04)",
+                color: "var(--accent)",
                 fontSize: "12px",
+                fontWeight: "500",
                 cursor: "pointer",
+                transition: "background 0.15s cubic-bezier(0, 0, 0.2, 1)",
               }}
               title={mode === "vad" ? "Voice Activity Detection (auto)" : "Push-to-Talk (manual)"}
             >
@@ -527,17 +518,19 @@ export function VoiceModeSheet({
             <button
               onClick={handleClose}
               style={{
-                width: "32px",
-                height: "32px",
-                borderRadius: "8px",
-                border: "none",
-                background: "var(--bg-tertiary)",
+                width: "28px",
+                height: "28px",
+                borderRadius: "6px",
+                border: "1px solid var(--border)",
+                background: "rgba(255, 255, 255, 0.04)",
                 color: "var(--text-muted)",
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "18px",
+                fontSize: "16px",
+                fontWeight: "300",
+                transition: "background 0.15s cubic-bezier(0, 0, 0.2, 1)",
               }}
             >
               ×
@@ -545,51 +538,63 @@ export function VoiceModeSheet({
           </div>
         </div>
 
-        {/* Main content */}
+        {/* Main content: orb center, transcript below, controls at bottom */}
         <div
           style={{
             flex: 1,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            padding: "20px",
-            gap: "20px",
+            padding: "12px 20px 20px",
+            gap: "16px",
             overflow: "hidden",
           }}
         >
-          {/* Orb - using pointer events for better mobile/desktop support */}
+          {/* Orb area - centered */}
           <div
-            onPointerDown={handleMicPress}
-            onPointerUp={handleMicRelease}
-            onPointerLeave={handleMicRelease}
             style={{
-              cursor: voiceChat.voiceApiStatus === "connected" ? "pointer" : "not-allowed",
-              opacity: voiceChat.voiceApiStatus === "connected" ? 1 : 0.5,
-              transition: "transform 0.2s ease",
-              transform: phase === "listening" ? "scale(1.05)" : "scale(1)",
-              touchAction: "none", // Prevents scroll/zoom on touch
+              flex: "0 0 auto",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              paddingTop: "12px",
             }}
           >
-            <VoiceOrb
-              phase={phase}
-              audioLevel={voiceChat.isListening ? voiceChat.audioLevel : voiceChat.isSpeaking ? 0.3 : 0}
-              size={180}
-            />
-          </div>
+            <div
+              onPointerDown={handleMicPress}
+              onPointerUp={handleMicRelease}
+              onPointerLeave={handleMicRelease}
+              style={{
+                cursor: voiceChat.voiceApiStatus === "connected" ? "pointer" : "not-allowed",
+                opacity: voiceChat.voiceApiStatus === "connected" ? 1 : 0.5,
+                touchAction: "none",
+              }}
+            >
+              <VoiceOrb
+                phase={phase}
+                audioLevel={voiceChat.isListening ? voiceChat.audioLevel : voiceChat.isSpeaking ? 0.3 : 0}
+                size={80}
+              />
+            </div>
 
-          {/* Phase indicator */}
-          <div
-            style={{
-              fontSize: "14px",
-              color: "var(--text-muted)",
-              textAlign: "center",
-            }}
-          >
-            {phase === "idle" && "Starting..."}
-            {phase === "listening" && "Listening... (speak naturally)"}
-            {phase === "processing" && "Thinking..."}
-            {phase === "speaking" && "Speaking... (tap to interrupt)"}
+            {/* Phase indicator */}
+            <div
+              style={{
+                fontSize: "13px",
+                color: "var(--text-muted)",
+                textAlign: "center",
+                marginTop: "12px",
+                fontWeight: "400",
+                letterSpacing: "-0.01em",
+                transition: "opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1)",
+              }}
+            >
+              {phase === "idle" && "Starting..."}
+              {phase === "listening" && "Listening..."}
+              {phase === "processing" && "Thinking..."}
+              {phase === "speaking" && "Tap to interrupt"}
+            </div>
           </div>
 
           {/* Tool results */}
@@ -599,7 +604,7 @@ export function VoiceModeSheet({
             toolName={currentToolName}
           />
 
-          {/* Transcript */}
+          {/* Transcript - takes remaining space */}
           <VoiceTranscript
             entries={transcript}
             currentUserSpeech={currentUserSpeech}
@@ -611,12 +616,13 @@ export function VoiceModeSheet({
         {voiceChat.error && (
           <div
             style={{
-              padding: "12px 20px",
-              background: "rgba(239, 68, 68, 0.1)",
-              borderTop: "1px solid rgba(239, 68, 68, 0.2)",
-              color: "rgb(239, 68, 68)",
+              padding: "10px 20px",
+              background: "rgba(255, 59, 48, 0.08)",
+              borderTop: "1px solid rgba(255, 59, 48, 0.12)",
+              color: "var(--error)",
               fontSize: "13px",
               textAlign: "center",
+              fontWeight: "400",
             }}
           >
             {voiceChat.error}
@@ -629,6 +635,7 @@ export function VoiceModeSheet({
                 color: "inherit",
                 textDecoration: "underline",
                 cursor: "pointer",
+                fontSize: "13px",
               }}
             >
               Dismiss

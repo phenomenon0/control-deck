@@ -1,10 +1,18 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { generateText, streamText } from "ai";
+/**
+ * Chat API Route - Agent-GO Backend Integration
+ * 
+ * Proxies chat requests to Agent-GO server which handles:
+ * - LLM orchestration with tool loop
+ * - Native tools (workspace, web_search, memory)
+ * - Tool bridge for UI tools (image gen, etc.)
+ * 
+ * Streams text responses via body, republishes AG-UI events to local hub.
+ */
+
 import { hub } from "@/lib/agui/hub";
 import {
   createEvent,
   generateId,
-  wrapPayload,
   type RunStarted,
   type TextMessageStart,
   type TextMessageContent,
@@ -14,8 +22,12 @@ import {
   type ToolCallStart,
   type ToolCallArgs,
   type ToolCallResult,
+  type InterruptRequested,
+  type InterruptResolved,
+  type ArtifactCreated,
+  type AGUIEvent,
 } from "@/lib/agui/events";
-import { jsonPayload } from "@/lib/agui/payload";
+import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
 import {
   createRun,
   finishRun,
@@ -25,40 +37,12 @@ import {
   saveMessage,
   type MessageMetadata,
 } from "@/lib/agui/db";
-import { parseToolCall, type ToolCall, type ToolName } from "@/lib/tools/definitions";
-import { buildSystemPrompt } from "@/lib/prompts/system";
-import { executeToolWithGlyph, type ExecutorContext } from "@/lib/tools/executor";
-import {
-  OLLAMA_TOOLS,
-  supportsNativeTools,
-  type OllamaMessage,
-  type OllamaChatResponse,
-} from "@/lib/tools/ollama-tools";
+import { getBackendConfig, getDefaultModel } from "@/lib/llm";
 import { getSystemProfile } from "@/lib/system";
 
-const ollama = createOpenAICompatible({
-  name: "ollama",
-  baseURL: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434/v1",
-});
-
-// Cost per 1K tokens (configurable via env)
-const COST_PER_1K_INPUT = parseFloat(process.env.COST_PER_1K_INPUT ?? "0");
-const COST_PER_1K_OUTPUT = parseFloat(process.env.COST_PER_1K_OUTPUT ?? "0");
-
-// Ollama API URL
-const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-
-// Type definitions for tool calls
-interface ToolCallMetadata {
-  function: { name: string; arguments: Record<string, unknown> };
-}
-
-interface ProcessedMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  tool_calls?: ToolCallMetadata[];
-  tool_name?: string;
-}
+// Agent-GO server configuration
+const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
+const TOOL_BRIDGE_URL = process.env.TOOL_BRIDGE_URL ?? "http://localhost:3333/api/tools/bridge";
 
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
@@ -67,62 +51,217 @@ interface ChatRequestBody {
   uploadIds?: string[];
 }
 
-/**
- * Call Ollama with native tool support
- */
-async function callOllamaWithTools(
-  model: string,
-  messages: OllamaMessage[],
-  enableThinking = false
-): Promise<{
+interface AgentGOMessage {
+  role: "user" | "assistant" | "system" | "tool";
   content: string;
-  toolCalls?: Array<{ function: { name: string; arguments: Record<string, unknown> } }>;
-  inputTokens: number;
-  outputTokens: number;
-}> {
-  // Build request body
-  const body: Record<string, unknown> = {
-    model,
-    messages,
-    tools: OLLAMA_TOOLS,
-    stream: false,
-  };
-  
-  // Disable thinking/reasoning for faster TTFT
-  // Works for Qwen3 and other models that support it
-  if (!enableThinking) {
-    body.think = false;
-  }
-  
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Ollama returned ${response.status}: ${text}`);
-  }
-
-  const data: OllamaChatResponse = await response.json();
-  
-  return {
-    content: data.message?.content ?? "",
-    toolCalls: data.message?.tool_calls,
-    inputTokens: data.prompt_eval_count ?? 0,
-    outputTokens: data.eval_count ?? 0,
-  };
 }
 
-// Vision model for image analysis
-const VISION_MODEL = "llama3.2-vision:11b";
+interface AgentGOStartRunRequest {
+  messages: AgentGOMessage[];
+  thread_id: string;
+  workspace_root?: string;
+  mode?: string;
+  max_steps?: number;
+  llm?: {
+    base_url?: string;
+    model?: string;
+    api_key?: string;
+  };
+  tool_bridge_url?: string;
+}
 
-// Regex to strip tool JSON from displayed text
-const TOOL_JSON_DISPLAY_REGEX = /```json\s*\n?\s*\{[\s\S]*?"tool"[\s\S]*?\}\s*\n?\s*```|\{"tool"\s*:\s*"[^"]+"\s*,\s*"args"\s*:\s*\{[\s\S]*?\}\s*\}/g;
+interface AgentGOEvent {
+  type: string;
+  threadId?: string;
+  runId?: string;
+  timestamp?: string;
+  messageId?: string;
+  role?: string;
+  delta?: string;
+  toolCallId?: string;
+  toolName?: string;
+  args?: { format: string; data: unknown };
+  result?: { format: string; data: unknown };
+  success?: boolean;
+  durationMs?: number;
+  error?: { message: string };
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  // Interrupt events
+  approved?: boolean;
+  reason?: string;
+  // Artifact events
+  artifactId?: string;
+  url?: string;
+  name?: string;
+  mimeType?: string;
+  [key: string]: unknown;
+}
 
 /**
- * Detect if messages contain images (for auto vision model switch)
+ * Parse SSE data from Agent-GO event stream
+ */
+function parseSSE(data: string): AgentGOEvent | null {
+  try {
+    return JSON.parse(data);
+  } catch {
+    console.warn("[Chat] Failed to parse SSE data:", data);
+    return null;
+  }
+}
+
+/**
+ * Map Agent-GO event to AG-UI event and publish to local hub
+ */
+function mapAndPublishEvent(
+  event: AgentGOEvent,
+  threadId: string,
+  runId: string,
+  messageId: string
+): void {
+  let aguiEvent: AGUIEvent | null = null;
+
+  switch (event.type) {
+    case "RunStarted":
+      // Already emitted locally
+      break;
+
+    case "RunFinished":
+      aguiEvent = createEvent<RunFinished>("RunFinished", threadId, {
+        runId,
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        costUsd: event.costUsd,
+      });
+      break;
+
+    case "RunError":
+      aguiEvent = createEvent<RunError>("RunError", threadId, {
+        runId,
+        error: event.error ?? { message: "Unknown error" },
+      });
+      break;
+
+    case "TextMessageStart":
+      // Already emitted locally
+      break;
+
+    case "TextMessageContent":
+      aguiEvent = createEvent<TextMessageContent>("TextMessageContent", threadId, {
+        runId,
+        messageId: event.messageId ?? messageId,
+        delta: event.delta ?? "",
+      });
+      break;
+
+    case "TextMessageEnd":
+      aguiEvent = createEvent<TextMessageEnd>("TextMessageEnd", threadId, {
+        runId,
+        messageId: event.messageId ?? messageId,
+      });
+      break;
+
+    case "ToolCallStart":
+      aguiEvent = createEvent<ToolCallStart>("ToolCallStart", threadId, {
+        runId,
+        toolCallId: event.toolCallId ?? generateId(),
+        toolName: event.toolName ?? "unknown",
+      });
+      break;
+
+    case "ToolCallArgs": {
+      // Preserve payload format if already DeckPayload
+      let argsPayload: DeckPayload | undefined;
+      if (event.args && isDeckPayload(event.args)) {
+        argsPayload = event.args;
+      } else if (event.args?.data !== undefined) {
+        argsPayload = jsonPayload(event.args.data);
+      } else if (event.args !== undefined) {
+        argsPayload = jsonPayload(event.args);
+      }
+      
+      aguiEvent = createEvent<ToolCallArgs>("ToolCallArgs", threadId, {
+        runId,
+        toolCallId: event.toolCallId ?? generateId(),
+        delta: "",
+        args: argsPayload,
+      });
+      break;
+    }
+
+    case "ToolCallResult": {
+      // Preserve GLYPH encoding if executor provided it as DeckPayload
+      let resultPayload: DeckPayload;
+      if (event.result && isDeckPayload(event.result)) {
+        // Already a DeckPayload (GLYPH or JSON), use as-is
+        resultPayload = event.result;
+      } else if (event.result?.data !== undefined) {
+        // Legacy format: { format: string, data: unknown }
+        resultPayload = jsonPayload(event.result.data);
+      } else if (event.result !== undefined) {
+        // Raw value, wrap in JSON payload
+        resultPayload = jsonPayload(event.result);
+      } else {
+        resultPayload = jsonPayload({});
+      }
+      
+      aguiEvent = createEvent<ToolCallResult>("ToolCallResult", threadId, {
+        runId,
+        toolCallId: event.toolCallId ?? generateId(),
+        result: resultPayload,
+        success: event.success,
+        durationMs: event.durationMs,
+      });
+      break;
+    }
+
+    case "InterruptRequested":
+      // Publish interrupt request to hub for UI to handle
+      console.log("[Chat] InterruptRequested:", event.toolName, event.args);
+      aguiEvent = createEvent<InterruptRequested>("InterruptRequested", threadId, {
+        runId,
+        toolCallId: event.toolCallId ?? generateId(),
+        toolName: event.toolName ?? "unknown",
+        args: event.args ? jsonPayload(event.args.data ?? event.args) : undefined,
+      });
+      break;
+
+    case "InterruptResolved":
+      console.log("[Chat] InterruptResolved:", event);
+      aguiEvent = createEvent<InterruptResolved>("InterruptResolved", threadId, {
+        runId,
+        toolCallId: event.toolCallId,
+        approved: event.approved ?? false,
+        reason: event.reason,
+      });
+      break;
+
+    case "ArtifactCreated":
+      console.log("[Chat] ArtifactCreated:", event.name, event.mimeType, event.url);
+      aguiEvent = createEvent<ArtifactCreated>("ArtifactCreated", threadId, {
+        runId,
+        toolCallId: event.toolCallId,
+        artifactId: event.artifactId ?? generateId(),
+        url: event.url ?? "",
+        name: event.name ?? "artifact",
+        mimeType: event.mimeType ?? "application/octet-stream",
+      });
+      break;
+
+    default:
+      // Log unknown event types
+      console.log("[Chat] Unknown event type:", event.type);
+  }
+
+  if (aguiEvent) {
+    saveEvent(aguiEvent);
+    hub.publish(threadId, aguiEvent);
+  }
+}
+
+/**
+ * Check if images are present in messages
  */
 function hasImageContent(messages: Array<{ role: string; content: unknown }>): boolean {
   for (const msg of messages) {
@@ -140,45 +279,6 @@ function hasImageContent(messages: Array<{ role: string; content: unknown }>): b
     }
   }
   return false;
-}
-
-/**
- * Strip tool JSON from text for cleaner display
- */
-function stripToolJson(text: string): string {
-  return text.replace(TOOL_JSON_DISPLAY_REGEX, "").trim();
-}
-
-/**
- * Detect if a message needs reasoning/thinking mode
- * Returns true for complex tasks, false for simple requests (faster TTFT)
- */
-function needsThinking(content: string): boolean {
-  const lower = content.toLowerCase();
-  const len = content.length;
-  
-  // Explicit user override
-  if (lower.includes("/think")) return true;
-  if (lower.includes("/no_think")) return false;
-  
-  // Long messages (500+ chars) likely need reasoning
-  if (len > 500) return true;
-  
-  // Patterns that benefit from reasoning
-  const thinkPatterns = [
-    /\b(solve|calculate|compute|derive|prove)\b/,
-    /\b(why does|why is|why do|how does|how do|how is)\b/,
-    /\b(explain|elaborate|clarify).{15,}/,
-    /\b(debug|fix this|what'?s wrong|find the (bug|error|issue))\b/,
-    /\b(step by step|walk me through|break down)\b/,
-    /\b(analyze|compare|contrast|evaluate|assess)\b/,
-    /\b(logic|reasoning|proof|theorem)\b/,
-    /\b(think|ruminate|consider|ponder)\b/,
-    /\b(algorithm|optimize|refactor)\b/,
-    /\?.*\?/,  // Multiple questions
-  ];
-  
-  return thinkPatterns.some(p => p.test(lower));
 }
 
 export async function POST(req: Request) {
@@ -203,86 +303,37 @@ export async function POST(req: Request) {
     });
   }
 
-  // Get system profile for mode-based model selection
+  // Get backend config for LLM settings
   const systemProfile = getSystemProfile();
-  
+  const backendCfg = getBackendConfig();
   const hasImages = hasImageContent(messages);
   
-  // Model selection priority:
-  // 1. Vision model if images detected
-  // 2. Explicitly requested model
-  // 3. Mode-based recommended model
-  // 4. Environment default
-  // 5. Fallback
+  // Model selection priority: request > env > backend config > system profile > fallback
   const selectedModel = hasImages 
-    ? VISION_MODEL 
-    : (model ?? systemProfile.recommended.textModel ?? process.env.DEFAULT_MODEL ?? "qwen2.5:1.5b");
+    ? (backendCfg.vision?.defaultModel ?? "llama3.2-vision:11b")
+    : (model ?? process.env.LLM_MODEL ?? getDefaultModel("primary") ?? backendCfg.primary?.defaultModel ?? systemProfile.recommended.textModel ?? "llama3.2:3b");
   
+  const clientSlot = hasImages && backendCfg.vision ? "vision" : "primary";
+  const activeConfig = backendCfg[clientSlot]!;
+
   const thread = threadId ?? generateId();
   const runId = generateId();
   const messageId = generateId();
 
-  // Check if model supports native tool calling
-  const useNativeTools = supportsNativeTools(selectedModel);
-  
-  // Build system prompt with Moby Deck identity, tools, and environment
-  // Skip tool documentation for native tool models (Ollama provides tools directly)
-  const systemPrompt = await buildSystemPrompt(selectedModel, uploadIds, useNativeTools);
-  
-  // GLYPH verification: prove GLYPH is in the prompt sent to Ollama
-  const glyphInSystemPrompt = systemPrompt.includes("@tab[") || systemPrompt.includes("@[");
-  const tabularCount = (systemPrompt.match(/@tab\[/g) || []).length;
-  console.log(`[Chat] GLYPH catalog: ${glyphInSystemPrompt}, @tab blocks: ${tabularCount}, prompt: ${systemPrompt.length} chars`);
-  
-  // Process messages for thinking mode (Qwen3 optimization)
-  const lastUserMsg = messages[messages.length - 1];
-  const isThinking = lastUserMsg?.role === "user" && 
-    typeof lastUserMsg.content === "string" && 
-    needsThinking(lastUserMsg.content);
+  console.log(`[Chat] Starting run via Agent-GO: thread=${thread}, model=${selectedModel}`);
 
-  // Add /no_think to last user message if not thinking (faster TTFT)
-  // Also extract metadata (tool_calls, tool_name) from messages for proper history
-  const processedMessages: ProcessedMessage[] = messages.map((msg, idx) => {
-    const processed: ProcessedMessage = {
-      role: msg.role as ProcessedMessage["role"],
-      content: msg.content,
-    };
-    
-    // Extract tool metadata from DB-loaded messages
-    if (msg.metadata?.tool_calls) {
-      processed.tool_calls = msg.metadata.tool_calls as ToolCallMetadata[];
-    }
-    if (msg.metadata?.tool_name) {
-      processed.tool_name = msg.metadata.tool_name;
-    }
-    
-    // Add /no_think to last user message
-    if (idx === messages.length - 1 && msg.role === "user" && typeof msg.content === "string") {
-      const clean = msg.content.replace(/\s*\/(no_)?think\b/g, "").trim();
-      processed.content = isThinking ? clean : clean + " /no_think";
-    }
-    
-    return processed;
-  });
-
-  const messagesWithSystem: ProcessedMessage[] = [
-    { role: "system" as const, content: systemPrompt },
-    ...processedMessages,
-  ];
-
-  // Emit RunStarted
+  // Emit local RunStarted (for immediate UI feedback)
   const lastMessage = messages[messages.length - 1]?.content;
   const runStarted = createEvent<RunStarted>("RunStarted", thread, {
     runId,
     model: selectedModel,
     input: lastMessage ? jsonPayload(lastMessage) : undefined,
-    thinking: isThinking,
   });
   createRun(runId, thread, selectedModel);
   saveEvent(runStarted);
   hub.publish(thread, runStarted);
 
-  // Emit TextMessageStart
+  // Emit TextMessageStart locally
   const msgStart = createEvent<TextMessageStart>("TextMessageStart", thread, {
     runId,
     messageId,
@@ -291,21 +342,72 @@ export async function POST(req: Request) {
   saveEvent(msgStart);
   hub.publish(thread, msgStart);
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+  // Strip fake tool patterns from assistant messages to prevent the LLM from
+  // learning to fake tool calls based on conversation history
+  const stripFakeToolPatterns = (content: string): string => {
+    let clean = content;
+    
+    // Remove markdown images - these make the model think it can just output image syntax
+    clean = clean.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
+    
+    // Remove fake success phrases that precede fake tool results
+    clean = clean.replace(/Here is (?:an?|the) (?:image|picture|photo)[^.]*\.?/gi, '');
+    clean = clean.replace(/I(?:'ve| have) generated[^.]*\.?/gi, '');
+    clean = clean.replace(/Generated (?:an?|the) (?:image|picture)[^.]*\.?/gi, '');
+    
+    // Remove artifact IDs that might be in the text
+    clean = clean.replace(/img_\d+-\d+/g, '');
+    clean = clean.replace(/audio_\d+-\d+/g, '');
+    
+    // Remove deck filenames
+    clean = clean.replace(/deck_(?:turbo|img|audio)_\d+_?\.(?:png|jpg|mp3|wav)/gi, '');
+    
+    // Remove orphaned image references
+    clean = clean.replace(/\([^)]*\.(?:png|jpg|jpeg|gif|mp3|wav)\)/gi, '');
+    
+    // Collapse excessive whitespace
+    clean = clean.replace(/\n{3,}/g, '\n\n').trim();
+    
+    return clean;
+  };
 
-  // Create a TransformStream for streaming response
+  // Prepare Agent-GO request - strip fake patterns from assistant messages
+  // Filter out messages that become empty after stripping
+  const agentMessages: AgentGOMessage[] = messages
+    .map(m => {
+      const rawContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      const content = m.role === "assistant" ? stripFakeToolPatterns(rawContent) : rawContent;
+      return {
+        role: m.role as AgentGOMessage["role"],
+        content: content || "[Previous response contained only generated content]",
+      };
+    })
+    .filter(m => m.content.trim().length > 0);
+
+  const agentRequest: AgentGOStartRunRequest = {
+    messages: agentMessages,
+    thread_id: thread,
+    workspace_root: process.env.WORKSPACE_ROOT ?? undefined,
+    mode: "BUILD",
+    max_steps: parseInt(process.env.AGENT_MAX_STEPS ?? "25", 10),
+    llm: {
+      base_url: activeConfig.baseURL,
+      model: selectedModel,
+      api_key: activeConfig.apiKey,
+    },
+    tool_bridge_url: TOOL_BRIDGE_URL,
+  };
+
+  // Create streaming response
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
 
-  // Track if request was aborted
   let isAborted = false;
   req.signal?.addEventListener("abort", () => {
     isAborted = true;
   });
 
-  // Safe write helper that handles stream errors gracefully
   const safeWrite = async (data: string): Promise<boolean> => {
     if (isAborted) return false;
     try {
@@ -318,257 +420,90 @@ export async function POST(req: Request) {
     }
   };
 
-  // Run the chat loop in background
+  // Background task to proxy Agent-GO events
   (async () => {
+    let agentRunId: string | null = null;
+    let fullText = "";
+
     try {
-      let currentMessages = [...messagesWithSystem];
-      let iteration = 0;
-      const maxIterations = 5; // Prevent infinite loops
-      
-      // Track messages to save to DB with proper metadata for tool history
-      interface PendingMessage {
-        role: "assistant" | "tool";
-        content: string;
-        metadata?: MessageMetadata;
+      // Start run on Agent-GO
+      const startResponse = await fetch(`${AGENTGO_URL}/runs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(agentRequest),
+      });
+
+      if (!startResponse.ok) {
+        const errorText = await startResponse.text();
+        throw new Error(`Agent-GO returned ${startResponse.status}: ${errorText}`);
       }
-      const pendingMessages: PendingMessage[] = [];
-      let finalAssistantContent = "";  // The final text response to show user
 
-      while (iteration < maxIterations) {
-        // Check if request was aborted
-        if (isAborted) {
-          console.log("[Chat] Request aborted, exiting loop");
-          break;
-        }
-        
-        iteration++;
-        console.log(`[Chat] Iteration ${iteration}/${maxIterations}, messages: ${currentMessages.length}`);
-        
-        let fullText = "";
-        let toolCall: ToolCall | null = null;
+      const startData = await startResponse.json();
+      agentRunId = startData.run_id;
+      console.log(`[Chat] Agent-GO run started: ${agentRunId}`);
 
-        if (useNativeTools) {
-          // Native tool calling path - Ollama handles tool format
-          // IMPORTANT: Preserve tool_calls and tool_name fields for proper conversation history
-          const ollamaMessages: OllamaMessage[] = currentMessages.map((m) => {
-            let content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-            
-            // Strip "[Executing tool_name...]" from history - this is UI chrome, not model output
-            // If we don't strip it, the model learns to output this text instead of calling tools
-            content = content.replace(/\[Executing \w+\.\.\.\]\s*/g, "");
-            
-            const msg: OllamaMessage = {
-              role: m.role as OllamaMessage["role"],
-              content,
-            };
-            // Preserve tool_calls for assistant messages that made tool calls
-            const msgWithMeta = m as ProcessedMessage;
-            if (msgWithMeta.tool_calls) {
-              msg.tool_calls = msgWithMeta.tool_calls;
+      // Stream events from Agent-GO
+      const eventsResponse = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/events`, {
+        headers: { Accept: "text/event-stream" },
+        signal: req.signal,
+      });
+
+      if (!eventsResponse.ok) {
+        throw new Error(`Agent-GO events returned ${eventsResponse.status}`);
+      }
+
+      const reader = eventsResponse.body?.getReader();
+      if (!reader) {
+        throw new Error("No response body from Agent-GO");
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6).trim();
+            if (!data || data === "[DONE]") continue;
+
+            const event = parseSSE(data);
+            if (!event) continue;
+
+            // Handle text content - stream to response body
+            if (event.type === "TextMessageContent" && event.delta) {
+              fullText += event.delta;
+              if (!await safeWrite(event.delta)) break;
             }
-            // Preserve tool_name for tool response messages
-            if (msgWithMeta.tool_name) {
-              msg.tool_name = msgWithMeta.tool_name;
+
+            // Map and publish event to local hub
+            mapAndPublishEvent(event, thread, runId, messageId);
+
+            // Check for run completion
+            if (event.type === "RunFinished" || event.type === "RunError") {
+              break;
             }
-            return msg;
-          });
-
-          // GLYPH verification: check for GLYPH in tool results within messages
-          const allMsgContent = ollamaMessages.map(m => m.content || '').join('');
-          const glyphFenceCount = (allMsgContent.match(/```glyph/g) || []).length;
-          const tabBlockCount = (allMsgContent.match(/@tab\[/g) || []).length;
-          if (glyphFenceCount > 0 || tabBlockCount > 0) {
-            console.log(`[Chat] GLYPH in messages: ${glyphFenceCount} fences, ${tabBlockCount} @tab blocks`);
+          } else if (line.startsWith("event: done")) {
+            // Agent-GO signals completion
+            break;
           }
-          
-          console.log(`[Chat] Calling Ollama with ${ollamaMessages.length} messages, model: ${selectedModel}`);
-          const result = await callOllamaWithTools(selectedModel, ollamaMessages);
-          
-          fullText = result.content;
-          totalInputTokens += result.inputTokens;
-          totalOutputTokens += result.outputTokens;
-          console.log(`[Chat] Ollama response: ${fullText.length} chars, toolCalls: ${result.toolCalls?.length ?? 0}`);
-
-          // Check for native tool calls
-          if (result.toolCalls?.length) {
-            const tc = result.toolCalls[0];
-            // Validate and convert to our ToolCall type
-            const toolName = tc.function.name as ToolName;
-            toolCall = {
-              name: toolName,
-              args: tc.function.arguments,
-            } as ToolCall;
-          }
-        } else {
-          // Fallback: text parsing for models without native tool support
-          // Map to simple format for AI SDK (it only needs role/content)
-          const aiMessages = currentMessages.map(m => ({
-            role: m.role as "system" | "user" | "assistant",
-            content: m.content,
-          }));
-          const result = await generateText({
-            model: ollama(selectedModel),
-            messages: aiMessages,
-          });
-
-          fullText = result.text;
-          totalInputTokens += result.usage?.inputTokens ?? 0;
-          totalOutputTokens += result.usage?.outputTokens ?? 0;
-
-          // Check for tool call via regex parsing
-          toolCall = parseToolCall(fullText);
         }
+      }
 
-        if (toolCall) {
-          console.log(`[Chat] Tool call detected:`, toolCall.name, JSON.stringify(toolCall.args).slice(0, 200));
-          // Emit tool status to SSE (UI will show this)
-          const toolCallId = generateId();
-          const toolStart = createEvent<ToolCallStart>("ToolCallStart", thread, {
-            runId,
-            toolCallId,
-            toolName: toolCall.name,
-          });
-          saveEvent(toolStart);
-          hub.publish(thread, toolStart);
-          
-          // Emit tool args for UI display
-          const toolArgs = createEvent<ToolCallArgs>("ToolCallArgs", thread, {
-            runId,
-            toolCallId,
-            delta: "",
-            args: jsonPayload(toolCall.args),
-          });
-          saveEvent(toolArgs);
-          hub.publish(thread, toolArgs);
+      reader.releaseLock();
 
-          // Stream the non-tool part of the response (if any)
-          const cleanText = stripToolJson(fullText);
-          if (cleanText) {
-            if (!await safeWrite(cleanText + "\n\n")) break;
-            hub.publish(thread, createEvent<TextMessageContent>("TextMessageContent", thread, {
-              runId,
-              messageId,
-              delta: cleanText + "\n\n",
-            }));
-          }
-
-          // DON'T stream "[Executing...]" to response - it pollutes conversation history
-          // The UI will show tool status via ToolCallStart SSE event instead
-
-          // Execute the tool
-          const ctx: ExecutorContext = {
-            threadId: thread,
-            runId,
-            toolCallId,
-          };
-          const toolResult = await executeToolWithGlyph(toolCall, ctx);
-
-          // Emit tool result with DeckPayload envelope
-          // Use executor's payload if available (may be GLYPH-encoded), otherwise wrap
-          const resultPayload = toolResult.payload ?? jsonPayload({
-            success: toolResult.success,
-            message: toolResult.message,
-            artifactCount: toolResult.artifacts?.length ?? 0,
-            data: toolResult.data,
-          });
-          
-          const toolResultEvt = createEvent<ToolCallResult>("ToolCallResult", thread, {
-            runId,
-            toolCallId,
-            result: resultPayload,
-            success: toolResult.success,
-          });
-          saveEvent(toolResultEvt);
-          hub.publish(thread, toolResultEvt);
-
-          // Add tool interaction to conversation and continue
-          // Keep tool result concise - UI shows artifacts directly
-          const toolResultContent = toolResult.success
-            ? toolResult.artifacts?.length 
-              ? "Success. Artifact displayed in chat."
-              : toolResult.message
-            : `Error: ${toolResult.message}`;
-
-          if (useNativeTools) {
-            // Native tool format - use proper tool message structure
-            const toolCallsMetadata = [{ function: { name: toolCall.name, arguments: toolCall.args } }];
-            
-            currentMessages = [
-              ...currentMessages,
-              { 
-                role: "assistant", 
-                content: fullText || "",
-                tool_calls: toolCallsMetadata
-              },
-              { 
-                role: "tool",
-                content: toolResultContent,
-                tool_name: toolCall.name,
-              },
-            ];
-            
-            // Track for DB save - assistant message with tool_calls
-            pendingMessages.push({
-              role: "assistant",
-              content: fullText || "",
-              metadata: { tool_calls: toolCallsMetadata },
-            });
-            
-            // Track for DB save - tool result message
-            pendingMessages.push({
-              role: "tool",
-              content: toolResultContent,
-              metadata: { tool_name: toolCall.name },
-            });
-          } else {
-            // Legacy format for text-parsing models
-            currentMessages = [
-              ...currentMessages,
-              { role: "assistant", content: fullText },
-              { 
-                role: "user", 
-                content: `Tool "${toolCall.name}" result: ${toolResultContent}`
-              },
-            ];
-            
-            // For legacy, just track the text (no special metadata)
-            pendingMessages.push({ role: "assistant", content: fullText });
-          }
-
-          // Continue loop for follow-up response
-          continue;
-        }
-
-        // No tool call - stream final response and exit
-        await safeWrite(fullText);
-        hub.publish(thread, createEvent<TextMessageContent>("TextMessageContent", thread, {
-          runId,
-          messageId,
-          delta: fullText,
-        }));
-        
+      // Update run preview
+      if (fullText) {
         updateRunPreview(runId, fullText.slice(0, 200));
-        finalAssistantContent = fullText;
-        break;
-      }
-      
-      // Save tool interaction messages to DB with proper metadata
-      // These are the intermediate assistant (with tool_calls) and tool response messages
-      // The final assistant message is saved by the frontend
-      for (const pm of pendingMessages) {
-        const pmId = generateId();
-        saveMessage({
-          id: pmId,
-          threadId: thread,
-          role: pm.role,
-          content: pm.content,
-          runId,
-          metadata: pm.metadata,
-        });
-        console.log(`[Chat] Saved ${pm.role} message with metadata:`, pm.metadata ? Object.keys(pm.metadata) : "none");
       }
 
-      // Emit TextMessageEnd
+      // Emit local TextMessageEnd
       const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", thread, {
         runId,
         messageId,
@@ -576,28 +511,22 @@ export async function POST(req: Request) {
       saveEvent(msgEnd);
       hub.publish(thread, msgEnd);
 
-      // Calculate cost and emit RunFinished
-      const costUsd =
-        (totalInputTokens / 1000) * COST_PER_1K_INPUT +
-        (totalOutputTokens / 1000) * COST_PER_1K_OUTPUT;
-
+      // Emit local RunFinished
       const runFinished = createEvent<RunFinished>("RunFinished", thread, {
         runId,
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        costUsd,
       });
-      finishRun(runId, totalInputTokens, totalOutputTokens, costUsd);
+      finishRun(runId, 0, 0, 0);
       saveEvent(runFinished);
       hub.publish(thread, runFinished);
 
     } catch (error) {
       if (isAborted) {
-        console.log("[Chat] Request aborted during processing");
+        console.log("[Chat] Request aborted during Agent-GO proxy");
       } else {
         const errMsg = error instanceof Error ? error.message : "Unknown error";
+        console.error("[Chat] Agent-GO proxy error:", error);
         await safeWrite(`\n\nError: ${errMsg}`);
-        
+
         const runError = createEvent<RunError>("RunError", thread, {
           runId,
           error: { message: errMsg },
@@ -607,7 +536,7 @@ export async function POST(req: Request) {
         hub.publish(thread, runError);
       }
     } finally {
-      await writer.close().catch(() => {}); // Safe close
+      await writer.close().catch((err) => console.warn("[Chat] writer.close failed:", err));
     }
   })();
 
@@ -619,7 +548,6 @@ export async function POST(req: Request) {
       "X-Thread-Id": thread,
       "X-Run-Id": runId,
       "X-Message-Id": messageId,
-      // Expose custom headers to browser JavaScript
       "Access-Control-Expose-Headers": "X-Thread-Id, X-Run-Id, X-Message-Id",
     },
   });
@@ -628,8 +556,13 @@ export async function POST(req: Request) {
 /**
  * Direct tool execution endpoint (for manual triggers)
  * PUT /api/chat - Execute a tool directly without LLM
+ * 
+ * This remains unchanged - uses local executor
  */
 export async function PUT(req: Request) {
+  // Dynamic import to avoid bundling executor in main chat route
+  const { executeToolWithGlyph } = await import("@/lib/tools/executor");
+
   let body: { tool?: string; args?: Record<string, unknown>; threadId?: string };
   try {
     body = await req.json();
@@ -648,7 +581,7 @@ export async function PUT(req: Request) {
   const runId = generateId();
   const toolCallId = generateId();
 
-  const ctx: ExecutorContext = {
+  const ctx = {
     threadId: thread,
     runId,
     toolCallId,
@@ -657,7 +590,6 @@ export async function PUT(req: Request) {
   createRun(runId, thread, "tool:" + tool);
 
   try {
-    // Type assertion is safe here because executeToolWithGlyph handles unknown tools gracefully
     const toolCall = { name: tool, args: args ?? {} } as Parameters<typeof executeToolWithGlyph>[0];
     const result = await executeToolWithGlyph(toolCall, ctx);
 

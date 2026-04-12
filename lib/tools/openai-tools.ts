@@ -1,31 +1,32 @@
 /**
- * Ollama Native Tool Definitions (OpenAI-compatible format)
- * Used for models that support native tool calling (qwen3, llama3.2, mistral, etc.)
+ * OpenAI-Compatible Tool Definitions
+ * Used for models that support native tool calling via OpenAI-compatible API
+ * Works with: Ollama, llama-server, vLLM, OpenAI
  */
 
-export interface OllamaToolParameter {
+export interface OpenAIToolParameter {
   type: string;
   description: string;
 }
 
-export interface OllamaTool {
+export interface OpenAITool {
   type: "function";
   function: {
     name: string;
     description: string;
     parameters: {
       type: "object";
-      properties: Record<string, OllamaToolParameter>;
+      properties: Record<string, OpenAIToolParameter>;
       required: string[];
     };
   };
 }
 
 /**
- * Tool definitions in Ollama/OpenAI format
- * These are passed directly to the Ollama API
+ * Tool definitions in OpenAI-compatible format
+ * These are passed to any OpenAI-compatible API (Ollama, llama-server, vLLM, etc.)
  */
-export const OLLAMA_TOOLS: OllamaTool[] = [
+export const OPENAI_TOOLS: OpenAITool[] = [
   {
     type: "function",
     function: {
@@ -157,7 +158,8 @@ export const OLLAMA_TOOLS: OllamaTool[] = [
 ];
 
 /**
- * Models known to support native tool calling via Ollama
+ * Models known to support native tool calling via OpenAI-compatible API
+ * Works with Ollama, llama-server (with --jinja), vLLM (with --enable-auto-tool-choice)
  */
 export const NATIVE_TOOL_MODELS = [
   "qwen3",
@@ -168,6 +170,8 @@ export const NATIVE_TOOL_MODELS = [
   "mixtral",
   "command-r",
   "firefunction",
+  "hermes",      // Nous Hermes models
+  "functionary", // Functionary models
 ];
 
 /**
@@ -179,42 +183,51 @@ export function supportsNativeTools(model: string): boolean {
 }
 
 /**
- * Ollama chat message format
+ * OpenAI-compatible chat message format
  */
-export interface OllamaMessage {
+export interface OpenAIMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   tool_calls?: Array<{
+    id?: string;
+    type?: "function";
     function: {
       name: string;
-      arguments: Record<string, unknown>;
+      arguments: string | Record<string, unknown>;
     };
   }>;
-  tool_name?: string;
+  tool_call_id?: string;
+  name?: string; // For tool messages, the tool name
 }
 
 /**
- * Ollama chat response format
+ * OpenAI-compatible chat response format
  */
-export interface OllamaChatResponse {
+export interface OpenAIChatResponse {
+  id: string;
+  object: string;
+  created: number;
   model: string;
-  created_at: string;
-  message: {
-    role: "assistant";
-    content: string;
-    tool_calls?: Array<{
-      function: {
-        name: string;
-        arguments: Record<string, unknown>;
-      };
-    }>;
+  choices: Array<{
+    index: number;
+    message: {
+      role: "assistant";
+      content: string | null;
+      tool_calls?: Array<{
+        id: string;
+        type: "function";
+        function: {
+          name: string;
+          arguments: string;
+        };
+      }>;
+    };
+    finish_reason: string;
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
   };
-  done: boolean;
-  done_reason?: string;
-  total_duration?: number;
-  load_duration?: number;
-  prompt_eval_count?: number;
-  prompt_eval_duration?: number;
-  eval_count?: number;
-  eval_duration?: number;
 }
+

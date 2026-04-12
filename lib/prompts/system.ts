@@ -9,6 +9,7 @@ import { execSync } from "child_process";
 import { TOOL_DEFINITIONS } from "../tools/definitions";
 import { renderToolCatalogGlyph } from "../tools/render-glyph-catalog";
 import { isLiteMode, getSystemProfile } from "../system";
+import { getBackendConfig, checkBackendHealth, listBackendModels } from "../llm";
 
 // ============================================================================
 // Configuration
@@ -64,24 +65,15 @@ export async function checkService(url: string): Promise<boolean> {
   }
 }
 
-async function getOllamaModels(): Promise<string[]> {
-  try {
-    const res = await fetch("http://localhost:11434/api/tags");
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.models?.map((m: { name: string }) => m.name) ?? [];
-  } catch {
-    return [];
-  }
-}
-
 async function getEnvironmentBlock(): Promise<string> {
   const profile = getSystemProfile();
-  const [gpu, ollama, comfy, models] = await Promise.all([
+  const backendCfg = getBackendConfig();
+  
+  const [gpu, backendOnline, comfy, models] = await Promise.all([
     getGPUStatus(),
-    checkService("http://localhost:11434/api/tags"),
+    checkBackendHealth(backendCfg.primary),
     checkService("http://localhost:8188/system_stats"),
-    getOllamaModels(),
+    listBackendModels(backendCfg.primary),
   ]);
 
   const lines = [
@@ -97,7 +89,7 @@ async function getEnvironmentBlock(): Promise<string> {
   }
 
   lines.push(`  RAM: ${profile.ram}GB`);
-  lines.push(`  Ollama: ${ollama ? "online" : "offline"}`);
+  lines.push(`  LLM Backend: ${backendOnline ? "online" : "offline"} (${backendCfg.primary.type})`);
   
   // Only show ComfyUI status in power mode
   if (profile.mode === "power") {
@@ -248,17 +240,28 @@ export async function buildSystemPrompt(
 // ============================================================================
 
 export interface ServiceStatus {
-  ollama: boolean;
+  llmBackend: boolean;
+  backendType: string;
   comfy: boolean;
   gpu: GPUStatus;
+  /** @deprecated Use llmBackend instead */
+  ollama: boolean;
 }
 
 export async function getServiceStatus(): Promise<ServiceStatus> {
-  const [ollama, comfy, gpu] = await Promise.all([
-    checkService("http://localhost:11434/api/tags"),
+  const backendCfg = getBackendConfig();
+  const [llmBackend, comfy, gpu] = await Promise.all([
+    checkBackendHealth(backendCfg.primary),
     checkService("http://localhost:8188/system_stats"),
     getGPUStatus(),
   ]);
   
-  return { ollama, comfy, gpu };
+  return { 
+    llmBackend, 
+    backendType: backendCfg.primary.type,
+    comfy, 
+    gpu,
+    // Backward compatibility
+    ollama: llmBackend,
+  };
 }

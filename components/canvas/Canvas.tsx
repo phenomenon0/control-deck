@@ -134,9 +134,9 @@ export function Canvas({
   }, [onRun]);
   
   return (
-    <div className={cn("flex flex-col bg-zinc-900 rounded-lg border border-zinc-800 overflow-hidden", className)}>
+    <div className={cn("flex flex-col bg-[var(--bg-secondary)] rounded-lg border border-[var(--border)] overflow-hidden", className)}>
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/50 border-b border-zinc-700">
+      <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-tertiary)] border-b border-[var(--border-bright)]">
         {/* Tabs */}
         <div className="flex gap-1">
           {tabs.map((tab) => (
@@ -146,8 +146,8 @@ export function Canvas({
               className={cn(
                 "px-3 py-1 text-xs font-medium rounded transition-colors",
                 activeTab === tab
-                  ? "bg-zinc-700 text-white"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-700/50"
+                  ? "bg-[var(--bg-tertiary)] text-white"
+                  : "text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-tertiary)]/50"
               )}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -159,17 +159,17 @@ export function Canvas({
         {/* Actions */}
         <div className="flex items-center gap-2">
           {language && (
-            <span className="text-xs text-zinc-500">{language}</span>
+            <span className="text-xs text-[var(--text-muted)]">{language}</span>
           )}
           {durationMs !== undefined && (
-            <span className="text-xs text-zinc-500">{durationMs}ms</span>
+            <span className="text-xs text-[var(--text-muted)]">{durationMs}ms</span>
           )}
           {exitCode !== undefined && (
             <span className={cn(
               "text-xs px-1.5 py-0.5 rounded",
               exitCode === 0 
-                ? "bg-green-500/20 text-green-400" 
-                : "bg-red-500/20 text-red-400"
+                ? "bg-[var(--success)]/20 text-[var(--success)]"
+                : "bg-[var(--error)]/20 text-[var(--error)]"
             )}>
               exit {exitCode}
             </span>
@@ -181,8 +181,8 @@ export function Canvas({
               className={cn(
                 "px-2 py-1 text-xs font-medium rounded transition-colors",
                 isRunning
-                  ? "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                  : "bg-green-600 hover:bg-green-500 text-white"
+                  ? "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] cursor-not-allowed"
+                  : "bg-[var(--success)] hover:bg-[var(--success)] text-white"
               )}
             >
               {isRunning ? "Running..." : "Run"}
@@ -200,12 +200,12 @@ export function Canvas({
               <textarea
                 value={editableCode}
                 onChange={handleCodeChange}
-                className="w-full h-full p-4 bg-transparent text-zinc-100 font-mono text-sm resize-none focus:outline-none"
+                className="w-full h-full p-4 bg-transparent text-[var(--text-primary)] font-mono text-sm resize-none focus:outline-none"
                 spellCheck={false}
                 placeholder="Enter code..."
               />
             ) : (
-              <pre className="h-full p-4 overflow-auto text-zinc-100 font-mono text-sm whitespace-pre-wrap">
+              <pre className="h-full p-4 overflow-auto text-[var(--text-primary)] font-mono text-sm whitespace-pre-wrap">
                 {code}
               </pre>
             )}
@@ -219,19 +219,19 @@ export function Canvas({
             className="h-full p-4 overflow-auto text-sm font-mono whitespace-pre-wrap"
           >
             {isRunning && !stdout && !stderr && (
-              <span className="text-zinc-500">Running...</span>
+              <span className="text-[var(--text-muted)]">Running...</span>
             )}
             {stdout && (
-              <span className="text-zinc-100">{stdout}</span>
+              <span className="text-[var(--text-primary)]">{stdout}</span>
             )}
             {stderr && (
-              <span className="text-red-400">{stderr}</span>
+              <span className="text-[var(--error)]">{stderr}</span>
             )}
             {error && (
-              <span className="text-red-400">{error}</span>
+              <span className="text-[var(--error)]">{error}</span>
             )}
             {!isRunning && !stdout && !stderr && !error && (
-              <span className="text-zinc-500">No output</span>
+              <span className="text-[var(--text-muted)]">No output</span>
             )}
           </pre>
         )}
@@ -257,9 +257,9 @@ export function Canvas({
                   <img
                     src={`data:${img.mimeType};base64,${img.data}`}
                     alt={img.name}
-                    className="w-full rounded border border-zinc-700"
+                    className="w-full rounded border border-[var(--border-bright)]"
                   />
-                  <span className="text-xs text-zinc-500 text-center">{img.name}</span>
+                  <span className="text-xs text-[var(--text-muted)] text-center">{img.name}</span>
                 </div>
               ))}
             </div>

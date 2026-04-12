@@ -1,5 +1,5 @@
 /**
- * AG-UI Generative UI System (Draft)
+ * AG-UI Generative UI System
  * AI-generated interfaces without custom tool renderers
  */
 
@@ -258,13 +258,12 @@ export function generateUI(request: GenerateUIRequest): GeneratedUI {
 // =============================================================================
 
 /**
- * Generate UI using an LLM (Ollama)
+ * Generate UI using an LLM (OpenAI-compatible backend)
  * This is the integration point for real LLM-powered generation
  */
 export async function generateUIWithLLM(
   request: GenerateUIRequest,
-  ollamaUrl: string,
-  model: string
+  model?: string
 ): Promise<GeneratedUI> {
   const systemPrompt = `You are a UI schema generator. Given a description, generate a JSON object with:
 1. jsonSchema: A JSON Schema (draft-07) for the form data
@@ -278,24 +277,23 @@ ${request.data ? `\nPre-populate with: ${JSON.stringify(request.data)}` : ""}
 ${request.output ? `\nExpected output schema: ${JSON.stringify(request.output)}` : ""}`;
 
   try {
-    const response = await fetch(`${ollamaUrl}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        prompt: userPrompt,
-        system: systemPrompt,
-        stream: false,
-        format: "json",
-      }),
+    // Dynamic import to avoid circular dependencies
+    const { createProviderClient, getProviderConfig, getDefaultModel } = await import("@/lib/llm");
+    const { generateText } = await import("ai");
+    
+    const config = getProviderConfig().primary;
+    const client = createProviderClient(config);
+    const modelName = model ?? getDefaultModel("primary") ?? "qwen2.5:7b";
+    
+    const result = await generateText({
+      model: client(modelName) as Parameters<typeof generateText>[0]["model"],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
     });
     
-    if (!response.ok) {
-      throw new Error(`Ollama error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    const parsed = JSON.parse(data.response);
+    const parsed = JSON.parse(result.text);
     
     return {
       jsonSchema: parsed.jsonSchema || parsed.schema,

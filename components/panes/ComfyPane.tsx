@@ -24,8 +24,8 @@ export function ComfyPane() {
       const res = await fetch("/api/comfy/history?limit=20");
       const data = await res.json();
       setJobs(data.items ?? []);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[ComfyPane] fetch failed:", err);
     } finally {
       setLoading(false);
     }
@@ -57,17 +57,20 @@ export function ComfyPane() {
   };
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="pane-header">
-        <span className="pane-title">ComfyUI</span>
+    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
+      {/* Frosted Header with connection dot */}
+      <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold tracking-tight">ComfyUI</span>
+          <span className="inline-block w-[6px] h-[6px] rounded-full bg-[var(--success)] flex-shrink-0" title="Connected" />
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={handleInterrupt} className="btn btn-secondary text-xs">
             Interrupt
           </button>
           <button
             onClick={() => window.open("http://localhost:8188", "_blank")}
-            className="btn btn-secondary text-xs"
+            className="btn btn-primary text-xs"
           >
             Open UI
           </button>
@@ -79,19 +82,17 @@ export function ComfyPane() {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Preset Workflows */}
-        <div className="card">
-          <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-            <span>🎨</span> Preset Workflows
-          </h3>
+        <div>
+          <h3 className="section-title mb-3">Preset Workflows</h3>
           <div className="grid grid-cols-3 gap-3">
             {PRESET_WORKFLOWS.map((wf) => (
               <button
                 key={wf.id}
                 disabled={queueing}
-                className="p-4 text-left bg-[var(--bg-primary)] rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors border border-[var(--border)]"
+                className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] p-4 text-left"
                 onClick={() => alert(`TODO: Load ${wf.id} workflow`)}
               >
-                <div className="font-medium">{wf.name}</div>
+                <div className="text-sm font-semibold text-[var(--text-primary)]">{wf.name}</div>
                 <div className="text-xs text-[var(--text-muted)] mt-1">{wf.description}</div>
               </button>
             ))}
@@ -99,27 +100,30 @@ export function ComfyPane() {
         </div>
 
         {/* Recent Jobs */}
-        <div className="card">
-          <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-            <span>📋</span> Recent Jobs
-          </h3>
+        <div>
+          <h3 className="section-title mb-3">Recent Jobs</h3>
           {loading ? (
-            <div className="text-center text-[var(--text-muted)] py-4">Loading...</div>
+            <div className="text-center text-[var(--text-muted)] py-8">Loading...</div>
           ) : jobs.length === 0 ? (
-            <div className="text-center text-[var(--text-muted)] py-4">
-              No jobs in history
+            <div className="text-center py-12">
+              <div className="text-5xl mb-4 opacity-30">&#9881;</div>
+              <p className="text-base font-medium text-[var(--text-secondary)] mb-2">No jobs in history</p>
+              <p className="text-sm text-[var(--text-muted)]">Queue a workflow to see results here</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {jobs.slice(0, 10).map((job) => {
+              {jobs.slice(0, 10).map((job, idx) => {
                 const images = getOutputImages(job);
                 return (
                   <div
                     key={job.promptId}
-                    className="p-3 bg-[var(--bg-primary)] rounded-lg"
+                    className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] p-3"
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-mono text-xs">{job.promptId.slice(0, 8)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block w-[6px] h-[6px] rounded-full flex-shrink-0 ${job.status?.completed ? "bg-[var(--success)]" : "bg-[var(--accent)]"}`} />
+                        <span className="font-mono text-xs text-[var(--text-secondary)]">{job.promptId.slice(0, 8)}</span>
+                      </div>
                       <span
                         className={`badge ${
                           job.status?.completed
@@ -137,7 +141,7 @@ export function ComfyPane() {
                             key={i}
                             src={`/api/comfy/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder)}&type=${img.type}`}
                             alt={img.filename}
-                            className="h-20 w-20 object-cover rounded"
+                            className="h-20 w-20 object-cover rounded-[6px] border border-[var(--border)]"
                           />
                         ))}
                       </div>

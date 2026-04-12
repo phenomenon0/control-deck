@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { Search } from "lucide-react";
+import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
 import { useRouter } from "next/navigation";
-import { useDeckSettings, THEME_META, type ThemeName } from "./settings/DeckSettingsProvider";
+import { useDeckSettings, type ThemeName } from "./settings/DeckSettingsProvider";
 
 interface Command {
   id: string;
@@ -17,11 +19,35 @@ interface CommandPaletteProps {
   onClose: () => void;
 }
 
+const RECENT_KEY = "deck:recent-commands";
+
+function getRecentIds(): string[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); }
+  catch { return []; }
+}
+
+function addRecent(id: string) {
+  const recent = getRecentIds().filter(r => r !== id);
+  recent.unshift(id);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, 5)));
+}
+
+function fuzzyMatch(label: string, query: string): boolean {
+  const labelLower = label.toLowerCase();
+  const queryLower = query.toLowerCase();
+  // Direct substring match
+  if (labelLower.includes(queryLower)) return true;
+  // Match all query words independently
+  const words = queryLower.split(/\s+/);
+  return words.every(w => labelLower.includes(w));
+}
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
-  const { setSettingsOpen, setInspectorOpen, updatePrefs, prefs } = useDeckSettings();
+  const { setSettingsOpen, setRailOpen, updatePrefs, prefs } = useDeckSettings();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [recentIds, setRecentIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: Command[] = [
@@ -29,20 +55,19 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: "nav-chat", label: "Go to Chat", shortcut: "1", action: () => router.push("/deck/chat"), category: "Navigation" },
     { id: "nav-runs", label: "Go to Runs", shortcut: "2", action: () => router.push("/deck/runs"), category: "Navigation" },
     { id: "nav-tools", label: "Go to Tools", shortcut: "3", action: () => router.push("/deck/tools"), category: "Navigation" },
+    { id: "nav-dojo", label: "Go to Dojo", shortcut: "4", action: () => router.push("/deck/dojo"), category: "Navigation" },
     // Navigation - Advanced
-    { id: "nav-models", label: "Go to Models", action: () => router.push("/deck/models"), category: "Navigation" },
-    { id: "nav-comfy", label: "Go to Comfy", action: () => router.push("/deck/comfy"), category: "Navigation" },
-    { id: "nav-voice", label: "Go to Voice", action: () => router.push("/deck/voice"), category: "Navigation" },
+    { id: "nav-models", label: "Go to Models", shortcut: "5", action: () => router.push("/deck/models"), category: "Navigation" },
+    { id: "nav-comfy", label: "Go to Comfy", shortcut: "6", action: () => router.push("/deck/comfy"), category: "Navigation" },
+    { id: "nav-voice", label: "Go to Voice", shortcut: "7", action: () => router.push("/deck/voice"), category: "Navigation" },
+    { id: "nav-agentgo", label: "Go to AgentGo", shortcut: "8", action: () => router.push("/deck/agentgo"), category: "Navigation" },
     // Settings
     { id: "settings-open", label: "Open Settings", shortcut: "⌘,", action: () => setSettingsOpen(true), category: "Settings" },
-    { id: "settings-inspector", label: "Toggle Inspector", shortcut: "⌘I", action: () => setInspectorOpen(o => !o), category: "Settings" },
+    { id: "settings-inspector", label: "Toggle Sidebar", shortcut: "⌘I", action: () => setRailOpen(o => !o), category: "Settings" },
     // Theme shortcuts
-    ...Object.entries(THEME_META).map(([key, meta]) => ({
-      id: `theme-${key}`,
-      label: `Theme: ${meta.label}`,
-      action: () => updatePrefs({ theme: key as ThemeName }),
-      category: "Theme",
-    })),
+    { id: "theme-light", label: "Theme: Light", action: () => updatePrefs({ theme: "light" as ThemeName }), category: "Theme" },
+    { id: "theme-dark", label: "Theme: Dark", action: () => updatePrefs({ theme: "dark" as ThemeName }), category: "Theme" },
+    { id: "theme-system", label: "Theme: System", action: () => updatePrefs({ theme: "system" as ThemeName }), category: "Theme" },
     { id: "settings-reduce-motion", label: `Reduce Motion: ${prefs.reduceMotion ? "On" : "Off"}`, action: () => updatePrefs({ reduceMotion: !prefs.reduceMotion }), category: "Settings" },
     // Actions
     { id: "action-new-chat", label: "New Chat", action: () => { router.push("/deck/chat?new=1"); }, category: "Actions" },
@@ -50,59 +75,73 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: "action-refresh", label: "Refresh Stats", action: () => window.location.reload(), category: "Actions" },
   ];
 
-  const filteredCommands = query
-    ? commands.filter((cmd) =>
-        cmd.label.toLowerCase().includes(query.toLowerCase())
-      )
-    : commands;
+  // Merge registered shortcuts as discoverable commands
+  const registeredShortcuts = getRegisteredShortcuts();
+  const shortcutCommands: Command[] = registeredShortcuts
+    .filter(s => s.label && !commands.some(c => c.shortcut === s.combo))
+    .map(s => ({
+      id: `shortcut-${s.combo}`,
+      label: s.label!,
+      shortcut: s.combo.replace("mod+", "⌘").replace("shift+", "⇧"),
+      action: () => {}, // These are informational
+      category: "Shortcuts",
+    }));
 
-  // Group by category
-  const groupedCommands = filteredCommands.reduce((acc, cmd) => {
+  const allCommands = [...commands, ...shortcutCommands];
+
+  const filteredCommands = query
+    ? allCommands.filter((cmd) => fuzzyMatch(cmd.label, query))
+    : allCommands;
+
+  // Group by category, prepending "Recent" section when query is empty
+  const groupedCommands: Record<string, Command[]> = {};
+
+  if (!query && recentIds.length > 0) {
+    const recentCmds = recentIds
+      .map(id => allCommands.find(c => c.id === id))
+      .filter((c): c is Command => c !== undefined);
+    if (recentCmds.length > 0) {
+      groupedCommands["Recent"] = recentCmds;
+    }
+  }
+
+  filteredCommands.reduce((acc, cmd) => {
     if (!acc[cmd.category]) acc[cmd.category] = [];
     acc[cmd.category].push(cmd);
     return acc;
-  }, {} as Record<string, Command[]>);
+  }, groupedCommands);
 
   const flatCommands = Object.values(groupedCommands).flat();
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (!open) return;
+  // Keyboard shortcuts (centralized via useShortcut)
+  // These only fire when the palette is open, and at high priority so they
+  // consume Escape before lower-priority handlers (canvas, settings drawer).
+  useShortcut("arrowdown", () => {
+    setSelectedIndex((i) => Math.min(i + 1, flatCommands.length - 1));
+  }, { enabled: open, priority: 100, label: "Palette: next item" });
 
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          setSelectedIndex((i) => Math.min(i + 1, flatCommands.length - 1));
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
-          break;
-        case "Enter":
-          e.preventDefault();
-          if (flatCommands[selectedIndex]) {
-            flatCommands[selectedIndex].action();
-            onClose();
-          }
-          break;
-        case "Escape":
-          e.preventDefault();
-          onClose();
-          break;
-      }
-    },
-    [open, flatCommands, selectedIndex, onClose]
-  );
+  useShortcut("arrowup", () => {
+    setSelectedIndex((i) => Math.max(i - 1, 0));
+  }, { enabled: open, priority: 100, label: "Palette: previous item" });
 
-  useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+  useShortcut("enter", () => {
+    if (flatCommands[selectedIndex]) {
+      addRecent(flatCommands[selectedIndex].id);
+      setRecentIds(getRecentIds());
+      flatCommands[selectedIndex].action();
+      onClose();
+    }
+  }, { enabled: open, priority: 100, label: "Palette: execute command" });
+
+  useShortcut("escape", () => {
+    onClose();
+  }, { enabled: open, priority: 100, label: "Close command palette" });
 
   useEffect(() => {
     if (open) {
       setQuery("");
       setSelectedIndex(0);
+      setRecentIds(getRecentIds());
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
@@ -124,19 +163,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       >
         {/* Search input */}
         <div className="flex items-center border-b border-[var(--border)] px-4">
-          <svg
-            className="w-5 h-5 text-[var(--text-muted)]"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+          <Search className="w-5 h-5 text-[var(--text-muted)]" />
           <input
             ref={inputRef}
             type="text"
@@ -164,6 +191,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                   <button
                     key={cmd.id}
                     onClick={() => {
+                      addRecent(cmd.id);
+                      setRecentIds(getRecentIds());
                       cmd.action();
                       onClose();
                     }}

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { Maximize2 } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 import { ToolCallCard, type ToolCallData } from "./ToolCallCard";
 import { CodeExecutionBlock, type CodeExecutionData } from "./CodeExecutionBlock";
 import { ThinkingIndicator, ReasoningBubble } from "./ReasoningDisplay";
 import { ActivityPlan, ActivityProgress, ActivitySearch, type PlanStep } from "./ActivityDisplay";
 import { SportsScoreCard, WeatherCard, InfoCard, type SportsScoreData, type WeatherData } from "./InfoCards";
+import { useCanvas } from "@/lib/hooks/useCanvas";
 
 interface Message {
   id: string;
@@ -40,7 +42,7 @@ interface MessageRendererProps {
 }
 
 // =============================================================================
-// FormattedContent - Renders text with code blocks
+// FormattedContent - Renders text with code blocks (with Canvas integration)
 // =============================================================================
 
 function FormattedContent({ content }: { content: string }) {
@@ -75,37 +77,7 @@ function FormattedContent({ content }: { content: string }) {
     <>
       {parts.map((part, idx) => {
         if (part.type === "code") {
-          return (
-            <pre
-              key={idx}
-              style={{
-                background: "var(--bg-tertiary)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                padding: "12px 14px",
-                margin: "8px 0",
-                overflow: "auto",
-                fontSize: 13,
-                lineHeight: 1.5,
-                fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
-              }}
-            >
-              {part.lang && (
-                <div
-                  style={{
-                    fontSize: 10,
-                    color: "var(--text-muted)",
-                    marginBottom: 8,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  {part.lang}
-                </div>
-              )}
-              <code style={{ color: "var(--text-primary)" }}>{part.content}</code>
-            </pre>
-          );
+          return <CodeBlockWithCanvas key={idx} code={part.content} language={part.lang} />;
         }
         return (
           <span key={idx} style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -114,6 +86,129 @@ function FormattedContent({ content }: { content: string }) {
         );
       })}
     </>
+  );
+}
+
+// =============================================================================
+// CodeBlockWithCanvas - Code block with "Open in Canvas" button
+// =============================================================================
+
+function CodeBlockWithCanvas({ code, language }: { code: string; language?: string }) {
+  const { openCode } = useCanvas();
+  const [copied, setCopied] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleOpenCanvas = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    openCode(code, language || "text", language ? `${language} code` : "Code snippet");
+  };
+
+  // Determine if this is executable code
+  const isExecutable = ["python", "javascript", "typescript", "go", "bash", "sh", "lua", "c", "react", "html", "threejs"].includes(language?.toLowerCase() || "");
+
+  return (
+    <div
+      className="code-block-canvas group"
+      style={{
+        position: "relative",
+        background: "#111113",
+        borderRadius: 6,
+        margin: "10px 0",
+        overflow: "hidden",
+        border: "1px solid rgba(255, 255, 255, 0.06)",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Code content */}
+      <pre
+        style={{
+          padding: "14px 16px",
+          margin: 0,
+          overflow: "auto",
+          fontSize: 13,
+          lineHeight: 1.6,
+          fontFamily: "'Geist Mono', 'SF Mono', ui-monospace, Consolas, monospace",
+        }}
+      >
+        <code style={{ color: "#D4D4D4" }}>{code}</code>
+      </pre>
+
+      {/* Language tag - top right */}
+      <span
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 12,
+          fontSize: 10,
+          color: "rgba(255,255,255,0.35)",
+          textTransform: "uppercase",
+          letterSpacing: "0.5px",
+          fontWeight: 500,
+          pointerEvents: "none",
+        }}
+      >
+        {language || "text"}
+      </span>
+
+      {/* Action buttons - fade in on hover */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 8,
+          right: 8,
+          display: "flex",
+          gap: 4,
+          opacity: hovered ? 1 : 0,
+          transition: "opacity 150ms cubic-bezier(0.4, 0, 0.6, 1)",
+        }}
+      >
+        <button
+          onClick={handleCopy}
+          style={{
+            padding: "4px 10px",
+            fontSize: 11,
+            fontWeight: 500,
+            color: "rgba(255,255,255,0.7)",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 6,
+            cursor: "pointer",
+            transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)",
+          }}
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+
+        <button
+          onClick={handleOpenCanvas}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "4px 10px",
+            fontSize: 11,
+            fontWeight: 500,
+            color: isExecutable ? "var(--success)" : "rgba(255,255,255,0.7)",
+            background: isExecutable ? "rgba(62, 207, 113, 0.08)" : "rgba(255,255,255,0.06)",
+            border: isExecutable ? "1px solid rgba(62, 207, 113, 0.15)" : "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 6,
+            cursor: "pointer",
+            transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)",
+          }}
+        >
+          <Maximize2 width={10} height={10} />
+          {isExecutable ? "Run" : "Canvas"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -180,17 +275,17 @@ export function MessageRenderer({
 function UserMessage({ message }: { message: Message }) {
   // Get any uploaded images from artifacts
   const images = message.artifacts?.filter((a) => a.mimeType?.startsWith("image/")) || [];
-  
+
   // Strip image references from content
   const cleanContent = message.content
     .replace(/\[Image:[^\]]+\]\s*\(image_id:[^)]+\)\n*/g, "")
     .trim();
 
   return (
-    <div style={{ textAlign: "right" }}>
+    <div style={{ maxWidth: "100%" }}>
       {/* User uploaded images */}
       {images.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "flex-end", marginBottom: cleanContent ? 8 : 0 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: cleanContent ? 8 : 0 }}>
           {images.map((img) => (
             <img
               key={img.id}
@@ -200,24 +295,25 @@ function UserMessage({ message }: { message: Message }) {
                 width: 120,
                 height: 120,
                 objectFit: "cover",
-                borderRadius: 8,
+                borderRadius: 6,
               }}
             />
           ))}
         </div>
       )}
-      
-      {/* Text */}
+
+      {/* User text — flat, left-aligned, subtle bg, no bubble */}
       {cleanContent && (
         <div
           style={{
-            display: "inline-block",
-            textAlign: "left",
-            fontSize: 17,
+            fontSize: 14,
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
             color: "var(--text-primary)",
+            background: "rgba(255, 255, 255, 0.04)",
+            borderRadius: 6,
+            padding: "10px 14px",
           }}
         >
           {cleanContent}
@@ -266,10 +362,10 @@ function AssistantMessage({
   const reasoningText = reasoningContent || message.reasoning;
 
   return (
-    <div style={{ textAlign: "left" }}>
+    <div style={{ textAlign: "left", maxWidth: "90%" }}>
       {/* Thinking indicator - shown while actively reasoning with no content yet */}
       {isThinking && isLast && !reasoningText && !cleanContent && (
-        <ThinkingIndicator message="Reasoning..." isActive={true} />
+        <ThinkingIndicator message="Thinking..." isActive={true} />
       )}
 
       {/* Reasoning bubble - shown when we have reasoning content */}
@@ -325,13 +421,14 @@ function AssistantMessage({
         </div>
       )}
 
-      {/* Text content with code block support */}
+      {/* Text content — flat, no bubble, no background */}
       {cleanContent && (
         <div
           style={{
-            fontSize: 17,
+            fontSize: 14,
             lineHeight: 1.6,
-            color: "var(--text-secondary)",
+            color: "var(--text-primary)",
+            padding: "4px 0",
           }}
         >
           <FormattedContent content={cleanContent} />
@@ -340,18 +437,18 @@ function AssistantMessage({
 
       {/* Blinking dot while generating */}
       {showLoadingDot && (
-        <span
-          style={{
-            display: "inline-block",
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: "var(--accent)",
-            marginLeft: cleanContent ? 6 : 0,
-            marginTop: 8,
-            animation: "pulse 1.5s ease-in-out infinite",
-          }}
-        />
+        <div style={{ padding: "4px 0", display: "inline-block" }}>
+          <span
+            className="animate-thinking-pulse"
+            style={{
+              display: "inline-block",
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--accent)",
+            }}
+          />
+        </div>
       )}
 
       {/* Tool calls */}
@@ -397,23 +494,32 @@ function AssistantMessage({
 }
 
 function ImageBlock({ artifact }: { artifact: Artifact }) {
+  const { openImage } = useCanvas();
   const [size, setSize] = useState<'normal' | 'expanded' | 'wide'>('normal');
+  const [hovered, setHovered] = useState(false);
   const isSvg = artifact.mimeType === "image/svg+xml";
-  
+
   const cycleSize = () => {
     setSize(prev => prev === 'normal' ? 'expanded' : prev === 'expanded' ? 'wide' : 'normal');
   };
-  
+
+  const handleOpenCanvas = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    openImage(artifact.url, artifact.name, artifact.mimeType || "image/png");
+  };
+
   const widths = {
     normal: isSvg ? 256 : 350,
     expanded: isSvg ? 400 : 600,
     wide: '100%',
   };
-  
+
   return (
-    <div 
+    <div
       className={size === 'wide' ? 'artifact-wide' : ''}
-      style={{ marginTop: 8, position: 'relative', display: 'inline-block' }}
+      style={{ marginTop: 10, position: 'relative', display: 'inline-block' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       <img
         src={artifact.url}
@@ -423,47 +529,75 @@ function ImageBlock({ artifact }: { artifact: Artifact }) {
           display: "block",
           maxWidth: widths[size],
           height: "auto",
-          borderRadius: 8,
+          borderRadius: 6,
           background: isSvg ? "var(--bg-tertiary)" : undefined,
           padding: isSvg ? 8 : undefined,
           cursor: "pointer",
-          transition: "max-width 0.2s ease",
+          transition: "max-width 150ms cubic-bezier(0, 0, 0.2, 1)",
         }}
       />
-      {/* Expand indicator */}
-      <button
-        onClick={(e) => { e.stopPropagation(); cycleSize(); }}
+      {/* Action buttons - top right */}
+      <div
         style={{
           position: 'absolute',
           top: 8,
           right: 8,
-          background: 'rgba(0,0,0,0.6)',
-          border: 'none',
-          borderRadius: 4,
-          padding: '4px 8px',
-          color: 'white',
-          fontSize: 11,
-          cursor: 'pointer',
-          opacity: 0.8,
-          transition: 'opacity 0.15s',
+          display: 'flex',
+          gap: 4,
+          opacity: hovered ? 1 : 0,
+          transition: 'opacity 150ms cubic-bezier(0.4, 0, 0.6, 1)',
         }}
-        title={size === 'normal' ? 'Expand' : size === 'expanded' ? 'Full width' : 'Reset size'}
       >
-        {size === 'normal' ? '↗' : size === 'expanded' ? '⤢' : '↙'}
-      </button>
+        <button
+          onClick={handleOpenCanvas}
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 6,
+            padding: '5px 10px',
+            color: 'rgba(255,255,255,0.7)',
+            fontSize: 11,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            transition: 'background 150ms cubic-bezier(0, 0, 0.2, 1)',
+          }}
+          title="Open in Canvas"
+        >
+          <Maximize2 width={10} height={10} />
+          Canvas
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); cycleSize(); }}
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 6,
+            padding: '5px 10px',
+            color: 'rgba(255,255,255,0.7)',
+            fontSize: 11,
+            cursor: 'pointer',
+            transition: 'background 150ms cubic-bezier(0, 0, 0.2, 1)',
+          }}
+          title={size === 'normal' ? 'Expand' : size === 'expanded' ? 'Full width' : 'Reset size'}
+        >
+          {size === 'normal' ? '↗' : size === 'expanded' ? '⤢' : '↙'}
+        </button>
+      </div>
       {isSvg && (
         <a
           href={artifact.url}
           download={artifact.name}
           style={{
             display: "inline-block",
-            marginTop: 4,
+            marginTop: 6,
             fontSize: 11,
             color: "var(--accent)",
             textDecoration: "none",
           }}
         >
-          Download SVG ↓
+          Download SVG
         </a>
       )}
     </div>
@@ -472,11 +606,18 @@ function ImageBlock({ artifact }: { artifact: Artifact }) {
 
 function AudioBlock({ artifact }: { artifact: Artifact }) {
   return (
-    <div style={{ marginTop: 8, maxWidth: 320 }}>
+    <div style={{
+      marginTop: 10,
+      maxWidth: 320,
+      background: "var(--bg-secondary)",
+      borderRadius: 6,
+      padding: 10,
+      border: "1px solid var(--border)",
+    }}>
       <audio
         controls
         src={artifact.url}
-        style={{ width: "100%", height: 36 }}
+        style={{ width: "100%", height: 36, borderRadius: 8 }}
       />
     </div>
   );
@@ -490,8 +631,9 @@ function ModelBlock({ artifact }: { artifact: Artifact }) {
         width: 350,
         height: 250,
         background: "var(--bg-tertiary)",
-        borderRadius: 8,
+        borderRadius: 6,
         overflow: "hidden",
+        border: "1px solid var(--border)",
       }}
     >
       {/* @ts-expect-error - model-viewer is a web component */}
@@ -514,9 +656,10 @@ function HtmlPreviewBlock({ artifact }: { artifact: Artifact }) {
         marginTop: 12,
         width: "100%",
         maxWidth: 450,
-        borderRadius: 8,
+        borderRadius: 6,
         overflow: "hidden",
-        border: "1px solid var(--border-secondary)",
+        border: "1px solid var(--border)",
+        /* no shadow — luminance only */
       }}
     >
       {/* Header */}
@@ -527,7 +670,7 @@ function HtmlPreviewBlock({ artifact }: { artifact: Artifact }) {
           justifyContent: "space-between",
           padding: "8px 12px",
           background: "var(--bg-tertiary)",
-          borderBottom: "1px solid var(--border-secondary)",
+          borderBottom: "1px solid var(--border)",
         }}
       >
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>

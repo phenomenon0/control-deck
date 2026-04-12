@@ -48,13 +48,15 @@ export function VoiceTranscript({
       style={{
         flex: 1,
         overflowY: "auto",
-        padding: "16px",
+        width: "100%",
+        maxWidth: "420px",
+        padding: "8px 0",
         display: "flex",
         flexDirection: "column",
-        gap: "12px",
-        maxHeight: "200px",
-        maskImage: "linear-gradient(to bottom, transparent, black 16px, black calc(100% - 16px), transparent)",
-        WebkitMaskImage: "linear-gradient(to bottom, transparent, black 16px, black calc(100% - 16px), transparent)",
+        gap: "8px",
+        maxHeight: "240px",
+        maskImage: "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)",
+        WebkitMaskImage: "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)",
       }}
     >
       {entries.length === 0 && !currentUserSpeech && !isListening && (
@@ -100,10 +102,9 @@ function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
           textAlign: "center",
           color: "var(--text-muted)",
           fontSize: "12px",
-          padding: "4px 8px",
-          background: "var(--bg-tertiary)",
-          borderRadius: "4px",
-          alignSelf: "center",
+          padding: "3px 10px",
+          fontWeight: "400",
+          fontFamily: "var(--font-mono, 'Geist Mono', monospace)",
         }}
       >
         {entry.content}
@@ -115,54 +116,54 @@ function TranscriptBubble({ entry }: { entry: TranscriptEntry }) {
     <div
       style={{
         display: "flex",
-        flexDirection: "column",
-        alignItems: isUser ? "flex-end" : "flex-start",
-        gap: "4px",
+        alignItems: "flex-start",
+        gap: "8px",
+        padding: "2px 0",
       }}
     >
-      {/* Role label */}
+      {/* Role marker */}
       <span
         style={{
           fontSize: "11px",
-          color: "var(--text-muted)",
+          fontWeight: "500",
+          color: isUser ? "var(--accent)" : "var(--text-muted)",
+          fontFamily: "var(--font-mono, 'Geist Mono', monospace)",
           textTransform: "uppercase",
-          letterSpacing: "0.5px",
+          letterSpacing: "0.04em",
+          flexShrink: 0,
+          marginTop: "2px",
+          width: "24px",
         }}
       >
-        {isUser ? "You" : "Assistant"}
+        {isUser ? "You" : "AI"}
       </span>
-
-      {/* Message bubble */}
+      {/* Flat text — no background */}
       <div
         style={{
-          maxWidth: "85%",
-          padding: "10px 14px",
-          borderRadius: isUser ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-          background: isUser ? "var(--accent)" : "var(--bg-tertiary)",
-          color: isUser ? "var(--bg-primary)" : "var(--text-primary)",
-          fontSize: "15px",
-          lineHeight: "1.4",
-          position: "relative",
+          flex: 1,
+          color: "var(--text-primary)",
+          fontSize: "14px",
+          lineHeight: "1.5",
+          letterSpacing: "-0.01em",
         }}
       >
         {entry.content || (
-          <span style={{ opacity: 0.6, fontStyle: "italic" }}>
-            {entry.isStreaming ? "Listening..." : "..."}
+          <span style={{ opacity: 0.4, fontStyle: "italic", fontSize: "13px" }}>
+            {entry.isStreaming ? "..." : ""}
           </span>
         )}
-        
-        {/* Streaming indicator */}
+
+        {/* Streaming cursor */}
         {entry.isStreaming && entry.content && (
           <span
             style={{
               display: "inline-block",
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              background: isUser ? "var(--bg-primary)" : "var(--accent)",
-              marginLeft: "4px",
+              width: "1px",
+              height: "14px",
+              background: "var(--accent)",
+              marginLeft: "2px",
               animation: "pulse 1s ease-in-out infinite",
-              verticalAlign: "middle",
+              verticalAlign: "text-bottom",
             }}
           />
         )}
@@ -189,11 +190,12 @@ export function CompactTranscript({
         display: "flex",
         alignItems: "center",
         gap: "8px",
-        padding: "8px 12px",
+        padding: "6px 12px",
         background: "var(--bg-secondary)",
-        borderRadius: "8px",
-        fontSize: "14px",
+        borderRadius: "100px",
+        fontSize: "13px",
         color: "var(--text-secondary)",
+        letterSpacing: "-0.01em",
       }}
     >
       <span
@@ -202,6 +204,7 @@ export function CompactTranscript({
           fontWeight: "600",
           color: isUser ? "var(--accent)" : "var(--text-muted)",
           textTransform: "uppercase",
+          letterSpacing: "0.03em",
         }}
       >
         {isUser ? "You" : "AI"}
@@ -219,8 +222,8 @@ export function CompactTranscript({
       {isStreaming && (
         <span
           style={{
-            width: "6px",
-            height: "6px",
+            width: "5px",
+            height: "5px",
             borderRadius: "50%",
             background: "var(--accent)",
             animation: "pulse 1s ease-in-out infinite",

@@ -196,7 +196,9 @@ class Parser {
   }
 
   parse(): unknown {
+    this.skipNewlines();
     const result = this.parseValue();
+    this.skipNewlines();
     const next = this.tokenizer.peek();
     if (next.type !== "EOF") {
       throw new Error(`Unexpected token after value: ${next.type} at position ${next.pos}`);
@@ -204,7 +206,15 @@ class Parser {
     return result;
   }
 
+  /** Skip any newline tokens (for multiline support) */
+  private skipNewlines(): void {
+    while (this.tokenizer.peek().type === "NEWLINE") {
+      this.tokenizer.next();
+    }
+  }
+
   private parseValue(): unknown {
+    this.skipNewlines();
     const token = this.tokenizer.peek();
 
     switch (token.type) {
@@ -244,6 +254,7 @@ class Parser {
     const items: unknown[] = [];
 
     while (true) {
+      this.skipNewlines();
       const next = this.tokenizer.peek();
       if (next.type === "RBRACKET") {
         this.tokenizer.next();
@@ -277,9 +288,10 @@ class Parser {
   private parsePackedStruct(): Record<string, unknown> {
     this.tokenizer.next(); // consume [
 
-    // Parse keys
+    // Parse keys (allow newlines between keys)
     const keys: string[] = [];
     while (true) {
+      this.skipNewlines();
       const token = this.tokenizer.peek();
       if (token.type === "RBRACKET") {
         this.tokenizer.next();
@@ -293,15 +305,17 @@ class Parser {
       }
     }
 
-    // Expect (
+    // Expect ( - allow newlines before it
+    this.skipNewlines();
     const lparen = this.tokenizer.next();
     if (lparen.type !== "LPAREN") {
       throw new Error(`Expected '(' after keys, got ${lparen.type} at position ${lparen.pos}`);
     }
 
-    // Parse values
+    // Parse values (allow newlines between values)
     const values: unknown[] = [];
     while (true) {
+      this.skipNewlines();
       const token = this.tokenizer.peek();
       if (token.type === "RPAREN") {
         this.tokenizer.next();

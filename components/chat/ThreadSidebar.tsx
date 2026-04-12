@@ -1,42 +1,32 @@
 "use client";
 
 import { ChevronsRight, Plus, ChevronsLeft, MessageSquare, X } from "lucide-react";
-import type { Thread } from "@/lib/chat/helpers";
+import { useThreadManager } from "@/lib/hooks/useThreadManager";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 
-interface ThreadSidebarProps {
-  threads: Thread[];
-  activeThreadId: string | null;
-  threadGroups: { label: string; threads: Thread[] }[];
-  sidebarOpen: boolean;
-  onToggleSidebar: (open: boolean) => void;
-  onNewThread: () => void;
-  onSelectThread: (id: string) => void;
-  onDeleteThread: (id: string, e: React.MouseEvent) => void;
-}
-
-export function ThreadSidebar({
-  threads,
-  activeThreadId,
-  threadGroups,
-  sidebarOpen,
-  onToggleSidebar,
-  onNewThread,
-  onSelectThread,
-  onDeleteThread,
-}: ThreadSidebarProps) {
+/**
+ * ThreadSidebar — self-contained thread list that consumes context directly.
+ * Rendered at the shell level (DeckShell) per DESIGN.md §4, not inside ChatSurface.
+ */
+export function ThreadSidebar() {
+  const {
+    threads, activeThreadId, threadGroups,
+    createThread, selectThread, deleteThread,
+  } = useThreadManager();
+  const { sidebarOpen, setSidebarOpen } = useDeckSettings();
   return (
     <aside className={`thread-sidebar ${sidebarOpen ? "expanded" : "collapsed"}`}>
       {/* Collapsed view buttons */}
       <div className="sidebar-collapsed-content">
         <button
-          onClick={() => onToggleSidebar(true)}
+          onClick={() => setSidebarOpen(true)}
           className="sidebar-expand-btn"
           title="Open sidebar (Cmd+B)"
         >
           <ChevronsRight width={16} height={16} />
         </button>
         <button
-          onClick={onNewThread}
+          onClick={() => createThread()}
           className="sidebar-new-btn-mini"
           title="New Chat"
         >
@@ -51,12 +41,12 @@ export function ThreadSidebar({
       <div className="sidebar-expanded-content">
         {/* Sidebar Header */}
         <div className="sidebar-header-left">
-          <button onClick={onNewThread} className="new-chat-btn">
+          <button onClick={() => createThread()} className="new-chat-btn">
             <Plus width={16} height={16} />
             New Chat
           </button>
           <button
-            onClick={() => onToggleSidebar(false)}
+            onClick={() => setSidebarOpen(false)}
             className="sidebar-collapse-btn"
             title="Close sidebar (Cmd+B)"
           >
@@ -83,7 +73,7 @@ export function ThreadSidebar({
                 {group.threads.map((t) => (
                   <div
                     key={t.id}
-                    onClick={() => onSelectThread(t.id)}
+                    onClick={() => selectThread(t.id)}
                     className={`thread-item ${activeThreadId === t.id ? "active" : ""}`}
                   >
                     <div className="thread-item-icon">
@@ -93,7 +83,7 @@ export function ThreadSidebar({
                       <div className="thread-item-title">{t.title}</div>
                     </div>
                     <button
-                      onClick={(e) => onDeleteThread(t.id, e)}
+                      onClick={(e) => { e.stopPropagation(); deleteThread(t.id); }}
                       className="thread-delete-btn"
                       title="Delete"
                     >

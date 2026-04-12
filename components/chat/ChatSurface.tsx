@@ -22,7 +22,6 @@ import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
 import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
 import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
-import { ThreadSidebar } from "@/components/chat/ThreadSidebar";
 import { ChatTimeline } from "@/components/chat/ChatTimeline";
 import { StatusStrip } from "@/components/chat/StatusStrip";
 import { ChatComposer } from "@/components/chat/ChatComposer";
@@ -74,13 +73,13 @@ export default function ChatSurface() {
   // ---------------------------------------------------------------------------
   // External hooks
   // ---------------------------------------------------------------------------
-  const { prefs, sidebarOpen, setSidebarOpen } = useDeckSettings();
+  const { prefs } = useDeckSettings();
   // ---------------------------------------------------------------------------
   // Threads
   // ---------------------------------------------------------------------------
   const {
     threads, activeThreadId, messages, setMessages,
-    threadGroups, effectiveThreadId, fallbackThreadId,
+    effectiveThreadId, fallbackThreadId,
     setActiveThreadId, createThread, selectThread, deleteThread,
     setThreads,
   } = useThreadManager();
@@ -197,6 +196,17 @@ export default function ChatSurface() {
     openedArtifactIdsRef.current.clear();
   }, [effectiveThreadId]);
 
+  // Clean up local state on thread switch (uploads, input focus)
+  // Replaces the side-effects that were previously in handleNewThread/handleSelectThread
+  const prevThreadRef = useRef(activeThreadId);
+  useEffect(() => {
+    if (prevThreadRef.current !== activeThreadId) {
+      prevThreadRef.current = activeThreadId;
+      setPendingUploads([]);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    }
+  }, [activeThreadId, setPendingUploads]);
+
   // ---------------------------------------------------------------------------
   // Elapsed time for StatusStrip
   // ---------------------------------------------------------------------------
@@ -303,21 +313,6 @@ export default function ChatSurface() {
   // ---------------------------------------------------------------------------
   // Handlers (before effects so keyboard shortcuts can reference them)
   // ---------------------------------------------------------------------------
-  const handleNewThread = useCallback(() => {
-    createThread();
-    setPendingUploads([]);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  }, [createThread, setPendingUploads]);
-
-  const handleSelectThread = useCallback((id: string) => {
-    selectThread(id);
-    setPendingUploads([]);
-  }, [selectThread, setPendingUploads]);
-
-  const handleDeleteThread = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    deleteThread(id);
-  };
 
   // ---------------------------------------------------------------------------
   // Effects: Auto-TTS, keyboard shortcuts
@@ -388,7 +383,7 @@ export default function ChatSurface() {
       // Cmd+N — new thread
       if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        handleNewThread();
+        createThread();
         return;
       }
 
@@ -422,7 +417,7 @@ export default function ChatSurface() {
           nextIdx = currentIdx <= 0 ? 0 : currentIdx - 1;
         }
         if (nextIdx >= 0 && nextIdx < threads.length) {
-          handleSelectThread(threads[nextIdx].id);
+          selectThread(threads[nextIdx].id);
         }
         return;
       }
@@ -458,7 +453,7 @@ export default function ChatSurface() {
   }, [
     uploadTrayOpen, voiceChat, prefs.voice, setUploadTrayOpen,
     inputValue, activeThreadId, threads,
-    handleNewThread, handleSelectThread, deleteThread,
+    createThread, selectThread, deleteThread,
   ]);
 
   const onSubmit = useCallback(async (e: React.FormEvent) => {
@@ -670,18 +665,6 @@ export default function ChatSurface() {
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      {/* Left Sidebar */}
-      <ThreadSidebar
-        threads={threads}
-        activeThreadId={activeThreadId}
-        threadGroups={threadGroups}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={setSidebarOpen}
-        onNewThread={handleNewThread}
-        onSelectThread={handleSelectThread}
-        onDeleteThread={handleDeleteThread}
-      />
-
       {/* Main chat column */}
       <main aria-label="Chat" className="cs-main">
         {/* Hidden file input */}

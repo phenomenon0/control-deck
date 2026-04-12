@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import { DeckSettingsProvider } from "./settings/DeckSettingsProvider";
@@ -13,6 +14,7 @@ import { ThreadManagerProvider } from "@/lib/hooks/useThreadManager";
 import { Sidebar } from "./shell/Sidebar";
 import { TopBar } from "./shell/TopBar";
 import { InspectorSheet } from "./InspectorSheet";
+import { ThreadSidebar } from "./chat/ThreadSidebar";
 
 // =============================================================================
 // Inner Shell (needs context)
@@ -21,6 +23,8 @@ import { InspectorSheet } from "./InspectorSheet";
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const pathname = usePathname();
+  const isChat = pathname === "/deck/chat" || pathname.startsWith("/deck/chat/");
 
   useShortcut("mod+k", () => setPaletteOpen((o) => !o), {
     label: "Toggle command palette",
@@ -40,6 +44,9 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     <div className="deck-shell">
       {/* Left sidebar */}
       <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
+
+      {/* Thread sidebar — shell-level, visible only on /deck/chat (DESIGN.md §4) */}
+      {isChat && <ThreadSidebar />}
 
       {/* Right: header + main content */}
       <div className="deck-body">

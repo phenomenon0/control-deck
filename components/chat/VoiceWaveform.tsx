@@ -166,7 +166,7 @@ export function RecordingIndicator({ isRecording }: { isRecording: boolean }) {
         width: 8,
         height: 8,
         borderRadius: "50%",
-        background: "#ef4444",
+        background: "var(--error)",
         animation: "pulse 1s ease-in-out infinite",
       }}
     />

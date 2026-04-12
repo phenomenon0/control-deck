@@ -1137,7 +1137,7 @@ code, pre, .mono, kbd, .font-mono {
 
 @keyframes composer-border-pulse {
   0%, 100% { border-color: var(--border); }
-  50% { border-color: rgba(94, 106, 210, 0.25); }
+  50% { border-color: var(--border-accent); }
 }
 
 /* Context row: model badge + attachment thumbnails */
@@ -1282,7 +1282,7 @@ code, pre, .mono, kbd, .font-mono {
 .composer-btn-icon--voice-active {
   color: var(--accent);
   background: var(--accent-muted);
-  border: 1px solid rgba(94, 106, 210, 0.2);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
 }
 
 /* Recording state */
@@ -1360,7 +1360,8 @@ code, pre, .mono, kbd, .font-mono {
 }
 
 .composer-btn-stop:hover {
-  background: #d1423b;
+  background: var(--error);
+  filter: brightness(0.88);
 }
 
 .composer-btn-stop:active {

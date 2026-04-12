@@ -64,8 +64,8 @@ function UserMessageBlock({ segment }: { segment: UserMessageSegment }) {
       style={{
         maxWidth: "85%",
         marginLeft: "auto",
-        background: "rgba(94, 106, 210, 0.08)",
-        border: "1px solid rgba(94, 106, 210, 0.12)",
+        background: "rgba(var(--accent-rgb), 0.08)",
+        border: "1px solid rgba(var(--accent-rgb), 0.12)",
         borderRadius: "var(--radius-lg, 10px) var(--radius-lg, 10px) var(--radius-sm, 4px) var(--radius-lg, 10px)",
         padding: "var(--sp-3, 12px) var(--sp-4, 16px)",
         marginBottom: "var(--sp-3, 12px)",

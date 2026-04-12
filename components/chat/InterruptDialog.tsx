@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 interface InterruptRequest {
   runId: string;
@@ -60,25 +60,39 @@ async function rejectRun(runId: string, reason?: string): Promise<boolean> {
 export function InterruptDialog({ request, onApprove, onReject }: InterruptDialogProps) {
   const [isProcessing, setIsProcessing] = useState(false);
 
-  if (!request) return null;
-
-  const handleApprove = async () => {
+  const handleApprove = useCallback(async () => {
+    if (!request) return;
     setIsProcessing(true);
     const success = await approveRun(request.runId);
     setIsProcessing(false);
     if (success) {
       onApprove();
     }
-  };
+  }, [request, onApprove]);
 
-  const handleReject = async () => {
+  const handleReject = useCallback(async () => {
+    if (!request) return;
     setIsProcessing(true);
     const success = await rejectRun(request.runId, "User rejected");
     setIsProcessing(false);
     if (success) {
       onReject("User rejected");
     }
-  };
+  }, [request, onReject]);
+
+  // Escape key dismisses dialog (rejects the request)
+  useEffect(() => {
+    if (!request) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isProcessing) {
+        handleReject();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [request, isProcessing, handleReject]);
+
+  if (!request) return null;
 
   // Format args for display
   const formatArgs = (args: Record<string, unknown> | undefined) => {
@@ -96,12 +110,13 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
     });
   };
 
-  // Risk level styling
-  const getRiskColor = (toolName: string) => {
-    if (["bash", "write_file", "edit_file"].includes(toolName)) {
-      return "#ef4444"; // red for high risk
-    }
-    return "#f59e0b"; // amber for medium risk
+  // Risk level styling — returns token-based colors for theme compatibility
+  const getRiskStyle = (toolName: string) => {
+    const isHighRisk = ["bash", "write_file", "edit_file"].includes(toolName);
+    return {
+      color: isHighRisk ? "var(--error)" : "var(--warning)",
+      bg: isHighRisk ? "var(--error-muted)" : "var(--warning-muted)",
+    };
   };
 
   return (
@@ -109,7 +124,8 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.5)",
+        background: "rgba(0, 0, 0, 0.6)",
+        backdropFilter: "blur(4px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -134,7 +150,7 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
               width: 40,
               height: 40,
               borderRadius: 8,
-              background: `${getRiskColor(request.toolName)}20`,
+              background: getRiskStyle(request.toolName).bg,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -166,8 +182,8 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span
               style={{
-                background: `${getRiskColor(request.toolName)}30`,
-                color: getRiskColor(request.toolName),
+                background: getRiskStyle(request.toolName).bg,
+                color: getRiskStyle(request.toolName).color,
                 padding: "2px 8px",
                 borderRadius: 4,
                 fontSize: 12,

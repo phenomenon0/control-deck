@@ -1,7 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import {
+  ChevronDown,
+  Image,
+  Pencil,
+  Volume2,
+  Box,
+  Eye,
+  Search,
+  Sparkles,
+  Code,
+  BookOpen,
+  Database,
+  Wrench,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
 
@@ -56,20 +70,20 @@ export interface ToolCallCardProps {
 // Tool Display Config
 // =============================================================================
 
-const TOOL_CONFIG: Record<string, { icon: string; label: string }> = {
-  generate_image: { icon: "🖼️", label: "Image" },
-  edit_image: { icon: "✏️", label: "Edit" },
-  generate_audio: { icon: "🔊", label: "Audio" },
-  image_to_3d: { icon: "🎲", label: "3D" },
-  analyze_image: { icon: "👁️", label: "Vision" },
-  web_search: { icon: "🔍", label: "Search" },
-  glyph_motif: { icon: "✨", label: "Glyph" },
-  execute_code: { icon: "💻", label: "Code" },
-  vector_search: { icon: "📚", label: "Lookup" },
-  vector_store: { icon: "💾", label: "Store" },
+const TOOL_CONFIG: Record<string, { Icon: LucideIcon; label: string }> = {
+  generate_image: { Icon: Image, label: "Image" },
+  edit_image: { Icon: Pencil, label: "Edit" },
+  generate_audio: { Icon: Volume2, label: "Audio" },
+  image_to_3d: { Icon: Box, label: "3D" },
+  analyze_image: { Icon: Eye, label: "Vision" },
+  web_search: { Icon: Search, label: "Search" },
+  glyph_motif: { Icon: Sparkles, label: "Glyph" },
+  execute_code: { Icon: Code, label: "Code" },
+  vector_search: { Icon: BookOpen, label: "Lookup" },
+  vector_store: { Icon: Database, label: "Store" },
 };
 
-const DEFAULT_CONFIG = { icon: "🔧", label: "Tool" };
+const DEFAULT_CONFIG = { Icon: Wrench, label: "Tool" };
 
 // Keys to show as the "prompt" or main argument
 const PROMPT_KEYS = ["prompt", "query", "instruction", "code", "text", "question", "message"];
@@ -132,7 +146,7 @@ export function ToolCallCard(props: ToolCallCardProps) {
           color: "var(--text-secondary)",
         }}
       >
-        <span style={{ width: 5, height: 5, borderRadius: "50%", background: compactDotColor, flexShrink: 0 }} />
+        <config.Icon className="shrink-0" style={{ width: 12, height: 12, color: compactDotColor, strokeWidth: 1.5 }} />
         <span className="font-medium">{config.label}</span>
       </span>
     );
@@ -168,10 +182,10 @@ export function ToolCallCard(props: ToolCallCardProps) {
         }`}
         style={{ transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)" }}
       >
-        {/* Status Dot */}
-        <span
+        {/* Tool Icon */}
+        <config.Icon
           className={`shrink-0 ${dotClass}`}
-          style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor }}
+          style={{ width: 14, height: 14, color: dotColor, strokeWidth: 1.5 }}
         />
 
         {/* Tool Name */}

@@ -33,6 +33,7 @@
   --border-bright: rgba(255, 255, 255, 0.10);
   --separator: rgba(255, 255, 255, 0.04);
   --accent-rgb: 94, 106, 210;
+  --error-rgb: 229, 83, 75;
 
   /* Radius — 6px max */
   --radius: 6px;
@@ -218,6 +219,7 @@
   --border-bright: rgba(0, 0, 0, 0.15);
   --separator: rgba(0, 0, 0, 0.06);
   --accent-rgb: 0, 122, 255;
+  --error-rgb: 255, 59, 48;
   --radius: 0.75rem;
   --duration-micro: 20ms;
   --duration-standard: 240ms;
@@ -324,6 +326,7 @@
   --border-bright: rgba(255, 255, 255, 0.18);
   --separator: rgba(255, 255, 255, 0.06);
   --accent-rgb: 10, 132, 255;
+  --error-rgb: 255, 69, 58;
   --radius: 0.75rem;
   --duration-standard: 240ms;
   --duration-emphasis: 350ms;
@@ -420,6 +423,7 @@
     --border-bright: rgba(255, 255, 255, 0.18);
     --separator: rgba(255, 255, 255, 0.06);
     --accent-rgb: 10, 132, 255;
+    --error-rgb: 255, 69, 58;
     --background: #000000;
     --foreground: #F5F5F7;
     --card: #1C1C1E;
@@ -1509,7 +1513,7 @@ code, pre, .mono, kbd, .font-mono {
 }
 
 .status-strip-stop:hover {
-  background: rgba(229, 83, 75, 0.18);
+  background: rgba(var(--error-rgb), 0.18);
 }
 
 /* Status strip entrance */
@@ -1792,7 +1796,7 @@ code, pre, .mono, kbd, .font-mono {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
-  color: white;
+  color: var(--text-on-accent);
   border: none;
   cursor: pointer;
   opacity: 0;
@@ -1886,7 +1890,7 @@ code, pre, .mono, kbd, .font-mono {
 /* Recording state */
 .composer-btn-icon--recording {
   background: var(--error) !important;
-  color: white !important;
+  color: var(--text-on-accent) !important;
 }
 
 /* Upload count badge */
@@ -1950,7 +1954,7 @@ code, pre, .mono, kbd, .font-mono {
   border-radius: 8px;
   cursor: pointer;
   background: var(--error);
-  color: white;
+  color: var(--text-on-accent);
   transition: all var(--t-fast, 150ms) var(--ease-out, ease-out);
   flex-shrink: 0;
   padding: 0;

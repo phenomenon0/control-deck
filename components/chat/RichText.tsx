@@ -24,42 +24,7 @@
 import { useState, type ReactNode } from "react";
 import { Maximize2 } from "lucide-react";
 import { useCanvas } from "@/lib/hooks/useCanvas";
-
-// =============================================================================
-// Content stripping — remove machine metadata from LLM text
-// =============================================================================
-
-const STRIP_PATTERNS: RegExp[] = [
-  /```json\s*\n?\s*\{[\s\S]*?"tool"[\s\S]*?\}\s*\n?\s*```/g,
-  /\{"tool"\s*:\s*"[^"]+"\s*,\s*"args"\s*:\s*\{[\s\S]*?\}\s*\}/g,
-  /!\[.*?\]\(.*?\)/g,
-  /\[Executing [^\]]+\.\.\.\]\n*/g,
-  /\[Image:[^\]]+\]\s*\(image_id:[^)]+\)\n*/g,
-  /Image generated:.*?\(prompt_id:.*?\).*?(?:\.|$)\s*/g,
-  /Generated image:.*?\(queued, prompt_id:.*?\).*?(?:\n|$)/g,
-  /Generated \d+s? audio:.*?(?:\n|$)/g,
-  /Edited image:.*?(?:\n|$)/g,
-  /Generated 3D model.*?(?:\n|$)/g,
-  /Generated.*?glyph.*?(?:\n|$)/gi,
-  /Use `show_image` with this ID to view\.?\s*/g,
-  /Quick generation.*?SDXL Turbo\.?\s*/g,
-  /Code executed successfully.*?\n/g,
-  /Preview generated for.*?\n/g,
-  /Code execution failed.*?\n/g,
-  /\n?Output:\n```[\s\S]*?```/g,
-  /\n?Errors:\n```[\s\S]*?```/g,
-  /Success\.?\s*Artifact displayed in chat\.?\s*/gi,
-  /Artifact displayed\.?\s*/gi,
-  /Here(?:'s| is) the (?:audio|image|model|artifact)\.?\s*/gi,
-];
-
-function stripContent(content: string): string {
-  let clean = content;
-  for (const pattern of STRIP_PATTERNS) {
-    clean = clean.replace(new RegExp(pattern.source, pattern.flags), "");
-  }
-  return clean.replace(/\n{3,}/g, "\n\n").trim();
-}
+import { stripForDisplay } from "@/lib/chat/stripPatterns";
 
 // =============================================================================
 // Code Block component — styled block with copy + canvas buttons
@@ -373,7 +338,7 @@ interface RichTextProps {
 }
 
 export function RichText({ content, strip = true }: RichTextProps) {
-  const cleaned = strip ? stripContent(content) : content;
+  const cleaned = strip ? stripForDisplay(content) : content;
   if (!cleaned) return null;
 
   // Split by code blocks first: ```lang\ncode```

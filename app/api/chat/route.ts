@@ -6,7 +6,7 @@
  * - Native tools (workspace, web_search, memory)
  * - Tool bridge for UI tools (image gen, etc.)
  * 
- * Streams text responses via body, republishes AG-UI events to local hub.
+ * Returns a single SSE event stream; also republishes AG-UI events to local hub.
  */
 
 import { hub } from "@/lib/agui/hub";
@@ -41,6 +41,7 @@ import {
 } from "@/lib/agui/db";
 import { getBackendConfig, getDefaultModel } from "@/lib/llm";
 import { getSystemProfile } from "@/lib/system";
+import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 
 // Agent-GO server configuration
 const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
@@ -358,41 +359,12 @@ export async function POST(req: Request) {
   saveEvent(msgStart);
   hub.publish(thread, msgStart);
 
-  // Strip fake tool patterns from assistant messages to prevent the LLM from
-  // learning to fake tool calls based on conversation history
-  const stripFakeToolPatterns = (content: string): string => {
-    let clean = content;
-    
-    // Remove markdown images - these make the model think it can just output image syntax
-    clean = clean.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
-    
-    // Remove fake success phrases that precede fake tool results
-    clean = clean.replace(/Here is (?:an?|the) (?:image|picture|photo)[^.]*\.?/gi, '');
-    clean = clean.replace(/I(?:'ve| have) generated[^.]*\.?/gi, '');
-    clean = clean.replace(/Generated (?:an?|the) (?:image|picture)[^.]*\.?/gi, '');
-    
-    // Remove artifact IDs that might be in the text
-    clean = clean.replace(/img_\d+-\d+/g, '');
-    clean = clean.replace(/audio_\d+-\d+/g, '');
-    
-    // Remove deck filenames
-    clean = clean.replace(/deck_(?:turbo|img|audio)_\d+_?\.(?:png|jpg|mp3|wav)/gi, '');
-    
-    // Remove orphaned image references
-    clean = clean.replace(/\([^)]*\.(?:png|jpg|jpeg|gif|mp3|wav)\)/gi, '');
-    
-    // Collapse excessive whitespace
-    clean = clean.replace(/\n{3,}/g, '\n\n').trim();
-    
-    return clean;
-  };
-
-  // Prepare Agent-GO request - strip fake patterns from assistant messages
-  // Filter out messages that become empty after stripping
+  // Prepare Agent-GO request — strip fake patterns from assistant messages
+  // to prevent the LLM from learning to fake tool calls (SURFACE.md §4.3)
   const agentMessages: AgentGOMessage[] = messages
     .map(m => {
       const rawContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      const content = m.role === "assistant" ? stripFakeToolPatterns(rawContent) : rawContent;
+      const content = m.role === "assistant" ? stripForLLMHistory(rawContent) : rawContent;
       return {
         role: m.role as AgentGOMessage["role"],
         content: content || "[Previous response contained only generated content]",

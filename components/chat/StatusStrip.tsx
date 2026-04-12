@@ -93,19 +93,9 @@ export function StatusStrip({ runState, onStop, elapsedMs }: StatusStripProps) {
       role="status"
       aria-live="polite"
       aria-label={config.label}
-      style={{
-        height: 36,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        fontSize: 12,
-        color: config.color,
-        opacity: 1,
-        animation: "status-strip-enter var(--t-fast, 150ms) var(--ease-out, ease-out)",
-      }}
+      className="status-strip"
+      style={{ color: config.color }}
     >
-      {/* Phase icon */}
       {Icon && (
         <Icon
           size={14}
@@ -114,42 +104,16 @@ export function StatusStrip({ runState, onStop, elapsedMs }: StatusStripProps) {
         />
       )}
 
-      {/* Label */}
-      <span style={{ fontWeight: 500 }}>{config.label}</span>
+      <span className="status-strip-label">{config.label}</span>
 
-      {/* Elapsed time */}
       {elapsedMs != null && elapsedMs > 0 && runState.phase !== "error" && (
-        <span
-          style={{
-            fontSize: 11,
-            color: "var(--text-tertiary)",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
+        <span className="status-strip-elapsed">
           {formatElapsed(elapsedMs)}
         </span>
       )}
 
-      {/* Stop button */}
       {onStop && runState.phase !== "error" && runState.phase !== "idle" && (
-        <button
-          onClick={onStop}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            padding: "3px 10px",
-            fontSize: 11,
-            fontWeight: 500,
-            color: "var(--error)",
-            background: "var(--error-muted)",
-            border: "1px solid var(--error-muted)",
-            borderRadius: 9999,
-            cursor: "pointer",
-            marginLeft: 4,
-            transition: "background var(--t-micro, 80ms) ease",
-          }}
-        >
+        <button onClick={onStop} className="status-strip-stop">
           <Square size={10} fill="currentColor" />
           Stop
         </button>

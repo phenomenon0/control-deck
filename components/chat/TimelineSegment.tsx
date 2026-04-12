@@ -58,52 +58,17 @@ function UserMessageBlock({ segment }: { segment: UserMessageSegment }) {
   const hasUploads = segment.uploads && segment.uploads.length > 0;
 
   return (
-    <article
-      aria-label="Your message"
-      className="timeline-enter-user"
-      style={{
-        maxWidth: "85%",
-        marginLeft: "auto",
-        background: "rgba(var(--accent-rgb), 0.08)",
-        border: "1px solid rgba(var(--accent-rgb), 0.12)",
-        borderRadius: "var(--radius-lg, 10px) var(--radius-lg, 10px) var(--radius-sm, 4px) var(--radius-lg, 10px)",
-        padding: "var(--sp-3, 12px) var(--sp-4, 16px)",
-        marginBottom: "var(--sp-3, 12px)",
-      }}
-    >
-      {/* Upload thumbnails */}
+    <article aria-label="Your message" className="timeline-enter-user tl-user-msg">
       {hasUploads && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        <div className="tl-user-uploads">
           {segment.uploads!.map((upload) => (
-            <span
-              key={upload.id}
-              style={{
-                fontSize: 11,
-                color: "var(--text-tertiary)",
-                background: "rgba(255, 255, 255, 0.04)",
-                padding: "2px 8px",
-                borderRadius: 4,
-                fontFamily: "var(--font-mono)",
-              }}
-            >
+            <span key={upload.id} className="tl-user-upload-tag">
               {upload.name}
             </span>
           ))}
         </div>
       )}
-
-      {/* Message text */}
-      <div
-        style={{
-          fontSize: 14,
-          lineHeight: 1.6,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          color: "var(--text-primary)",
-        }}
-      >
-        {segment.content}
-      </div>
+      <div className="tl-user-text">{segment.content}</div>
     </article>
   );
 }
@@ -120,10 +85,7 @@ function AgentReasoningBlock({
   isLast: boolean;
 }) {
   return (
-    <div
-      className="timeline-enter-assistant"
-      style={{ marginBottom: "var(--sp-2, 8px)", maxWidth: "90%" }}
-    >
+    <div className="timeline-enter-assistant tl-reasoning">
       <ReasoningBubble
         content={segment.content}
         isStreaming={segment.isStreaming}
@@ -145,48 +107,14 @@ function AgentTextBlock({
   isLast: boolean;
 }) {
   return (
-    <article
-      aria-label="Agent response"
-      className="timeline-enter-assistant"
-      style={{
-        maxWidth: "90%",
-        marginBottom: "var(--sp-2, 8px)",
-        padding: "var(--sp-2, 8px) 0",
-      }}
-    >
+    <article aria-label="Agent response" className="timeline-enter-assistant tl-agent-msg">
       <RichText content={segment.content} />
-      {/* Streaming cursor */}
       {segment.isStreaming && isLast && (
-        <span
-          className="animate-thinking-pulse"
-          style={{
-            display: "inline-block",
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "var(--accent)",
-            marginLeft: 4,
-            verticalAlign: "middle",
-          }}
-        />
+        <span className="animate-thinking-pulse tl-streaming-cursor" />
       )}
-      {/* Completion indicator (BEHAVIOR.md §3.4 step 5) */}
       {segment.complete && !segment.isStreaming && (
-        <div
-          className="run-complete-indicator"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            marginTop: 8,
-            fontSize: 11,
-            color: "var(--text-tertiary)",
-          }}
-        >
-          <Check
-            size={12}
-            style={{ color: "var(--agent-done)" }}
-          />
+        <div className="run-complete-indicator tl-complete-label">
+          <Check size={12} style={{ color: "var(--agent-done)" }} />
           <span>Complete</span>
         </div>
       )}
@@ -200,20 +128,8 @@ function AgentTextBlock({
 
 function ArtifactBlock({ segment }: { segment: ArtifactSegment }) {
   return (
-    <div
-      className="timeline-enter-artifact"
-      style={{
-        marginBottom: "var(--sp-3, 12px)",
-      }}
-    >
-      <div
-        style={{
-          background: "var(--bg-secondary)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg, 10px)",
-          overflow: "hidden",
-        }}
-      >
+    <div className="timeline-enter-artifact tl-artifact">
+      <div className="tl-artifact-card">
         <ArtifactRenderer artifact={segment.artifact} />
       </div>
     </div>
@@ -232,53 +148,11 @@ function ErrorBlock({
   onRetry?: () => void;
 }) {
   return (
-    <div
-      role="alert"
-      className="timeline-enter-assistant"
-      style={{
-        background: "var(--error-muted)",
-        borderLeft: "2px solid var(--error)",
-        borderRadius: "0 var(--radius-md, 6px) var(--radius-md, 6px) 0",
-        padding: "var(--sp-3, 12px) var(--sp-4, 16px)",
-        margin: "var(--sp-3, 12px) 0",
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-      }}
-    >
-      <AlertCircle
-        size={16}
-        style={{ color: "var(--error)", flexShrink: 0 }}
-      />
-      <span
-        style={{
-          flex: 1,
-          fontSize: 13,
-          color: "var(--text-primary)",
-          lineHeight: 1.5,
-        }}
-      >
-        {segment.error}
-      </span>
+    <div role="alert" className="timeline-enter-assistant tl-error">
+      <AlertCircle size={16} className="tl-error-icon" />
+      <span className="tl-error-text">{segment.error}</span>
       {segment.retryable && onRetry && (
-        <button
-          onClick={onRetry}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "4px 12px",
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--accent)",
-            background: "var(--accent-muted)",
-            border: "1px solid var(--border-accent)",
-            borderRadius: 9999,
-            cursor: "pointer",
-            flexShrink: 0,
-            transition: "background var(--t-micro, 80ms) ease",
-          }}
-        >
+        <button onClick={onRetry} className="tl-error-retry">
           <RotateCcw size={12} />
           Retry
         </button>

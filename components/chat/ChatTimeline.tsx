@@ -64,24 +64,9 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
   // Empty state
   if (segments.length === 0) {
     return (
-      <div
-        ref={scrollRef}
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-        }}
-      >
+      <div ref={scrollRef} className="chat-timeline-empty">
         {emptyState ?? (
-          <div
-            style={{
-              textAlign: "center",
-              color: "var(--text-tertiary)",
-              fontSize: 14,
-            }}
-          >
+          <div className="chat-timeline-empty-text">
             What&apos;s on your mind?
           </div>
         )}
@@ -90,28 +75,16 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
   }
 
   return (
-    <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
-      {/* Scrollable timeline */}
+    <div className="chat-timeline-wrapper">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
         role="log"
         aria-label="Conversation"
         aria-live="polite"
-        style={{
-          height: "100%",
-          overflowY: "auto",
-          overflowX: "hidden",
-          padding: "var(--sp-5, 24px) 0",
-        }}
+        className="chat-timeline-scroll"
       >
-        <div
-          style={{
-            maxWidth: "var(--chat-column-max, 720px)",
-            margin: "0 auto",
-            padding: "0 var(--sp-5, 24px)",
-          }}
-        >
+        <div className="chat-timeline-column">
           {segments.map((segment, idx) => (
             <TimelineSegment
               key={segment.id}
@@ -124,31 +97,11 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
         </div>
       </div>
 
-      {/* Scroll-to-bottom pill (BEHAVIOR.md §4.7) */}
       {showScrollPill && (
         <button
           onClick={scrollToBottom}
           aria-label="Scroll to bottom"
-          className="scroll-pill-enter"
-          style={{
-            position: "absolute",
-            bottom: 12,
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 14px",
-            fontSize: 12,
-            fontWeight: 500,
-            color: "var(--text-secondary)",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border)",
-            borderRadius: 9999,
-            cursor: "pointer",
-            zIndex: 10,
-            transition: "background var(--t-micro, 80ms) ease",
-          }}
+          className="scroll-pill-enter chat-scroll-pill"
         >
           <ChevronDown size={14} />
           New content below

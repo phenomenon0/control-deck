@@ -11,6 +11,7 @@ import type {
 import { ReasoningBubble } from "./ReasoningDisplay";
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ArtifactRenderer } from "./ArtifactRenderer";
+import { RichText } from "./RichText";
 
 // =============================================================================
 // TimelineSegment — discriminated union router (SURFACE.md §5.1)
@@ -142,35 +143,25 @@ function AgentTextBlock({
       style={{
         maxWidth: "90%",
         marginBottom: "var(--sp-2, 8px)",
+        padding: "var(--sp-2, 8px) 0",
       }}
     >
-      <div
-        style={{
-          fontSize: 14,
-          lineHeight: 1.6,
-          color: "var(--text-primary)",
-          padding: "var(--sp-2, 8px) 0",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-      >
-        {segment.content}
-        {/* Streaming cursor */}
-        {segment.isStreaming && isLast && (
-          <span
-            className="animate-thinking-pulse"
-            style={{
-              display: "inline-block",
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: "var(--accent)",
-              marginLeft: 4,
-              verticalAlign: "middle",
-            }}
-          />
-        )}
-      </div>
+      <RichText content={segment.content} />
+      {/* Streaming cursor */}
+      {segment.isStreaming && isLast && (
+        <span
+          className="animate-thinking-pulse"
+          style={{
+            display: "inline-block",
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "var(--accent)",
+            marginLeft: 4,
+            verticalAlign: "middle",
+          }}
+        />
+      )}
     </div>
   );
 }

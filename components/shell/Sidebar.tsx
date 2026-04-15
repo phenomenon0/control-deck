@@ -10,6 +10,7 @@ import {
   Swords,
   Wrench,
   Boxes,
+  Music2,
   Settings,
 } from "lucide-react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
@@ -25,6 +26,7 @@ const MAIN_NAV = [
 const SECONDARY_NAV = [
   { href: "/deck/tools", label: "Tools", icon: Wrench, shortcut: "5" },
   { href: "/deck/comfy", label: "Comfy", icon: Boxes, shortcut: "6" },
+  { href: "/deck/live", label: "Live", icon: Music2, shortcut: "7" },
 ] as const;
 
 interface SidebarProps {
@@ -64,6 +66,10 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
   useShortcut("6", () => nav(SECONDARY_NAV[1].href), {
     when: "no-input",
     label: `Go to ${SECONDARY_NAV[1].label}`,
+  });
+  useShortcut("7", () => nav(SECONDARY_NAV[2].href), {
+    when: "no-input",
+    label: `Go to ${SECONDARY_NAV[2].label}`,
   });
 
   const isActive = (href: string) =>

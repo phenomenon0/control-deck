@@ -21,6 +21,7 @@ export const WIDGET_REGISTRY: WidgetMeta[] = [
   { id: "news", name: "News", description: "Tech news feed", defaultSize: "1x1", minSize: "1x1", category: "info" },
   { id: "sports", name: "Sports", description: "Live scores", defaultSize: "1x1", minSize: "1x1", category: "info" },
   { id: "stocks", name: "Stocks", description: "Stock quotes", defaultSize: "1x1", minSize: "1x1", category: "info" },
+  { id: "live", name: "Live", description: "Music transport (BPM + play/stop)", defaultSize: "1x1", minSize: "1x1", category: "actions" },
 ];
 
 export function getWidgetMeta(id: string): WidgetMeta | undefined {

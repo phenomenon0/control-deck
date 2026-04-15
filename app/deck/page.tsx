@@ -17,6 +17,7 @@ import {
   NewsWidget,
   SportsWidget,
   StocksWidget,
+  LiveTransportWidget,
 } from "@/components/widgets";
 
 export default function DeckPage() {
@@ -78,6 +79,8 @@ export default function DeckPage() {
             onRefresh={() => widgets.refresh("stocks")}
           />
         );
+      case "live":
+        return <LiveTransportWidget />;
       default:
         return <div style={{ padding: 16, color: "var(--text-muted)" }}>Unknown widget: {widgetId}</div>;
     }

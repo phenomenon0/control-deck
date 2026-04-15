@@ -224,7 +224,7 @@ export function ChatComposer({
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
       inputRef.current.style.height =
-        Math.min(inputRef.current.scrollHeight, 200) + "px";
+        Math.min(inputRef.current.scrollHeight, 280) + "px";
     }
   }, [inputValue, inputRef]);
 

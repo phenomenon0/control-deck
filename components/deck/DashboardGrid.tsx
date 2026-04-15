@@ -258,7 +258,7 @@ export function DashboardGrid({
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={items.map(i => i.id)} strategy={rectSortingStrategy}>
-          <div className="dashboard-grid grid grid-cols-4 gap-3 auto-rows-[minmax(140px,auto)]">
+          <div className="dashboard-grid grid grid-cols-4 gap-3 auto-rows-[minmax(160px,auto)]">
             {items.map(item => (
               <SortableCell key={item.id} item={item} onRemove={onRemove}>
                 {renderWidget(item.id)}

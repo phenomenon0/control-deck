@@ -12,10 +12,6 @@ import {
   StateViewer,
 } from "./ui";
 
-// =============================================================================
-// Demo Data
-// =============================================================================
-
 const DEMOS = [
   { id: "interrupt", title: "Approval Dialog", icon: "✋", category: "Interrupts" },
   { id: "form", title: "Generative Form", icon: "📝", category: "Generative UI" },
@@ -29,10 +25,6 @@ const DEMOS = [
 ] as const;
 
 type DemoId = typeof DEMOS[number]["id"];
-
-// =============================================================================
-// DojoPane Component
-// =============================================================================
 
 export function DojoPane() {
   const [selectedDemo, setSelectedDemo] = useState<DemoId>("interrupt");
@@ -101,10 +93,6 @@ export function DojoPane() {
     </div>
   );
 }
-
-// =============================================================================
-// Demo Components
-// =============================================================================
 
 function InterruptDemo() {
   const [variant, setVariant] = useState<"approval" | "input" | "confirmation">("approval");
@@ -468,10 +456,6 @@ function StateDemo() {
     </div>
   );
 }
-
-// =============================================================================
-// Showcase Demos (API-powered)
-// =============================================================================
 
 function SoccerScoutDemo() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -1012,10 +996,6 @@ function HoroscopeDemo() {
     </div>
   );
 }
-
-// =============================================================================
-// Demo Header Component
-// =============================================================================
 
 function DemoHeader({
   title,

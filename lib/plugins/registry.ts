@@ -1,19 +1,6 @@
-/**
- * Plugin Tool Registry
- * 
- * Allowlisted tools that plugins can use. Each tool has:
- * - Strict input/output types
- * - Rate limiting
- * - Optional authentication requirements
- */
-
 import type { ToolDefinition, ToolHandler, ToolResult, ConfigField } from "./types";
 
 const DECK_BASE_URL = process.env.DECK_BASE_URL ?? "http://localhost:3333";
-
-// =============================================================================
-// Tool Registry
-// =============================================================================
 
 export interface RegisteredTool {
   definition: ToolDefinition;
@@ -22,9 +9,6 @@ export interface RegisteredTool {
 
 export const TOOL_REGISTRY: Record<string, RegisteredTool> = {};
 
-/**
- * Register a tool in the registry
- */
 export function registerTool(
   id: string,
   definition: Omit<ToolDefinition, "id">,
@@ -36,29 +20,20 @@ export function registerTool(
   };
 }
 
-/**
- * Get a tool by ID
- */
 export function getTool(id: string): RegisteredTool | undefined {
   return TOOL_REGISTRY[id];
 }
 
-/**
- * List all available tools
- */
 export function listTools(): ToolDefinition[] {
   return Object.values(TOOL_REGISTRY).map(t => t.definition);
 }
 
-/**
- * Execute a tool with rate limiting and error handling
- */
 export async function executeTool(
   toolId: string,
   input: Record<string, unknown>
 ): Promise<ToolResult> {
   const tool = TOOL_REGISTRY[toolId];
-  
+
   if (!tool) {
     return {
       success: false,
@@ -67,7 +42,6 @@ export async function executeTool(
   }
 
   try {
-    // TODO: Add rate limiting
     const result = await tool.handler(input);
     return {
       ...result,
@@ -80,10 +54,6 @@ export async function executeTool(
     };
   }
 }
-
-// =============================================================================
-// Built-in Tools
-// =============================================================================
 
 // --- web.search ---
 registerTool(
@@ -538,10 +508,6 @@ registerTool(
     }
   }
 );
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
 
 /**
  * Simple RSS/Atom feed parser

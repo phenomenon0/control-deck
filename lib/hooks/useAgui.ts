@@ -29,10 +29,6 @@ import {
   type JsonPatchOperation,
 } from "@/lib/agui/dojo";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface UseAguiOptions {
   /** Thread ID for the conversation */
   threadId: string;
@@ -90,10 +86,6 @@ export interface UseAguiReturn {
   store: DojoStore;
   emitter: DojoEventEmitter;
 }
-
-// =============================================================================
-// Hook Implementation
-// =============================================================================
 
 export function useAgui(options: UseAguiOptions): UseAguiReturn {
   const {

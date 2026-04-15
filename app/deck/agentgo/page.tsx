@@ -7,10 +7,6 @@ import { ToolCallCard } from "@/components/dojo/ui/ToolCallCard";
 import { ActivityCard } from "@/components/dojo/ui/ActivityCard";
 import { StreamingText, MessageBubble } from "@/components/dojo/ui/StreamingText";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface ToolCallState {
   id: string;
   name: string;
@@ -34,10 +30,6 @@ interface ChatMessage {
   toolCalls?: ToolCallState[];
   timestamp: string;
 }
-
-// =============================================================================
-// Main Page Component
-// =============================================================================
 
 export default function AgentGoPage() {
   const [prompt, setPrompt] = useState("");
@@ -492,10 +484,6 @@ export default function AgentGoPage() {
     </div>
   );
 }
-
-// =============================================================================
-// Event Log Item
-// =============================================================================
 
 function EventLogItem({ event, index }: { event: Record<string, unknown>; index: number }) {
   const [expanded, setExpanded] = useState(false);

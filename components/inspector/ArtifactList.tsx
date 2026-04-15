@@ -3,20 +3,12 @@
 import React, { useState } from "react";
 import { Music, Box, FileText, Download, X } from "lucide-react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ArtifactItem {
   id: string;
   name: string;
   mimeType: string;
   url: string;
 }
-
-// =============================================================================
-// ArtifactList
-// =============================================================================
 
 interface ArtifactListProps {
   items: ArtifactItem[];
@@ -31,10 +23,6 @@ export function ArtifactList({ items }: ArtifactListProps) {
     </div>
   );
 }
-
-// =============================================================================
-// ArtifactCard
-// =============================================================================
 
 function ArtifactCard({ item }: { item: ArtifactItem }) {
   const [expanded, setExpanded] = useState(false);
@@ -148,10 +136,6 @@ function ArtifactCard({ item }: { item: ArtifactItem }) {
     </>
   );
 }
-
-// =============================================================================
-// Icons — provided by lucide-react (imported at top of file)
-// =============================================================================
 
 function AudioIcon({ size = 16 }: { size?: number }) {
   return <Music width={size} height={size} className="text-[var(--text-muted)]" />;

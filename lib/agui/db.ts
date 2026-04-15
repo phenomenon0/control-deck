@@ -580,10 +580,6 @@ export function cleanupOldUploads(): number {
   return result.changes;
 }
 
-// =============================================================================
-// Plugin operations
-// =============================================================================
-
 export interface PluginRow {
   id: string;
   name: string;
@@ -690,10 +686,6 @@ export function updatePluginOrder(orderedIds: string[]): void {
     });
   })();
 }
-
-// =============================================================================
-// Plugin cache operations
-// =============================================================================
 
 export interface PluginCacheRow {
   plugin_id: string;

@@ -14,10 +14,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import type { ToolCallData, Artifact } from "@/lib/types/chat";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ChatInspectorData {
   threadId: string | null;
   model: string;
@@ -34,18 +30,10 @@ const defaults: ChatInspectorData = {
   artifacts: [],
 };
 
-// =============================================================================
-// Context
-// =============================================================================
-
 const ChatInspectorContext = createContext<{
   data: ChatInspectorData;
   setData: (data: ChatInspectorData) => void;
 }>({ data: defaults, setData: () => {} });
-
-// =============================================================================
-// Provider — sits in DeckShell, replaces RightRailProvider
-// =============================================================================
 
 export function ChatInspectorProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<ChatInspectorData>(defaults);
@@ -55,10 +43,6 @@ export function ChatInspectorProvider({ children }: { children: ReactNode }) {
     </ChatInspectorContext.Provider>
   );
 }
-
-// =============================================================================
-// Hooks
-// =============================================================================
 
 /** Read current chat state — used by InspectorSheet */
 export function useChatInspectorData(): ChatInspectorData {

@@ -15,19 +15,9 @@ import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ArtifactRenderer } from "./ArtifactRenderer";
 import { RichText } from "./RichText";
 
-// =============================================================================
-// TimelineSegment — discriminated union router (SURFACE.md §5.1)
-//
-// Routes each segment type to the correct renderer. Handles entrance
-// animations per BEHAVIOR.md §3.2. Pure presentational — no state
-// management, no data fetching.
-// =============================================================================
-
 interface TimelineSegmentProps {
   segment: TSegment;
-  /** Whether this is the most recent segment (affects streaming indicators) */
   isLast?: boolean;
-  /** Callback when user clicks Retry on an error segment */
   onRetry?: () => void;
 }
 
@@ -50,10 +40,6 @@ export function TimelineSegment({ segment, isLast = false, onRetry }: TimelineSe
   }
 }
 
-// =============================================================================
-// User Message — right-aligned subtle bubble (DESIGN.md §3.1)
-// =============================================================================
-
 function UserMessageBlock({ segment }: { segment: UserMessageSegment }) {
   const hasUploads = segment.uploads && segment.uploads.length > 0;
 
@@ -73,10 +59,6 @@ function UserMessageBlock({ segment }: { segment: UserMessageSegment }) {
   );
 }
 
-// =============================================================================
-// Agent Reasoning — collapsible thinking bubble (DESIGN.md §3.5)
-// =============================================================================
-
 function AgentReasoningBlock({
   segment,
   isLast,
@@ -94,10 +76,6 @@ function AgentReasoningBlock({
     </div>
   );
 }
-
-// =============================================================================
-// Agent Text — flat left-aligned text, streaming cursor (DESIGN.md §3.1)
-// =============================================================================
 
 function AgentTextBlock({
   segment,
@@ -128,10 +106,6 @@ function AgentTextBlock({
   );
 }
 
-// =============================================================================
-// Artifact — prominent card (DESIGN.md §3.3)
-// =============================================================================
-
 function ArtifactBlock({ segment }: { segment: ArtifactSegment }) {
   return (
     <div className="timeline-enter-artifact tl-artifact">
@@ -141,10 +115,6 @@ function ArtifactBlock({ segment }: { segment: ArtifactSegment }) {
     </div>
   );
 }
-
-// =============================================================================
-// Error — inline error block with retry (BEHAVIOR.md §7.1)
-// =============================================================================
 
 function ErrorBlock({
   segment,

@@ -20,10 +20,6 @@ import type { Artifact } from "./ArtifactRenderer";
 import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 import type { ToolCallData } from "@/lib/types/chat";
 
 export type { ToolStatus, ToolCallData };
@@ -53,10 +49,6 @@ export interface ToolCallCardProps {
   isCollapsible?: boolean;
 }
 
-// =============================================================================
-// Tool Display Config
-// =============================================================================
-
 const TOOL_CONFIG: Record<string, { Icon: LucideIcon; label: string }> = {
   generate_image: { Icon: Image, label: "Image" },
   edit_image: { Icon: Pencil, label: "Edit" },
@@ -74,10 +66,6 @@ const DEFAULT_CONFIG = { Icon: Wrench, label: "Tool" };
 
 // Keys to show as the "prompt" or main argument
 const PROMPT_KEYS = ["prompt", "query", "instruction", "code", "text", "question", "message"];
-
-// =============================================================================
-// ToolCallCard Component
-// =============================================================================
 
 export function ToolCallCard(props: ToolCallCardProps) {
   // Normalise into a single internal representation regardless of which
@@ -325,10 +313,6 @@ export function ToolCallCard(props: ToolCallCardProps) {
   );
 }
 
-// =============================================================================
-// Search Results Display
-// =============================================================================
-
 interface SearchResult {
   title: string;
   url: string;
@@ -386,10 +370,6 @@ function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
     </div>
   );
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 interface ResolvedProps {
   toolName: string;
@@ -481,11 +461,6 @@ function formatArg(value: unknown): string {
   if (Array.isArray(value)) return `[${value.length}]`;
   return "{...}";
 }
-
-
-// =============================================================================
-// Compact Tool Pills (for inline display)
-// =============================================================================
 
 export function ToolCallPills({ tools }: { tools: ToolCallData[] }) {
   if (tools.length === 0) return null;

@@ -6,16 +6,6 @@ import type { TimelineSegment as TSegment } from "@/lib/types/agentRun";
 import { TimelineSegment } from "./TimelineSegment";
 import { useReducedMotion } from "@/lib/hooks/useReducedMotion";
 
-// =============================================================================
-// ChatTimeline — renders the segment list with scroll management
-//
-// Pure rendering: maps segments[] to TimelineSegment components.
-// Manages auto-scroll (only when user is near bottom) and
-// scroll-to-bottom pill (BEHAVIOR.md §4.7).
-//
-// No state beyond scroll position. No data fetching.
-// =============================================================================
-
 interface ChatTimelineProps {
   segments: TSegment[];
   /** Whether the agent is currently producing output (enables auto-scroll) */

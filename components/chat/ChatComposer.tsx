@@ -1,30 +1,11 @@
 "use client";
 
-/**
- * ChatComposer — evolved input composer for the agent chat surface
- *
- * Replaces ChatInput.tsx with:
- *   - Context row: model badge, attachment thumbnails (DESIGN.md §3.4)
- *   - Run-state-aware send/stop button (BEHAVIOR.md §4.4)
- *   - Design-token-driven styling (no inline hardcoded values)
- *   - Same voice capabilities (PTT, VAD, voice mode)
- *
- * Props are narrower than ChatInput: receives RunState directly instead
- * of a bare isLoading boolean, enabling phase-specific UI behavior.
- *
- * See: SURFACE.md §5.1 (ChatComposer spec), DESIGN.md §3.4
- */
-
 import { useEffect, useRef, type RefObject } from "react";
 import { Paperclip, Send, Square, AudioLines, Mic, X } from "lucide-react";
 import { VoiceInputIndicator } from "@/components/chat/VoiceWaveform";
 import type { PendingUpload } from "@/components/chat/UploadTray";
 import type { UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
 import type { RunState } from "@/lib/types/agentRun";
-
-// =============================================================================
-// Types
-// =============================================================================
 
 export interface ChatComposerProps {
   /** Current run state from useAgentRun */
@@ -53,28 +34,20 @@ export interface ChatComposerProps {
   onRemoveUpload?: (id: string) => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
 
-  // Edit last message (BEHAVIOR.md §5.2: Up Arrow when input empty)
   onEditLastMessage?: () => void;
 
   // Refs
   inputRef: RefObject<HTMLTextAreaElement | null>;
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/** Is the agent actively working? (any non-idle, non-error phase) */
 function isRunning(runState: RunState): boolean {
   return runState.phase !== "idle" && runState.phase !== "error";
 }
 
-/** Can the user type and send? */
 function isInputEnabled(runState: RunState): boolean {
   return runState.phase === "idle" || runState.phase === "error";
 }
 
-/** Get placeholder text based on run state */
 function getPlaceholder(runState: RunState): string {
   switch (runState.phase) {
     case "submitted":
@@ -94,11 +67,6 @@ function getPlaceholder(runState: RunState): string {
   }
 }
 
-// =============================================================================
-// Sub-components
-// =============================================================================
-
-/** Context row: model badge + inline attachment previews */
 function ContextRow({
   model,
   uploads,
@@ -112,12 +80,10 @@ function ContextRow({
 
   return (
     <div className="composer-context-row">
-      {/* Model badge */}
       {model && (
         <span className="composer-model-badge">{model}</span>
       )}
 
-      {/* Inline attachment thumbnails */}
       {uploads.length > 0 && (
         <div className="composer-attachments">
           {uploads.map((upload) => (
@@ -149,7 +115,6 @@ function ContextRow({
   );
 }
 
-/** Primary action button: Send (idle) or Stop (running) */
 function ActionButton({
   runState,
   hasContent,
@@ -164,7 +129,6 @@ function ActionButton({
   const running = isRunning(runState);
 
   if (running) {
-    // Stop button — BEHAVIOR.md §4.4: "Loading (stop mode): background: var(--error)"
     return (
       <button
         type="button"
@@ -177,7 +141,6 @@ function ActionButton({
     );
   }
 
-  // Send button — BEHAVIOR.md §4.4
   return (
     <button
       type="submit"
@@ -189,10 +152,6 @@ function ActionButton({
     </button>
   );
 }
-
-// =============================================================================
-// ChatComposer
-// =============================================================================
 
 export function ChatComposer({
   runState,
@@ -219,7 +178,6 @@ export function ChatComposer({
   const hasContent = inputValue.trim().length > 0 || pendingUploads.length > 0;
   const showVoiceInput = voiceChat.isListening || voiceChat.isProcessingSTT;
 
-  // Auto-resize textarea
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = "auto";
@@ -228,7 +186,6 @@ export function ChatComposer({
     }
   }, [inputValue, inputRef]);
 
-  // Re-focus composer when run completes (BEHAVIOR.md §3.4 "Any -> IDLE")
   const prevPhaseRef = useRef(runState.phase);
   useEffect(() => {
     if (prevPhaseRef.current !== "idle" && runState.phase === "idle") {
@@ -244,16 +201,13 @@ export function ChatComposer({
       aria-label="Message composer"
     >
       <div className={`composer-container ${running ? "composer-container--running" : ""}`}>
-        {/* Context row: model + attachment previews */}
         <ContextRow
           model={model}
           uploads={pendingUploads}
           onRemoveUpload={onRemoveUpload}
         />
 
-        {/* Main input row */}
         <div className="composer-input-row">
-          {/* Attach button */}
           <button
             type="button"
             onClick={onAttachClick}
@@ -267,7 +221,6 @@ export function ChatComposer({
             )}
           </button>
 
-          {/* Textarea or voice indicator */}
           {showVoiceInput ? (
             <VoiceInputIndicator
               isRecording={voiceChat.isListening}
@@ -292,7 +245,6 @@ export function ChatComposer({
                     onSubmit(e);
                   }
                 }
-                // Up Arrow: edit last user message when input is empty (§5.2)
                 if (
                   e.key === "ArrowUp" &&
                   !inputValue.trim() &&
@@ -306,9 +258,7 @@ export function ChatComposer({
             />
           )}
 
-          {/* Action buttons row */}
           <div className="composer-actions">
-            {/* Voice mode button */}
             <button
               type="button"
               onClick={onVoiceModeOpen}
@@ -319,7 +269,6 @@ export function ChatComposer({
               <AudioLines size={18} />
             </button>
 
-            {/* Inline mic button */}
             {voiceEnabled && (
               <button
                 type="button"
@@ -334,7 +283,6 @@ export function ChatComposer({
               </button>
             )}
 
-            {/* Send / Stop */}
             <ActionButton
               runState={runState}
               hasContent={hasContent}

@@ -3,10 +3,6 @@
 import { useState } from "react";
 import { Play, Code2 } from "lucide-react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface DemoInfo {
   id: string;
   title: string;
@@ -23,10 +19,6 @@ interface DemoCardProps {
   isRunning: boolean;
   onRun: () => void;
 }
-
-// =============================================================================
-// Demo Code Snippets
-// =============================================================================
 
 const DEMO_CODE: Record<string, string> = {
   shared_state: `// Shared State with JSON Patch
@@ -275,10 +267,6 @@ emit({
 // 4. AI-generated mystical message (Ollama)
 emit({ type: "TEXT_MESSAGE_CONTENT", delta: "The stars align..." });`,
 };
-
-// =============================================================================
-// DemoCard Component
-// =============================================================================
 
 export function DemoCard({ demo, isActive, isRunning, onRun }: DemoCardProps) {
   const [showCode, setShowCode] = useState(false);

@@ -132,10 +132,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// =============================================================================
-// Demo Implementations
-// =============================================================================
-
 async function runSharedStateDemo(threadId: string, runId: string) {
   // Initial state
   emitDojoEvent(threadId, {
@@ -1123,10 +1119,6 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// =============================================================================
-// Soccer Scouting Report Demo
-// =============================================================================
-
 interface ScoutingReport {
   player: {
     name: string;
@@ -1498,10 +1490,6 @@ async function runSoccerScoutDemo(threadId: string, runId: string, model: string
     timestamp: new Date().toISOString(),
   });
 }
-
-// =============================================================================
-// Horoscope / Personality Demo
-// =============================================================================
 
 interface PersonalityProfile {
   basics: {

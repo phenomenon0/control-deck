@@ -17,10 +17,6 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useThreads } from "@/lib/hooks/useThreads";
 import type { Thread, Message } from "@/lib/chat/helpers";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ThreadManagerState {
   /** All persisted threads */
   threads: Thread[];
@@ -49,15 +45,7 @@ export interface ThreadManagerActions {
 
 type ThreadManagerContextValue = ThreadManagerState & ThreadManagerActions;
 
-// =============================================================================
-// Context
-// =============================================================================
-
 const ThreadManagerContext = createContext<ThreadManagerContextValue | null>(null);
-
-// =============================================================================
-// Provider — sits in DeckShell, above ChatSurface
-// =============================================================================
 
 export function ThreadManagerProvider({ children }: { children: ReactNode }) {
   const threadState = useThreads();
@@ -67,10 +55,6 @@ export function ThreadManagerProvider({ children }: { children: ReactNode }) {
     </ThreadManagerContext.Provider>
   );
 }
-
-// =============================================================================
-// Hook — consumed by ChatSurface, ThreadSidebar, etc.
-// =============================================================================
 
 /**
  * Access thread management state and actions from context.

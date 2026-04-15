@@ -38,10 +38,6 @@ export * from "./generative-ui";
 // Meta Events
 export * from "./meta";
 
-// =============================================================================
-// Unified Dojo Store
-// =============================================================================
-
 import { createStateStore, type StateStore } from "./state";
 import { createActivityStore, type ActivityStore } from "./activity";
 import { createToolRegistry, createToolCallManager, type ToolRegistry, type ToolCallManager } from "./tools";
@@ -198,10 +194,6 @@ export function createDojoStore(initialState: Record<string, unknown> = {}): Doj
   
   return store;
 }
-
-// =============================================================================
-// Event Emitter
-// =============================================================================
 
 export type DojoEventHandler = (event: DojoEvent) => void;
 

@@ -19,10 +19,6 @@ import {
   clearPluginCache 
 } from "@/lib/agui/db";
 
-// =============================================================================
-// Refresh Interval Parsing
-// =============================================================================
-
 const REFRESH_INTERVALS: Record<string, number> = {
   "1m": 60 * 1000,
   "5m": 5 * 60 * 1000,
@@ -37,10 +33,6 @@ const REFRESH_INTERVALS: Record<string, number> = {
 export function parseRefreshInterval(interval: string): number {
   return REFRESH_INTERVALS[interval] || REFRESH_INTERVALS["15m"];
 }
-
-// =============================================================================
-// Data Fetching
-// =============================================================================
 
 export interface FetchOptions {
   forceRefresh?: boolean;
@@ -157,10 +149,6 @@ export function hasExpiredData(pluginData: PluginData): boolean {
 export function clearPluginData(pluginId: string): void {
   clearPluginCache(pluginId);
 }
-
-// =============================================================================
-// Transform Functions
-// =============================================================================
 
 /**
  * Apply a safe transform expression to data.
@@ -371,10 +359,6 @@ function applyStep(current: unknown, step: TransformStep): unknown {
       return arr;
   }
 }
-
-// =============================================================================
-// Render Data Preparation
-// =============================================================================
 
 /**
  * Prepare data for rendering based on template type

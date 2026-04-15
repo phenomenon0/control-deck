@@ -7,10 +7,6 @@
 
 const AGENTGO_URL = process.env.AGENTGO_URL || "http://localhost:4243";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface StartRunRequest {
   query: string;
   workspace_root?: string;
@@ -52,10 +48,6 @@ export interface AgentGoEvent {
   [key: string]: unknown;
 }
 
-// =============================================================================
-// Health Check
-// =============================================================================
-
 export async function checkHealth(): Promise<HealthResponse> {
   const res = await fetch(`${AGENTGO_URL}/health`);
   if (!res.ok) {
@@ -63,10 +55,6 @@ export async function checkHealth(): Promise<HealthResponse> {
   }
   return res.json();
 }
-
-// =============================================================================
-// Run Management
-// =============================================================================
 
 /**
  * Start a new agent run
@@ -155,10 +143,6 @@ export async function listRuns(status?: string): Promise<{ runs: RunStatus[] }> 
   }
   return res.json();
 }
-
-// =============================================================================
-// SSE Event Streaming
-// =============================================================================
 
 export type EventCallback = (event: AgentGoEvent) => void;
 export type ErrorCallback = (error: Error) => void;
@@ -272,10 +256,6 @@ export async function* streamEventsAsync(
     reader.releaseLock();
   }
 }
-
-// =============================================================================
-// Approval Management
-// =============================================================================
 
 /**
  * Approve a pending confirmation request

@@ -359,10 +359,6 @@ export async function vectorDeleteCollection(
   return { success: true, deleted: data.deleted || 0 };
 }
 
-// ============================================================================
-// Text Chunking
-// ============================================================================
-
 export interface ChunkOptions {
   /** Target chunk size in characters (default: 1000) */
   chunkSize?: number;
@@ -471,10 +467,6 @@ export function chunkText(text: string, options: ChunkOptions = {}): TextChunk[]
 
   return chunks;
 }
-
-// ============================================================================
-// URL Ingestion
-// ============================================================================
 
 export interface IngestUrlResult {
   success: boolean;

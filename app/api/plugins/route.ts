@@ -23,10 +23,6 @@ import {
 import { parseBundle, parseBundleFromJson, mergeConfigValues } from "@/lib/plugins/bundle";
 import type { PluginBundle, PluginInstance } from "@/lib/plugins/types";
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 function rowToInstance(row: PluginRow): PluginInstance {
   const bundle = JSON.parse(row.bundle) as PluginBundle;
   const configValues = JSON.parse(row.config_values) as Record<string, unknown>;
@@ -49,10 +45,6 @@ function rowToInstance(row: PluginRow): PluginInstance {
     updatedAt: row.updated_at,
   };
 }
-
-// =============================================================================
-// GET - List plugins or get single plugin
-// =============================================================================
 
 export async function GET(req: NextRequest) {
   try {
@@ -85,10 +77,6 @@ export async function GET(req: NextRequest) {
     );
   }
 }
-
-// =============================================================================
-// POST - Create new plugin from bundle
-// =============================================================================
 
 export async function POST(req: NextRequest) {
   try {
@@ -166,10 +154,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// =============================================================================
-// PUT - Update existing plugin
-// =============================================================================
-
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -242,10 +226,6 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// =============================================================================
-// DELETE - Remove a plugin
-// =============================================================================
-
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -277,10 +257,6 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
-
-// =============================================================================
-// PATCH - Reorder plugins
-// =============================================================================
 
 export async function PATCH(req: NextRequest) {
   try {

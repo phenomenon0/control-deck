@@ -13,10 +13,6 @@ import React from "react";
 import { Maximize2, Code2, Eye } from "lucide-react";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 
-// =============================================================================
-// Icons
-// =============================================================================
-
 function ExpandIcon({ size = 14 }: { size?: number }) {
   return <Maximize2 width={size} height={size} />;
 }
@@ -28,10 +24,6 @@ function CodeIcon({ size = 14 }: { size?: number }) {
 function EyeIcon({ size = 14 }: { size?: number }) {
   return <Eye width={size} height={size} />;
 }
-
-// =============================================================================
-// Types
-// =============================================================================
 
 interface CanvasButtonProps {
   variant?: "code" | "preview" | "image" | "artifact";
@@ -62,10 +54,6 @@ interface OpenArtifactButtonProps {
   };
   className?: string;
 }
-
-// =============================================================================
-// Components
-// =============================================================================
 
 export function CanvasButton({ variant = "code", label, className, onClick }: CanvasButtonProps) {
   const Icon = variant === "code" ? CodeIcon : variant === "preview" ? EyeIcon : ExpandIcon;
@@ -137,10 +125,6 @@ export function OpenArtifactButton({ artifact, className }: OpenArtifactButtonPr
     />
   );
 }
-
-// =============================================================================
-// Code Block with Canvas Integration
-// =============================================================================
 
 interface CodeBlockWithCanvasProps {
   code: string;

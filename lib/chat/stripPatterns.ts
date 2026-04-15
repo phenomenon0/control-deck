@@ -11,10 +11,6 @@
  *   stripForLLMHistory(content) — used by /api/chat for history sanitisation
  */
 
-// =============================================================================
-// Pattern groups
-// =============================================================================
-
 /** Tool JSON blocks the LLM sometimes wraps in markdown fences or emits raw */
 const TOOL_JSON: RegExp[] = [
   /```json\s*\n?\s*\{[\s\S]*?"tool"[\s\S]*?\}\s*\n?\s*```/g,
@@ -79,10 +75,6 @@ const FAKE_SUCCESS: RegExp[] = [
   /Generated (?:an?|the) (?:image|picture)[^.]*\.?/gi,
 ];
 
-// =============================================================================
-// Collapse whitespace
-// =============================================================================
-
 function collapseWhitespace(s: string): string {
   return s.replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -95,10 +87,6 @@ function applyPatterns(content: string, patterns: RegExp[]): string {
   }
   return clean;
 }
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Strip machine metadata from LLM text for display in the timeline.

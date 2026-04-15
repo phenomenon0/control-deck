@@ -25,10 +25,6 @@ import {
   TOOL_DEFINITIONS,
 } from "./definitions";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface OllamaToolParameter {
   type: string;
   description: string;
@@ -50,10 +46,6 @@ export interface OllamaTool {
     };
   };
 }
-
-// =============================================================================
-// Conversion
-// =============================================================================
 
 /**
  * Map FieldSpec type to JSON Schema type
@@ -133,10 +125,6 @@ export function toolSpecToOllama(spec: ToolSpec): OllamaTool {
   };
 }
 
-// =============================================================================
-// Generate All Tools
-// =============================================================================
-
 const ALL_TOOL_SCHEMAS = [
   GenerateImageSchema,
   EditImageSchema,
@@ -186,10 +174,6 @@ export function getOllamaTool(name: string): OllamaTool | undefined {
   return getOllamaTools().find(t => t.function.name === name);
 }
 
-// =============================================================================
-// Models that support native tool calling
-// =============================================================================
-
 export const NATIVE_TOOL_MODELS = [
   "qwen3",
   "qwen2.5",
@@ -208,10 +192,6 @@ export function supportsNativeTools(model: string): boolean {
   const modelLower = model.toLowerCase();
   return NATIVE_TOOL_MODELS.some((supported) => modelLower.includes(supported));
 }
-
-// =============================================================================
-// Export for testing
-// =============================================================================
 
 export function printOllamaTools(): void {
   console.log("=== OLLAMA TOOLS (generated from Zod) ===\n");

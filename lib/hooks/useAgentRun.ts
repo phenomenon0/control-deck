@@ -1,16 +1,3 @@
-/**
- * useAgentRun — Unified hook for agent run state management
- *
- * Replaces the split useSendMessage + useSSE coordination with a single
- * state machine driven by useReducer. Consumes the SSE event stream
- * returned by POST /api/chat directly (SURFACE.md §5.2, §6.1).
- *
- * This file contains:
- *   1. agentRunReducer — pure reducer function (testable, no side effects)
- *   2. dispatchSSEEvent — maps AGUI events to reducer actions
- *   3. useAgentRun — React hook that wires the reducer to SSE stream + fetch
- */
-
 import { useReducer, useCallback, useRef } from "react";
 import type {
   AgentRunState,
@@ -23,10 +10,6 @@ import type {
   ErrorSegment,
 } from "@/lib/types/agentRun";
 import { INITIAL_AGENT_RUN_STATE } from "@/lib/types/agentRun";
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 let _segmentCounter = 0;
 function nextSegmentId(): string {
@@ -85,10 +68,6 @@ function updateToolStep(
     }
   );
 }
-
-// =============================================================================
-// Pure Reducer
-// =============================================================================
 
 export function agentRunReducer(
   state: AgentRunState,
@@ -387,11 +366,6 @@ export function agentRunReducer(
   }
 }
 
-// =============================================================================
-// SSE Event → Reducer Action mapping
-// =============================================================================
-
-/** Map an AGUI event from the SSE stream to a reducer dispatch */
 function dispatchSSEEvent(
   dispatch: React.Dispatch<RunAction>,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -500,11 +474,6 @@ function dispatchSSEEvent(
   }
 }
 
-// =============================================================================
-// React Hook
-// =============================================================================
-
-/** Interrupt request passed to the UI */
 export interface InterruptRequest {
   runId: string;
   toolCallId: string;

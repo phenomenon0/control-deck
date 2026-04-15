@@ -4,19 +4,11 @@ import { useEffect, useRef, useCallback } from "react";
 import type { DemoInfo } from "./DemoCard";
 import type { DojoEvent } from "@/lib/agui/dojo";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface DemoRunnerProps {
   demo: DemoInfo;
   onEvent: (event: DojoEvent) => void;
   onComplete: () => void;
 }
-
-// =============================================================================
-// DemoRunner Component
-// =============================================================================
 
 /**
  * DemoRunner - Invisible component that handles demo execution
@@ -120,10 +112,6 @@ export function DemoRunner({ demo, onEvent, onComplete }: DemoRunnerProps) {
   // This component renders nothing - it's purely for side effects
   return null;
 }
-
-// =============================================================================
-// Demo Input Helpers
-// =============================================================================
 
 function getDemoInput(demoId: string): string {
   const inputs: Record<string, string> = {

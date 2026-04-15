@@ -340,10 +340,6 @@ export function PluginHost({
   );
 }
 
-// =============================================================================
-// Sub-components
-// =============================================================================
-
 function PluginLoading() {
   return (
     <div className="plugin-loading">
@@ -366,10 +362,6 @@ function PluginError({ message, onRetry }: { message: string; onRetry?: () => vo
     </div>
   );
 }
-
-// =============================================================================
-// Icons
-// =============================================================================
 
 function getPluginIcon(iconName: string): React.ReactNode {
   // Map icon names to SVG icons

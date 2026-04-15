@@ -6,10 +6,6 @@ import type { ActivityStep, AgentActivitySegment } from "@/lib/types/agentRun";
 import { formatDuration } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
 
-// =============================================================================
-// Tool display config — lucide icons, no emoji (DESIGN.md §6)
-// =============================================================================
-
 const TOOL_ICONS: Record<string, { icon: typeof Wrench; label: string }> = {
   generate_image: { icon: Image, label: "Image" },
   edit_image: { icon: Image, label: "Edit Image" },
@@ -27,10 +23,6 @@ function getToolConfig(toolName: string) {
   return TOOL_ICONS[toolName] ?? { icon: Wrench, label: toolName };
 }
 
-// =============================================================================
-// Status badge
-// =============================================================================
-
 function StepStatusBadge({ status }: { status: ActivityStep["status"] }) {
   const label = status === "complete" ? "done" : status;
   return (
@@ -41,10 +33,6 @@ function StepStatusBadge({ status }: { status: ActivityStep["status"] }) {
     </span>
   );
 }
-
-// =============================================================================
-// Single step row
-// =============================================================================
 
 function ActivityStepRow({ step }: { step: ActivityStep }) {
   const config = getToolConfig(step.toolName);
@@ -76,10 +64,6 @@ function ActivityStepRow({ step }: { step: ActivityStep }) {
     </div>
   );
 }
-
-// =============================================================================
-// AgentActivityBlock — grouped tool executions as one unit of work
-// =============================================================================
 
 interface AgentActivityBlockProps {
   segment: AgentActivitySegment;
@@ -135,10 +119,6 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
     </div>
   );
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 const PROMPT_KEYS = ["prompt", "query", "instruction", "code", "text", "question", "message"];
 

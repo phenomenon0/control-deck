@@ -18,20 +18,12 @@ import {
   DEFAULT_ENCODE_OPTIONS,
 } from "./types";
 
-// =============================================================================
-// Constants
-// =============================================================================
-
 const MAX_DEPTH = 50;
 
 /** Reserved words that must be quoted when used as string values */
 const RESERVED_WORDS = new Set([
   "t", "f", "true", "false", "null", "none", "nil", "∅"
 ]);
-
-// =============================================================================
-// String Helpers
-// =============================================================================
 
 /**
  * Check if character is ASCII letter
@@ -99,10 +91,6 @@ function escapeTabularCell(s: string): string {
   return s.replace(/\|/g, "\\|");
 }
 
-// =============================================================================
-// Tabular Detection
-// =============================================================================
-
 /**
  * Check if a value is safe for tabular cell (primitive only)
  */
@@ -143,10 +131,6 @@ function isTabularArray(arr: unknown[], minRows: number): boolean {
   
   return true;
 }
-
-// =============================================================================
-// Core Encoder
-// =============================================================================
 
 /**
  * Encode a value to GLYPH format
@@ -268,10 +252,6 @@ function emitTabular(
   return result;
 }
 
-// =============================================================================
-// Smart Encoder (dual-encode, pick shorter)
-// =============================================================================
-
 /**
  * Smart encode: tries both tabular and non-tabular, picks shorter
  * Only does dual-encode for payloads > 2KB JSON
@@ -311,10 +291,6 @@ export function encodeGlyphSmart(
     savings: ((jsonBytes - glyph.length) / jsonBytes) * 100,
   };
 }
-
-// =============================================================================
-// Prompt Helpers
-// =============================================================================
 
 /**
  * Wrap GLYPH in fenced code block for LLM prompts

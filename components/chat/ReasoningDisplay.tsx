@@ -3,10 +3,6 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-// =============================================================================
-// ThinkingIndicator - Shows while agent is reasoning
-// =============================================================================
-
 export interface ThinkingIndicatorProps {
   message?: string;
   isActive?: boolean;
@@ -22,10 +18,6 @@ export function ThinkingIndicator({ message = "Thinking...", isActive = true }: 
     </div>
   );
 }
-
-// =============================================================================
-// ReasoningBubble - Shows chain-of-thought content
-// =============================================================================
 
 export interface ReasoningBubbleProps {
   content: string;
@@ -77,10 +69,6 @@ export function ReasoningBubble({
     </div>
   );
 }
-
-// =============================================================================
-// ReasoningTrace - Full trace with multiple steps
-// =============================================================================
 
 export interface ReasoningStep {
   id: string;

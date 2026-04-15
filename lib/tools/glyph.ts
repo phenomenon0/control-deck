@@ -4,10 +4,6 @@
  * No GPU required - instant generation for "broke-tier" image creation.
  */
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export type GlyphStyle = "sigil" | "rune" | "mandala" | "circuit" | "organic";
 
 export interface GlyphParams {
@@ -23,10 +19,6 @@ export interface GlyphResult {
   style: GlyphStyle;
 }
 
-// =============================================================================
-// Hash Function (FNV-1a for deterministic randomness)
-// =============================================================================
-
 function fnv1a(str: string): number {
   let hash = 2166136261;
   for (let i = 0; i < str.length; i++) {
@@ -35,10 +27,6 @@ function fnv1a(str: string): number {
   }
   return hash >>> 0; // Ensure unsigned
 }
-
-// =============================================================================
-// Seeded Random Generator
-// =============================================================================
 
 class SeededRandom {
   private seed: number;
@@ -78,10 +66,6 @@ class SeededRandom {
   }
 }
 
-// =============================================================================
-// Color Palettes
-// =============================================================================
-
 const PALETTES: Record<GlyphStyle, { bg: string; stroke: string; fill: string }> = {
   sigil: { bg: "#0f0f0f", stroke: "#d4d4d4", fill: "none" },
   rune: { bg: "#1a1612", stroke: "#c9b896", fill: "none" },
@@ -89,10 +73,6 @@ const PALETTES: Record<GlyphStyle, { bg: string; stroke: string; fill: string }>
   circuit: { bg: "#0a1210", stroke: "#22c55e", fill: "#22c55e" },
   organic: { bg: "#12100d", stroke: "#a8845c", fill: "none" },
 };
-
-// =============================================================================
-// Style Generators
-// =============================================================================
 
 /**
  * Sigil: Symmetric angular patterns with crossing lines
@@ -408,10 +388,6 @@ function generateOrganic(rng: SeededRandom, size: number): string {
   
   return paths.join("\n  ");
 }
-
-// =============================================================================
-// Main Generator
-// =============================================================================
 
 /**
  * Generate a procedural glyph/motif SVG

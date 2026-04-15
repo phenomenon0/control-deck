@@ -33,10 +33,6 @@ import { useCanvas } from "@/lib/hooks/useCanvas";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 /** Truncate string values in tool args to keep metadata compact */
 function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -64,10 +60,6 @@ function extractToolSummaries(segments: import("@/lib/types/agentRun").TimelineS
       error: step.result?.error,
     }));
 }
-
-// =============================================================================
-// ChatSurface component
-// =============================================================================
 
 export default function ChatSurface() {
   // ---------------------------------------------------------------------------

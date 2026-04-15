@@ -11,10 +11,6 @@ import React, {
 } from "react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type ThemeName = "light" | "dark" | "system";
@@ -55,10 +51,6 @@ interface DeckSettingsContextValue {
   setSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-// =============================================================================
-// Defaults
-// =============================================================================
-
 const DEFAULT_VOICE_PREFS: VoicePrefs = {
   enabled: true,
   readAloud: false,
@@ -76,17 +68,9 @@ const DEFAULT_PREFS: DeckPrefs = {
   voice: DEFAULT_VOICE_PREFS,
 };
 
-// =============================================================================
-// Storage Keys
-// =============================================================================
-
 const PREFS_KEY = "deck.prefs";
 const OLD_VOICE_KEY = "deck:voiceSettings";
 const OLD_THEME_KEY = "deck:theme";
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function safeParse<T>(value: string | null): T | null {
   if (!value) return null;
@@ -182,15 +166,7 @@ function applyTheme(theme: ThemeName, reduceMotion: boolean, designSystem: Desig
   root.dataset.reduceMotion = reduceMotion ? "1" : "0";
 }
 
-// =============================================================================
-// Context
-// =============================================================================
-
 const DeckSettingsContext = createContext<DeckSettingsContextValue | null>(null);
-
-// =============================================================================
-// Provider
-// =============================================================================
 
 export function DeckSettingsProvider({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<DeckPrefs>(DEFAULT_PREFS);
@@ -270,10 +246,6 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
     </DeckSettingsContext.Provider>
   );
 }
-
-// =============================================================================
-// Hook
-// =============================================================================
 
 export function useDeckSettings() {
   const ctx = useContext(DeckSettingsContext);

@@ -3,11 +3,6 @@
 import { Brain, Search, Code, Wrench, Volume2, Square, Loader2 } from "lucide-react";
 import type { RunState } from "@/lib/types/agentRun";
 
-// =============================================================================
-// StatusStrip — persistent run status between timeline and composer
-// Replaces the 6px blinking dot and scattered status text (DESIGN.md §3.5)
-// =============================================================================
-
 interface StatusStripProps {
   runState: RunState;
   /** Callback when user clicks Stop */

@@ -2,10 +2,6 @@
 
 import { useEffect, useRef, useCallback } from "react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ShortcutOptions {
   /** Whether this shortcut is currently active. Defaults to true. */
   enabled?: boolean;
@@ -34,10 +30,6 @@ interface Registration {
   };
 }
 
-// =============================================================================
-// Module-level Registry
-// =============================================================================
-
 let nextId = 0;
 const registry = new Map<number, Registration>();
 
@@ -60,10 +52,6 @@ function updateRegistration(
     registry.set(id, { ...existing, ...patch });
   }
 }
-
-// =============================================================================
-// Combo Parsing
-// =============================================================================
 
 /**
  * Normalizes a combo string like "mod+shift+c" into a canonical form.
@@ -118,10 +106,6 @@ function matchesEvent(parsed: ParsedCombo, e: KeyboardEvent): boolean {
   return parsed.key === eventKey;
 }
 
-// =============================================================================
-// Input Focus Check
-// =============================================================================
-
 function isFocusedOnInput(): boolean {
   const el = document.activeElement;
   if (!el) return false;
@@ -130,10 +114,6 @@ function isFocusedOnInput(): boolean {
   if ((el as HTMLElement).isContentEditable) return true;
   return false;
 }
-
-// =============================================================================
-// Global Listener (singleton)
-// =============================================================================
 
 let listenerAttached = false;
 
@@ -174,10 +154,6 @@ function ensureGlobalListener() {
     true // capture phase
   );
 }
-
-// =============================================================================
-// Public API: useShortcut Hook
-// =============================================================================
 
 /**
  * Register a keyboard shortcut.
@@ -242,10 +218,6 @@ export function useShortcut(
     }
   }, [enabled, priority, when, label]);
 }
-
-// =============================================================================
-// Public API: getRegisteredShortcuts
-// =============================================================================
 
 export interface RegisteredShortcut {
   combo: string;

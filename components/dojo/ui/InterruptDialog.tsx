@@ -2,10 +2,6 @@
 
 import { useState } from "react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface InterruptDialogProps {
   title: string;
   description: string;
@@ -23,10 +19,6 @@ export interface InterruptDialogProps {
   onReject?: (reason?: string) => void;
   isOpen?: boolean;
 }
-
-// =============================================================================
-// Risk Level Styles
-// =============================================================================
 
 const RISK_STYLES = {
   low: {
@@ -54,10 +46,6 @@ const RISK_STYLES = {
     badge: "bg-red-500/20 text-red-400",
   },
 };
-
-// =============================================================================
-// InterruptDialog Component
-// =============================================================================
 
 export function InterruptDialog({
   title,

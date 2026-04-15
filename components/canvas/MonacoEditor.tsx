@@ -30,10 +30,6 @@ const Editor = dynamic(
   }
 );
 
-// =============================================================================
-// Language Mapping
-// =============================================================================
-
 const LANGUAGE_MAP: Record<string, string> = {
   // Common
   "js": "javascript",
@@ -122,10 +118,6 @@ function normalizeLanguage(language: string): string {
   return LANGUAGE_MAP[lower] || lower;
 }
 
-// =============================================================================
-// Dynamic Theme from CSS Variables
-// =============================================================================
-
 /** Read a CSS custom property value from the document root. */
 function getCSSVar(name: string): string {
   if (typeof document === "undefined") return "";
@@ -204,10 +196,6 @@ function defineCustomTheme(monaco: Monaco) {
   });
 }
 
-// =============================================================================
-// Props
-// =============================================================================
-
 interface MonacoEditorProps {
   code: string;
   language: string;
@@ -221,10 +209,6 @@ interface MonacoEditorProps {
   fontSize?: number;
   className?: string;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function MonacoEditor({
   code,

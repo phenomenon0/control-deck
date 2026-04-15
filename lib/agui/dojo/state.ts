@@ -5,10 +5,6 @@
 
 import type { JsonPatchOperation, StateSnapshotEvent, StateDeltaEvent } from "./types";
 
-// =============================================================================
-// JSON Patch Implementation
-// =============================================================================
-
 /**
  * Parse a JSON Pointer path into segments
  */
@@ -174,10 +170,6 @@ export function applyPatch<T>(state: T, patch: JsonPatchOperation[]): T {
   return result;
 }
 
-// =============================================================================
-// Diff Generation
-// =============================================================================
-
 /**
  * Generate a JSON Patch from two objects
  */
@@ -254,10 +246,6 @@ function escapePathSegment(segment: string): string {
   return segment.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
-// =============================================================================
-// State Store
-// =============================================================================
-
 export interface StateStore<T = Record<string, unknown>> {
   getState(): T;
   setState(state: T): void;
@@ -303,10 +291,6 @@ export function createStateStore<T = Record<string, unknown>>(
     },
   };
 }
-
-// =============================================================================
-// Event Helpers
-// =============================================================================
 
 /**
  * Create a STATE_SNAPSHOT event

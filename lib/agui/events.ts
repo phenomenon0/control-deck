@@ -7,20 +7,12 @@
 import type { DeckPayload } from "./payload";
 import { jsonPayload, isDeckPayload } from "./payload";
 
-// =============================================================================
-// Schema Version
-// =============================================================================
-
 /**
  * Current schema version - increment on breaking changes
  */
 export const AGUI_SCHEMA_VERSION = 2;
 
 export type SchemaVersion = 1 | 2;
-
-// =============================================================================
-// Base Event
-// =============================================================================
 
 export interface AGUIBase {
   type: string;
@@ -29,10 +21,6 @@ export interface AGUIBase {
   runId?: string;
   schemaVersion: SchemaVersion;
 }
-
-// =============================================================================
-// Lifecycle Events
-// =============================================================================
 
 export interface RunStarted extends AGUIBase {
   type: "RunStarted";
@@ -63,10 +51,6 @@ export interface RunError extends AGUIBase {
   };
 }
 
-// =============================================================================
-// Text Message Events
-// =============================================================================
-
 export interface TextMessageStart extends AGUIBase {
   type: "TextMessageStart";
   runId: string;
@@ -86,10 +70,6 @@ export interface TextMessageEnd extends AGUIBase {
   runId: string;
   messageId: string;
 }
-
-// =============================================================================
-// Tool Events
-// =============================================================================
 
 export interface ToolCallStart extends AGUIBase {
   type: "ToolCallStart";
@@ -120,10 +100,6 @@ export interface ToolCallResult extends AGUIBase {
   durationMs?: number;
 }
 
-// =============================================================================
-// Artifact Events
-// =============================================================================
-
 export interface ArtifactCreated extends AGUIBase {
   type: "ArtifactCreated";
   runId: string;
@@ -138,10 +114,6 @@ export interface ArtifactCreated extends AGUIBase {
   meta?: DeckPayload | Record<string, unknown>;
 }
 
-// =============================================================================
-// Cost Events
-// =============================================================================
-
 export interface CostIncurred extends AGUIBase {
   type: "CostIncurred";
   runId: string;
@@ -150,10 +122,6 @@ export interface CostIncurred extends AGUIBase {
   costUsd: number;
   model: string;
 }
-
-// =============================================================================
-// Interrupt Events (Agent-GO approval workflow)
-// =============================================================================
 
 export interface InterruptRequested extends AGUIBase {
   type: "InterruptRequested";
@@ -171,10 +139,6 @@ export interface InterruptResolved extends AGUIBase {
   reason?: string;
 }
 
-// =============================================================================
-// Event Union
-// =============================================================================
-
 export type AGUIEvent =
   | RunStarted
   | RunFinished
@@ -191,10 +155,6 @@ export type AGUIEvent =
   | InterruptResolved;
 
 export type AGUIEventType = AGUIEvent["type"];
-
-// =============================================================================
-// Event Factory
-// =============================================================================
 
 /**
  * Create a new AG-UI event with automatic timestamp and schema version
@@ -220,10 +180,6 @@ export function generateId(): string {
   return crypto.randomUUID();
 }
 
-// =============================================================================
-// Payload Helpers
-// =============================================================================
-
 /**
  * Wrap any value in DeckPayload if not already wrapped
  * Use when creating events with payload fields
@@ -234,10 +190,6 @@ export function wrapPayload(value: unknown): DeckPayload {
   }
   return jsonPayload(value);
 }
-
-// =============================================================================
-// Migration: V1 → V2
-// =============================================================================
 
 /**
  * Normalize an event loaded from DB to current schema
@@ -292,10 +244,6 @@ export function normalizeEvent(raw: unknown): AGUIEvent {
   // Cast through unknown to satisfy TypeScript
   return event as unknown as AGUIEvent;
 }
-
-// =============================================================================
-// Type Guards
-// =============================================================================
 
 export function isRunStarted(e: AGUIEvent): e is RunStarted {
   return e.type === "RunStarted";

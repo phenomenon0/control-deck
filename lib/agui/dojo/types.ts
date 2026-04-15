@@ -14,10 +14,6 @@
 
 import type { DeckPayload } from "../payload";
 
-// =============================================================================
-// JSON Patch (RFC 6902)
-// =============================================================================
-
 export type JsonPatchOp = "add" | "remove" | "replace" | "move" | "copy" | "test";
 
 export interface JsonPatchOperation {
@@ -26,10 +22,6 @@ export interface JsonPatchOperation {
   value?: unknown;
   from?: string;
 }
-
-// =============================================================================
-// Message Types
-// =============================================================================
 
 export type MessageRole = "user" | "assistant" | "system" | "tool" | "activity" | "developer" | "reasoning";
 
@@ -123,10 +115,6 @@ export type Message =
   | DeveloperMessage
   | ReasoningMessage;
 
-// =============================================================================
-// Tool Definitions
-// =============================================================================
-
 export interface ToolParameter {
   type: "string" | "number" | "boolean" | "object" | "array";
   description?: string;
@@ -145,10 +133,6 @@ export interface Tool {
     required?: string[];
   };
 }
-
-// =============================================================================
-// Extended Event Types (Full AG-UI Protocol)
-// =============================================================================
 
 export interface AGUIEventBase {
   type: string;
@@ -348,10 +332,6 @@ export interface MetaEvent extends AGUIEventBase {
   payload: Record<string, unknown>;
 }
 
-// =============================================================================
-// Event Union
-// =============================================================================
-
 export type DojoEvent =
   // Lifecycle
   | RunStartedEvent
@@ -392,10 +372,6 @@ export type DojoEvent =
 
 export type DojoEventType = DojoEvent["type"];
 
-// =============================================================================
-// Interrupt Types
-// =============================================================================
-
 export interface InterruptRequest {
   id: string;
   reason: string;
@@ -406,10 +382,6 @@ export interface InterruptResponse {
   interruptId: string;
   payload: unknown;
 }
-
-// =============================================================================
-// Generative UI Types
-// =============================================================================
 
 export interface GenerateUIRequest {
   description: string;
@@ -427,10 +399,6 @@ export interface GeneratedUI {
   initialData?: Record<string, unknown>;
   component?: string; // React component code
 }
-
-// =============================================================================
-// Run Input
-// =============================================================================
 
 export interface RunAgentInput {
   threadId: string;

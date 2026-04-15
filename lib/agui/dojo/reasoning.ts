@@ -12,10 +12,6 @@ import type {
   ReasoningMessage,
 } from "./types";
 
-// =============================================================================
-// Reasoning State
-// =============================================================================
-
 export interface ReasoningState {
   id: string;
   status: "active" | "completed";
@@ -136,10 +132,6 @@ export function createReasoningStore(): ReasoningStore {
   return store;
 }
 
-// =============================================================================
-// Event Factories
-// =============================================================================
-
 export function createReasoningStart(
   threadId: string,
   messageId: string,
@@ -205,10 +197,6 @@ export function createReasoningEnd(
   };
 }
 
-// =============================================================================
-// Reasoning Message Builder
-// =============================================================================
-
 export function createReasoningMessage(
   id: string,
   content: string[],
@@ -221,10 +209,6 @@ export function createReasoningMessage(
     encryptedContent,
   };
 }
-
-// =============================================================================
-// Thinking Indicator
-// =============================================================================
 
 export interface ThinkingIndicator {
   isThinking: boolean;

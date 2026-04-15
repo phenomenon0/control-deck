@@ -15,10 +15,6 @@ import {
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 
-// =============================================================================
-// Nav Items
-// =============================================================================
-
 const MAIN_NAV = [
   { href: "/deck/chat", label: "Chat", icon: MessageSquare, shortcut: "1" },
   { href: "/deck/runs", label: "Runs", icon: Play, shortcut: "2" },
@@ -30,10 +26,6 @@ const SECONDARY_NAV = [
   { href: "/deck/tools", label: "Tools", icon: Wrench, shortcut: "5" },
   { href: "/deck/comfy", label: "Comfy", icon: Boxes, shortcut: "6" },
 ] as const;
-
-// =============================================================================
-// Component
-// =============================================================================
 
 interface SidebarProps {
   onOpenPalette: () => void;

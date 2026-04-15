@@ -5,10 +5,6 @@
 
 import type { GenerateUIRequest, GeneratedUI, Tool } from "./types";
 
-// =============================================================================
-// JSON Schema Types (for form generation)
-// =============================================================================
-
 export interface JSONSchema {
   type: "object" | "string" | "number" | "boolean" | "array";
   title?: string;
@@ -26,10 +22,6 @@ export interface JSONSchema {
   format?: "email" | "uri" | "date" | "date-time" | "time";
 }
 
-// =============================================================================
-// UI Schema Types (for layout)
-// =============================================================================
-
 export type UISchemaType = 
   | "VerticalLayout"
   | "HorizontalLayout"
@@ -45,10 +37,6 @@ export interface UISchemaElement {
   elements?: UISchemaElement[];
   options?: Record<string, unknown>;
 }
-
-// =============================================================================
-// UI Generator Types
-// =============================================================================
 
 export type UIGeneratorType = 
   | "json-forms"      // JSON Forms compatible
@@ -69,10 +57,6 @@ export interface UIGeneratorResult {
   error?: string;
   generationType: UIGeneratorType;
 }
-
-// =============================================================================
-// Generate UI Tool Definition
-// =============================================================================
 
 export const generativeUIToolDefinition: Tool = {
   name: "generateUserInterface",
@@ -96,10 +80,6 @@ export const generativeUIToolDefinition: Tool = {
     required: ["description"],
   },
 };
-
-// =============================================================================
-// UI Schema Generator
-// =============================================================================
 
 /**
  * Generate a JSON Schema from a natural language description
@@ -179,10 +159,6 @@ function capitalizeWords(str: string): string {
   return str.replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// =============================================================================
-// UI Schema Generator
-// =============================================================================
-
 /**
  * Generate a UI Schema from a JSON Schema
  */
@@ -232,10 +208,6 @@ export function generateUISchema(jsonSchema: JSONSchema): UISchemaElement {
   };
 }
 
-// =============================================================================
-// Full UI Generator
-// =============================================================================
-
 /**
  * Generate complete UI from a request
  */
@@ -252,10 +224,6 @@ export function generateUI(request: GenerateUIRequest): GeneratedUI {
     initialData: request.data || {},
   };
 }
-
-// =============================================================================
-// LLM-Powered UI Generation (Integration Point)
-// =============================================================================
 
 /**
  * Generate UI using an LLM (OpenAI-compatible backend)
@@ -306,10 +274,6 @@ ${request.output ? `\nExpected output schema: ${JSON.stringify(request.output)}`
     return generateUI(request);
   }
 }
-
-// =============================================================================
-// Form Renderer Types
-// =============================================================================
 
 export interface FormField {
   name: string;

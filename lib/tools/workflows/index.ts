@@ -64,10 +64,6 @@ export function loadWorkflow(
   }
 }
 
-// ============================================================================
-// Stable Audio - Text to Audio
-// ============================================================================
-
 function buildStableAudioWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
   const duration = params.duration ?? 10;
@@ -142,10 +138,6 @@ function buildStableAudioWorkflow(params: WorkflowParams): Record<string, unknow
   };
 }
 
-// ============================================================================
-// SDXL Turbo - Fast Text to Image (4 steps)
-// ============================================================================
-
 function buildSDXLTurboWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
   const width = params.width ?? 512;
@@ -214,10 +206,6 @@ function buildSDXLTurboWorkflow(params: WorkflowParams): Record<string, unknown>
     },
   };
 }
-
-// ============================================================================
-// SDXL - Text to Image
-// ============================================================================
 
 function buildSDXLWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
@@ -288,10 +276,6 @@ function buildSDXLWorkflow(params: WorkflowParams): Record<string, unknown> {
     },
   };
 }
-
-// ============================================================================
-// Hunyuan 3D - Image to 3D Model
-// ============================================================================
 
 function buildHunyuan3DWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
@@ -416,12 +400,6 @@ function buildHunyuan3DWorkflow(params: WorkflowParams): Record<string, unknown>
   };
 }
 
-// ============================================================================
-// FLUX GGUF - Text to Image (Q8 quantized FLUX)
-// Based on Black0S workflow - requires ~10-12GB VRAM
-// Models: flux1-dev-Q8_0.gguf, clip_l.safetensors, t5xxl_fp16.safetensors
-// ============================================================================
-
 function buildFluxGGUFWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
   const width = params.width ?? 1024;
@@ -513,12 +491,6 @@ function buildFluxGGUFWorkflow(params: WorkflowParams): Record<string, unknown> 
     },
   };
 }
-
-// ============================================================================
-// FLUX Nunchaku - Text to Image (INT4 quantized FLUX - very fast!)
-// Based on Black0S workflow - requires only ~6-8GB VRAM
-// Models: svdq-int4_r32-flux.1-dev.safetensors (Nunchaku quantized)
-// ============================================================================
 
 function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
@@ -634,12 +606,6 @@ function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unkno
 
   return workflow;
 }
-
-// ============================================================================
-// SDXL/SD Hybrid - Text to Image
-// Based on Black0S workflow - supports SDXL, Pony, Illustrious, SD models
-// Requires ~8-10GB VRAM
-// ============================================================================
 
 function buildSDXLSDWorkflow(params: WorkflowParams): Record<string, unknown> {
   const seed = params.seed ?? Math.floor(Math.random() * 1000000000);

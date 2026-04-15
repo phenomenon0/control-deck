@@ -16,10 +16,6 @@ import { TopBar } from "./shell/TopBar";
 import { InspectorSheet } from "./InspectorSheet";
 import { ThreadSidebar } from "./chat/ThreadSidebar";
 
-// =============================================================================
-// Inner Shell (needs context)
-// =============================================================================
-
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -81,10 +77,6 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-// =============================================================================
-// Canvas Wrapper (for keyboard shortcut)
-// =============================================================================
-
 function CanvasKeyboardHandler({ children }: { children: React.ReactNode }) {
   const { toggle, isOpen } = useCanvas();
 
@@ -100,10 +92,6 @@ function CanvasKeyboardHandler({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
-
-// =============================================================================
-// Outer Shell (provides context)
-// =============================================================================
 
 export function DeckShell({ children }: { children: React.ReactNode }) {
   return (

@@ -10,18 +10,10 @@ import { ToolResultCard } from "@/components/sidebar/ToolResultCard";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 
-// =============================================================================
-// Props
-// =============================================================================
-
 interface InspectorSheetProps {
   open: boolean;
   onClose: () => void;
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 function formatModelName(model: string): string {
   if (model.includes("/") || model.includes("\\")) {
@@ -31,10 +23,6 @@ function formatModelName(model: string): string {
   }
   return model;
 }
-
-// =============================================================================
-// InspectorSheet — Slide-over panel from right
-// =============================================================================
 
 export function InspectorSheet({ open, onClose }: InspectorSheetProps) {
   const { threadId, model, isLoading, toolCalls, artifacts } = useChatInspectorData();
@@ -220,10 +208,6 @@ export function InspectorSheet({ open, onClose }: InspectorSheetProps) {
     </>
   );
 }
-
-// =============================================================================
-// Sub-components
-// =============================================================================
 
 function ToolCallRow({ tool }: { tool: ToolCallData }) {
   const statusColor =

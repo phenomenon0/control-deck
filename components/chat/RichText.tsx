@@ -26,10 +26,6 @@ import { Maximize2 } from "lucide-react";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { stripForDisplay } from "@/lib/chat/stripPatterns";
 
-// =============================================================================
-// Code Block component — styled block with copy + canvas buttons
-// =============================================================================
-
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const { openCode } = useCanvas();
   const [copied, setCopied] = useState(false);
@@ -74,10 +70,6 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
     </div>
   );
 }
-
-// =============================================================================
-// Inline markdown parser — converts inline formatting to React elements
-// =============================================================================
 
 /**
  * Parse inline markdown tokens into React elements.
@@ -181,10 +173,6 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
   return nodes;
 }
 
-// =============================================================================
-// Block-level parser — splits content into paragraphs, headings, lists, quotes
-// =============================================================================
-
 interface Block {
   type: "paragraph" | "heading" | "ul" | "ol" | "blockquote" | "code";
   content: string;
@@ -272,10 +260,6 @@ function parseBlocks(text: string): Block[] {
   return blocks;
 }
 
-// =============================================================================
-// Block renderers
-// =============================================================================
-
 function renderBlock(block: Block, index: number): ReactNode {
   switch (block.type) {
     case "heading": {
@@ -325,10 +309,6 @@ function renderBlock(block: Block, index: number): ReactNode {
       );
   }
 }
-
-// =============================================================================
-// RichText — main component
-// =============================================================================
 
 interface RichTextProps {
   /** Raw content string (may contain markdown + machine metadata) */

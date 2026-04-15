@@ -11,10 +11,6 @@ import {
   type DesignSystem,
 } from "./DeckSettingsProvider";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface ProviderOption {
   id: string;
   name: string;
@@ -46,10 +42,6 @@ interface ProviderInfoResponse {
   availableProviders: ProviderOption[];
 }
 
-// =============================================================================
-// Helpers
-// =============================================================================
-
 function formatModelName(model: string): string {
   if (model.includes("/") || model.includes("\\")) {
     const parts = model.split(/[/\\]/);
@@ -58,10 +50,6 @@ function formatModelName(model: string): string {
   }
   return model;
 }
-
-// =============================================================================
-// Provider & Model Fetcher
-// =============================================================================
 
 function useProviderInfo() {
   const [info, setInfo] = useState<ProviderInfoResponse | null>(null);
@@ -153,10 +141,6 @@ function useProviderInfo() {
     availableProviders: info?.availableProviders || [],
   };
 }
-
-// =============================================================================
-// Settings Drawer
-// =============================================================================
 
 export function SettingsDrawer() {
   const { prefs, updatePrefs, updateVoicePrefs, settingsOpen, setSettingsOpen } =
@@ -416,10 +400,6 @@ export function SettingsDrawer() {
     </div>
   );
 }
-
-// =============================================================================
-// Apple-style Sub-components
-// =============================================================================
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return (

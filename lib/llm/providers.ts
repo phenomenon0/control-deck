@@ -27,10 +27,6 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 // Note: @ai-sdk/huggingface uses a different pattern - we'll handle it specially
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export type ProviderType =
   | "openai"
   | "anthropic"
@@ -71,10 +67,6 @@ export interface ProviderInfo {
   modelsEndpoint?: string;
   defaultModels: string[];
 }
-
-// =============================================================================
-// Provider Registry
-// =============================================================================
 
 export const PROVIDERS: Record<ProviderType, ProviderInfo> = {
   openai: {
@@ -184,10 +176,6 @@ export const PROVIDERS: Record<ProviderType, ProviderInfo> = {
   },
 };
 
-// =============================================================================
-// Configuration
-// =============================================================================
-
 let cachedSlots: ProviderSlots | null = null;
 
 /** Runtime override for primary provider (set via UI) */
@@ -291,10 +279,6 @@ export function getRuntimeProvider(): ProviderConfig | null {
 export function clearProviderConfigCache(): void {
   cachedSlots = null;
 }
-
-// =============================================================================
-// Client Factory
-// =============================================================================
 
 /**
  * Create an AI SDK client for a provider config
@@ -401,10 +385,6 @@ export function getDefaultModel(slot: keyof ProviderSlots = "primary"): string |
   const config = getProviderConfig()[slot];
   return config?.model || PROVIDERS[config?.provider || "ollama"]?.defaultModels[0];
 }
-
-// =============================================================================
-// Health & Model Discovery
-// =============================================================================
 
 /**
  * Check if a provider is healthy/reachable
@@ -544,10 +524,6 @@ export async function listProviderModels(config: ProviderConfig): Promise<string
     return info?.defaultModels || [];
   }
 }
-
-// =============================================================================
-// Utility
-// =============================================================================
 
 /**
  * Get provider info by type

@@ -4,20 +4,12 @@ import React, { useState, useCallback, useMemo } from "react";
 import { ChevronRight } from "lucide-react";
 import type { DeckPayload } from "@/lib/agui/payload";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface PayloadViewerProps {
   payload: DeckPayload;
   label?: string;
   defaultExpanded?: boolean;
   maxPreviewLines?: number;
 }
-
-// =============================================================================
-// GLYPH Decoder (client-side)
-// =============================================================================
 
 // Inline the essential decoder for client-side use
 // This is a simplified version that handles the most common cases
@@ -288,10 +280,6 @@ function decodeGlyphClient(glyph: string): unknown {
     return { _decodeError: String(err), raw: glyph };
   }
 }
-
-// =============================================================================
-// PayloadViewer Component
-// =============================================================================
 
 export function PayloadViewer({ 
   payload, 

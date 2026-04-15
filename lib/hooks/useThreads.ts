@@ -9,7 +9,7 @@ import {
   setStoredActiveThread,
   groupThreadsByDate,
 } from "@/lib/chat/helpers";
-import type { Artifact } from "@/components/chat/ArtifactRenderer";
+import type { Artifact } from "@/lib/types/chat";
 
 export function useThreads() {
   const [threads, setThreads] = useState<Thread[]>([]);

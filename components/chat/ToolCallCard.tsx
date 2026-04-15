@@ -24,23 +24,9 @@ import { truncate } from "@/lib/utils";
 // Types
 // =============================================================================
 
-export type { ToolStatus };
+import type { ToolCallData } from "@/lib/types/chat";
 
-export interface ToolCallData {
-  id: string;
-  name: string;
-  args?: Record<string, unknown>;
-  status: ToolStatus;
-  result?: {
-    success: boolean;
-    message?: string;
-    error?: string;
-    data?: Record<string, unknown>;
-  };
-  artifacts?: Artifact[];
-  startedAt?: number;
-  durationMs?: number;
-}
+export type { ToolStatus, ToolCallData };
 
 /**
  * Unified props interface for ToolCallCard.

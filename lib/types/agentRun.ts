@@ -7,7 +7,7 @@
  * See: BEHAVIOR.md §2 (state machine), SURFACE.md §3 (timeline)
  */
 
-import type { Artifact } from "@/components/chat/ArtifactRenderer";
+import type { Artifact } from "@/lib/types/chat";
 
 // =============================================================================
 // Run State Machine (BEHAVIOR.md §2)

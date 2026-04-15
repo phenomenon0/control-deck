@@ -2,13 +2,9 @@
 
 import { useState } from "react";
 import { Paperclip, Download, Box, ImageOff } from "lucide-react";
+import type { Artifact } from "@/lib/types/chat";
 
-export interface Artifact {
-  id: string;
-  url: string;
-  name: string;
-  mimeType: string;
-}
+export type { Artifact };
 
 /**
  * Renders artifacts (images, audio, 3D models, video) in chat.

@@ -1,4 +1,4 @@
-import type { Artifact } from "@/components/chat/ArtifactRenderer";
+import type { Artifact } from "@/lib/types/chat";
 
 // Types
 export interface Message {

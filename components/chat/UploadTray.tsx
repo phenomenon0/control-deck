@@ -2,13 +2,9 @@
 
 import { useRef, useEffect } from "react";
 import { Plus, Trash2, Paperclip } from "lucide-react";
+import type { PendingUpload } from "@/lib/types/chat";
 
-export interface PendingUpload {
-  id: string;
-  name: string;
-  url: string;
-  mimeType: string;
-}
+export type { PendingUpload };
 
 interface UploadTrayProps {
   isOpen: boolean;

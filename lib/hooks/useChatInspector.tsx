@@ -12,8 +12,7 @@
  */
 
 import { createContext, useContext, useState, type ReactNode } from "react";
-import type { ToolCallData } from "@/components/chat/ToolCallCard";
-import type { Artifact } from "@/components/chat/ArtifactRenderer";
+import type { ToolCallData, Artifact } from "@/lib/types/chat";
 
 // =============================================================================
 // Types

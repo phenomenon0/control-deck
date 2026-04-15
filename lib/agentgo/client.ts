@@ -262,8 +262,8 @@ export async function* streamEventsAsync(
           try {
             const event: AgentGoEvent = JSON.parse(line.slice(6));
             yield event;
-          } catch {
-            // Skip malformed events
+          } catch (err) {
+            console.warn("[agentgo] Malformed SSE event:", line, err);
           }
         }
       }

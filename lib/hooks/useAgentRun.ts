@@ -662,8 +662,8 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
                 // Dispatch all other events to the state machine
                 dispatchSSEEvent(dispatch, event);
               }
-            } catch {
-              // Ignore malformed SSE lines
+            } catch (err) {
+              console.warn("[useAgentRun] Malformed SSE line:", line, err);
             }
           }
         }

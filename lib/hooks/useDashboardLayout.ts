@@ -23,65 +23,68 @@ const DEFAULT_LAYOUT: DashboardItem[] = [
   { id: "news", size: "1x1" },
 ];
 
+function saveLayout(items: DashboardItem[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch (err) {
+    console.warn("[useDashboardLayout] Failed to save layout:", err);
+  }
+}
+
 export function useDashboardLayout() {
   const [items, setItems] = useState<DashboardItem[]>(DEFAULT_LAYOUT);
 
-  // Load from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as DashboardItem[];
-        // Validate all IDs exist in registry
         const valid = parsed.filter(item => WIDGET_REGISTRY.some(w => w.id === item.id));
         if (valid.length > 0) setItems(valid);
       }
-    } catch { /* use defaults */ }
+    } catch (err) {
+      console.warn("[useDashboardLayout] Corrupted layout, using defaults:", err);
+    }
   }, []);
 
-  // Persist on change
   const persist = useCallback((newItems: DashboardItem[]) => {
     setItems(newItems);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(newItems)); } catch {}
+    saveLayout(newItems);
   }, []);
 
-  // Reorder (for drag and drop)
   const reorder = useCallback((fromIndex: number, toIndex: number) => {
     setItems(prev => {
       const next = [...prev];
       const [moved] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, moved);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      saveLayout(next);
       return next;
     });
   }, []);
 
-  // Add widget
   const addWidget = useCallback((id: string) => {
     const meta = WIDGET_REGISTRY.find(w => w.id === id);
     if (!meta) return;
     setItems(prev => {
-      if (prev.some(item => item.id === id)) return prev; // already exists
+      if (prev.some(item => item.id === id)) return prev;
       const next = [...prev, { id, size: meta.defaultSize }];
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      saveLayout(next);
       return next;
     });
   }, []);
 
-  // Remove widget
   const removeWidget = useCallback((id: string) => {
     setItems(prev => {
       const next = prev.filter(item => item.id !== id);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      saveLayout(next);
       return next;
     });
   }, []);
 
-  // Resize widget
   const resizeWidget = useCallback((id: string, size: DashboardItem["size"]) => {
     setItems(prev => {
       const next = prev.map(item => item.id === id ? { ...item, size } : item);
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      saveLayout(next);
       return next;
     });
   }, []);

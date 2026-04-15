@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { Mic } from "lucide-react";
 
 interface AudioLevelIndicatorProps {
@@ -23,11 +22,7 @@ export function AudioLevelIndicator({
   variant = "rings",
 }: AudioLevelIndicatorProps) {
   const dimensions = SIZES[size];
-  
-  // Normalize level for visual effect (apply some easing)
-  const normalizedLevel = useMemo(() => {
-    return Math.pow(level, 0.7); // Slight easing for better visual response
-  }, [level]);
+  const normalizedLevel = Math.pow(level, 0.7);
 
   if (variant === "bars") {
     return <BarsIndicator level={normalizedLevel} isActive={isActive} size={size} />;

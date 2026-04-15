@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import {
   Search,
   MessageSquare,
@@ -44,13 +44,11 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
   const pathname = usePathname();
   const { setSettingsOpen } = useDeckSettings();
 
-  const toggle = useCallback(() => setCollapsed((c) => !c), []);
-
   // Toggle sidebar: Cmd+.
-  useShortcut("mod+.", toggle, { label: "Toggle sidebar" });
+  useShortcut("mod+.", () => setCollapsed((c) => !c), { label: "Toggle sidebar" });
 
   // Number key shortcuts (1-6) — use location.href for reliable navigation
-  const nav = useCallback((href: string) => { window.location.href = href; }, []);
+  const nav = (href: string) => { window.location.href = href; };
   useShortcut("1", () => nav(MAIN_NAV[0].href), {
     when: "no-input",
     label: `Go to ${MAIN_NAV[0].label}`,

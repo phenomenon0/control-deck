@@ -508,11 +508,11 @@ export async function listProviderModels(config: ProviderConfig): Promise<string
         const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) return info.defaultModels;
-        const data = await res.json();
-        // Filter to generative models only
+        const data = (await res.json()) as { models?: Array<{ name?: string }> };
         return (data.models || [])
-          .filter((m: any) => m.name?.includes("gemini"))
-          .map((m: any) => m.name?.replace("models/", ""));
+          .filter((m) => m.name?.includes("gemini"))
+          .map((m) => m.name?.replace("models/", ""))
+          .filter((name): name is string => typeof name === "string");
       }
 
       case "openrouter": {
@@ -521,25 +521,23 @@ export async function listProviderModels(config: ProviderConfig): Promise<string
           cache: "no-store",
         });
         if (!res.ok) return info.defaultModels;
-        const data = await res.json();
-        return (data.data || []).map((m: any) => m.id).slice(0, 50); // Limit to top 50
+        const data = (await res.json()) as { data?: Array<{ id: string }> };
+        return (data.data || []).map((m) => m.id).slice(0, 50);
       }
 
       case "huggingface":
-        // HuggingFace model listing is complex, return defaults
         return info.defaultModels;
 
       default: {
-        // OpenAI-compatible
         const modelsURL = `${baseURL || info?.defaultBaseURL}/models`;
         const headers: Record<string, string> = {};
         if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
         const res = await fetch(modelsURL, { headers, cache: "no-store" });
         if (!res.ok) return info?.defaultModels || [];
-        
-        const data = await res.json();
-        return (data.data || []).map((m: any) => m.id);
+
+        const data = (await res.json()) as { data?: Array<{ id: string }> };
+        return (data.data || []).map((m) => m.id);
       }
     }
   } catch {

@@ -200,9 +200,10 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       await Promise.all(
         FILLER_PATHS.map(async (path, index) => {
           try {
+            if (!audioContextRef.current) return;
             const response = await fetch(path);
             const arrayBuffer = await response.arrayBuffer();
-            const audioBuffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
+            const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
             fillerBuffersRef.current[index] = audioBuffer;
           } catch (e) {
             console.warn(`[VoiceChat] Failed to preload filler ${index}:`, e);

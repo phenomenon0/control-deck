@@ -1,28 +1,24 @@
-# DESIGN.md -- Agent Chat Surface Visual System
+# DESIGN.md -- Agent Control Surface Visual System
 
-> Control Deck's chat surface redesign. This document defines the visual
-> language for an **agent-first** conversation interface -- one that communicates
-> activity, control and artifact production, not just text exchange.
+> Control Deck's visual identity. This document defines the design language
+> for an **agent-first** control surface -- one built around work product,
+> activity phases, and artifact production, not text exchange.
 
 ---
 
-## 1. Design Diagnosis
+## 1. Design Philosophy
 
-The current chat surface looks like a chatbot. The problems:
+Control Deck is not a chatbot. It is the operating layer for an entire
+machine and AI stack. The primary content is **work product** (artifacts,
+tool execution, analysis). Conversation is secondary. The UI must reflect
+that hierarchy.
 
-| What's wrong | Why it matters |
-|---|---|
-| Flat message column with no visual hierarchy | Can't tell "thinking" from "answering" from "doing" |
-| 6px blinking dot is the only activity signal | Agent doing 30s of tool work looks identical to "typing..." |
-| Tool calls render as collapsed cards *below* text | The work IS the value -- it shouldn't be an afterthought |
-| Inline styles everywhere (ChatInput, UploadTray) | No design-system discipline; inconsistent feel |
-| Input bar is a plain textarea | No sense of what the agent can do or what context it has |
-| Artifacts are small thumbnails at message bottom | Generated images/code/audio should be showcased |
-| Three conflicting color systems | CSS vars, Tailwind tokens, hardcoded hex all disagree |
+**Two archetypes power two themes:**
 
-**Core insight:** This is an agent control surface, not a messaging app.
-The primary content is *work product* (artifacts, code, analysis),
-not *conversation*. The UI must reflect that hierarchy.
+| Theme | Archetype | Identity |
+|-------|-----------|----------|
+| Default (dark-only) | **Precision** | Instant, mechanical, keyboard-first. Linear/Cursor DNA. |
+| Apple (light/dark) | **Physical** | Weighted, spring-based, spacious. Apple HIG DNA. |
 
 ---
 
@@ -30,34 +26,36 @@ not *conversation*. The UI must reflect that hierarchy.
 
 ### 2.1 Color System (Single Source of Truth)
 
-All colors flow from CSS custom properties. No hardcoded hex in components.
-No Tailwind color overrides. One system.
+All colors flow from CSS custom properties in `:root`. No hardcoded hex
+in components. No Tailwind color overrides. One system.
+
+#### Default Theme (Precision -- warm amber on cool blue-black)
 
 ```
 Background Scale (luminance stepping, cool blue-black):
-  --bg-base:      #08080A    // Deepest -- page bg behind everything
-  --bg-primary:   #0C0C0F    // Main content area
-  --bg-secondary: #121215    // Cards, input fields, thread sidebar
+  --bg-base:      #06060A    // Deepest -- behind shell, page bg
+  --bg-primary:   #0A0A0B    // Main content area
+  --bg-secondary: #111115    // Cards, input fields, thread sidebar
   --bg-tertiary:  #1A1A1E    // Hover states, elevated surfaces
   --bg-elevated:  #222226    // Popovers, dropdowns, floating panels
 
 Border Scale (white at low opacity):
   --border-subtle:  rgba(255, 255, 255, 0.04)   // Structural separators
-  --border:         rgba(255, 255, 255, 0.07)    // Default card/input borders
-  --border-bright:  rgba(255, 255, 255, 0.12)    // Focus rings, active states
-  --border-accent:  rgba(94, 106, 210, 0.25)     // Accent-tinted highlights
+  --border:         rgba(255, 255, 255, 0.06)    // Default card/input borders
+  --border-bright:  rgba(255, 255, 255, 0.10)    // Focus rings, active states
+  --border-accent:  rgba(212, 165, 116, 0.25)    // Accent-tinted highlights
 
 Text Scale:
   --text-primary:   #EDEDEF    // Headings, primary content
-  --text-secondary: #8E8E93    // Labels, metadata, timestamps
-  --text-tertiary:  #5C5C61    // Placeholders, hints, disabled
+  --text-secondary: #8B8B8E    // Labels, metadata, timestamps
+  --text-tertiary:  #5C5C5F    // Placeholders, hints, disabled (alias of --text-muted)
   --text-on-accent: #FFFFFF    // Text on accent-colored backgrounds
 
-Accent (indigo -- agent identity):
-  --accent:         #5E6AD2    // Primary actions, active states
-  --accent-hover:   #6B77E0    // Hover state (lighter, not darker)
-  --accent-muted:   rgba(94, 106, 210, 0.12)  // Backgrounds, badges
-  --accent-glow:    rgba(94, 106, 210, 0.06)  // Subtle ambient glow
+Accent (warm amber -- Control Deck identity):
+  --accent:         #D4A574    // Primary actions, active states
+  --accent-hover:   #C49060    // Hover state (darker, not lighter -- amber darkens)
+  --accent-muted:   rgba(212, 165, 116, 0.15)  // Backgrounds, badges
+  --accent-glow:    rgba(212, 165, 116, 0.06)  // Subtle ambient glow
 
 Semantic (desaturated -- not screaming):
   --success:        #3ECF71
@@ -67,11 +65,45 @@ Semantic (desaturated -- not screaming):
   --error:          #E5534B
   --error-muted:    rgba(229, 83, 75, 0.10)
 
-Agent Activity (new -- dedicated palette):
-  --agent-thinking: #8B7EC8    // Purple-ish for reasoning
-  --agent-working:  #5E6AD2    // Accent for active tool execution
+Agent Activity (dedicated palette):
+  --agent-thinking: #B8956A    // Warm amber-tan for reasoning
+  --agent-working:  #D4A574    // Follows accent for active tool execution
   --agent-done:     #3ECF71    // Green for completion
-  --agent-surface:  rgba(94, 106, 210, 0.04)  // Ambient bg when agent is active
+  --agent-surface:  rgba(212, 165, 116, 0.04)  // Ambient bg when agent is active
+
+AI Indicator:
+  --ai-glow:        rgba(139, 92, 246, 0.3)   // Violet shimmer for "AI is working"
+  --ai-accent:      #8B5CF6                     // Violet for AI-generated content markers
+```
+
+**Why warm amber?** Every AI tool uses blue or purple. Amber says "analog
+warmth in a digital space." It's the color of aged instruments, control
+panels, backlit gauges. It IS "Control Deck."
+
+#### Apple Theme (Physical -- iOS system colors)
+
+The Apple theme uses iOS system blue (#007AFF light / #0A84FF dark) as its
+accent. It does NOT use amber. This is intentional -- the Physical archetype
+follows Apple HIG, not the flight-deck identity.
+
+```
+Apple Light:
+  --bg-base:      #EFEFEF
+  --bg-primary:   #FFFFFF
+  --bg-secondary: #F5F5F7
+  --bg-tertiary:  #E8E8ED
+  --accent:       #007AFF
+  --accent-hover: #0066D6
+  --radius:       1rem (16px)
+
+Apple Dark:
+  --bg-base:      #000000
+  --bg-primary:   #000000
+  --bg-secondary: #1C1C1E
+  --bg-tertiary:  #2C2C2E
+  --accent:       #0A84FF
+  --accent-hover: #409CFF
+  --radius:       1rem (16px)
 ```
 
 ### 2.2 Typography
@@ -81,13 +113,17 @@ Font Stack:
   --font-sans:  "Inter", -apple-system, BlinkMacSystemFont, sans-serif
   --font-mono:  "Geist Mono", "SF Mono", ui-monospace, Consolas, monospace
 
-Scale:
+Scale (Precision / default):
   --text-xs:    11px / 1.45    // Timestamps, badges, metadata
   --text-sm:    12px / 1.5     // Labels, secondary info
   --text-base:  13px / 1.6     // Default body, UI elements
   --text-md:    14px / 1.6     // Chat messages, primary content
   --text-lg:    16px / 1.5     // Section headings
   --text-xl:    20px / 1.4     // Page titles (rare)
+
+Scale (Physical / Apple):
+  --text-base:  15px           // Larger body
+  --text-lg:    20px           // Roomier headings
 
 Weights:
   400 -- Body text, messages
@@ -111,15 +147,15 @@ Spacing Scale (4px base):
   --sp-6:  32px    // Spacious: page-level margins
   --sp-8:  48px    // Extra: empty state centering
 
-Radii:
-  --radius-sm:   4px     // Badges, inline elements
-  --radius-md:   6px     // Buttons, inputs, small cards
-  --radius-lg:   10px    // Cards, panels, images
-  --radius-xl:   16px    // Modals, floating panels
+Radii (modern round):
+  --radius-sm:   6px     // Badges, inline elements, small pills
+  --radius-md:   8px     // Buttons, inputs, small cards
+  --radius-lg:   10px    // Cards, panels, images (base --radius)
+  --radius-xl:   14px    // Modals, floating panels, dashboard cells
   --radius-full: 9999px  // Pills, avatars
 
 Chat Column:
-  max-width: 720px   // Narrower than current 960 -- tighter reading width
+  max-width: 720px   // Tight reading width
   padding: 0 var(--sp-5)
 ```
 
@@ -132,8 +168,8 @@ Chat Column:
 **User messages:** Right-aligned subtle bubble. Clearly "sent by me."
 
 ```
-background: rgba(94, 106, 210, 0.08)
-border: 1px solid rgba(94, 106, 210, 0.12)
+background: rgba(var(--accent-rgb), 0.10)
+border: 1px solid rgba(var(--accent-rgb), 0.14)
 border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)
 padding: var(--sp-3) var(--sp-4)
 max-width: 85%
@@ -152,7 +188,7 @@ max-width: 90%
 
 ### 3.2 Agent Activity Block
 
-**This is the key new pattern.** When the agent is working (tool calls,
+**This is the key pattern.** When the agent is working (tool calls,
 reasoning, multi-step execution), it renders as a distinct "activity block"
 instead of inline message content.
 
@@ -194,8 +230,8 @@ Artifact Card:
 
 ### 3.4 Input Composer
 
-The input area evolves from a plain textarea into a **composer** that
-communicates agent capabilities and current context.
+The input area is a **composer** that communicates agent capabilities
+and current context.
 
 ```
 Composer Container:
@@ -230,8 +266,6 @@ Composer Container:
 ```
 
 ### 3.5 Status & Progress
-
-Replace the 6px blinking dot with proper status communication.
 
 ```
 Agent Status Strip (between messages and input):
@@ -302,36 +336,33 @@ Thread Item:
 +-------+--------------------------------------------------+
 ```
 
-The thread sidebar (ThreadSidebar) is **removed from ChatPaneV2** and lives
-in the shell's left sidebar as a sub-section when on the /deck/chat route.
-This eliminates the nested sidebar-within-a-pane problem.
+The thread sidebar (ThreadSidebar) lives in the shell's left sidebar as a
+sub-section when on the /deck/chat route. This eliminates the nested
+sidebar-within-a-pane problem.
 
 ---
 
-## 5. Design Tokens Migration Plan
+## 5. Design Tokens Migration
 
-**Phase 1** (this redesign): Define all tokens in `:root` in globals.css.
-Components use `var(--token)` exclusively. Remove all hardcoded colors
-from ChatPaneV2, ChatInput, MessageRenderer, ToolCallCard.
+All tokens defined in `:root` in `app/globals.css`. Components use
+`var(--token)` exclusively. The `@theme inline` block bridges tokens
+to Tailwind utilities.
 
-**Phase 2** (future): Extract tokens into a separate `tokens.css` imported
-by globals.css. Enable theming by swapping token files.
-
-**Anti-patterns to eliminate:**
+**Anti-patterns eliminated:**
 - `background: "#111113"` in JSX (use `var(--bg-secondary)`)
 - `color: "rgba(255,255,255,0.35)"` in JSX (use `var(--text-tertiary)`)
 - `border: "1px solid rgba(255,255,255,0.06)"` (use `var(--border)`)
-- Tailwind utilities for colors that conflict with CSS vars
 - `style={{}}` objects for anything that should be a class
+- Hardcoded `border-radius: Npx` where a token exists
 
 ---
 
 ## 6. Iconography
 
-All icons from `lucide-react`, 16px default, 1.5 stroke width.
-No emoji. No custom SVG icons unless lucide lacks the concept.
+All icons from `lucide-react`, 16px default (20px in Apple theme),
+stroke-width 1.5 (1.8 in Apple). No emoji. No custom SVG.
 
-Agent state icons (new):
+Agent state icons:
 - Thinking: `Brain` or `Sparkles`
 - Tool execution: `Wrench` or `Play`
 - Search: `Search`
@@ -339,4 +370,4 @@ Agent state icons (new):
 - Image gen: `Image`
 - Complete: `Check`
 - Error: `AlertCircle`
-- Interrupted: `Pause`
+- Interrupted: `Square` (stop icon)

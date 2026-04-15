@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
+import { truncate } from "@/lib/utils";
 
 interface SearchResult {
   title: string;
@@ -208,6 +209,3 @@ function formatTimeAgo(dateStr: string): string {
   }
 }
 
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}

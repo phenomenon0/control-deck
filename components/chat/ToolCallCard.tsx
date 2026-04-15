@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
+import { truncate } from "@/lib/utils";
 
 // =============================================================================
 // Types
@@ -495,9 +496,6 @@ function formatArg(value: unknown): string {
   return "{...}";
 }
 
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}
 
 // =============================================================================
 // Compact Tool Pills (for inline display)

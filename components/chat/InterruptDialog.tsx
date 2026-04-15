@@ -9,13 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { AlertTriangle } from "lucide-react";
-
-interface InterruptRequest {
-  runId: string;
-  toolCallId: string;
-  toolName: string;
-  args?: Record<string, unknown>;
-}
+import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
 
 interface InterruptDialogProps {
   request: InterruptRequest | null;
@@ -165,4 +159,3 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
   );
 }
 
-export type { InterruptRequest };

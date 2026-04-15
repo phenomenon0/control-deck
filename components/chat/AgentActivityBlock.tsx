@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown, Wrench, Search, Code, Image, Volume2, Sparkles, Check, Play } from "lucide-react";
 import type { ActivityStep, AgentActivitySegment } from "@/lib/types/agentRun";
 import { formatDuration } from "@/lib/constants/status";
+import { truncate } from "@/lib/utils";
 
 // =============================================================================
 // Tool display config — lucide icons, no emoji (DESIGN.md §6)
@@ -150,6 +151,3 @@ function getMainArg(args: Record<string, unknown>): string | null {
   return null;
 }
 
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}

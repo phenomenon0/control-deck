@@ -43,6 +43,10 @@ interface RunEvent {
   [key: string]: unknown;
 }
 
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString();
+}
+
 export function RunsPane() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [todayCost, setTodayCost] = useState<TodayCost | null>(null);
@@ -191,11 +195,6 @@ export function RunsPane() {
     await fetch("/api/agui/runs", { method: "DELETE" });
     setSelectedRun(null);
     fetchRuns();
-  };
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString();
   };
 
   const formatDuration = (start: string, end: string | null) => {
@@ -692,11 +691,6 @@ function GlyphCard({ item }: {
   const savings = isGlyph && approxBytes > 0 
     ? ((1 - content.length / approxBytes) * 100).toFixed(1)
     : "0";
-
-  const formatTime = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleTimeString();
-  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);

@@ -2,19 +2,11 @@
 
 import { useState, useEffect, ReactNode } from "react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface WidgetDockProps {
   children: ReactNode[];
   widgetIds: string[];
   storageKey?: string;
 }
-
-// =============================================================================
-// WidgetDock - Simple widget container with persisted order
-// =============================================================================
 
 export function WidgetDock({ 
   children, 

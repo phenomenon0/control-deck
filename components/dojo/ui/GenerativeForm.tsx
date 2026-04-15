@@ -2,10 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface JSONSchemaProperty {
   type: "string" | "number" | "boolean" | "array" | "object";
   title?: string;
@@ -35,10 +31,6 @@ export interface GenerativeFormProps {
   isGenerating?: boolean;
   title?: string;
 }
-
-// =============================================================================
-// GenerativeForm Component
-// =============================================================================
 
 export function GenerativeForm({
   schema,

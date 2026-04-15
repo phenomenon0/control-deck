@@ -3,10 +3,6 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-// =============================================================================
-// ThinkingIndicator - Shows while agent is reasoning
-// =============================================================================
-
 export interface ThinkingIndicatorProps {
   message?: string;
   isActive?: boolean;
@@ -16,37 +12,12 @@ export function ThinkingIndicator({ message = "Thinking...", isActive = true }: 
   if (!isActive) return null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 14px",
-        background: "var(--bg-secondary)",
-        border: "1px solid var(--border)",
-        borderRadius: 6,
-        marginBottom: 8,
-        maxWidth: 200,
-      }}
-    >
-      <span
-        className="animate-thinking-pulse"
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: "var(--accent)",
-          flexShrink: 0,
-        }}
-      />
-      <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>{message}</span>
+    <div className="rd-thinking">
+      <span className="rd-dot rd-dot--active animate-thinking-pulse" />
+      <span className="rd-thinking-text">{message}</span>
     </div>
   );
 }
-
-// =============================================================================
-// ReasoningBubble - Shows chain-of-thought content
-// =============================================================================
 
 export interface ReasoningBubbleProps {
   content: string;
@@ -66,107 +37,38 @@ export function ReasoningBubble({
   if (!content && !isStreaming) return null;
 
   return (
-    <div
-      style={{
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        background: "var(--bg-secondary)",
-        overflow: "hidden",
-        marginBottom: 8,
-        maxWidth: 500,
-      }}
-    >
+    <div className="rd-container rd-container--bubble">
       {/* Header */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          textAlign: "left",
-          font: "inherit",
-          transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)",
-        }}
+        className="rd-header"
       >
         <span
-          className={isStreaming ? "animate-thinking-pulse" : ""}
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: isStreaming ? "var(--accent)" : "var(--text-muted)",
-            flexShrink: 0,
-          }}
+          className={`rd-dot ${isStreaming ? "rd-dot--active animate-thinking-pulse" : ""}`}
         />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>
+        <span className="rd-header-title">
           {isStreaming ? "Thinking..." : "Thought Process"}
         </span>
         {timestamp && (
-          <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: "auto" }}>
-            {timestamp}
-          </span>
+          <span className="rd-header-time">{timestamp}</span>
         )}
         <ChevronDown
           width={12}
           height={12}
-          style={{
-            color: "var(--text-muted)",
-            transform: isCollapsed ? "rotate(0deg)" : "rotate(180deg)",
-            transition: "transform 150ms cubic-bezier(0, 0, 0.2, 1)",
-            marginLeft: timestamp ? 0 : "auto",
-          }}
+          className={`rd-chevron ${isCollapsed ? "" : "rd-chevron--open"} ${timestamp ? "" : "rd-chevron--auto-ml"}`}
         />
       </button>
 
       {/* Content */}
       {!isCollapsed && (
-        <div
-          className="animate-expand"
-          style={{
-            padding: "8px 12px 10px",
-            borderTop: "1px solid var(--border)",
-            fontSize: 13,
-            color: "var(--text-secondary)",
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            paddingLeft: 28,
-          }}
-        >
+        <div className="animate-expand rd-bubble-content">
           {content || "Processing..."}
-          {isStreaming && (
-            <span
-              style={{
-                display: "inline-block",
-                width: 2,
-                height: 14,
-                background: "var(--accent)",
-                marginLeft: 2,
-                animation: "blink 1s infinite",
-              }}
-            />
-          )}
+          {isStreaming && <span className="rd-cursor" />}
         </div>
       )}
-
-      <style>{`
-        @keyframes blink {
-          0%, 50% { opacity: 1; }
-          51%, 100% { opacity: 0; }
-        }
-      `}</style>
     </div>
   );
 }
-
-// =============================================================================
-// ReasoningTrace - Full trace with multiple steps
-// =============================================================================
 
 export interface ReasoningStep {
   id: string;
@@ -186,158 +88,59 @@ export function ReasoningTrace({ steps, isActive = false, currentContent }: Reas
   if (steps.length === 0 && !isActive) return null;
 
   return (
-    <div
-      style={{
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        background: "var(--bg-secondary)",
-        overflow: "hidden",
-        marginBottom: 12,
-        maxWidth: 550,
-      }}
-    >
+    <div className="rd-container rd-container--trace">
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        style={{
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-          textAlign: "left",
-          font: "inherit",
-          transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)",
-        }}
+        className="rd-header"
       >
         <span
-          className={isActive ? "animate-thinking-pulse" : ""}
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: isActive ? "var(--accent)" : "var(--text-muted)",
-            flexShrink: 0,
-          }}
+          className={`rd-dot ${isActive ? "rd-dot--active animate-thinking-pulse" : ""}`}
         />
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)" }}>
+        <span className="rd-header-title rd-header-title--bold">
           Reasoning Trace
         </span>
-        <span
-          style={{
-            fontSize: 10,
-            padding: "2px 6px",
-            background: "var(--bg-tertiary)",
-            borderRadius: 6,
-            color: "var(--text-muted)",
-          }}
-        >
+        <span className="rd-trace-count">
           {steps.length} step{steps.length !== 1 ? "s" : ""}
         </span>
         {isActive && (
-          <span style={{ fontSize: 10, color: "var(--accent)", marginLeft: "auto" }}>
-            Active
-          </span>
+          <span className="rd-trace-active">Active</span>
         )}
         <ChevronDown
           width={14}
           height={14}
-          style={{
-            color: "var(--text-muted)",
-            transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 150ms cubic-bezier(0, 0, 0.2, 1)",
-            marginLeft: isActive ? 0 : "auto",
-          }}
+          className={`rd-chevron ${isExpanded ? "rd-chevron--open" : ""} ${isActive ? "" : "rd-chevron--auto-ml"}`}
         />
       </button>
 
       {/* Steps */}
       {isExpanded && (
-        <div className="animate-expand" style={{ padding: "8px 12px" }}>
+        <div className="animate-expand rd-trace-steps">
           {steps.map((step, idx) => (
             <div
               key={step.id}
-              style={{
-                position: "relative",
-                paddingLeft: 20,
-                paddingBottom: idx < steps.length - 1 || isActive ? 12 : 0,
-                borderLeft: "2px solid var(--border)",
-                marginLeft: 6,
-              }}
+              className={`rd-trace-step ${idx < steps.length - 1 || isActive ? "rd-trace-step--gap" : ""}`}
             >
-              {/* Step dot */}
-              <div
-                style={{
-                  position: "absolute",
-                  left: -5,
-                  top: 4,
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "var(--accent)",
-                }}
-              />
-              {/* Step content */}
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                {step.content}
-              </div>
+              <div className="rd-trace-step-dot" />
+              <div className="rd-trace-step-text">{step.content}</div>
               {step.timestamp && (
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-                  {step.timestamp}
-                </div>
+                <div className="rd-trace-step-time">{step.timestamp}</div>
               )}
             </div>
           ))}
 
           {/* Current streaming step */}
           {isActive && currentContent && (
-            <div
-              style={{
-                position: "relative",
-                paddingLeft: 20,
-                borderLeft: "2px solid var(--border)",
-                marginLeft: 6,
-              }}
-            >
-              <div
-                className="animate-thinking-pulse"
-                style={{
-                  position: "absolute",
-                  left: -5,
-                  top: 4,
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: "var(--accent)",
-                }}
-              />
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+            <div className="rd-trace-step">
+              <div className="rd-trace-step-dot animate-thinking-pulse" />
+              <div className="rd-trace-step-text">
                 {currentContent}
-                <span
-                  style={{
-                    display: "inline-block",
-                    width: 2,
-                    height: 12,
-                    background: "var(--accent)",
-                    marginLeft: 2,
-                    animation: "blink 1s infinite",
-                  }}
-                />
+                <span className="rd-cursor rd-cursor--sm" />
               </div>
             </div>
           )}
         </div>
       )}
-
-      <style>{`
-        @keyframes blink {
-          0%, 50% { opacity: 1; }
-          51%, 100% { opacity: 0; }
-        }
-      `}</style>
     </div>
   );
 }

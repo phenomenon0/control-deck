@@ -18,10 +18,6 @@ import {
 } from "lucide-react";
 import type { PluginBundle, PluginTemplate } from "@/lib/plugins/types";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface TemplateInfo {
   id: PluginTemplate;
   name: string;
@@ -56,10 +52,6 @@ interface PluginMakerProps {
   initialBundle?: PluginBundle;
 }
 
-// =============================================================================
-// Icons
-// =============================================================================
-
 const icons: Record<string, React.ReactNode> = {
   radio: <Radio />,
   list: <List />,
@@ -75,10 +67,6 @@ const icons: Record<string, React.ReactNode> = {
   wand: <Wand2 />,
   message: <MessageSquare />,
 };
-
-// =============================================================================
-// Component
-// =============================================================================
 
 /**
  * PluginMaker - UI for creating plugins via form or AI chat
@@ -113,10 +101,6 @@ export function PluginMaker({ onSave, onCancel, initialBundle }: PluginMakerProp
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   
-  // =============================================================================
-  // Load meta (templates and tools)
-  // =============================================================================
-  
   useEffect(() => {
     async function loadMeta() {
       try {
@@ -149,10 +133,6 @@ export function PluginMaker({ onSave, onCancel, initialBundle }: PluginMakerProp
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-  
-  // =============================================================================
-  // Chat generation
-  // =============================================================================
   
   const generateFromChat = useCallback(async (userMessage: string) => {
     if (!userMessage.trim() || isGenerating) return;
@@ -234,10 +214,6 @@ export function PluginMaker({ onSave, onCancel, initialBundle }: PluginMakerProp
     }
   }, [handleSend]);
   
-  // =============================================================================
-  // Form generation
-  // =============================================================================
-  
   const generateFromForm = useCallback(async () => {
     if (!selectedTemplate || !formName.trim() || isGenerating) return;
     
@@ -284,10 +260,6 @@ export function PluginMaker({ onSave, onCancel, initialBundle }: PluginMakerProp
     }
   }, [selectedTemplate, formName, formDescription, isGenerating]);
   
-  // =============================================================================
-  // Save plugin
-  // =============================================================================
-  
   const handleSave = useCallback(async () => {
     if (!bundle || saving) return;
     
@@ -301,10 +273,6 @@ export function PluginMaker({ onSave, onCancel, initialBundle }: PluginMakerProp
       setSaving(false);
     }
   }, [bundle, saving, onSave]);
-  
-  // =============================================================================
-  // Render
-  // =============================================================================
   
   if (metaLoading) {
     return (

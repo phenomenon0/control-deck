@@ -3,20 +3,12 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ReasoningBubbleProps {
   content: string;
   isStreaming?: boolean;
   isCollapsed?: boolean;
   timestamp?: string;
 }
-
-// =============================================================================
-// ReasoningBubble Component
-// =============================================================================
 
 export function ReasoningBubble({
   content,
@@ -64,10 +56,6 @@ export function ReasoningBubble({
     </div>
   );
 }
-
-// =============================================================================
-// ThinkingIndicator Component
-// =============================================================================
 
 export interface ThinkingIndicatorProps {
   message?: string;

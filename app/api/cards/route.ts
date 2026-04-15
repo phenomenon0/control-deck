@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 const DECK_BASE_URL = process.env.DECK_BASE_URL ?? "http://localhost:3333";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface SportsScoreData {
   homeTeam: { name: string; shortName?: string; score?: number };
   awayTeam: { name: string; shortName?: string; score?: number };
@@ -32,10 +28,6 @@ interface WeatherData {
 type CardData = 
   | { type: "sports"; data: SportsScoreData }
   | { type: "weather"; data: WeatherData };
-
-// =============================================================================
-// Sports Score Parsing
-// =============================================================================
 
 // Common team name mappings
 const TEAM_ALIASES: Record<string, string> = {
@@ -277,10 +269,6 @@ function createSportsCard(homeTeam: string, awayTeam: string, homeScore: number,
   };
 }
 
-// =============================================================================
-// Weather Parsing
-// =============================================================================
-
 function parseWeatherFromSearch(query: string, results: { title: string; snippet: string; url: string }[]): WeatherData | null {
   // Extract location from query
   const locationMatch = query.match(/weather\s+(?:in\s+)?([a-z\s,]+)/i);
@@ -374,10 +362,6 @@ function parseWeatherFromSearch(query: string, results: { title: string; snippet
   return null;
 }
 
-// =============================================================================
-// Query Classification
-// =============================================================================
-
 function classifyQuery(query: string): "sports" | "weather" | "unknown" {
   const q = query.toLowerCase();
   
@@ -399,10 +383,6 @@ function classifyQuery(query: string): "sports" | "weather" | "unknown" {
   
   return "unknown";
 }
-
-// =============================================================================
-// API Handler
-// =============================================================================
 
 export async function GET(req: NextRequest) {
   const query = req.nextUrl.searchParams.get("q");

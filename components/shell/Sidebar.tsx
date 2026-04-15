@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import {
   Search,
   MessageSquare,
@@ -15,10 +15,6 @@ import {
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 
-// =============================================================================
-// Nav Items
-// =============================================================================
-
 const MAIN_NAV = [
   { href: "/deck/chat", label: "Chat", icon: MessageSquare, shortcut: "1" },
   { href: "/deck/runs", label: "Runs", icon: Play, shortcut: "2" },
@@ -31,10 +27,6 @@ const SECONDARY_NAV = [
   { href: "/deck/comfy", label: "Comfy", icon: Boxes, shortcut: "6" },
 ] as const;
 
-// =============================================================================
-// Component
-// =============================================================================
-
 interface SidebarProps {
   onOpenPalette: () => void;
 }
@@ -44,13 +36,11 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
   const pathname = usePathname();
   const { setSettingsOpen } = useDeckSettings();
 
-  const toggle = useCallback(() => setCollapsed((c) => !c), []);
-
   // Toggle sidebar: Cmd+.
-  useShortcut("mod+.", toggle, { label: "Toggle sidebar" });
+  useShortcut("mod+.", () => setCollapsed((c) => !c), { label: "Toggle sidebar" });
 
   // Number key shortcuts (1-6) — use location.href for reliable navigation
-  const nav = useCallback((href: string) => { window.location.href = href; }, []);
+  const nav = (href: string) => { window.location.href = href; };
   useShortcut("1", () => nav(MAIN_NAV[0].href), {
     when: "no-input",
     label: `Go to ${MAIN_NAV[0].label}`,

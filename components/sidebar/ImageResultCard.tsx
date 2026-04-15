@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
+import { truncate } from "@/lib/utils";
 
 interface ImageResultCardProps {
   tool: ToolCallData;
@@ -135,6 +136,3 @@ export function ImageResultCard({ tool }: ImageResultCardProps) {
   );
 }
 
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}

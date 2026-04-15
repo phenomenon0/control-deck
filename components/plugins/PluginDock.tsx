@@ -185,10 +185,6 @@ export function PluginDock({
   );
 }
 
-// =============================================================================
-// Icons — provided by lucide-react (imported at top of file)
-// =============================================================================
-
 function DragHandleIcon() {
   return <GripVertical width={10} height={10} />;
 }

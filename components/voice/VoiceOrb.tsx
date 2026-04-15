@@ -34,11 +34,11 @@ export function VoiceOrb({ phase, audioLevel, size = 80 }: VoiceOrbProps) {
     const cy = canvasSize / 2;
     const orbRadius = size / 2;
 
-    // Accent color (indigo)
+    // Accent color (amber)
     const accentColor = getComputedStyle(document.documentElement)
       .getPropertyValue("--accent")
-      .trim() || "#5E6AD2";
-    const rgb = hexToRgb(accentColor) || { r: 94, g: 106, b: 210 };
+      .trim() || "#D4A574";
+    const rgb = hexToRgb(accentColor) || { r: 212, g: 165, b: 116 };
 
     const draw = () => {
       timeRef.current += 0.016;

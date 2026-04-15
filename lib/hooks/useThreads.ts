@@ -9,7 +9,7 @@ import {
   setStoredActiveThread,
   groupThreadsByDate,
 } from "@/lib/chat/helpers";
-import type { Artifact } from "@/components/chat/ArtifactRenderer";
+import type { Artifact } from "@/lib/types/chat";
 
 export function useThreads() {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -43,18 +43,20 @@ export function useThreads() {
                 role: string;
                 content: string;
                 artifacts?: Artifact[];
+                metadata?: Record<string, unknown>;
               }) => ({
                 id: m.id,
                 role: m.role as "user" | "assistant",
                 content: m.content,
                 artifacts: m.artifacts,
+                metadata: m.metadata ?? undefined,
               })
             )
           );
         }
       })
       .catch((err) =>
-        console.error("[ChatPane] Failed to load messages:", err)
+        console.error("[useThreads] Failed to load messages:", err)
       );
   }, [activeThreadId]);
 
@@ -102,7 +104,7 @@ export function useThreads() {
       setMessages([]);
     }
     fetch(`/api/threads?id=${id}`, { method: "DELETE" }).catch((err) =>
-      console.error("[ChatPane] Failed to delete thread:", err)
+      console.error("[useThreads] Failed to delete thread:", err)
     );
   };
 
@@ -136,7 +138,6 @@ export function useThreads() {
     deleteThread,
     updateThreadTitle,
     resetFallbackThreadId,
-    // Expose setThreads for sendMessage's title polling
     setThreads,
   };
 }

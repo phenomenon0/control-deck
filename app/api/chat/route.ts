@@ -6,7 +6,7 @@
  * - Native tools (workspace, web_search, memory)
  * - Tool bridge for UI tools (image gen, etc.)
  * 
- * Streams text responses via body, republishes AG-UI events to local hub.
+ * Returns a single SSE event stream; also republishes AG-UI events to local hub.
  */
 
 import { hub } from "@/lib/agui/hub";
@@ -35,10 +35,13 @@ import {
   updateRunPreview,
   saveEvent,
   saveMessage,
+  relinkArtifactRun,
+  getThread,
   type MessageMetadata,
 } from "@/lib/agui/db";
 import { getBackendConfig, getDefaultModel } from "@/lib/llm";
 import { getSystemProfile } from "@/lib/system";
+import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 
 // Agent-GO server configuration
 const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
@@ -119,7 +122,7 @@ function mapAndPublishEvent(
   threadId: string,
   runId: string,
   messageId: string
-): void {
+): AGUIEvent | null {
   let aguiEvent: AGUIEvent | null = null;
 
   switch (event.type) {
@@ -237,17 +240,30 @@ function mapAndPublishEvent(
       });
       break;
 
-    case "ArtifactCreated":
+    case "ArtifactCreated": {
       console.log("[Chat] ArtifactCreated:", event.name, event.mimeType, event.url);
+      const artifactId = event.artifactId ?? generateId();
       aguiEvent = createEvent<ArtifactCreated>("ArtifactCreated", threadId, {
         runId,
         toolCallId: event.toolCallId,
-        artifactId: event.artifactId ?? generateId(),
+        artifactId,
         url: event.url ?? "",
         name: event.name ?? "artifact",
         mimeType: event.mimeType ?? "application/octet-stream",
       });
+      // Relink the artifact's run_id to the AGUI runId so it matches
+      // the assistant message's runId when loading thread history
+      relinkArtifactRun({
+        artifactId,
+        aguiRunId: runId,
+        threadId,
+        toolCallId: event.toolCallId,
+        mimeType: event.mimeType,
+        name: event.name,
+        url: event.url,
+      });
       break;
+    }
 
     default:
       // Log unknown event types
@@ -258,6 +274,7 @@ function mapAndPublishEvent(
     saveEvent(aguiEvent);
     hub.publish(threadId, aguiEvent);
   }
+  return aguiEvent;
 }
 
 /**
@@ -342,41 +359,12 @@ export async function POST(req: Request) {
   saveEvent(msgStart);
   hub.publish(thread, msgStart);
 
-  // Strip fake tool patterns from assistant messages to prevent the LLM from
-  // learning to fake tool calls based on conversation history
-  const stripFakeToolPatterns = (content: string): string => {
-    let clean = content;
-    
-    // Remove markdown images - these make the model think it can just output image syntax
-    clean = clean.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
-    
-    // Remove fake success phrases that precede fake tool results
-    clean = clean.replace(/Here is (?:an?|the) (?:image|picture|photo)[^.]*\.?/gi, '');
-    clean = clean.replace(/I(?:'ve| have) generated[^.]*\.?/gi, '');
-    clean = clean.replace(/Generated (?:an?|the) (?:image|picture)[^.]*\.?/gi, '');
-    
-    // Remove artifact IDs that might be in the text
-    clean = clean.replace(/img_\d+-\d+/g, '');
-    clean = clean.replace(/audio_\d+-\d+/g, '');
-    
-    // Remove deck filenames
-    clean = clean.replace(/deck_(?:turbo|img|audio)_\d+_?\.(?:png|jpg|mp3|wav)/gi, '');
-    
-    // Remove orphaned image references
-    clean = clean.replace(/\([^)]*\.(?:png|jpg|jpeg|gif|mp3|wav)\)/gi, '');
-    
-    // Collapse excessive whitespace
-    clean = clean.replace(/\n{3,}/g, '\n\n').trim();
-    
-    return clean;
-  };
-
-  // Prepare Agent-GO request - strip fake patterns from assistant messages
-  // Filter out messages that become empty after stripping
+  // Prepare Agent-GO request — strip fake patterns from assistant messages
+  // to prevent the LLM from learning to fake tool calls (SURFACE.md §4.3)
   const agentMessages: AgentGOMessage[] = messages
     .map(m => {
       const rawContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      const content = m.role === "assistant" ? stripFakeToolPatterns(rawContent) : rawContent;
+      const content = m.role === "assistant" ? stripForLLMHistory(rawContent) : rawContent;
       return {
         role: m.role as AgentGOMessage["role"],
         content: content || "[Previous response contained only generated content]",
@@ -398,7 +386,7 @@ export async function POST(req: Request) {
     tool_bridge_url: TOOL_BRIDGE_URL,
   };
 
-  // Create streaming response
+  // Create SSE streaming response
   const encoder = new TextEncoder();
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
@@ -408,10 +396,11 @@ export async function POST(req: Request) {
     isAborted = true;
   });
 
-  const safeWrite = async (data: string): Promise<boolean> => {
+  /** Write an SSE-formatted event to the response stream */
+  const safeWriteSSE = async (event: object): Promise<boolean> => {
     if (isAborted) return false;
     try {
-      await writer.write(encoder.encode(data));
+      await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       return true;
     } catch (err) {
       console.error("[Chat] Stream write failed:", err);
@@ -420,12 +409,16 @@ export async function POST(req: Request) {
     }
   };
 
-  // Background task to proxy Agent-GO events
+  // Background task to proxy Agent-GO events as SSE
   (async () => {
     let agentRunId: string | null = null;
     let fullText = "";
 
     try {
+      // Write initial locally-emitted events to the SSE stream
+      await safeWriteSSE(runStarted);
+      await safeWriteSSE(msgStart);
+
       // Start run on Agent-GO
       const startResponse = await fetch(`${AGENTGO_URL}/runs`, {
         method: "POST",
@@ -476,14 +469,18 @@ export async function POST(req: Request) {
             const event = parseSSE(data);
             if (!event) continue;
 
-            // Handle text content - stream to response body
+            // Track text for run preview
             if (event.type === "TextMessageContent" && event.delta) {
               fullText += event.delta;
-              if (!await safeWrite(event.delta)) break;
             }
 
-            // Map and publish event to local hub
-            mapAndPublishEvent(event, thread, runId, messageId);
+            // Map to AGUI event, save to DB, publish to hub (for other consumers)
+            const aguiEvent = mapAndPublishEvent(event, thread, runId, messageId);
+
+            // Write the AGUI event to the SSE response stream
+            if (aguiEvent) {
+              if (!await safeWriteSSE(aguiEvent)) break;
+            }
 
             // Check for run completion
             if (event.type === "RunFinished" || event.type === "RunError") {
@@ -503,21 +500,25 @@ export async function POST(req: Request) {
         updateRunPreview(runId, fullText.slice(0, 200));
       }
 
-      // Emit local TextMessageEnd
+      // Emit and stream TextMessageEnd
       const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", thread, {
         runId,
         messageId,
       });
       saveEvent(msgEnd);
       hub.publish(thread, msgEnd);
+      await safeWriteSSE(msgEnd);
 
-      // Emit local RunFinished
+      // Emit and stream RunFinished — include LLM-generated title (SURFACE.md §6.2)
+      const threadRow = getThread(thread);
       const runFinished = createEvent<RunFinished>("RunFinished", thread, {
         runId,
+        threadTitle: threadRow?.title || undefined,
       });
       finishRun(runId, 0, 0, 0);
       saveEvent(runFinished);
       hub.publish(thread, runFinished);
+      await safeWriteSSE(runFinished);
 
     } catch (error) {
       if (isAborted) {
@@ -525,7 +526,6 @@ export async function POST(req: Request) {
       } else {
         const errMsg = error instanceof Error ? error.message : "Unknown error";
         console.error("[Chat] Agent-GO proxy error:", error);
-        await safeWrite(`\n\nError: ${errMsg}`);
 
         const runError = createEvent<RunError>("RunError", thread, {
           runId,
@@ -534,17 +534,19 @@ export async function POST(req: Request) {
         errorRun(runId, errMsg);
         saveEvent(runError);
         hub.publish(thread, runError);
+        await safeWriteSSE(runError);
       }
     } finally {
       await writer.close().catch((err) => console.warn("[Chat] writer.close failed:", err));
     }
   })();
 
-  // Return streaming response
+  // Return SSE streaming response
   return new Response(stream.readable, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
       "X-Thread-Id": thread,
       "X-Run-Id": runId,
       "X-Message-Id": messageId,

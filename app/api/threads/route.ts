@@ -80,7 +80,7 @@ export async function GET(req: Request) {
     
     // Attach artifacts to messages by run_id and parse metadata
     const messagesWithArtifacts = messages.map(m => {
-      const msgArtifacts = m.run_id ? (artifactsByRun.get(m.run_id) || []) : [];
+      const runArtifacts = m.run_id ? (artifactsByRun.get(m.run_id) || []) : [];
       // Parse metadata JSON if present
       let metadata = null;
       if (m.metadata) {
@@ -90,18 +90,21 @@ export async function GET(req: Request) {
           // Ignore parse errors
         }
       }
+      // For user messages, reconstruct upload artifacts from metadata
+      const uploadArtifacts = (m.role === "user" && metadata?.uploads)
+        ? (metadata.uploads as Array<{ id: string; url: string; name: string; mimeType: string }>)
+        : [];
+      // For assistant messages, use run-linked artifacts from the DB
+      const messageArtifacts = runArtifacts.length > 0
+        ? runArtifacts.map(a => ({ id: a.id, url: a.url, name: a.name, mimeType: a.mime_type }))
+        : uploadArtifacts;
       return {
         id: m.id,
         role: m.role,
         content: m.content,
         created_at: m.created_at,
         metadata,  // Include tool_calls, tool_name for proper conversation reconstruction
-        artifacts: msgArtifacts.map(a => ({
-          id: a.id,
-          url: a.url,
-          name: a.name,
-          mimeType: a.mime_type,
-        })),
+        artifacts: messageArtifacts,
       };
     });
     

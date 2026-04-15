@@ -11,10 +11,6 @@ import type {
 } from "./types";
 import { generatePatch } from "./state";
 
-// =============================================================================
-// Activity Types
-// =============================================================================
-
 /** Standard activity types */
 export type ActivityType = 
   | "PLAN"
@@ -73,10 +69,6 @@ export interface ThinkingActivity {
   message?: string;
   dots?: number; // For animated dots
 }
-
-// =============================================================================
-// Activity Store
-// =============================================================================
 
 export interface ActivityStore {
   activities: Map<string, ActivityMessage>;
@@ -170,10 +162,6 @@ function applyActivityPatch(
   return result;
 }
 
-// =============================================================================
-// Event Factories
-// =============================================================================
-
 /**
  * Create an ACTIVITY_SNAPSHOT event
  */
@@ -230,10 +218,6 @@ export function createActivityMessage(
   };
 }
 
-// =============================================================================
-// Activity Builders
-// =============================================================================
-
 /**
  * Create a plan activity
  */
@@ -286,10 +270,6 @@ export function createChecklistActivity(
     items: items.map(i => ({ ...i, checked: i.checked || false })),
   };
 }
-
-// =============================================================================
-// Update Helpers
-// =============================================================================
 
 /**
  * Generate patch to update a plan step status

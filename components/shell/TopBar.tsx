@@ -3,10 +3,6 @@
 import { usePathname } from "next/navigation";
 import { PanelRight } from "lucide-react";
 
-// =============================================================================
-// Route → Title map
-// =============================================================================
-
 const TITLES: Record<string, string> = {
   "/deck": "Dashboard",
   "/deck/chat": "Chat",
@@ -28,19 +24,11 @@ function resolveTitle(pathname: string): string {
   return "Control Deck";
 }
 
-// =============================================================================
-// Props
-// =============================================================================
-
 interface TopBarProps {
   onOpenPalette: () => void;
   onToggleInspector: () => void;
   inspectorOpen: boolean;
 }
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function TopBar({ onOpenPalette, onToggleInspector, inspectorOpen }: TopBarProps) {
   const pathname = usePathname();

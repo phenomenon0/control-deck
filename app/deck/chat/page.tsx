@@ -1,5 +1,5 @@
-import ChatPaneV2 from "@/components/panes/ChatPaneV2";
+import ChatSurface from "@/components/chat/ChatSurface";
 
 export default function ChatPage() {
-  return <ChatPaneV2 />;
+  return <ChatSurface />;
 }

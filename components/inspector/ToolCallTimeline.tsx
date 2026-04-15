@@ -5,10 +5,6 @@ import { ChevronRight, X, Check } from "lucide-react";
 import type { DeckPayload } from "@/lib/agui/payload";
 import { PayloadViewer } from "./PayloadViewer";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface ToolCallEvent {
   id: string;
   name: string;
@@ -27,10 +23,6 @@ export interface ToolCallEvent {
   };
 }
 
-// =============================================================================
-// ToolCallTimeline
-// =============================================================================
-
 interface ToolCallTimelineProps {
   events: ToolCallEvent[];
 }
@@ -44,10 +36,6 @@ export function ToolCallTimeline({ events }: ToolCallTimelineProps) {
     </div>
   );
 }
-
-// =============================================================================
-// ToolCallItem
-// =============================================================================
 
 function ToolCallItem({ event, isLast }: { event: ToolCallEvent; isLast: boolean }) {
   const [expanded, setExpanded] = useState(false);
@@ -159,10 +147,6 @@ function ToolCallItem({ event, isLast }: { event: ToolCallEvent; isLast: boolean
     </div>
   );
 }
-
-// =============================================================================
-// StatusDot
-// =============================================================================
 
 function StatusDot({ status }: { status: "running" | "complete" | "error" }) {
   const baseClasses = "w-[18px] h-[18px] rounded-full flex items-center justify-center";

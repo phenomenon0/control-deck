@@ -2,10 +2,6 @@
 
 import { useState, useEffect, useRef } from "react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface StateViewerProps {
   state: Record<string, unknown>;
   patches?: Array<{
@@ -15,10 +11,6 @@ export interface StateViewerProps {
   }>;
   title?: string;
 }
-
-// =============================================================================
-// StateViewer Component
-// =============================================================================
 
 export function StateViewer({
   state,

@@ -1,18 +1,10 @@
 "use client";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface StreamingTextProps {
   content: string;
   isStreaming?: boolean;
   role?: "assistant" | "user";
 }
-
-// =============================================================================
-// StreamingText Component
-// =============================================================================
 
 export function StreamingText({
   content,
@@ -48,10 +40,6 @@ export function StreamingText({
     </div>
   );
 }
-
-// =============================================================================
-// MessageBubble Component
-// =============================================================================
 
 export interface MessageBubbleProps {
   content: string;

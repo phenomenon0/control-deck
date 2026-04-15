@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 
 export interface GpuStats {
   name: string;
@@ -74,7 +74,5 @@ export function useSystemStats() {
     return unsubscribe;
   }, []);
 
-  const refresh = useCallback(() => { fetchStats(); }, []);
-
-  return { stats, refresh };
+  return { stats, refresh: fetchStats };
 }

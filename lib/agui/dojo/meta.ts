@@ -5,10 +5,6 @@
 
 import type { MetaEvent } from "./types";
 
-// =============================================================================
-// Meta Event Types
-// =============================================================================
-
 export type MetaEventType =
   | "thumbs_up"
   | "thumbs_down"
@@ -21,10 +17,6 @@ export type MetaEventType =
   | "flag"
   | "analytics"
   | string; // Allow custom types
-
-// =============================================================================
-// Meta Event Payloads
-// =============================================================================
 
 export interface ThumbsPayload {
   messageId: string;
@@ -68,10 +60,6 @@ export interface AnalyticsPayload {
   event: string;
   properties: Record<string, unknown>;
 }
-
-// =============================================================================
-// Meta Event Store
-// =============================================================================
 
 export interface MetaEventRecord {
   id: string;
@@ -136,10 +124,6 @@ export function createMetaEventStore(): MetaEventStore {
     },
   };
 }
-
-// =============================================================================
-// Event Factories
-// =============================================================================
 
 /**
  * Create a META event
@@ -268,10 +252,6 @@ export function createAnalytics(
 ): MetaEvent {
   return createMetaEvent(threadId, "analytics", { event, properties });
 }
-
-// =============================================================================
-// Aggregation Helpers
-// =============================================================================
 
 /**
  * Get feedback summary for a message

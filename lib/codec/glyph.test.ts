@@ -6,10 +6,6 @@
 import { test, expect, describe } from "bun:test";
 import { encodeGlyph, decodeGlyph, encodeGlyphSmart, wrapGlyphBlock } from "./index";
 
-// =============================================================================
-// Scalar Round-Trips
-// =============================================================================
-
 describe("scalars", () => {
   test("null encodes to ∅", () => {
     expect(encodeGlyph(null)).toBe("∅");
@@ -58,10 +54,6 @@ describe("scalars", () => {
   });
 });
 
-// =============================================================================
-// Reserved Words
-// =============================================================================
-
 describe("reserved words", () => {
   test("t/f as strings are quoted", () => {
     expect(encodeGlyph("t")).toBe('"t"');
@@ -84,10 +76,6 @@ describe("reserved words", () => {
     expect(encodeGlyph("∅")).toBe('"∅"');
   });
 });
-
-// =============================================================================
-// Arrays
-// =============================================================================
 
 describe("arrays", () => {
   test("empty array", () => {
@@ -116,10 +104,6 @@ describe("arrays", () => {
     expect(decodeGlyph(glyph)).toEqual(arr);
   });
 });
-
-// =============================================================================
-// Objects (Packed Structs)
-// =============================================================================
 
 describe("objects", () => {
   test("empty object", () => {
@@ -157,10 +141,6 @@ describe("objects", () => {
     expect(decodeGlyph(glyph)).toEqual(obj);
   });
 });
-
-// =============================================================================
-// Tabular Encoding
-// =============================================================================
 
 describe("tabular", () => {
   test("uniform array uses tabular (minRows=4)", () => {
@@ -236,10 +216,6 @@ describe("tabular", () => {
   });
 });
 
-// =============================================================================
-// Smart Encode
-// =============================================================================
-
 describe("encodeGlyphSmart", () => {
   test("returns savings percentage", () => {
     const data = Array(10).fill(null).map((_, i) => ({ id: i, val: i * 2 }));
@@ -264,10 +240,6 @@ describe("encodeGlyphSmart", () => {
   });
 });
 
-// =============================================================================
-// Prompt Helpers
-// =============================================================================
-
 describe("wrapGlyphBlock", () => {
   test("wraps in fences", () => {
     const glyph = "@[a b](1 2)";
@@ -281,10 +253,6 @@ describe("wrapGlyphBlock", () => {
     expect(wrapped).toBe("```glyph tools\n@[a b](1 2)\n```");
   });
 });
-
-// =============================================================================
-// Edge Cases
-// =============================================================================
 
 describe("edge cases", () => {
   test("deeply nested structure", () => {
@@ -330,10 +298,6 @@ describe("edge cases", () => {
     expect(glyph).toContain("∅");
   });
 });
-
-// =============================================================================
-// Real-World Examples
-// =============================================================================
 
 describe("real-world examples", () => {
   test("tool definitions", () => {

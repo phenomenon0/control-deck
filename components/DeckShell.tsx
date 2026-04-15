@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import { DeckSettingsProvider } from "./settings/DeckSettingsProvider";
@@ -8,18 +9,18 @@ import { SettingsDrawer } from "./settings/SettingsDrawer";
 import { CanvasProvider, useCanvas } from "@/lib/hooks/useCanvas";
 import { CanvasPanel } from "./canvas/CanvasPanel";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { RightRailProvider } from "@/lib/hooks/useRightRail";
+import { ChatInspectorProvider } from "@/lib/hooks/useChatInspector";
+import { ThreadManagerProvider } from "@/lib/hooks/useThreadManager";
 import { Sidebar } from "./shell/Sidebar";
 import { TopBar } from "./shell/TopBar";
 import { InspectorSheet } from "./InspectorSheet";
-
-// =============================================================================
-// Inner Shell (needs context)
-// =============================================================================
+import { ThreadSidebar } from "./chat/ThreadSidebar";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const pathname = usePathname();
+  const isChat = pathname === "/deck/chat" || pathname.startsWith("/deck/chat/");
 
   useShortcut("mod+k", () => setPaletteOpen((o) => !o), {
     label: "Toggle command palette",
@@ -39,6 +40,9 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     <div className="deck-shell">
       {/* Left sidebar */}
       <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
+
+      {/* Thread sidebar — shell-level, visible only on /deck/chat (DESIGN.md §4) */}
+      {isChat && <ThreadSidebar />}
 
       {/* Right: header + main content */}
       <div className="deck-body">
@@ -73,10 +77,6 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-// =============================================================================
-// Canvas Wrapper (for keyboard shortcut)
-// =============================================================================
-
 function CanvasKeyboardHandler({ children }: { children: React.ReactNode }) {
   const { toggle, isOpen } = useCanvas();
 
@@ -93,20 +93,18 @@ function CanvasKeyboardHandler({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// =============================================================================
-// Outer Shell (provides context)
-// =============================================================================
-
 export function DeckShell({ children }: { children: React.ReactNode }) {
   return (
     <DeckSettingsProvider>
-      <CanvasProvider>
-        <CanvasKeyboardHandler>
-          <RightRailProvider>
-            <DeckShellInner>{children}</DeckShellInner>
-          </RightRailProvider>
-        </CanvasKeyboardHandler>
-      </CanvasProvider>
+      <ThreadManagerProvider>
+        <CanvasProvider>
+          <CanvasKeyboardHandler>
+            <ChatInspectorProvider>
+              <DeckShellInner>{children}</DeckShellInner>
+            </ChatInspectorProvider>
+          </CanvasKeyboardHandler>
+        </CanvasProvider>
+      </ThreadManagerProvider>
     </DeckSettingsProvider>
   );
 }

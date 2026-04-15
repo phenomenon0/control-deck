@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Thread } from "@/lib/chat/helpers";
 import { setStoredThreads } from "@/lib/chat/helpers";
-import type { PendingUpload } from "@/components/chat/UploadTray";
+import type { PendingUpload } from "@/lib/types/chat";
 
 interface UseFileUploadsOptions {
   activeThreadId: string | null;

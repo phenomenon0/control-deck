@@ -14,10 +14,6 @@
 
 import { z } from "zod";
 
-// =============================================================================
-// Types - Intermediate Representation
-// =============================================================================
-
 export type FieldType = "str" | "num" | "bool" | "enum" | "obj" | "arr" | "any";
 
 export interface FieldSpec {
@@ -40,10 +36,6 @@ export interface ToolSpec {
   description: string;
   params: FieldSpec[];
 }
-
-// =============================================================================
-// Zod Type Detection (v4 compatible)
-// =============================================================================
 
 /**
  * Get the type string from a Zod schema def
@@ -243,10 +235,6 @@ function extractDescription(schema: z.ZodType): string | undefined {
   return undefined;
 }
 
-// =============================================================================
-// Main Extraction
-// =============================================================================
-
 /**
  * Extract FieldSpec from a single Zod field
  */
@@ -355,10 +343,6 @@ export function extractToolSpec(toolSchema: z.ZodObject<z.ZodRawShape>): ToolSpe
 export function extractAllToolSpecs(schemas: z.ZodObject<z.ZodRawShape>[]): ToolSpec[] {
   return schemas.map(extractToolSpec);
 }
-
-// =============================================================================
-// Utilities
-// =============================================================================
 
 /**
  * Check if a tool has "complex" params (enums, ranges, nested objects)

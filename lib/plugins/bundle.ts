@@ -15,10 +15,6 @@ import type {
 } from "./types";
 import { TOOL_REGISTRY } from "./registry";
 
-// =============================================================================
-// Zod Schemas for Validation
-// =============================================================================
-
 const configFieldSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("string"),
@@ -162,10 +158,6 @@ const pluginBundleSchema = z.object({
   ]),
 });
 
-// =============================================================================
-// Validation Functions
-// =============================================================================
-
 export interface ValidationResult {
   valid: boolean;
   bundle?: PluginBundle;
@@ -296,10 +288,6 @@ export function extractBundleFromText(text: string): ValidationResult {
   };
 }
 
-// =============================================================================
-// Config Value Interpolation
-// =============================================================================
-
 /**
  * Interpolate config values into a string
  * Replaces {{config.fieldName}} with actual values
@@ -342,10 +330,6 @@ export function interpolateConfig(
   
   return obj;
 }
-
-// =============================================================================
-// Default Config Values
-// =============================================================================
 
 /**
  * Get default config values from schema

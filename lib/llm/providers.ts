@@ -27,10 +27,6 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 // Note: @ai-sdk/huggingface uses a different pattern - we'll handle it specially
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export type ProviderType =
   | "openai"
   | "anthropic"
@@ -71,10 +67,6 @@ export interface ProviderInfo {
   modelsEndpoint?: string;
   defaultModels: string[];
 }
-
-// =============================================================================
-// Provider Registry
-// =============================================================================
 
 export const PROVIDERS: Record<ProviderType, ProviderInfo> = {
   openai: {
@@ -184,10 +176,6 @@ export const PROVIDERS: Record<ProviderType, ProviderInfo> = {
   },
 };
 
-// =============================================================================
-// Configuration
-// =============================================================================
-
 let cachedSlots: ProviderSlots | null = null;
 
 /** Runtime override for primary provider (set via UI) */
@@ -291,10 +279,6 @@ export function getRuntimeProvider(): ProviderConfig | null {
 export function clearProviderConfigCache(): void {
   cachedSlots = null;
 }
-
-// =============================================================================
-// Client Factory
-// =============================================================================
 
 /**
  * Create an AI SDK client for a provider config
@@ -402,10 +386,6 @@ export function getDefaultModel(slot: keyof ProviderSlots = "primary"): string |
   return config?.model || PROVIDERS[config?.provider || "ollama"]?.defaultModels[0];
 }
 
-// =============================================================================
-// Health & Model Discovery
-// =============================================================================
-
 /**
  * Check if a provider is healthy/reachable
  */
@@ -508,11 +488,11 @@ export async function listProviderModels(config: ProviderConfig): Promise<string
         const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
         const res = await fetch(url, { cache: "no-store" });
         if (!res.ok) return info.defaultModels;
-        const data = await res.json();
-        // Filter to generative models only
+        const data = (await res.json()) as { models?: Array<{ name?: string }> };
         return (data.models || [])
-          .filter((m: any) => m.name?.includes("gemini"))
-          .map((m: any) => m.name?.replace("models/", ""));
+          .filter((m) => m.name?.includes("gemini"))
+          .map((m) => m.name?.replace("models/", ""))
+          .filter((name): name is string => typeof name === "string");
       }
 
       case "openrouter": {
@@ -521,35 +501,29 @@ export async function listProviderModels(config: ProviderConfig): Promise<string
           cache: "no-store",
         });
         if (!res.ok) return info.defaultModels;
-        const data = await res.json();
-        return (data.data || []).map((m: any) => m.id).slice(0, 50); // Limit to top 50
+        const data = (await res.json()) as { data?: Array<{ id: string }> };
+        return (data.data || []).map((m) => m.id).slice(0, 50);
       }
 
       case "huggingface":
-        // HuggingFace model listing is complex, return defaults
         return info.defaultModels;
 
       default: {
-        // OpenAI-compatible
         const modelsURL = `${baseURL || info?.defaultBaseURL}/models`;
         const headers: Record<string, string> = {};
         if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
         const res = await fetch(modelsURL, { headers, cache: "no-store" });
         if (!res.ok) return info?.defaultModels || [];
-        
-        const data = await res.json();
-        return (data.data || []).map((m: any) => m.id);
+
+        const data = (await res.json()) as { data?: Array<{ id: string }> };
+        return (data.data || []).map((m) => m.id);
       }
     }
   } catch {
     return info?.defaultModels || [];
   }
 }
-
-// =============================================================================
-// Utility
-// =============================================================================
 
 /**
  * Get provider info by type

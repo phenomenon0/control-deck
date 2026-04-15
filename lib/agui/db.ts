@@ -305,6 +305,41 @@ export function createArtifact(input: CreateArtifactInput): void {
   );
 }
 
+/**
+ * Relink an artifact's run_id so it matches the AGUI run (not Agent-GO's internal run).
+ * If the artifact doesn't exist yet, insert a minimal record.
+ */
+export function relinkArtifactRun(opts: {
+  artifactId: string;
+  aguiRunId: string;
+  threadId: string;
+  toolCallId?: string;
+  mimeType?: string;
+  name?: string;
+  url?: string;
+}): void {
+  const db = getDb();
+  const updated = db
+    .prepare(`UPDATE artifacts SET run_id = ? WHERE id = ?`)
+    .run(opts.aguiRunId, opts.artifactId);
+  if (updated.changes === 0 && opts.url) {
+    // Artifact wasn't created via bridge — insert it
+    db.prepare(
+      `INSERT OR IGNORE INTO artifacts (id, run_id, thread_id, tool_call_id, mime_type, name, url, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      opts.artifactId,
+      opts.aguiRunId,
+      opts.threadId,
+      opts.toolCallId ?? null,
+      opts.mimeType ?? "application/octet-stream",
+      opts.name ?? "artifact",
+      opts.url,
+      new Date().toISOString()
+    );
+  }
+}
+
 export function getArtifacts(runId?: string, limit: number = 50): ArtifactRow[] {
   const db = getDb();
   if (runId) {
@@ -545,10 +580,6 @@ export function cleanupOldUploads(): number {
   return result.changes;
 }
 
-// =============================================================================
-// Plugin operations
-// =============================================================================
-
 export interface PluginRow {
   id: string;
   name: string;
@@ -655,10 +686,6 @@ export function updatePluginOrder(orderedIds: string[]): void {
     });
   })();
 }
-
-// =============================================================================
-// Plugin cache operations
-// =============================================================================
 
 export interface PluginCacheRow {
   plugin_id: string;

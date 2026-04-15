@@ -2,10 +2,6 @@
  * GLYPH Codec Types
  */
 
-// =============================================================================
-// Encoding Options
-// =============================================================================
-
 /**
  * Options for GLYPH encoding
  */
@@ -26,10 +22,6 @@ export const DEFAULT_ENCODE_OPTIONS: Required<GlyphEncodeOptions> = {
   minRows: 4,
   pretty: false,
 };
-
-// =============================================================================
-// Smart Encode Result
-// =============================================================================
 
 /**
  * Result of smart encoding (dual-encode, pick shorter)

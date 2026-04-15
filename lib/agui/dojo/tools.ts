@@ -12,10 +12,6 @@ import type {
   ToolCallResultEvent,
 } from "./types";
 
-// =============================================================================
-// Tool Registry
-// =============================================================================
-
 export type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
 
 export interface RegisteredTool extends Tool {
@@ -61,10 +57,6 @@ export function createToolRegistry(): ToolRegistry {
     },
   };
 }
-
-// =============================================================================
-// Tool Call State Machine
-// =============================================================================
 
 export interface ToolCallState {
   id: string;
@@ -184,10 +176,6 @@ export function createToolCallManager(): ToolCallManager {
   };
 }
 
-// =============================================================================
-// Event Factories
-// =============================================================================
-
 export function createToolCallStart(
   threadId: string,
   runId: string,
@@ -254,10 +242,6 @@ export function createToolCallResult(
     role: "tool",
   };
 }
-
-// =============================================================================
-// Common Tool Definitions
-// =============================================================================
 
 /** User confirmation tool */
 export const confirmActionTool: Tool = {
@@ -344,10 +328,6 @@ export const generateUITool: Tool = {
     required: ["description"],
   },
 };
-
-// =============================================================================
-// Tool Utilities
-// =============================================================================
 
 /**
  * Parse tool arguments from a streamed buffer

@@ -1,28 +1,6 @@
-/**
- * Canvas State Management Hook
- * 
- * Provides global state for the canvas panel, enabling seamless integration
- * between chat and code execution/preview.
- * 
- * Design inspired by:
- * - Claude Artifacts: Dedicated panel, auto-open, persistence
- * - ChatGPT Canvas: Inline editing, revisions, shortcuts
- * - Cursor: Multi-file tabs, live preview, agent integration
- * 
- * Features:
- * - Tab management with auto-open
- * - Revision history per tab (undo/redo)
- * - LocalStorage persistence
- * - Code execution integration
- */
-
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 
-// =============================================================================
-// Types
-// =============================================================================
-
-export type CanvasContentType = 
+export type CanvasContentType =
   | "code"
   | "preview"
   | "image"
@@ -31,12 +9,11 @@ export type CanvasContentType =
   | "diagram"
   | "model3d";
 
-// Revision for undo/redo
 export interface Revision {
   id: string;
   code: string;
   timestamp: number;
-  label?: string; // e.g., "Initial", "After execution", "Manual edit"
+  label?: string;
 }
 
 export interface CanvasTab {
@@ -84,31 +61,26 @@ export interface CanvasState {
 }
 
 export interface CanvasActions {
-  // Panel control
   open: () => void;
   close: () => void;
   toggle: () => void;
   setWidth: (width: number) => void;
   setResizing: (resizing: boolean) => void;
-  
-  // Tab management
+
   addTab: (tab: Omit<CanvasTab, "id" | "createdAt" | "updatedAt">) => string;
   updateTab: (id: string, updates: Partial<CanvasTab>) => void;
   removeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
-  
-  // Content shortcuts
+
   openCode: (code: string, language: string, title?: string) => string;
   openPreview: (html: string, title?: string) => string;
   openImage: (url: string, name: string, mimeType: string) => string;
   openArtifact: (artifact: CanvasTab["artifact"]) => string;
-  
-  // Code execution
+
   executeCode: (tabId: string) => Promise<void>;
   updateCodeOutput: (tabId: string, output: CanvasTab["output"]) => void;
   setCodeRunning: (tabId: string, running: boolean) => void;
-  
-  // Revision history
+
   saveRevision: (tabId: string, label?: string) => void;
   undo: (tabId: string) => void;
   redo: (tabId: string) => void;
@@ -120,15 +92,7 @@ export interface CanvasActions {
 
 type CanvasContextValue = CanvasState & CanvasActions;
 
-// =============================================================================
-// Context
-// =============================================================================
-
 const CanvasContext = createContext<CanvasContextValue | null>(null);
-
-// =============================================================================
-// Provider
-// =============================================================================
 
 const DEFAULT_WIDTH = 480;
 const MIN_WIDTH = 320;
@@ -222,8 +186,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const setResizing = useCallback((resizing: boolean) => {
     setState(s => ({ ...s, isResizing: resizing }));
   }, []);
-  
-  // Tab management
+
   const addTab = useCallback((tabData: Omit<CanvasTab, "id" | "createdAt" | "updatedAt">) => {
     const id = `canvas-${++tabIdCounter.current}-${Date.now()}`;
     const now = Date.now();
@@ -270,8 +233,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const setActiveTab = useCallback((id: string) => {
     setState(s => ({ ...s, activeTabId: id }));
   }, []);
-  
-  // Content shortcuts
+
   const openCode = useCallback((code: string, language: string, title?: string) => {
     // Create initial revision
     const initialRevision: Revision = {
@@ -323,8 +285,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
       artifact,
     });
   }, [addTab]);
-  
-  // Code execution
+
   const executeCode = useCallback(async (tabId: string) => {
     const tab = state.tabs.find(t => t.id === tabId);
     if (!tab || tab.type !== "code" || !tab.code || !tab.language) return;
@@ -392,10 +353,6 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const setCodeRunning = useCallback((tabId: string, running: boolean) => {
     updateTab(tabId, { isRunning: running });
   }, [updateTab]);
-  
-  // =============================================================================
-  // Revision History
-  // =============================================================================
   
   const saveRevision = useCallback((tabId: string, label?: string) => {
     setState(s => ({
@@ -542,7 +499,6 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     executeCode,
     updateCodeOutput,
     setCodeRunning,
-    // Revision history
     saveRevision,
     undo,
     redo,
@@ -559,10 +515,6 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// =============================================================================
-// Hook
-// =============================================================================
-
 export function useCanvas() {
   const context = useContext(CanvasContext);
   if (!context) {
@@ -570,10 +522,6 @@ export function useCanvas() {
   }
   return context;
 }
-
-// =============================================================================
-// Selectors
-// =============================================================================
 
 export function useActiveCanvasTab() {
   const { tabs, activeTabId } = useCanvas();

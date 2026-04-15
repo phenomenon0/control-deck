@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { Mic } from "lucide-react";
 
 interface AudioLevelIndicatorProps {
@@ -23,11 +22,7 @@ export function AudioLevelIndicator({
   variant = "rings",
 }: AudioLevelIndicatorProps) {
   const dimensions = SIZES[size];
-  
-  // Normalize level for visual effect (apply some easing)
-  const normalizedLevel = useMemo(() => {
-    return Math.pow(level, 0.7); // Slight easing for better visual response
-  }, [level]);
+  const normalizedLevel = Math.pow(level, 0.7);
 
   if (variant === "bars") {
     return <BarsIndicator level={normalizedLevel} isActive={isActive} size={size} />;
@@ -53,7 +48,7 @@ export function AudioLevelIndicator({
           style={{
             width: dimensions.ringBase + normalizedLevel * 12,
             height: dimensions.ringBase + normalizedLevel * 12,
-            background: `rgba(94, 106, 210, ${0.06 + normalizedLevel * 0.1})`,
+            background: `rgba(var(--accent-rgb), ${0.06 + normalizedLevel * 0.1})`,
             transition: "all 100ms cubic-bezier(0, 0, 0.2, 1)",
           }}
         />
@@ -71,7 +66,7 @@ export function AudioLevelIndicator({
       >
         <MicIcon
           size={dimensions.icon}
-          color={isActive ? "#FFFFFF" : "var(--text-muted)"}
+          color={isActive ? "var(--text-on-accent)" : "var(--text-muted)"}
         />
       </div>
     </div>
@@ -154,7 +149,7 @@ function PulseIndicator({
       >
         <MicIcon
           size={dimensions.icon}
-          color={isActive ? "#FFFFFF" : "var(--text-muted)"}
+          color={isActive ? "var(--text-on-accent)" : "var(--text-muted)"}
         />
       </div>
     </div>

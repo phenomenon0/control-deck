@@ -5,10 +5,6 @@
  * Plugins are configuration + templates, not arbitrary code.
  */
 
-// =============================================================================
-// Template Types
-// =============================================================================
-
 export type PluginTemplate = 
   | "ticker"   // Rotating single-line items (scores, headlines)
   | "feed"     // Scrollable list of items (news, alerts)
@@ -16,10 +12,6 @@ export type PluginTemplate =
   | "table"    // Structured data grid
   | "kv"       // Key-value pairs (stats, status)
   | "form";    // Input + submit + result
-
-// =============================================================================
-// Config Schema Types
-// =============================================================================
 
 export interface ConfigFieldBase {
   type: string;
@@ -66,10 +58,6 @@ export type ConfigField =
 
 export type ConfigSchema = Record<string, ConfigField>;
 
-// =============================================================================
-// Data Source Types
-// =============================================================================
-
 export interface DataSource {
   /** Unique identifier for this source within the plugin */
   id: string;
@@ -82,10 +70,6 @@ export interface DataSource {
   /** Optional transform expression for the result */
   transform?: string;
 }
-
-// =============================================================================
-// Render Configuration Types
-// =============================================================================
 
 export interface TickerRenderConfig {
   /** Source IDs to merge into the ticker */
@@ -180,10 +164,6 @@ export type RenderConfig =
   | { type: "kv" } & KVRenderConfig
   | { type: "form" } & FormRenderConfig;
 
-// =============================================================================
-// Plugin Bundle (what LLM generates)
-// =============================================================================
-
 export interface PluginManifest {
   /** Unique identifier (slug format) */
   id: string;
@@ -220,10 +200,6 @@ export interface PluginBundle {
   render: RenderConfig;
 }
 
-// =============================================================================
-// Runtime Types
-// =============================================================================
-
 export interface PluginInstance {
   id: string;
   name: string;
@@ -256,10 +232,6 @@ export interface PluginState {
   lastRefresh: number | null;
 }
 
-// =============================================================================
-// Tool Types
-// =============================================================================
-
 export interface ToolDefinition {
   /** Tool identifier (e.g., "web.search") */
   id: string;
@@ -288,10 +260,6 @@ export interface ToolResult<T = unknown> {
 export type ToolHandler<TInput = Record<string, unknown>, TOutput = unknown> = (
   input: TInput
 ) => Promise<ToolResult<TOutput>>;
-
-// =============================================================================
-// Maker Types (for plugin creation flow)
-// =============================================================================
 
 export interface MakerQuestion {
   id: string;

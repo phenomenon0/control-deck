@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
+import { truncate } from "@/lib/utils";
 
 interface AudioResultCardProps {
   tool: ToolCallData;
@@ -255,6 +256,3 @@ export function AudioResultCard({ tool }: AudioResultCardProps) {
   );
 }
 
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}

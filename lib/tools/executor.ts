@@ -63,10 +63,6 @@ const GLYPH_EXCLUDE_TOOLS = new Set([
   'analyze_image',    // Text analysis
 ]);
 
-// ============================================================================
-// Types
-// ============================================================================
-
 export interface ToolExecutionResult {
   success: boolean;
   message: string;
@@ -89,10 +85,6 @@ export interface ToolExecutionResult {
 export interface ExecutorContext extends ComfyToolContext {
   // Additional context if needed
 }
-
-// ============================================================================
-// Main Executor
-// ============================================================================
 
 /**
  * Execute a validated tool call
@@ -169,10 +161,6 @@ export async function executeToolWithGlyph(
   
   return result;
 }
-
-// ============================================================================
-// Individual Tool Handlers
-// ============================================================================
 
 /**
  * Edit image using Qwen Image Edit
@@ -706,10 +694,6 @@ async function executeCodeTool(
   }
 }
 
-// ============================================================================
-// VectorDB Tools
-// ============================================================================
-
 /**
  * Validate and coerce metadata to Record<string, string>
  */
@@ -890,10 +874,6 @@ async function executeVectorIngest(
     };
   }
 }
-
-// ============================================================================
-// Helpers
-// ============================================================================
 
 /**
  * Encode data for LLM context, using GLYPH for large payloads

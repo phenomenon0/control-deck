@@ -11,10 +11,6 @@ import { renderToolCatalogGlyph } from "../tools/render-glyph-catalog";
 import { isLiteMode, getSystemProfile } from "../system";
 import { getBackendConfig, checkBackendHealth, listBackendModels } from "../llm";
 
-// ============================================================================
-// Configuration
-// ============================================================================
-
 /**
  * Environment variables for GLYPH control:
  * - GLYPH_LLM_VIEW=1: Master switch for GLYPH in LLM context
@@ -27,10 +23,6 @@ const GLYPH_CONFIG = {
   /** Use GLYPH format for tool catalog in system prompt (enabled by default) */
   toolCatalog: process.env.GLYPH_TOOL_CATALOG !== "0",
 };
-
-// ============================================================================
-// Environment Detection
-// ============================================================================
 
 interface GPUStatus {
   free: number;  // GB
@@ -106,10 +98,6 @@ async function getEnvironmentBlock(): Promise<string> {
   return lines.join("\n");
 }
 
-// ============================================================================
-// Tool Documentation
-// ============================================================================
-
 /**
  * Get tool documentation for system prompt
  * Uses GLYPH format when GLYPH_TOOL_CATALOG=1
@@ -157,10 +145,6 @@ function getToolDocsLegacy(): string {
   return lines.join("\n");
 }
 
-// ============================================================================
-// Model-Specific Meta Prompts
-// ============================================================================
-
 async function getMetaPrompt(model: string): Promise<string> {
   const modelLower = model.toLowerCase();
   let metaFile = "gemma.txt"; // default
@@ -178,10 +162,6 @@ async function getMetaPrompt(model: string): Promise<string> {
     return "";
   }
 }
-
-// ============================================================================
-// Main System Prompt Builder
-// ============================================================================
 
 export async function buildSystemPrompt(
   model: string,
@@ -234,10 +214,6 @@ export async function buildSystemPrompt(
   
   return prompt;
 }
-
-// ============================================================================
-// Service Status (for UI)
-// ============================================================================
 
 export interface ServiceStatus {
   llmBackend: boolean;

@@ -29,10 +29,6 @@ import {
   type JsonPatchOperation,
 } from "@/lib/agui/dojo";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface UseAguiOptions {
   /** Thread ID for the conversation */
   threadId: string;
@@ -90,10 +86,6 @@ export interface UseAguiReturn {
   store: DojoStore;
   emitter: DojoEventEmitter;
 }
-
-// =============================================================================
-// Hook Implementation
-// =============================================================================
 
 export function useAgui(options: UseAguiOptions): UseAguiReturn {
   const {
@@ -364,61 +356,4 @@ export function useAgui(options: UseAguiOptions): UseAguiReturn {
     store: storeRef.current!,
     emitter: emitterRef.current!,
   };
-}
-
-// =============================================================================
-// Specialized Hooks
-// =============================================================================
-
-/**
- * Hook for shared state only
- */
-export function useAguiState(threadId: string, initialState: Record<string, unknown> = {}) {
-  const { state, setState, patchState, isConnected } = useAgui({
-    threadId,
-    initialState,
-    autoConnect: true,
-  });
-  
-  return { state, setState, patchState, isConnected };
-}
-
-/**
- * Hook for tool execution only
- */
-export function useAguiTools(
-  threadId: string,
-  tools: Array<{ tool: Tool; handler: (args: Record<string, unknown>) => Promise<string> }>
-) {
-  const { toolCalls, executeTool } = useAgui({
-    threadId,
-    tools,
-    autoConnect: true,
-  });
-  
-  return { toolCalls, executeTool };
-}
-
-/**
- * Hook for activities only
- */
-export function useAguiActivities(threadId: string) {
-  const { activities, isConnected } = useAgui({
-    threadId,
-    autoConnect: true,
-  });
-  
-  return { activities, isConnected };
-}
-
-/**
- * Hook for interrupts only
- */
-export function useAguiInterrupts(threadId: string) {
-  const { pendingInterrupt, resolveInterrupt, isConnected } = useAgui({
-    threadId,
-    autoConnect: true,
-  });
-  
-  return { pendingInterrupt, resolveInterrupt, isConnected };
 }

@@ -165,16 +165,11 @@ export function VoiceInput({
         onTouchEnd={handleMicRelease}
         disabled={disabled || isApiOffline || isProcessingSTT}
         className={`
-          relative rounded-full transition-all duration-200 
+          relative rounded-full bg-transparent border-none p-0 transition-all duration-200
           focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2 focus:ring-offset-[var(--bg-primary)]
           ${disabled || isApiOffline ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
           ${isListening ? "scale-110" : "hover:scale-105"}
         `}
-        style={{
-          background: "transparent",
-          border: "none",
-          padding: 0,
-        }}
         aria-label={isListening ? "Stop recording" : "Start recording"}
       >
         <AudioLevelIndicator
@@ -188,7 +183,7 @@ export function VoiceInput({
       {/* Status text */}
       <div
         className={`text-sm text-center min-h-[2.5rem] max-w-[300px] px-4 ${
-          error ? "text-red-400" : "text-[var(--text-muted)]"
+          error ? "text-[var(--error)]" : "text-[var(--text-muted)]"
         }`}
       >
         {isProcessingSTT ? (

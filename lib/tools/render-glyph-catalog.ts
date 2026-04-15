@@ -33,10 +33,6 @@ import {
   TOOL_DEFINITIONS,
 } from "./definitions";
 
-// =============================================================================
-// Tool Metadata (things Zod can't express)
-// =============================================================================
-
 export type ToolGroup = "Media" | "Search" | "Code" | "Memory";
 
 export interface ToolMeta {
@@ -77,10 +73,6 @@ export const RESULT_SHAPES: Record<string, FieldSpec[]> = {
   ],
 };
 
-// =============================================================================
-// Extract All Tools
-// =============================================================================
-
 const ALL_TOOL_SCHEMAS = [
   GenerateImageSchema,
   EditImageSchema,
@@ -117,10 +109,6 @@ export function getAllToolSpecs(): ToolSpec[] {
   }
   return _cachedSpecs;
 }
-
-// =============================================================================
-// GLYPH Formatting Helpers
-// =============================================================================
 
 /**
  * Format a field as "name:type" or "name:type=default"
@@ -160,10 +148,6 @@ function formatOptParams(params: FieldSpec[]): string {
   return params.map(p => formatField(p, true)).join(",");
 }
 
-// =============================================================================
-// Index Table
-// =============================================================================
-
 /**
  * Render the main tool index table
  * 
@@ -186,10 +170,6 @@ export function renderToolIndexGlyph(specs?: ToolSpec[]): string {
   
   return `@tab[tool req opt returns](\n${rows.join("\n")}\n)`;
 }
-
-// =============================================================================
-// Detail Blocks
-// =============================================================================
 
 /**
  * Check if a tool needs a detail block
@@ -247,10 +227,6 @@ export function renderAllDetailBlocks(specs?: ToolSpec[]): string {
   return blocks.join("\n\n");
 }
 
-// =============================================================================
-// Result Shape Blocks
-// =============================================================================
-
 /**
  * Render result shape for a tool (if it has nested output)
  * 
@@ -281,10 +257,6 @@ export function renderAllResultShapes(): string {
   
   return shapes.join("\n\n");
 }
-
-// =============================================================================
-// Main Catalog Generator
-// =============================================================================
 
 /**
  * Render the complete GLYPH tool catalog for system prompt
@@ -332,10 +304,6 @@ Tool results may use GLYPH notation for efficiency:
   
   return sections.join("\n\n");
 }
-
-// =============================================================================
-// Grouped Catalog (by category)
-// =============================================================================
 
 /**
  * Render tool catalog grouped by category
@@ -390,10 +358,6 @@ Call tools using function-calling. Defaults apply if args omitted.`);
   
   return sections.join("\n\n");
 }
-
-// =============================================================================
-// Export for testing
-// =============================================================================
 
 export function printCatalog(): void {
   console.log("=== GLYPH TOOL CATALOG ===\n");

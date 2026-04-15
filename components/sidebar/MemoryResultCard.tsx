@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
+import { truncate } from "@/lib/utils";
 
 interface MemoryResult {
   id: string;
@@ -197,9 +198,9 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
                       {(result.score * 100).toFixed(0)}%
                     </span>
                   </div>
-                  {isChunked && (
-                    <span className="memory-chunk-badge" title={`Chunk ${parseInt(result.metadata!.chunk_index!) + 1} of ${result.metadata!.total_chunks}`}>
-                      {parseInt(result.metadata!.chunk_index!) + 1}/{result.metadata!.total_chunks}
+                  {isChunked && result.metadata?.chunk_index != null && (
+                    <span className="memory-chunk-badge" title={`Chunk ${parseInt(result.metadata.chunk_index) + 1} of ${result.metadata.total_chunks}`}>
+                      {parseInt(result.metadata.chunk_index) + 1}/{result.metadata.total_chunks}
                     </span>
                   )}
                   {sourceDisplay && (
@@ -261,6 +262,3 @@ export function MemoryResultCard({ tool }: MemoryResultCardProps) {
   );
 }
 
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}

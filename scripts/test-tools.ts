@@ -51,10 +51,6 @@ function dim(msg: string) {
   console.log(`${colors.dim}  ${msg}${colors.reset}`);
 }
 
-// ============================================================================
-// Service Checks
-// ============================================================================
-
 async function checkService(name: string, url: string): Promise<boolean> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
@@ -85,10 +81,6 @@ async function checkAllServices(): Promise<{ allUp: boolean; services: Record<st
   return { allUp, services };
 }
 
-// ============================================================================
-// Memory Management
-// ============================================================================
-
 async function freeMemory(): Promise<void> {
   info("Freeing GPU memory...");
   try {
@@ -115,10 +107,6 @@ async function getVRAM(): Promise<{ free: number; total: number } | null> {
   } catch {}
   return null;
 }
-
-// ============================================================================
-// Test Functions
-// ============================================================================
 
 async function testWebSearch(): Promise<TestResult> {
   const start = Date.now();
@@ -361,10 +349,6 @@ async function testEditImage(imageId?: string): Promise<TestResult> {
   }
 }
 
-// ============================================================================
-// Upload Test Image
-// ============================================================================
-
 async function uploadTestImage(): Promise<string | null> {
   try {
     // Read existing test image from ComfyUI input
@@ -404,10 +388,6 @@ async function uploadTestImage(): Promise<string | null> {
     return null;
   }
 }
-
-// ============================================================================
-// Main Test Runner
-// ============================================================================
 
 async function main() {
   console.log("\n" + "=".repeat(60));

@@ -1,0 +1,701 @@
+# Control Deck — LLM Context for Frontend Redesign
+
+## Identity
+
+Control Deck is a homelab AI control center — a unified dashboard for launching,
+monitoring, and managing AI agents, models, generation pipelines, and services.
+Not a chat app. Not a terminal UI. An operating layer for your entire machine and
+AI stack. Think: Home Assistant for AI, Grafana that can execute, LM Studio for
+everything, a flight deck.
+
+## Tech Stack
+
+- Next.js 16.0.10 (App Router) + React 19 + TypeScript
+- Tailwind CSS 4.1.18 + Tailwind Animate
+- shadcn/ui + Radix UI primitives
+- Vercel AI SDK 5.0.113 (multi-provider abstraction)
+- better-sqlite3 12.5.0 (local SQLite for threads, runs, artifacts, messages)
+- Monaco Editor 0.55.1 (code editing in Canvas pane)
+- @dnd-kit (drag-and-drop for dashboard widgets)
+- Lucide React icons (16px, 1.5 stroke)
+- Google Model Viewer (3D artifact rendering)
+- Bun (package manager + dev server, port 3333)
+
+## Provider SDKs
+
+- @ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google
+- @ai-sdk/huggingface, @ai-sdk/openai-compatible
+- Local: Ollama, llama.cpp server, vLLM, LM Studio (all via openai-compatible)
+- Agent-GO server (external at localhost:4243) for orchestration
+
+## External Services
+
+- Agent-GO: http://localhost:4243 (agent orchestration + tool execution)
+- ComfyUI: http://127.0.0.1:8188 (image generation workflows)
+- Voice API: http://127.0.0.1:8000 (FastAPI sidecar for STT/TTS)
+- VectorDB: http://localhost:4242 (Qdrant for RAG)
+- SearxNG: http://localhost:8888 (web search)
+- Ollama: http://127.0.0.1:11435
+
+---
+
+## Directory Structure
+
+```
+control-deck/
+├── app/                          # Next.js App Router
+│   ├── layout.tsx               # Root layout (dark mode, Inter + Geist Mono fonts)
+│   ├── page.tsx                 # / → redirects to /deck
+│   ├── globals.css              # All design tokens (CSS custom properties)
+│   ├── middleware.ts            # Optional DECK_TOKEN auth gate
+│   ├── api/                     # Backend API routes
+│   │   ├── chat/route.ts        # Agent-GO proxy + SSE streaming
+│   │   ├── agui/               # AG-UI event endpoints
+│   │   ├── artifacts/           # Artifact CRUD
+│   │   ├── threads/             # Thread CRUD + title generation
+│   │   ├── models/              # Local GGUF model management
+│   │   ├── ollama/              # Ollama model management
+│   │   ├── backend/             # Provider config + health + models
+│   │   ├── search/              # Web search (DuckDuckGo)
+│   │   ├── upload/              # File uploads
+│   │   ├── tools/               # Tool bridge
+│   │   ├── voice/               # Voice API proxy
+│   │   ├── system/stats/        # GPU/service health polling
+│   │   ├── code/stream/         # Code execution SSE
+│   │   ├── comfy/               # ComfyUI integration
+│   │   ├── dojo/                # AG-UI playground endpoints
+│   │   └── widgets/             # Dashboard widget data
+│   └── deck/                    # Main shell routes
+│       ├── layout.tsx           # DeckShell wrapper
+│       ├── page.tsx             # Dashboard (widget grid)
+│       ├── chat/page.tsx        # Chat surface
+│       ├── models/page.tsx      # Model management
+│       ├── runs/page.tsx        # Run history
+│       ├── voice/page.tsx       # Voice mode
+│       ├── dojo/page.tsx        # AG-UI playground
+│       ├── tools/page.tsx       # Tool registry
+│       ├── comfy/page.tsx       # ComfyUI workflows
+│       └── agentgo/page.tsx     # Agent-GO diagnostics
+│
+├── components/
+│   ├── DeckShell.tsx            # Main shell orchestrator (sidebar + body + overlays)
+│   ├── CommandPalette.tsx       # Cmd+K global search
+│   ├── InspectorSheet.tsx       # Cmd+I right-slide detail panel
+│   │
+│   ├── chat/                    # Chat surface (redesigned, decomposed)
+│   │   ├── ChatSurface.tsx      # Orchestrator (~30 lines, composes everything)
+│   │   ├── ChatTimeline.tsx     # Message timeline with auto-scroll
+│   │   ├── TimelineSegment.tsx  # Discriminated union segment renderer
+│   │   ├── ChatComposer.tsx     # Input: context row + textarea + action row
+│   │   ├── AgentActivityBlock.tsx  # Grouped tool execution display
+│   │   ├── StatusStrip.tsx      # Run phase indicator (thinking/streaming/executing)
+│   │   ├── ThreadSidebar.tsx    # Thread list (date-grouped, at shell level)
+│   │   ├── ToolCallCard.tsx     # Individual tool call card
+│   │   ├── ArtifactRenderer.tsx # Images/code/audio/3D/video renderer
+│   │   ├── RichText.tsx         # Markdown renderer
+│   │   ├── ReasoningDisplay.tsx # Extended thinking (collapsible)
+│   │   ├── VoiceInput.tsx       # Voice capture UI
+│   │   ├── VoiceWaveform.tsx    # Audio level visualization
+│   │   ├── UploadTray.tsx       # File attachment preview
+│   │   └── InterruptDialog.tsx  # Agent interrupt confirmation
+│   │
+│   ├── shell/
+│   │   ├── Sidebar.tsx          # Left nav (200px, collapsible to 48px)
+│   │   └── TopBar.tsx           # Header breadcrumb + status + Cmd+K
+│   │
+│   ├── deck/
+│   │   └── DashboardGrid.tsx    # Drag-and-drop widget layout (@dnd-kit)
+│   │
+│   ├── widgets/                 # 11 dashboard widgets
+│   │   ├── SystemHealthWidget.tsx   # CPU/memory/disk
+│   │   ├── VRAMWidget.tsx           # GPU memory monitor
+│   │   ├── ServiceStatusWidget.tsx  # Service online indicators
+│   │   ├── ModelFleetWidget.tsx     # Available models summary
+│   │   ├── QuickActionsWidget.tsx   # Common shortcuts
+│   │   ├── RecentActivityWidget.tsx # Run history
+│   │   ├── StatsWidget.tsx          # Token usage/cost
+│   │   ├── TodoWidget.tsx           # Task list
+│   │   ├── WeatherWidget.tsx        # Weather feed
+│   │   ├── NewsWidget.tsx           # News feed
+│   │   ├── SportsWidget.tsx         # Sports scores
+│   │   └── StocksWidget.tsx         # Stock tickers
+│   │
+│   ├── canvas/
+│   │   ├── Canvas.tsx           # Code/output/preview tabs
+│   │   ├── CanvasPanel.tsx      # Toggleable right panel (Cmd+Shift+C)
+│   │   └── MonacoEditor.tsx     # Syntax-highlighted editor
+│   │
+│   ├── voice/
+│   │   ├── VoiceOrb.tsx         # Canvas-based animated orb (idle/listen/process/speak)
+│   │   ├── VoiceModeSheet.tsx   # Mode selector (PTT/VAD/toggle)
+│   │   ├── VoiceTranscript.tsx  # Transcript display
+│   │   └── VoiceToolResult.tsx  # Voice tool results
+│   │
+│   ├── sidebar/                 # Right-panel result cards
+│   │   ├── SearchResultsCard.tsx
+│   │   ├── ImageResultCard.tsx
+│   │   ├── AudioResultCard.tsx
+│   │   ├── CodeExecutionCard.tsx
+│   │   ├── ToolResultCard.tsx
+│   │   └── MemoryResultCard.tsx
+│   │
+│   ├── panes/                   # Full-page panels
+│   │   ├── RunsPane.tsx         # Run history + event timeline + cost
+│   │   ├── ModelsPane.tsx       # Ollama model management
+│   │   ├── ToolsPane.tsx        # Tool config
+│   │   ├── ComfyPane.tsx        # ComfyUI integration
+│   │   └── VoicePane.tsx        # Voice settings
+│   │
+│   ├── dojo/                    # AG-UI component playground
+│   │   ├── DojoPane.tsx         # 9 interactive demos
+│   │   ├── ActivityCard.tsx
+│   │   ├── GenerativeForm.tsx
+│   │   ├── InterruptDialog.tsx
+│   │   ├── ReasoningBubble.tsx
+│   │   ├── ToolCallCard.tsx
+│   │   ├── StateViewer.tsx
+│   │   └── StreamingText.tsx
+│   │
+│   ├── plugins/                 # Plugin system
+│   │   ├── PluginHost.tsx
+│   │   ├── PluginDock.tsx
+│   │   └── PluginMaker.tsx
+│   │
+│   ├── settings/
+│   │   ├── DeckSettingsProvider.tsx  # React Context for all preferences
+│   │   └── SettingsDrawer.tsx       # Settings overlay
+│   │
+│   └── ui/                      # shadcn/ui primitives
+│       ├── button.tsx, card.tsx, avatar.tsx, badge.tsx
+│       ├── separator.tsx, collapsible.tsx, skeleton.tsx
+│       └── ErrorBoundary.tsx
+│
+├── lib/
+│   ├── agui/                    # AG-UI protocol layer
+│   │   ├── events.ts            # Event types (RunStarted, TextMessageContent, etc.)
+│   │   ├── payload.ts           # DeckPayload envelope (JSON/GLYPH/text/binary)
+│   │   ├── db.ts                # SQLite: runs, events, artifacts, threads, messages, uploads
+│   │   └── hub.ts               # In-memory pub/sub event bus
+│   │
+│   ├── llm/                     # Multi-provider LLM abstraction
+│   │   ├── providers.ts         # Provider factory (574 lines) — all 10 providers
+│   │   └── backend.ts           # Legacy OpenAI-compatible abstraction
+│   │
+│   ├── hooks/                   # React hooks
+│   │   ├── useAgentRun.ts       # Run state machine (reducer-based)
+│   │   ├── useThreadManager.tsx # Thread CRUD context
+│   │   ├── useCanvas.tsx        # Canvas panel state
+│   │   ├── useVoiceChat.ts      # Voice I/O (STT/TTS/VAD)
+│   │   ├── useSystemStats.ts    # GPU/service health polling (10s interval)
+│   │   ├── useModels.ts         # Available model list
+│   │   ├── useChatInspector.tsx  # Inspector panel state
+│   │   ├── useShortcuts.ts      # Global keyboard shortcut registry
+│   │   ├── useReducedMotion.ts  # a11y: prefers-reduced-motion
+│   │   ├── useDashboardLayout.ts # Widget grid layout
+│   │   ├── useWidgets.ts        # Widget data fetching
+│   │   └── useFileUploads.ts    # File upload staging
+│   │
+│   ├── types/
+│   │   └── agentRun.ts          # RunPhase, RunState, TimelineSegment discriminated unions
+│   │
+│   ├── chat/
+│   │   └── stripPatterns.ts     # Remove tool output noise from display
+│   │
+│   ├── tools/                   # Tool definitions (11 tools, Zod schemas)
+│   │   ├── definitions.ts
+│   │   ├── code-exec/           # Python/JS sandboxes
+│   │   ├── lite-image/          # Image generation
+│   │   └── workflows/           # ComfyUI workflow builder
+│   │
+│   ├── prompts/                 # System prompts
+│   ├── system/                  # System info (GPU, VRAM, services)
+│   └── constants/               # Config constants
+│
+├── data/                        # Local data
+│   ├── deck.db                  # SQLite database
+│   └── artifacts/               # Generated files (UUID-named)
+│
+├── DESIGN.md                    # Visual design system spec
+├── BEHAVIOR.md                  # Animation & interaction timing spec
+├── SURFACE.md                   # Information architecture & component map
+└── REBUILD_PLAN.md              # Long-term vision & known issues
+```
+
+---
+
+## Shell Layout
+
+```
+┌──────────────────────────────────────────────────────┐
+│ DeckShell                                            │
+├──────────┬───────────┬───────────────────────────────┤
+│ Sidebar  │ Thread    │ deck-body                     │
+│ (200px)  │ Sidebar   │ ┌───────────────────────────┐ │
+│          │ (chat     │ │ TopBar (40px)              │ │
+│ • Deck   │  only)    │ │ title + Cmd+K + Cmd+I     │ │
+│ • Chat   │           │ ├───────────────────────────┤ │
+│ • Runs   │ threads   │ │ deck-content              │ │
+│ • Models │ grouped   │ │ ┌───────────┬────────────┐│ │
+│ • Dojo   │ by date   │ │ │ deck-main │ Canvas     ││ │
+│ • Tools  │           │ │ │ (route    │ Panel      ││ │
+│ • Comfy  │           │ │ │  content) │ (toggle)   ││ │
+│          │           │ │ └───────────┴────────────┘│ │
+│ collapse │           │ └───────────────────────────┘ │
+│ (48px)   │           │                               │
+├──────────┴───────────┴───────────────────────────────┤
+│ Overlays: CommandPalette (Cmd+K)                     │
+│           InspectorSheet (Cmd+I, right slide-over)   │
+│           SettingsDrawer                             │
+└──────────────────────────────────────────────────────┘
+```
+
+---
+
+## Design System (CSS Custom Properties in globals.css)
+
+### Colors
+
+```css
+/* Background scale */
+--bg-primary:    #0A0A0B;
+--bg-secondary:  #111113;
+--bg-tertiary:   #1A1A1D;
+--bg-elevated:   #111113;
+
+/* Text scale */
+--text-primary:   #EDEDEF;    /* headings, main content */
+--text-secondary: #8B8B8E;    /* labels, metadata */
+--text-muted:     #5C5C5F;    /* placeholders, hints */
+
+/* Accent (indigo — agent identity) */
+--accent:       #5E6AD2;
+--accent-hover: #4F5ABF;
+--accent-muted: rgba(94, 106, 210, 0.15);
+
+/* Semantic */
+--success: #3ECF71;
+--warning: #E5A63E;
+--error:   #E5534B;
+
+/* Agent activity phase colors */
+--agent-thinking: var(--accent);
+--agent-working:  var(--warning);
+--agent-done:     var(--success);
+--agent-surface:  rgba(94, 106, 210, 0.06);
+
+/* Borders (white at opacity) */
+--border:        rgba(255, 255, 255, 0.06);
+--border-bright: rgba(255, 255, 255, 0.10);
+--separator:     rgba(255, 255, 255, 0.04);
+```
+
+### Typography
+
+```css
+/* Fonts */
+font-family: Inter, system-ui, -apple-system, sans-serif;
+font-family-mono: "Geist Mono", ui-monospace, monospace;
+
+/* Scale */
+--text-xs:   11px;
+--text-sm:   12px;
+--text-base: 13px;
+--text-md:   14px;
+--text-lg:   17px;
+--text-xl:   20px;
+
+/* Weights */
+400 = body text
+500 = labels, buttons
+600 = headings, emphasis
+```
+
+### Spacing (4px base)
+
+```css
+--sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+--sp-5: 24px;  --sp-6: 32px;  --sp-7: 48px;  --sp-8: 64px;
+```
+
+### Radii
+
+```css
+--radius:      6px;   /* default */
+--radius-sm:   4px;
+--radius-lg:   10px;
+--radius-full: 9999px;
+```
+
+### Timing Tokens
+
+```css
+--t-instant:   0ms;
+--t-micro:     80ms;    /* hover, focus rings */
+--t-fast:      150ms;   /* button press, toggles */
+--t-standard:  250ms;   /* panel slides, card entrance */
+--t-emphasis:  400ms;   /* major state changes */
+--t-slow:      600ms;   /* staggered list items */
+```
+
+### Easing
+
+```css
+--ease-default:   cubic-bezier(0.4, 0, 0.2, 1);
+--ease-precision: cubic-bezier(0, 0, 0.2, 1);
+--ease-spring:    cubic-bezier(0.34, 1.56, 0.64, 1);
+--ease-linear:    linear;
+```
+
+### Layout Constants
+
+```css
+--sidebar-width:     200px;
+--sidebar-collapsed: 48px;
+--header-height:     40px;
+--input-height:      36px;
+--icon-size:         16px;
+--icon-stroke:       1.5;
+```
+
+---
+
+## State Management Architecture
+
+### React Contexts
+
+1. **DeckSettingsProvider** — preferences (model, theme, design system, voice settings),
+   UI state (settingsOpen, railOpen, sidebarOpen), persisted to localStorage
+
+2. **ThreadManagerProvider** — thread CRUD, active thread selection, message list,
+   date-grouped thread list. Lifted to DeckShell level.
+
+3. **CanvasProvider** — canvas open/close, editor content, execution output
+
+4. **ChatInspectorProvider** — selected message for inspection, tool call + artifact data
+
+### Key Hooks
+
+- `useAgentRun` — **primary state machine** (reducer-based). Discriminated union RunPhase:
+  `idle → submitted → thinking → streaming → executing → resuming → error`
+  Drives timeline segment generation. Consumes SSE from /api/chat.
+
+- `useThreadManager` — thread context consumer
+- `useVoiceChat` — voice capture/playback (PTT, VAD, toggle modes)
+- `useFileUploads` — file staging and persistence
+- `useSystemStats` — polls /api/system/stats every 10s (GPU, services)
+- `useModels` — fetches available model list (singleton cache)
+- `useShortcuts` — global keyboard binding registry (priority-based)
+- `useReducedMotion` — prefers-reduced-motion media query
+- `useDashboardLayout` — widget grid order + visibility
+- `useCanvas` — canvas panel toggle
+
+### Run State Machine
+
+```
+IDLE ──→ SUBMITTED ──→ THINKING ──→ STREAMING ←──→ EXECUTING
+                                      │                ↓
+                                      │            RESUMING
+                                      │                │
+                                      ↓                ↓
+                                    IDLE            (back to STREAMING)
+                                      ↑
+                                    ERROR (terminal)
+```
+
+Each phase drives: StatusStrip appearance, input disabled state, Stop button visibility,
+timeline segment generation.
+
+### Timeline Segments (discriminated union)
+
+```typescript
+type TimelineSegment =
+  | { kind: "user-message"; ... }
+  | { kind: "agent-reasoning"; ... }     // extended thinking, collapsible
+  | { kind: "agent-activity"; steps: ActivityStep[]; ... }  // grouped tool calls
+  | { kind: "agent-message"; ... }       // streamed text
+  | { kind: "artifact"; ... }            // image/code/audio/3D
+  | { kind: "error"; ... }               // error with retry
+```
+
+---
+
+## Data Flow
+
+### Chat Request Lifecycle
+
+```
+User submits message
+  → POST /api/chat { messages, model, threadId }
+  → Server selects provider (runtime override > env > defaults)
+  → Server creates Run record in SQLite
+  → POST {AGENTGO_URL}/runs (with LLM config + messages)
+  → GET {AGENTGO_URL}/runs/{runId}/events (SSE stream)
+  → Map Agent-GO events → AG-UI events
+  → Save events to DB + publish to hub + write to response SSE
+  → Client reads SSE → dispatches to useAgentRun reducer → updates timeline
+  → On tool call: execute tool → encode result with smartEncode()
+  → On completion: emit RunFinished → generate thread title async
+```
+
+### AG-UI Event Types
+
+```typescript
+// Lifecycle
+RunStarted, RunFinished, RunError
+
+// Text streaming
+TextMessageStart, TextMessageContent (delta), TextMessageEnd
+
+// Tool execution
+ToolCallStart, ToolCallArgs, ToolCallResult
+
+// Rich content
+ArtifactCreated
+
+// Metrics
+CostIncurred (tokens + USD)
+
+// Interrupts
+InterruptRequested, InterruptResolved
+```
+
+### DeckPayload Envelope
+
+```typescript
+type DeckPayload =
+  | { kind: "json"; data: unknown }
+  | { kind: "glyph"; glyph: string }     // custom binary encoding
+  | { kind: "text"; text: string }
+  | { kind: "binary"; base64: string; mimeType: string }
+```
+
+---
+
+## LLM Provider Abstraction
+
+### Slot-Based Configuration
+
+```
+Primary:   LLM_PROVIDER, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+Fast:      LLM_FAST_PROVIDER, LLM_FAST_API_KEY, ...
+Vision:    LLM_VISION_PROVIDER, LLM_VISION_API_KEY, ...
+Embedding: LLM_EMBEDDING_PROVIDER, LLM_EMBEDDING_API_KEY, ...
+```
+
+### Supported Providers
+
+| Provider     | SDK                    | Model Listing      |
+|-------------|------------------------|-------------------|
+| OpenAI       | @ai-sdk/openai        | /v1/models        |
+| Anthropic    | @ai-sdk/anthropic     | static defaults   |
+| Google       | @ai-sdk/google        | /v1beta/models    |
+| DeepSeek     | openai-compatible     | /models           |
+| OpenRouter   | openai + headers      | /models           |
+| HuggingFace  | @ai-sdk/huggingface   | static defaults   |
+| Ollama       | openai-compatible     | /api/tags         |
+| llama.cpp    | openai-compatible     | /v1/models        |
+| vLLM         | openai-compatible     | /v1/models        |
+| LM Studio    | openai-compatible     | /v1/models        |
+
+### Key Functions (lib/llm/providers.ts)
+
+- `createProviderClient(config)` — instantiate AI SDK client
+- `getClient(slot)` — get configured client for a slot
+- `getModel(slot)` — get model instance
+- `checkProviderHealth(config)` — health check
+- `listProviderModels(config)` — fetch available models
+- `setRuntimeProvider(config)` — override at runtime from UI
+- `getRuntimeProvider()` — get current override
+
+---
+
+## Database Schema (SQLite via better-sqlite3)
+
+```sql
+runs     (id, thread_id, model, status, input_tokens, output_tokens, cost_usd, preview)
+events   (id, type, run_id, payload, timestamp)
+artifacts(id, url, mime, thread_id, run_id, metadata)
+threads  (id, title, created, last_activity)
+messages (id, thread_id, role, content, run_id, metadata)
+uploads  (id, name, url, mime_type, size)
+```
+
+---
+
+## API Route Map
+
+| Method | Route                  | Purpose                              |
+|--------|------------------------|--------------------------------------|
+| POST   | /api/chat              | Main chat (Agent-GO proxy + SSE)     |
+| PUT    | /api/chat              | Direct tool execution (no LLM)       |
+| GET    | /api/threads           | List threads or load one with msgs   |
+| POST   | /api/threads           | Create thread, save messages, titles  |
+| DELETE | /api/threads           | Delete thread (cascade)              |
+| GET    | /api/backend           | Provider config + health + models    |
+| POST   | /api/backend           | Switch provider at runtime           |
+| GET    | /api/models            | List local GGUF models               |
+| POST   | /api/models            | Download GGUF from HuggingFace       |
+| DELETE | /api/models            | Delete local model                   |
+| GET    | /api/ollama/tags       | Ollama model list                    |
+| POST   | /api/upload            | File upload                          |
+| POST   | /api/search            | Web search (DuckDuckGo)              |
+| GET    | /api/system/stats      | GPU stats + service health           |
+| POST   | /api/code/stream       | Code execution SSE                   |
+| GET    | /api/dojo/stream       | AG-UI demo SSE stream                |
+| POST   | /api/dojo/chat         | Dojo playground chat                 |
+| *      | /api/artifacts/*       | Artifact CRUD                        |
+| *      | /api/tools/bridge      | Tool bridge (Agent-GO)               |
+| *      | /api/voice/*           | Voice API proxy (STT/TTS)            |
+| *      | /api/comfy/*           | ComfyUI integration                  |
+| *      | /api/widgets/*         | Widget data (weather, news, etc.)    |
+
+---
+
+## Page/Surface Map
+
+### /deck — Dashboard
+- DashboardGrid with drag-and-drop widget reordering
+- 11 widget types: SystemHealth, VRAM, ServiceStatus, ModelFleet,
+  QuickActions, RecentActivity, Stats, Todo, Weather, News, Sports, Stocks
+
+### /deck/chat — Chat Surface
+- ChatSurface orchestrates: ChatTimeline + StatusStrip + ChatComposer
+- Mixed timeline of user messages, agent reasoning, activity blocks,
+  agent text, artifacts, errors
+- ThreadSidebar at shell level (date-grouped threads)
+- Voice input (PTT/VAD/toggle) with VoiceOrb visualization
+- File attachments via UploadTray
+- Artifact rendering: images (max 400px), audio (waveform), 3D (model-viewer), video
+
+### /deck/runs — Run History
+- List view of all agent runs
+- Event timeline viewer (tool calls, artifacts, tokens, cost)
+- GLYPH evaluation metrics
+
+### /deck/models — Model Management
+- Ollama model list (pull, delete, details)
+- Model info: size, format, family, quantization
+
+### /deck/dojo — AG-UI Playground
+- 9 interactive demos showcasing AG-UI components
+- Activity cards, generative forms, interrupts, reasoning bubbles,
+  tool cards, state viewer, streaming text
+
+### /deck/voice — Voice Mode
+- Voice engine selection (piper, xtts, chatterbox)
+- Canvas-based animated VoiceOrb (idle/listening/processing/speaking)
+- Transcript display
+
+### /deck/tools — Tool Registry
+- 11 tools: edit_image, generate_audio, image_to_3d, generate_image,
+  analyze_image, web_search, glyph_motif, execute_code, vector_search,
+  vector_store, vector_ingest
+- All typed with Zod schemas
+
+### /deck/comfy — ComfyUI
+- Workflow management and execution
+
+### /deck/agentgo — Agent-GO Diagnostics
+- Agent orchestration debugging
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut      | Action                    |
+|--------------|---------------------------|
+| Cmd+K        | Command palette           |
+| Cmd+I        | Inspector toggle          |
+| Cmd+.        | Sidebar collapse/expand   |
+| Cmd+Shift+C  | Canvas panel toggle       |
+| 1–6          | Navigate (Chat→Comfy)     |
+| Enter        | Submit message            |
+| Shift+Enter  | Newline in input          |
+| Escape       | Close overlay / clear     |
+| Space        | Scroll down / push-to-talk|
+| Up Arrow     | Edit last message         |
+
+---
+
+## Component Patterns
+
+### Message Rendering
+- User messages: right-aligned with subtle indigo bg
+- Agent text: flat left-aligned, no bubble
+- Activity blocks: 2px left accent border, grouped tool steps, collapsible
+- Reasoning: collapsible bubble, auto-collapsed when not streaming
+- Artifacts: full-width card, max 400px height for images
+
+### Status Strip
+- Replaces blinking dot with proper phase communication
+- Phases: thinking (accent pulse), streaming (accent), executing (warning),
+  resuming (accent), error (red)
+- Pulsing icon + label text
+
+### Composer
+- Context row: model badge + attachment previews
+- Auto-growing textarea
+- Action row: attach button, voice controls, send/stop button
+- Send button morphs to Stop during active run
+
+---
+
+## Known Issues (from REBUILD_PLAN.md)
+
+- ChatPaneV2 was 1,694 lines (now decomposed but old version may linger)
+- 3 conflicting color systems (CSS vars vs Tailwind tokens vs hardcoded hex)
+- Duplicate ToolCallCard in chat/ and dojo/
+- Scattered keyboard listeners with race conditions
+- Missing error boundaries in some areas
+- Zero test coverage
+- Silent error swallowing (catch { })
+
+---
+
+## Current Redesign State
+
+An "Apple Physical" archetype was applied 2026-04-06 via the UX Behavior Engine
+three-layer system (DESIGN.md + BEHAVIOR.md + SURFACE.md). This established:
+
+- Neutral grays (#F5F5F7 / #1C1C1E), #007AFF blue accent, frosted glass
+- 240ms cubic-bezier(0.4, 0, 0.6, 1) transitions, scale(0.97) press, spring modals
+- Shell decomposition: Sidebar + TopBar + DeckContent
+- Chat decomposition: ChatSurface → ChatTimeline → TimelineSegment → ChatComposer
+
+Since then, 35+ commits have refined token compliance, added missing design tokens,
+fixed animation timing, migrated ThreadSidebar to shell level, and implemented
+BEHAVIOR.md state machine phases.
+
+---
+
+## Spec Documents
+
+- **DESIGN.md** — visual language: tokens, component patterns, message styles, artifact showcase
+- **BEHAVIOR.md** — interaction: state machine phases, transition timing, keyboard behavior,
+  voice interaction, error states, scroll behavior, reduced motion
+- **SURFACE.md** — information architecture: timeline segments, agent activity prominence,
+  artifact promotion, UI decomposition, inspector content
+- **REBUILD_PLAN.md** — long-term vision, research notes, known technical debt
+
+---
+
+## For a Frontend Redesign
+
+Any redesign should preserve:
+1. The `useAgentRun` state machine and timeline segment architecture
+2. The provider abstraction (slot-based multi-LLM)
+3. The AG-UI event protocol and SSE streaming
+4. SQLite persistence layer
+5. Shell decomposition (DeckShell → Sidebar + ThreadSidebar + Body)
+6. Context-based state (DeckSettings, ThreadManager, Canvas, Inspector)
+7. All API routes (backend contract is stable)
+
+What's fair game:
+- Visual tokens (colors, typography, spacing, timing, radii)
+- Component styling and layout
+- Animation patterns
+- Shell chrome appearance
+- Widget design and dashboard layout
+- Chat surface visual treatment
+- New surfaces or panes
+- Responsive strategy

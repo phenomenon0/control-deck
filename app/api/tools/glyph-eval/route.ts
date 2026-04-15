@@ -8,10 +8,6 @@
 import { NextResponse } from "next/server";
 import { encodeGlyphSmart } from "@/lib/codec";
 
-// =============================================================================
-// Test Data
-// =============================================================================
-
 const TEST_SEARCH_RESULTS = {
   results: [
     {
@@ -42,10 +38,6 @@ const TEST_SEARCH_RESULTS = {
   ],
   context: "AI news from December 2025",
 };
-
-// =============================================================================
-// Eval Questions
-// =============================================================================
 
 interface EvalQuestion {
   question: string;
@@ -80,10 +72,6 @@ const EVAL_QUESTIONS: EvalQuestion[] = [
     checkFn: (a, e) => a.toLowerCase().includes("december 2025") || a.toLowerCase().includes("ai news"),
   },
 ];
-
-// =============================================================================
-// API Handler
-// =============================================================================
 
 export async function POST() {
   const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:8080/v1";

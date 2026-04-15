@@ -5,10 +5,6 @@
 
 import { z } from "zod";
 
-// ============================================================================
-// Individual Tool Schemas
-// ============================================================================
-
 /**
  * Edit an image using natural language instructions (Qwen Image Edit)
  */
@@ -149,10 +145,6 @@ export const VectorIngestSchema = z.object({
   }),
 });
 
-// ============================================================================
-// Union Schema - All Tools
-// ============================================================================
-
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -182,10 +174,6 @@ export type ExecuteCodeArgs = z.infer<typeof ExecuteCodeSchema>["args"];
 export type VectorSearchArgs = z.infer<typeof VectorSearchSchema>["args"];
 export type VectorStoreArgs = z.infer<typeof VectorStoreSchema>["args"];
 export type VectorIngestArgs = z.infer<typeof VectorIngestSchema>["args"];
-
-// ============================================================================
-// Tool Metadata for System Prompt Generation
-// ============================================================================
 
 export interface ToolDefinition {
   name: ToolName;
@@ -305,12 +293,6 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     ],
   },
 ];
-
-
-
-// ============================================================================
-// Tool Call Parser (supports both JSON and legacy XML formats)
-// ============================================================================
 
 // JSON format: ```json\n{"tool": "name", "args": {...}}\n``` or inline {"tool": "name", "args": {...}}
 const TOOL_JSON_REGEX = /```json\s*\n?\s*(\{[\s\S]*?"tool"[\s\S]*?\})\s*\n?\s*```|\{"tool"\s*:\s*"([^"]+)"\s*,\s*"args"\s*:\s*(\{[\s\S]*?\})\s*\}/;

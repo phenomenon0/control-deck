@@ -1,31 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import {
+  ChevronDown,
+  Image,
+  Pencil,
+  Volume2,
+  Box,
+  Eye,
+  Search,
+  Sparkles,
+  Code,
+  BookOpen,
+  Database,
+  Wrench,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
+import { truncate } from "@/lib/utils";
 
-// =============================================================================
-// Types
-// =============================================================================
+import type { ToolCallData } from "@/lib/types/chat";
 
-export type { ToolStatus };
-
-export interface ToolCallData {
-  id: string;
-  name: string;
-  args?: Record<string, unknown>;
-  status: ToolStatus;
-  result?: {
-    success: boolean;
-    message?: string;
-    error?: string;
-    data?: Record<string, unknown>;
-  };
-  artifacts?: Artifact[];
-  startedAt?: number;
-  durationMs?: number;
-}
+export type { ToolStatus, ToolCallData };
 
 /**
  * Unified props interface for ToolCallCard.
@@ -52,31 +49,23 @@ export interface ToolCallCardProps {
   isCollapsible?: boolean;
 }
 
-// =============================================================================
-// Tool Display Config
-// =============================================================================
-
-const TOOL_CONFIG: Record<string, { icon: string; label: string }> = {
-  generate_image: { icon: "🖼️", label: "Image" },
-  edit_image: { icon: "✏️", label: "Edit" },
-  generate_audio: { icon: "🔊", label: "Audio" },
-  image_to_3d: { icon: "🎲", label: "3D" },
-  analyze_image: { icon: "👁️", label: "Vision" },
-  web_search: { icon: "🔍", label: "Search" },
-  glyph_motif: { icon: "✨", label: "Glyph" },
-  execute_code: { icon: "💻", label: "Code" },
-  vector_search: { icon: "📚", label: "Lookup" },
-  vector_store: { icon: "💾", label: "Store" },
+const TOOL_CONFIG: Record<string, { Icon: LucideIcon; label: string }> = {
+  generate_image: { Icon: Image, label: "Image" },
+  edit_image: { Icon: Pencil, label: "Edit" },
+  generate_audio: { Icon: Volume2, label: "Audio" },
+  image_to_3d: { Icon: Box, label: "3D" },
+  analyze_image: { Icon: Eye, label: "Vision" },
+  web_search: { Icon: Search, label: "Search" },
+  glyph_motif: { Icon: Sparkles, label: "Glyph" },
+  execute_code: { Icon: Code, label: "Code" },
+  vector_search: { Icon: BookOpen, label: "Lookup" },
+  vector_store: { Icon: Database, label: "Store" },
 };
 
-const DEFAULT_CONFIG = { icon: "🔧", label: "Tool" };
+const DEFAULT_CONFIG = { Icon: Wrench, label: "Tool" };
 
 // Keys to show as the "prompt" or main argument
 const PROMPT_KEYS = ["prompt", "query", "instruction", "code", "text", "question", "message"];
-
-// =============================================================================
-// ToolCallCard Component
-// =============================================================================
 
 export function ToolCallCard(props: ToolCallCardProps) {
   // Normalise into a single internal representation regardless of which
@@ -118,21 +107,11 @@ export function ToolCallCard(props: ToolCallCardProps) {
   // Compact pill mode
   // ---------------------------------------------------------------------------
   if (compact) {
-    const compactDotColor = effectiveStatus === "running" ? "var(--accent)"
-      : effectiveStatus === "complete" || effectiveStatus === "success" ? "var(--success)"
-      : effectiveStatus === "error" ? "var(--error)"
-      : "var(--text-muted)";
+    const iconStatusClass = getIconStatusClass(effectiveStatus);
 
     return (
-      <span
-        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] mr-1 mb-1"
-        style={{
-          border: "1px solid var(--border)",
-          background: "var(--bg-primary)",
-          color: "var(--text-secondary)",
-        }}
-      >
-        <span style={{ width: 5, height: 5, borderRadius: "50%", background: compactDotColor, flexShrink: 0 }} />
+      <span className="tc-pill inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] mr-1 mb-1">
+        <config.Icon className={`tc-pill-icon shrink-0 ${iconStatusClass}`} />
         <span className="font-medium">{config.label}</span>
       </span>
     );
@@ -142,37 +121,21 @@ export function ToolCallCard(props: ToolCallCardProps) {
   // Full card - Apple Physical style
   // ---------------------------------------------------------------------------
 
-  const dotColor = effectiveStatus === "running" ? "var(--accent)"
-    : effectiveStatus === "complete" || effectiveStatus === "success" ? "var(--success)"
-    : effectiveStatus === "error" ? "var(--error)"
-    : "var(--text-muted)";
-
-  const dotClass = effectiveStatus === "running" ? "animate-status-pulse" : "";
-  const cardClass = ""; // No shake animation — errors shown inline
+  const iconStatusClass = getIconStatusClass(effectiveStatus);
+  const pulseClass = effectiveStatus === "running" ? "animate-status-pulse" : "";
 
   return (
-    <div
-      className={`overflow-hidden my-2 max-w-md ${cardClass}`}
-      style={{
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        background: "rgba(255, 255, 255, 0.02)",
-      }}
-    >
+    <div className="tc-card overflow-hidden my-2 max-w-md">
       {/* Header - compact single line */}
       <button
         onClick={() => canToggle && setIsExpanded(!isExpanded)}
         disabled={!canToggle}
-        className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left ${
+        className={`tc-header w-full flex items-center gap-2.5 px-3 py-2.5 text-left ${
           canToggle ? "hover:bg-[var(--bg-secondary)] cursor-pointer" : "cursor-default"
         }`}
-        style={{ transition: "background 150ms cubic-bezier(0, 0, 0.2, 1)" }}
       >
-        {/* Status Dot */}
-        <span
-          className={`shrink-0 ${dotClass}`}
-          style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor }}
-        />
+        {/* Tool Icon */}
+        <config.Icon className={`tc-header-icon shrink-0 ${iconStatusClass} ${pulseClass}`} />
 
         {/* Tool Name */}
         <span className="text-sm font-medium text-[var(--text-primary)]">
@@ -201,11 +164,7 @@ export function ToolCallCard(props: ToolCallCardProps) {
           <div className="tool-spinner" />
         ) : canToggle ? (
           <ChevronDown
-            className="w-3.5 h-3.5 text-[var(--text-muted)]"
-            style={{
-              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 150ms cubic-bezier(0, 0, 0.2, 1)",
-            }}
+            className={`tc-chevron w-3.5 h-3.5 text-[var(--text-muted)] ${isExpanded ? "tc-chevron--open" : ""}`}
           />
         ) : null}
       </button>
@@ -278,10 +237,10 @@ export function ToolCallCard(props: ToolCallCardProps) {
               {/* Error */}
               {richResult.error && richResult.error.trim() && (
                 <div className="mb-2">
-                  <div className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">
+                  <div className="tc-error-label text-[10px] font-semibold uppercase tracking-wide mb-1">
                     Error
                   </div>
-                  <div className="text-sm p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400 whitespace-pre-wrap break-words">
+                  <div className="tc-error-box text-sm p-2 rounded">
                     {richResult.error}
                   </div>
                 </div>
@@ -310,7 +269,7 @@ export function ToolCallCard(props: ToolCallCardProps) {
                   <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1 flex items-center gap-1.5">
                     Data
                     {"_glyph" in (richResult.data as Record<string, unknown>) && (
-                      <span className="text-[9px] px-1.5 py-px bg-purple-500/20 text-purple-400 rounded font-medium">
+                      <span className="tc-glyph-badge text-[9px] px-1.5 py-px rounded font-medium">
                         GLYPH
                       </span>
                     )}
@@ -340,10 +299,10 @@ export function ToolCallCard(props: ToolCallCardProps) {
           {/* Plain error string (from dojo flat props) */}
           {!richResult && plainError && (
             <div>
-              <div className="text-[10px] font-semibold text-red-400 uppercase tracking-wide mb-1">
+              <div className="tc-error-label text-[10px] font-semibold uppercase tracking-wide mb-1">
                 Error
               </div>
-              <div className="text-sm p-2 rounded bg-red-500/10 border border-red-500/30 text-red-400">
+              <div className="tc-error-box text-sm p-2 rounded">
                 {plainError}
               </div>
             </div>
@@ -353,10 +312,6 @@ export function ToolCallCard(props: ToolCallCardProps) {
     </div>
   );
 }
-
-// =============================================================================
-// Search Results Display
-// =============================================================================
 
 interface SearchResult {
   title: string;
@@ -392,7 +347,7 @@ function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
               href={result.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs font-medium text-blue-400 block mb-1 hover:underline"
+              className="tc-search-link text-xs font-medium block mb-1"
             >
               {result.title || "Untitled"}
             </a>
@@ -415,10 +370,6 @@ function SearchResultsDisplay({ data }: { data: Record<string, unknown> }) {
     </div>
   );
 }
-
-// =============================================================================
-// Helpers
-// =============================================================================
 
 interface ResolvedProps {
   toolName: string;
@@ -481,6 +432,16 @@ function getEffectiveStatus(tool: ToolCallData): ToolStatus {
   return tool.status;
 }
 
+function getIconStatusClass(status: ToolStatus): string {
+  switch (status) {
+    case "running": return "tc-icon--running";
+    case "complete":
+    case "success": return "tc-icon--complete";
+    case "error": return "tc-icon--error";
+    default: return "tc-icon--pending";
+  }
+}
+
 function getMainPrompt(args?: Record<string, unknown>): string | null {
   if (!args) return null;
   for (const key of PROMPT_KEYS) {
@@ -500,14 +461,6 @@ function formatArg(value: unknown): string {
   if (Array.isArray(value)) return `[${value.length}]`;
   return "{...}";
 }
-
-function truncate(str: string, max: number): string {
-  return str.length <= max ? str : str.slice(0, max) + "...";
-}
-
-// =============================================================================
-// Compact Tool Pills (for inline display)
-// =============================================================================
 
 export function ToolCallPills({ tools }: { tools: ToolCallData[] }) {
   if (tools.length === 0) return null;

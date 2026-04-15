@@ -30,10 +30,6 @@ import {
 import { useCanvas, useActiveCanvasTab, type CanvasTab } from "@/lib/hooks/useCanvas";
 import { MonacoEditor } from "./MonacoEditor";
 
-// =============================================================================
-// Tab Bar
-// =============================================================================
-
 function TabBar() {
   const { tabs, activeTabId, setActiveTab, removeTab, close } = useCanvas();
   
@@ -90,10 +86,6 @@ function TabBar() {
     </div>
   );
 }
-
-// =============================================================================
-// Code View
-// =============================================================================
 
 function CodeView({ tab }: { tab: CanvasTab }) {
   const { updateTab, executeCode, saveRevision, undo, redo, canUndo, canRedo, getRevisions, goToRevision } = useCanvas();
@@ -379,10 +371,6 @@ function CodeView({ tab }: { tab: CanvasTab }) {
   );
 }
 
-// =============================================================================
-// Preview Frame
-// =============================================================================
-
 function PreviewFrame({ html }: { html: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [key, setKey] = useState(0);
@@ -420,10 +408,6 @@ function PreviewFrame({ html }: { html: string }) {
     </div>
   );
 }
-
-// =============================================================================
-// Image View
-// =============================================================================
 
 function ImageView({ tab }: { tab: CanvasTab }) {
   const [scale, setScale] = useState(1);
@@ -474,10 +458,6 @@ function ImageView({ tab }: { tab: CanvasTab }) {
   );
 }
 
-// =============================================================================
-// Audio View
-// =============================================================================
-
 function AudioView({ tab }: { tab: CanvasTab }) {
   if (!tab.artifact) return null;
   
@@ -497,10 +477,6 @@ function AudioView({ tab }: { tab: CanvasTab }) {
     </div>
   );
 }
-
-// =============================================================================
-// 3D Model View
-// =============================================================================
 
 function Model3DView({ tab }: { tab: CanvasTab }) {
   if (!tab.artifact) return null;
@@ -533,10 +509,6 @@ function Model3DView({ tab }: { tab: CanvasTab }) {
     </div>
   );
 }
-
-// =============================================================================
-// Resize Handle
-// =============================================================================
 
 function ResizeHandle() {
   const { width, setWidth, setResizing } = useCanvas();
@@ -571,10 +543,6 @@ function ResizeHandle() {
     />
   );
 }
-
-// =============================================================================
-// Main Panel
-// =============================================================================
 
 export function CanvasPanel() {
   const { isOpen, tabs, width, isResizing } = useCanvas();

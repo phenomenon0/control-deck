@@ -11,10 +11,6 @@ import {
   parseTool,
 } from "./tool-parser";
 
-// =============================================================================
-// Basic Tool Parsing
-// =============================================================================
-
 describe("parseGlyphToolCall", () => {
   test("parses simple tool call", () => {
     const text = `Tool{
@@ -69,10 +65,6 @@ I'll analyze the results.`;
   });
 });
 
-// =============================================================================
-// Multiple Tool Calls
-// =============================================================================
-
 describe("parseAllGlyphToolCalls", () => {
   test("parses multiple tool calls", () => {
     const text = `
@@ -97,10 +89,6 @@ describe("parseAllGlyphToolCalls", () => {
   });
 });
 
-// =============================================================================
-// Detection
-// =============================================================================
-
 describe("hasGlyphToolCall", () => {
   test("detects tool call presence", () => {
     expect(hasGlyphToolCall("Tool{name=test args=@[]()}")).toBe(true);
@@ -108,10 +96,6 @@ describe("hasGlyphToolCall", () => {
     expect(hasGlyphToolCall("Tool{ incomplete")).toBe(false);
   });
 });
-
-// =============================================================================
-// Simple Tool Parser (GLYPH-native only)
-// =============================================================================
 
 describe("parseTool", () => {
   test("parses GLYPH tool call", () => {
@@ -137,10 +121,6 @@ Here are the results.`;
     expect(tool?.name).toBe("web_search");
   });
 });
-
-// =============================================================================
-// Edge Cases
-// =============================================================================
 
 describe("edge cases", () => {
   test("handles nested objects in args (single-line)", () => {
@@ -222,10 +202,6 @@ describe("edge cases", () => {
     expect(result.tool?.args.seed).toBe(42);
   });
 });
-
-// =============================================================================
-// Multiline Support
-// =============================================================================
 
 describe("multiline support", () => {
   test("multiline args with simple values", () => {
@@ -321,10 +297,6 @@ Let me know if you need more results.`;
     expect(result.after.trim()).toBe("Let me know if you need more results.");
   });
 });
-
-// =============================================================================
-// Real-World Examples
-// =============================================================================
 
 describe("real-world examples", () => {
   test("generate image request", () => {

@@ -15,10 +15,6 @@ import { listTools } from "@/lib/plugins/registry";
 import { extractBundleFromText, parseBundle } from "@/lib/plugins/bundle";
 import type { PluginBundle, PluginTemplate } from "@/lib/plugins/types";
 
-// =============================================================================
-// System Prompt for Bundle Generation
-// =============================================================================
-
 function getSystemPrompt(): string {
   const tools = listTools();
   const toolDocs = tools.map(t => 
@@ -122,10 +118,6 @@ Do not include explanatory text before or after the JSON.
 \`\`\``;
 }
 
-// =============================================================================
-// Refinement Prompt
-// =============================================================================
-
 function getRefinementPrompt(bundle: PluginBundle, feedback: string): string {
   return `The user wants to modify this existing plugin bundle:
 
@@ -140,10 +132,6 @@ ${feedback}
 Generate an updated bundle that addresses the feedback while maintaining valid structure.
 Respond with ONLY the complete updated JSON bundle in a code block.`;
 }
-
-// =============================================================================
-// POST - Generate or refine a plugin bundle
-// =============================================================================
 
 export async function POST(req: NextRequest) {
   try {
@@ -166,10 +154,6 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-
-// =============================================================================
-// Generate new bundle
-// =============================================================================
 
 async function handleGenerate(body: { description: string; template?: PluginTemplate; hints?: Record<string, unknown> }) {
   const { description, template, hints } = body;
@@ -227,10 +211,6 @@ async function handleGenerate(body: { description: string; template?: PluginTemp
     model: config.model,
   });
 }
-
-// =============================================================================
-// Refine existing bundle
-// =============================================================================
 
 async function handleRefine(body: { bundle: PluginBundle | string; feedback: string }) {
   const { bundle: bundleInput, feedback } = body;
@@ -301,10 +281,6 @@ async function handleRefine(body: { bundle: PluginBundle | string; feedback: str
     model: config.model,
   });
 }
-
-// =============================================================================
-// GET - Get available tools and templates for the maker UI
-// =============================================================================
 
 export async function GET() {
   const tools = listTools();

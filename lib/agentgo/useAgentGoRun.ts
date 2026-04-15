@@ -20,10 +20,6 @@ import {
   type RunStatus,
 } from "./client";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface UseAgentGoRunOptions {
   /** Auto-start streaming when runId is set */
   autoStream?: boolean;
@@ -75,10 +71,6 @@ export interface UseAgentGoRunReturn {
   /** Clear state */
   reset: () => void;
 }
-
-// =============================================================================
-// Hook Implementation
-// =============================================================================
 
 export function useAgentGoRun(options: UseAgentGoRunOptions = {}): UseAgentGoRunReturn {
   const { 

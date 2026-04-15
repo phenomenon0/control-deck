@@ -9,10 +9,6 @@ import type {
   InterruptResponse,
 } from "./types";
 
-// =============================================================================
-// Interrupt Types
-// =============================================================================
-
 export type InterruptReason =
   | "human_approval"
   | "user_input_required"
@@ -56,10 +52,6 @@ export interface InterruptResolution {
   data?: Record<string, unknown>;
   comment?: string;
 }
-
-// =============================================================================
-// Interrupt State Machine
-// =============================================================================
 
 export type InterruptStatus =
   | "pending"     // Waiting for user
@@ -196,10 +188,6 @@ export function createInterruptStore(): InterruptStore {
   return store;
 }
 
-// =============================================================================
-// Event Helpers
-// =============================================================================
-
 /**
  * Create a RUN_FINISHED event with interrupt
  */
@@ -234,10 +222,6 @@ export function createResumeInput(
 ): InterruptResponse {
   return { interruptId, payload };
 }
-
-// =============================================================================
-// Approval Workflow Helpers
-// =============================================================================
 
 /**
  * Create an approval interrupt for a sensitive action
@@ -290,10 +274,6 @@ export function createErrorRecoveryInterrupt(
     riskLevel: "medium",
   };
 }
-
-// =============================================================================
-// Multi-Step Wizard
-// =============================================================================
 
 export interface WizardStep {
   id: string;

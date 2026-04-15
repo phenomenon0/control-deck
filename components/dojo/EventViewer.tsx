@@ -4,18 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { DojoEvent } from "@/lib/agui/dojo";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 interface EventViewerProps {
   events: DojoEvent[];
   isRunning: boolean;
 }
-
-// =============================================================================
-// Event Type Colors
-// =============================================================================
 
 const EVENT_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
   // Run lifecycle
@@ -62,10 +54,6 @@ const EVENT_COLORS: Record<string, { bg: string; text: string; icon: string }> =
 };
 
 const DEFAULT_COLOR = { bg: "rgba(113, 113, 122, 0.15)", text: "#a1a1aa", icon: "●" };
-
-// =============================================================================
-// EventViewer Component
-// =============================================================================
 
 export function EventViewer({ events, isRunning }: EventViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -180,10 +168,6 @@ export function EventViewer({ events, isRunning }: EventViewerProps) {
     </div>
   );
 }
-
-// =============================================================================
-// EventRow Component
-// =============================================================================
 
 interface EventRowProps {
   event: DojoEvent;

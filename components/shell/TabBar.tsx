@@ -5,20 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { MessageSquare, Play, Cpu, Swords } from "lucide-react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 
-// =============================================================================
-// Tab Items
-// =============================================================================
-
 const TABS = [
   { href: "/deck/chat", label: "Chat", icon: MessageSquare, shortcut: "1" },
   { href: "/deck/runs", label: "Runs", icon: Play, shortcut: "2" },
   { href: "/deck/models", label: "Models", icon: Cpu, shortcut: "3" },
   { href: "/deck/dojo", label: "Dojo", icon: Swords, shortcut: "4" },
 ] as const;
-
-// =============================================================================
-// Component
-// =============================================================================
 
 export function TabBar() {
   const pathname = usePathname();

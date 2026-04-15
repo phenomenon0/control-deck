@@ -16,10 +16,6 @@
 
 import { decodeGlyph, tryDecodeGlyph } from "./decode";
 
-// =============================================================================
-// Types
-// =============================================================================
-
 export interface GlyphToolCall {
   name: string;
   args: Record<string, unknown>;
@@ -34,10 +30,6 @@ export interface ParsedToolResult {
   /** The raw GLYPH tool block */
   raw: string;
 }
-
-// =============================================================================
-// Regex Patterns
-// =============================================================================
 
 /**
  * Match Tool{...} blocks, including nested structures
@@ -273,10 +265,6 @@ function readValue(text: string, pos: number): { raw: string; parsed: unknown; e
   const parsed = tryDecodeGlyph(raw);
   return { raw, parsed, end: pos };
 }
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 /**
  * Extract the first GLYPH tool call from text

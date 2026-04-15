@@ -11,10 +11,6 @@
 
 import { decodeGlyph, encodeGlyphSmart } from "@/lib/codec";
 
-// =============================================================================
-// DeckPayload Type (Canonical)
-// =============================================================================
-
 /**
  * Canonical envelope for structured payloads
  * 
@@ -30,10 +26,6 @@ export type DeckPayload =
   | { kind: "glyph"; glyph: string; approxBytes?: number }
   | { kind: "text"; text: string; approxBytes?: number }
   | { kind: "binary"; base64: string; mimeType: string; approxBytes?: number };
-
-// =============================================================================
-// Type Guards
-// =============================================================================
 
 export function isDeckPayload(value: unknown): value is DeckPayload {
   if (typeof value !== "object" || value === null) return false;
@@ -70,10 +62,6 @@ export function isBinaryPayload(p: DeckPayload): p is { kind: "binary"; base64: 
   return p.kind === "binary";
 }
 
-// =============================================================================
-// Payload Constructors
-// =============================================================================
-
 /**
  * Create a JSON payload
  */
@@ -102,10 +90,6 @@ export function textPayload(text: string): DeckPayload {
 export function binaryPayload(base64: string, mimeType: string): DeckPayload {
   return { kind: "binary", base64, mimeType, approxBytes: Math.round(base64.length * 0.75) };
 }
-
-// =============================================================================
-// Smart Encoding
-// =============================================================================
 
 /**
  * Configuration for smart encoding
@@ -164,10 +148,6 @@ export function smartEncode(data: unknown, config: SmartEncodeConfig = {}): Deck
   }
 }
 
-// =============================================================================
-// Decoding
-// =============================================================================
-
 /**
  * Decode a DeckPayload back to its raw value
  * 
@@ -208,10 +188,6 @@ export function tryDecodePayload(payload: DeckPayload): unknown | null {
   }
 }
 
-// =============================================================================
-// LLM Context Helpers
-// =============================================================================
-
 /**
  * Convert payload to string for LLM context
  * JSON is stringified, GLYPH is wrapped in fences
@@ -233,10 +209,6 @@ export function payloadToContext(payload: DeckPayload, label?: string): string {
       return `[Binary: ${payload.mimeType}, ${Math.round((payload.approxBytes ?? 0) / 1024)}KB]`;
   }
 }
-
-// =============================================================================
-// Display/Debug Helpers
-// =============================================================================
 
 /**
  * Get a human-readable summary of payload for logging/display
@@ -271,10 +243,6 @@ export function payloadBadge(payload: DeckPayload): { label: string; color: stri
       return { label: payload.mimeType.split("/")[1]?.toUpperCase() ?? "BIN", color: "orange" };
   }
 }
-
-// =============================================================================
-// Serialization (for DB storage)
-// =============================================================================
 
 /**
  * Serialize payload for database storage

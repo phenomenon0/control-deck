@@ -59,9 +59,45 @@ export function loadWorkflow(
       return buildFluxNunchakuWorkflow(params);
     case "sdxl-sd":
       return buildSDXLSDWorkflow(params);
+    case "ace-step":
+      return buildAceStepWorkflow(params);
     default:
       throw new Error(`Unknown workflow preset: ${preset}`);
   }
+}
+
+function buildAceStepWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const duration = params.duration ?? 15;
+  const prompt = params.prompt ?? "upbeat electronic music";
+
+  return {
+    "1": {
+      class_type: "ACEStepModelLoader",
+      inputs: {
+        model: "ace-step-v1.5.safetensors",
+      },
+    },
+    "2": {
+      class_type: "ACEStepSampler",
+      inputs: {
+        model: ["1", 0],
+        prompt: prompt,
+        duration: duration,
+        seed: seed,
+        steps: 100,
+        cfg: 7,
+      },
+    },
+    "3": {
+      class_type: "SaveAudioMP3",
+      inputs: {
+        audio: ["2", 0],
+        filename_prefix: "deck_ace_step",
+        quality: "V0",
+      },
+    },
+  };
 }
 
 function buildStableAudioWorkflow(params: WorkflowParams): Record<string, unknown> {

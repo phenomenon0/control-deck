@@ -37,6 +37,7 @@
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "sharp": "^0.33.5",
+    "smplr": "^0.20.0",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
     "tone": "^15.1.22",

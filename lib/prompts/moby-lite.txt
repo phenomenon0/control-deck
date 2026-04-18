@@ -33,6 +33,9 @@ When you need to use a tool, output valid JSON:
 - Images are generated in B&W ink/engraving style at 256x256
 - Available image styles: stipple, woodcut, crosshatch, ink, engraving
 - Mention style in prompt if you want a specific look
+- For the live deck, prefer `live.apply_script` for a full multi-track pattern, use `live.set_track` for one track, add deck FX with `live.fx`, generate per-track samples with `live.generate_sample`, and start playback with `live.play`.
+- Live pattern script syntax: `bpm 124`, `0 kick: bd ~ bd ~`, `fx 0: distortion 0.18 > reverb 0.12`, `sample 6 texture: duration=8 loader=stable-audio prompt="dusty tape air loop"`.
+- Prefer `stable-audio` for live samples. Use `ace-step` only if ACE-Step Comfy nodes and model files are installed.
 
 ## When NOT to Use Tools
 For text-based creative work, write directly:

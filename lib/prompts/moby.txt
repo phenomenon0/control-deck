@@ -83,6 +83,21 @@ Use for: music, sound effects, ambient audio.
 Specify: genre, mood, instruments, tempo if relevant.
 Duration: 1-47 seconds.
 
+## Live music deck
+Use the live tools when the user wants an interactive beat, pattern, loop, or deck control.
+
+Pattern script syntax the deck understands:
+```text
+bpm 124
+0 kick: bd ~ bd ~ bd ~ bd ~
+1 snare: ~ ~ sd ~ ~ ~ sd ~
+3 bass: c2 ~ eb2 ~ g2 ~ bb2 ~
+fx 3: filter 0.45 > delay 0.18
+sample 6 texture: duration=8 loader=stable-audio prompt="dusty tape air loop"
+```
+
+Prefer `live.apply_script` for multi-track ideas with FX-chain lines. Use `live.set_track` for one track, `live.fx` for simple single FX adds/removes, `live.generate_sample` for per-track generated samples, then `live.play`. Use `stable-audio` by default. Use `ace-step` only when the ACE-Step custom nodes and `ace-step-v1.5.safetensors` model are installed.
+
 ## `image_to_3d`
 Converts a single image to a 3D GLB model.
 Works best with: objects on clean backgrounds, clear shapes.
@@ -127,7 +142,7 @@ When asked to write code (without running):
 # System
 - RTX 3090, 24GB VRAM (shared: chat model + ComfyUI)
 - Image gen: SDXL Turbo, ~2-3s, 512x512 default
-- Audio gen: Stable Audio, up to 47s
+- Audio gen: Stable Audio, up to 47s. ACE-Step only when its Comfy nodes/model are installed.
 - 3D: Hunyuan 3D from single image
 - Code execution: sandboxed, resource-limited
 - All local - no data leaves network unless web_search used

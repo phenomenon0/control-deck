@@ -28,6 +28,7 @@ const POLL_TIMEOUT = 300000; // 5 minutes (some workflows take longer)
 // VRAM requirements per workflow (in MB)
 const VRAM_REQUIREMENTS: Record<string, number> = {
   "stable-audio": 8000,
+  "ace-step": 12000,
   "sdxl-t2i": 10000,
   "sdxl-turbo": 6000,    // Turbo is smaller and faster
   "hunyuan-3d": 10000,

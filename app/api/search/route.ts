@@ -46,6 +46,34 @@ function getRandomUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
+const YEAR_PATTERN = /\b20\d{2}\b/;
+const MONTH_PATTERN = /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/;
+const DAY_PATTERN = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/;
+const DATE_CONTEXT_PATTERN = new RegExp(`${YEAR_PATTERN.source}|${MONTH_PATTERN.source}`, "i");
+
+export interface SearchPlan {
+  isNews: boolean;
+  optimizedQuery: string;
+}
+
+function formatSearchDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getThisWeekRange(now = new Date()): { start: Date; end: Date } {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { start, end };
+}
+
 // Detect if query is news/current events related
 function isNewsQuery(query: string): boolean {
   const q = query.toLowerCase();
@@ -57,13 +85,17 @@ function isNewsQuery(query: string): boolean {
     // News indicators
     /\b(news|update|announcement|released|launches?|happening|breaking)\b/,
     // Date patterns
-    /\b(2024|2025|december|january|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/,
+    YEAR_PATTERN,
+    MONTH_PATTERN,
+    DAY_PATTERN,
     // Stock/market
     /\b(stock|price|market|trading|crypto|bitcoin|eth)\b/,
     // Weather
     /\b(weather|forecast|temperature)\b/,
     // Events
     /\b(election|vote|poll|protest|incident|crash|attack)\b/,
+    // Live events
+    /\b(live music|concerts?|shows?|gigs?|venues?|tickets?|festival|tour)\b/,
   ];
   
   return newsPatterns.some(pattern => pattern.test(q));
@@ -89,19 +121,24 @@ function optimizeQuery(query: string, isNews: boolean): string {
   
   // For "this week" queries, add current date context
   if (/\bthis week\b/i.test(q) && isNews) {
-    const now = new Date();
-    const monthNames = ["January", "February", "March", "April", "May", "June",
-      "July", "August", "September", "October", "November", "December"];
-    const month = monthNames[now.getMonth()];
-    const year = now.getFullYear();
+    const { start, end } = getThisWeekRange();
+    const weekRange = `${formatSearchDate(start)} to ${formatSearchDate(end)}`;
     
     // Only add if no date context exists
-    if (!/\b(2024|2025|january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(q)) {
-      optimized = `${query} ${month} ${year}`;
+    if (!DATE_CONTEXT_PATTERN.test(q)) {
+      optimized = `${query} ${weekRange}`;
     }
   }
   
   return optimized;
+}
+
+export function createSearchPlan(query: string): SearchPlan {
+  const isNews = isNewsQuery(query);
+  return {
+    isNews,
+    optimizedQuery: optimizeQuery(query, isNews),
+  };
 }
 
 // Retry with exponential backoff
@@ -287,9 +324,8 @@ async function searchPublicSearXNG(query: string, maxResults: number): Promise<S
 }
 
 // Main search function with cascading fallbacks
-async function webSearch(query: string, maxResults = 5): Promise<SearchResult[]> {
-  const isNews = isNewsQuery(query);
-  const optimizedQuery = optimizeQuery(query, isNews);
+async function webSearch(query: string, maxResults = 5, plan = createSearchPlan(query)): Promise<SearchResult[]> {
+  const { isNews, optimizedQuery } = plan;
   
   console.log(`[Search] Query: "${query}"`);
   console.log(`[Search] Optimized: "${optimizedQuery}" (isNews: ${isNews})`);
@@ -369,12 +405,13 @@ async function webSearch(query: string, maxResults = 5): Promise<SearchResult[]>
 }
 
 // Format results for LLM context injection
-function formatResultsForContext(results: SearchResult[], query: string): string {
+function formatResultsForContext(results: SearchResult[], query: string, optimizedQuery?: string): string {
   if (results.length === 0) {
     return "";
   }
   
-  let context = `[Web search results for "${query}"]\n\n`;
+  const searchedAs = optimizedQuery && optimizedQuery !== query ? `; searched as "${optimizedQuery}"` : "";
+  let context = `[Web search results for "${query}"${searchedAs}]\n\n`;
   
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
@@ -400,11 +437,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Missing query parameter 'q'" }, { status: 400 });
   }
   
-  const results = await webSearch(query, maxResults);
-  const context = formatResultsForContext(results, query);
+  const plan = createSearchPlan(query);
+  const results = await webSearch(query, maxResults, plan);
+  const context = formatResultsForContext(results, query, plan.optimizedQuery);
   
   return NextResponse.json({
     query,
+    optimizedQuery: plan.optimizedQuery,
+    isNewsQuery: plan.isNews,
     results,
     context,
     count: results.length,
@@ -420,11 +460,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing query" }, { status: 400 });
     }
     
-    const results = await webSearch(query, maxResults);
-    const context = formatResultsForContext(results, query);
+    const plan = createSearchPlan(query);
+    const results = await webSearch(query, maxResults, plan);
+    const context = formatResultsForContext(results, query, plan.optimizedQuery);
     
     return NextResponse.json({
       query,
+      optimizedQuery: plan.optimizedQuery,
+      isNewsQuery: plan.isNews,
       results,
       context,
       count: results.length,

@@ -124,6 +124,30 @@ Tool{
 }
 ```
 
+**Set a live deck pattern:**
+```glyph
+Tool{
+  name = live.set_track
+  args = @[track name pattern](0 kick "bd ~ bd ~ bd ~ bd ~")
+}
+```
+
+**Apply a full live deck script with FX chains:**
+```glyph
+Tool{
+  name = live.apply_script
+  args = @[script play]("bpm 124\n0 kick: bd ~ bd ~ bd ~ bd ~\n1 snare: ~ ~ sd ~ ~ ~ sd ~\nfx 0: distortion 0.18 > reverb 0.12\nsample 6 texture: duration=8 loader=stable-audio prompt=\"dusty tape air loop\"" t)
+}
+```
+
+**Generate and load a live deck sample:**
+```glyph
+Tool{
+  name = live.generate_sample
+  args = @[track name prompt duration loader](6 texture "dusty tape air loop for a live set" 8 stable-audio)
+}
+```
+
 **Generate glyph motif:**
 ```glyph
 Tool{
@@ -235,6 +259,7 @@ Progress{
 5. **Compact is better** - GLYPH saves tokens, use it liberally
 6. **Reference artifacts with ^prefix:id** - Images, files, embeddings
 7. **Multiline is OK** - Args can span multiple lines for readability
+8. **Live samples default to stable-audio** - Use ace-step only when ACE-Step Comfy nodes/model are installed.
 
 ## Special Values
 

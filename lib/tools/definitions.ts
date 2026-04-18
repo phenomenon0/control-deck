@@ -145,6 +145,69 @@ export const VectorIngestSchema = z.object({
   }),
 });
 
+export const LivePlaySchema = z.object({
+  name: z.literal("live.play"),
+  args: z.object({
+    action: z.enum(["start", "stop", "toggle"]).describe("Transport action"),
+  }),
+});
+
+export const LiveSetTrackSchema = z.object({
+  name: z.literal("live.set_track"),
+  args: z.object({
+    track: z.number().int().min(0).max(7).describe("Track index (0-7)"),
+    pattern: z.string().describe("Pattern string (e.g. 'bd ~ sd ~ bd ~ sd ~')"),
+    name: z.string().optional().describe("Optional track name"),
+  }),
+});
+
+export const LiveApplyScriptSchema = z.object({
+  name: z.literal("live.apply_script"),
+  args: z.object({
+    script: z.string().min(1).max(6000).describe("Full live pattern script with bpm, track, fx, and sample lines"),
+    play: z.boolean().default(false).describe("Start playback after applying the script"),
+  }),
+});
+
+export const LiveFxSchema = z.object({
+  name: z.literal("live.fx"),
+  args: z.object({
+    track: z.number().int().min(0).max(7).describe("Track index (0-7)"),
+    action: z.enum(["add", "remove"]).describe("Add or remove effect"),
+    type: z.enum(["reverb", "delay", "chorus", "filter", "distortion"]).optional().describe("Effect type (required for add)"),
+    index: z.number().int().min(0).optional().describe("Effect index (required for remove)"),
+    wet: z.number().min(0).max(1).optional().describe("Wet mix (0-1, default varies by type)"),
+  }),
+});
+
+export const LiveLoadSampleSchema = z.object({
+  name: z.literal("live.load_sample"),
+  args: z.object({
+    track: z.number().int().min(0).max(7).describe("Track index (0-7)"),
+    artifact_id: z.string().describe("Artifact ID of audio to load"),
+    name: z.string().max(32).optional().describe("Optional track/sample name"),
+  }),
+});
+
+export const LiveGenerateSampleSchema = z.object({
+  name: z.literal("live.generate_sample"),
+  args: z.object({
+    track: z.number().int().min(0).max(7).describe("Track index (0-7)"),
+    prompt: z.string().min(1).max(600).describe("Description of the sample to generate"),
+    duration: z.number().min(1).max(47).default(8).describe("Duration in seconds (1-47)"),
+    seed: z.number().int().min(0).optional().describe("Random seed for reproducibility"),
+    name: z.string().max(32).optional().describe("Optional track/sample name"),
+    loader: z.enum(["stable-audio", "ace-step"]).default("stable-audio").describe("Local audio loader"),
+  }),
+});
+
+export const LiveBpmSchema = z.object({
+  name: z.literal("live.bpm"),
+  args: z.object({
+    bpm: z.number().int().min(40).max(300).describe("Tempo in BPM (40-300)"),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -157,6 +220,13 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   VectorSearchSchema,
   VectorStoreSchema,
   VectorIngestSchema,
+  LivePlaySchema,
+  LiveSetTrackSchema,
+  LiveApplyScriptSchema,
+  LiveFxSchema,
+  LiveLoadSampleSchema,
+  LiveGenerateSampleSchema,
+  LiveBpmSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -174,6 +244,13 @@ export type ExecuteCodeArgs = z.infer<typeof ExecuteCodeSchema>["args"];
 export type VectorSearchArgs = z.infer<typeof VectorSearchSchema>["args"];
 export type VectorStoreArgs = z.infer<typeof VectorStoreSchema>["args"];
 export type VectorIngestArgs = z.infer<typeof VectorIngestSchema>["args"];
+export type LivePlayArgs = z.infer<typeof LivePlaySchema>["args"];
+export type LiveSetTrackArgs = z.infer<typeof LiveSetTrackSchema>["args"];
+export type LiveApplyScriptArgs = z.infer<typeof LiveApplyScriptSchema>["args"];
+export type LiveFxArgs = z.infer<typeof LiveFxSchema>["args"];
+export type LiveLoadSampleArgs = z.infer<typeof LiveLoadSampleSchema>["args"];
+export type LiveGenerateSampleArgs = z.infer<typeof LiveGenerateSampleSchema>["args"];
+export type LiveBpmArgs = z.infer<typeof LiveBpmSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -290,6 +367,69 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "url", type: "string", required: true, description: "URL to fetch and ingest" },
       { name: "collection", type: "string", required: false, description: "Collection name", default: "default" },
       { name: "metadata", type: "object", required: false, description: "Optional key-value metadata" },
+    ],
+  },
+  {
+    name: "live.play",
+    description: "Control the live music transport — start, stop, or toggle playback",
+    parameters: [
+      { name: "action", type: "string", required: true, description: "Transport action: start, stop, or toggle" },
+    ],
+  },
+  {
+    name: "live.set_track",
+    description: "Set a pattern on a live sequencer track using mini-notation (e.g. 'bd ~ sd ~', 'c3 eb3 g3 ~')",
+    parameters: [
+      { name: "track", type: "number", required: true, description: "Track index (0-7)" },
+      { name: "pattern", type: "string", required: true, description: "Pattern string" },
+      { name: "name", type: "string", required: false, description: "Optional track name" },
+    ],
+  },
+  {
+    name: "live.apply_script",
+    description: "Apply a full live pattern script containing bpm, track patterns, FX chains, and sample intents. Best tool when composing a multi-track idea.",
+    parameters: [
+      { name: "script", type: "string", required: true, description: "Full pattern script" },
+      { name: "play", type: "boolean", required: false, description: "Start playback after applying", default: false },
+    ],
+  },
+  {
+    name: "live.fx",
+    description: "Add or remove an effect on a live sequencer track",
+    parameters: [
+      { name: "track", type: "number", required: true, description: "Track index (0-7)" },
+      { name: "action", type: "string", required: true, description: "add or remove" },
+      { name: "type", type: "string", required: false, description: "Effect type: reverb, delay, chorus, filter, distortion" },
+      { name: "index", type: "number", required: false, description: "Effect index to remove" },
+      { name: "wet", type: "number", required: false, description: "Wet mix 0-1" },
+    ],
+  },
+  {
+    name: "live.load_sample",
+    description: "Load a generated audio artifact into a live sequencer track for looped playback",
+    parameters: [
+      { name: "track", type: "number", required: true, description: "Track index (0-7)" },
+      { name: "artifact_id", type: "string", required: true, description: "Artifact ID of audio to load" },
+      { name: "name", type: "string", required: false, description: "Optional track/sample name" },
+    ],
+  },
+  {
+    name: "live.generate_sample",
+    description: "Generate an audio sample for a live track and load it into that track. Uses ComfyUI Stable Audio by default; use ace-step only when ACE-Step nodes/model are installed.",
+    parameters: [
+      { name: "track", type: "number", required: true, description: "Track index (0-7)" },
+      { name: "prompt", type: "string", required: true, description: "Sample prompt" },
+      { name: "duration", type: "number", required: false, description: "Duration in seconds (1-47)", default: 8 },
+      { name: "seed", type: "number", required: false, description: "Random seed" },
+      { name: "name", type: "string", required: false, description: "Optional track/sample name" },
+      { name: "loader", type: "string", required: false, description: "stable-audio or ace-step", default: "stable-audio" },
+    ],
+  },
+  {
+    name: "live.bpm",
+    description: "Set the tempo of the live sequencer",
+    parameters: [
+      { name: "bpm", type: "number", required: true, description: "Tempo in BPM (40-300)" },
     ],
   },
 ];

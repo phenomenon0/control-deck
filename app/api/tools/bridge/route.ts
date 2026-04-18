@@ -34,6 +34,13 @@ const BRIDGE_TOOLS = new Set<string>([
   "vector_search",
   "vector_store",
   "vector_ingest",
+  "live.play",
+  "live.set_track",
+  "live.apply_script",
+  "live.fx",
+  "live.load_sample",
+  "live.generate_sample",
+  "live.bpm",
 ]);
 
 interface BridgeRequest {

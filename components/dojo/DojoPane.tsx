@@ -30,41 +30,30 @@ export function DojoPane() {
   const [selectedDemo, setSelectedDemo] = useState<DemoId>("interrupt");
 
   return (
-    <div className="h-full flex overflow-hidden bg-[var(--bg-primary)]">
-      {/* Sidebar - Demo Selector */}
-      <div className="w-64 border-r border-[var(--border)] bg-[var(--bg-secondary)] flex flex-col">
-        <div className="bg-[var(--bg-secondary)] sticky top-0 z-10 p-4 border-b border-[var(--border)]">
-          <h2 className="text-base font-semibold tracking-tight text-[var(--text-primary)]">
-            AG-UI Dojo
-          </h2>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Component Showcase
-          </p>
-        </div>
+    <div className="dojo-stage">
+      <header className="dojo-head">
+        <div className="label">AG-UI</div>
+        <h1>Dojo</h1>
+        <p>Protocol components and live interaction specimens for agent UI events.</p>
+      </header>
 
-        <div className="flex-1 overflow-auto p-2">
-          {DEMOS.map((demo, idx) => (
+      <div className="dojo-split">
+        <aside className="dojo-index">
+          <div className="dojo-idx-group">
+            <div className="label">Specimens</div>
+          {DEMOS.map((demo) => (
             <button
               key={demo.id}
               onClick={() => setSelectedDemo(demo.id)}
-              className={`w-full text-left px-3 py-2.5 rounded-[6px] mb-1 flex items-center gap-3 transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] ${
-                selectedDemo === demo.id
-                  ? "bg-[rgba(255,255,255,0.08)] text-[var(--text-primary)]"
-                  : "text-[var(--text-secondary)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--text-primary)]"
-              }`}
+              className={`dojo-idx ${selectedDemo === demo.id ? "on" : ""}`}
             >
-              <span className="text-lg">{demo.icon}</span>
-              <div>
-                <div className="text-sm font-medium">{demo.title}</div>
-                <div className={`text-[10px] ${selectedDemo === demo.id ? "text-[var(--text-muted)]" : "text-[var(--text-muted)]"}`}>
-                  {demo.category}
-                </div>
-              </div>
+              <span>{demo.title}</span>
+              <span className="dojo-idx-id">{demo.category}</span>
             </button>
           ))}
-        </div>
+          </div>
 
-        <div className="p-3 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)]">
+        <div className="pt-3 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)]">
           <a
             href="https://docs.ag-ui.com"
             target="_blank"
@@ -74,11 +63,10 @@ export function DojoPane() {
             AG-UI Protocol Docs
           </a>
         </div>
-      </div>
+        </aside>
 
       {/* Main Content - Demo Stage */}
-      <div className="flex-1 overflow-auto bg-[var(--bg-primary)]">
-        <div className="p-8">
+      <main className="dojo-main">
           {selectedDemo === "interrupt" && <InterruptDemo />}
           {selectedDemo === "form" && <FormDemo />}
           {selectedDemo === "activity" && <ActivityDemo />}
@@ -88,7 +76,7 @@ export function DojoPane() {
           {selectedDemo === "state" && <StateDemo />}
           {selectedDemo === "soccer_scout" && <SoccerScoutDemo />}
           {selectedDemo === "horoscope" && <HoroscopeDemo />}
-        </div>
+      </main>
       </div>
     </div>
   );
@@ -1007,14 +995,17 @@ function DemoHeader({
   events: string[];
 }) {
   return (
-    <div className="mb-8 animate-fade-in">
-      <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)] mb-2">{title}</h1>
-      <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">{description}</p>
-      <div className="flex flex-wrap gap-1.5">
+    <div className="dojo-plate-head animate-fade-in">
+      <div>
+        <div className="label">Specimen</div>
+        <h2>{title}</h2>
+        <p className="dojo-desc">{description}</p>
+      </div>
+      <div className="dojo-plate-meta">
         {events.map((event) => (
           <span
             key={event}
-            className="px-2 py-1 text-[10px] font-mono rounded-full bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-muted)]"
+            className="pill--mono"
           >
             {event}
           </span>

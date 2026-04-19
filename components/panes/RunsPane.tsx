@@ -252,12 +252,15 @@ export function RunsPane() {
   // GLYPH view mode
   if (viewMode === "glyph") {
     return (
-      <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-        {/* Frosted Header */}
-        <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold tracking-tight">Payload Inspector</span>
-            {/* View mode toggle */}
+      <div className="runs-stage runs-stage--real">
+        <header className="runs-head">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="label">Payloads</div>
+              <h1>Payload Inspector</h1>
+              <p>Tool arguments and results collected from recent real runs.</p>
+            </div>
+            <div className="warp-pane-actions">
             <div className="flex rounded-[6px] overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]">
               <button
                 onClick={() => setViewMode("list")}
@@ -272,11 +275,9 @@ export function RunsPane() {
                 GLYPH
               </button>
             </div>
-            <span className="text-xs text-[var(--text-muted)]">
+            <span className="pill--mono">
               {allGlyphPayloads.length} payload{allGlyphPayloads.length !== 1 ? "s" : ""} found
             </span>
-          </div>
-          <div className="flex items-center gap-2">
             <button
               onClick={async () => {
                 setEvalRunning(true);
@@ -303,7 +304,8 @@ export function RunsPane() {
               Refresh
             </button>
           </div>
-        </div>
+          </div>
+        </header>
         
         {/* Eval results banner */}
         {evalResults && (
@@ -351,7 +353,7 @@ export function RunsPane() {
         )}
 
         {/* GLYPH payloads grid */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div>
           {allGlyphPayloads.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-4 opacity-40">@</div>
@@ -378,14 +380,15 @@ export function RunsPane() {
   }
 
   return (
-    <div className="h-full flex bg-[var(--bg-primary)]">
-      {/* Runs list */}
-      <div className={`flex flex-col ${selectedRun ? "w-1/2 border-r border-[var(--border)]" : "w-full"}`}>
-        {/* Frosted Header */}
-        <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold tracking-tight">Runs</span>
-            {/* View mode toggle */}
+    <div className="runs-stage runs-stage--real">
+      <header className="runs-head">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Operations</div>
+            <h1>Runs</h1>
+            <p>Real agent runs with model, token, duration, cost, tool calls, and raw event traces.</p>
+          </div>
+          <div className="warp-pane-actions">
             <div className="flex rounded-[6px] overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]">
               <button
                 onClick={() => setViewMode("list")}
@@ -404,20 +407,41 @@ export function RunsPane() {
                 GLYPH
               </button>
             </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {todayCost && (
-              <div className="text-xs text-[var(--text-muted)]">
-                Today: {todayCost.inputTokens.toLocaleString()} in / {todayCost.outputTokens.toLocaleString()} out
-                {todayCost.costUsd > 0 && ` ($${todayCost.costUsd.toFixed(4)})`}
-              </div>
-            )}
             <button onClick={handleClear} className="btn btn-secondary text-xs">
               Clear
             </button>
           </div>
         </div>
+      </header>
 
+      <div className="runs-meters">
+        <div className="meter">
+          <div className="meter-lbl">Runs</div>
+          <div className="meter-big">{runs.length}</div>
+          <div className="meter-sub">Recent history</div>
+        </div>
+        <div className="meter">
+          <div className="meter-lbl">Running</div>
+          <div className="meter-big">{runs.filter((run) => run.status === "running").length}</div>
+          <div className="meter-sub">Active now</div>
+        </div>
+        <div className="meter">
+          <div className="meter-lbl">Tokens today</div>
+          <div className="meter-big">
+            {todayCost ? (todayCost.inputTokens + todayCost.outputTokens).toLocaleString() : "0"}
+          </div>
+          <div className="meter-sub">Input and output</div>
+        </div>
+        <div className="meter">
+          <div className="meter-lbl">Cost today</div>
+          <div className="meter-big">${todayCost?.costUsd.toFixed(4) ?? "0.0000"}</div>
+          <div className="meter-sub">Tracked spend</div>
+        </div>
+      </div>
+
+      <div className={`runs-real-layout ${selectedRun ? "has-detail" : ""}`}>
+      {/* Runs list */}
+      <div className="runs-real-list">
         {/* Runs list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
@@ -476,7 +500,7 @@ export function RunsPane() {
 
       {/* Run detail panel — slide-in */}
       {selectedRun && (
-        <div className="w-1/2 flex flex-col animate-fade-in bg-[var(--bg-primary)]">
+        <div className="runs-trace flex flex-col animate-fade-in">
           {/* Detail frosted header */}
           <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
             <span className="text-sm font-semibold tracking-tight">Run Details</span>
@@ -558,6 +582,7 @@ export function RunsPane() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

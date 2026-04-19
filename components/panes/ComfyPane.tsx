@@ -57,30 +57,33 @@ export function ComfyPane() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-      {/* Frosted Header with connection dot */}
-      <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tracking-tight">ComfyUI</span>
-          <span className="inline-block w-[6px] h-[6px] rounded-full bg-[var(--success)] flex-shrink-0" title="Connected" />
+    <div className="comfy-stage">
+      <header className="comfy-head">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Image pipeline</div>
+            <h1>ComfyUI</h1>
+            <p>Preset workflows, queue control, and recent generated assets from the local ComfyUI service.</p>
+          </div>
+          <div className="warp-pane-actions">
+            <span className="pill--status pill--status-finished">Connected</span>
+            <button onClick={handleInterrupt} className="btn btn-secondary text-xs">
+              Interrupt
+            </button>
+            <button
+              onClick={() => window.open("http://localhost:8188", "_blank")}
+              className="btn btn-primary text-xs"
+            >
+              Open UI
+            </button>
+            <button onClick={fetchHistory} className="btn btn-secondary text-xs">
+              Refresh
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleInterrupt} className="btn btn-secondary text-xs">
-            Interrupt
-          </button>
-          <button
-            onClick={() => window.open("http://localhost:8188", "_blank")}
-            className="btn btn-primary text-xs"
-          >
-            Open UI
-          </button>
-          <button onClick={fetchHistory} className="btn btn-secondary text-xs">
-            Refresh
-          </button>
-        </div>
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="space-y-6">
         {/* Preset Workflows */}
         <div>
           <h3 className="section-title mb-3">Preset Workflows</h3>

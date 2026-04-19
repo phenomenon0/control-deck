@@ -20,16 +20,24 @@ export function ToolsPane() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-      {/* Frosted Header */}
-      <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-        <span className="text-sm font-semibold tracking-tight">Tools & Services</span>
-        <button onClick={refresh} className="btn btn-secondary text-xs">
-          Refresh
-        </button>
-      </div>
+    <div className="tools-stage">
+      <header className="tools-head">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Runtime</div>
+            <h1>Tools & Services</h1>
+            <p>GPU telemetry, service status, and launch actions for the local tool stack.</p>
+          </div>
+          <div className="warp-pane-actions">
+            <span className="pill--mono">{services.length} services</span>
+            <button onClick={refresh} className="btn btn-secondary text-xs">
+              Refresh
+            </button>
+          </div>
+        </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="space-y-6">
         {loading ? (
           <div className="text-center text-[var(--text-muted)] py-12">Loading...</div>
         ) : (

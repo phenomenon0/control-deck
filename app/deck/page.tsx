@@ -2,7 +2,6 @@
 
 import { useDashboardLayout } from "@/lib/hooks/useDashboardLayout";
 import { useWidgets } from "@/lib/hooks/useWidgets";
-import { useSystemStats } from "@/lib/hooks/useSystemStats";
 import { DashboardGrid } from "@/components/deck/DashboardGrid";
 import {
   SystemHealthWidget,
@@ -24,7 +23,6 @@ export default function DeckPage() {
   const layout = useDashboardLayout();
   const widgets = useWidgets();
 
-  // Map widget IDs to their rendered components
   function renderWidget(widgetId: string) {
     switch (widgetId) {
       case "system-health":
@@ -44,41 +42,13 @@ export default function DeckPage() {
       case "stats":
         return <StatsWidget data={widgets.data.stats} />;
       case "weather":
-        return (
-          <WeatherWidget
-            data={widgets.data.weather}
-            isLoading={widgets.loading.weather}
-            error={widgets.errors.weather}
-            onRefresh={() => widgets.refresh("weather")}
-          />
-        );
+        return <WeatherWidget data={widgets.data.weather} isLoading={widgets.loading.weather} error={widgets.errors.weather} onRefresh={() => widgets.refresh("weather")} />;
       case "news":
-        return (
-          <NewsWidget
-            data={widgets.data.news}
-            isLoading={widgets.loading.news}
-            error={widgets.errors.news}
-            onRefresh={() => widgets.refresh("news")}
-          />
-        );
+        return <NewsWidget data={widgets.data.news} isLoading={widgets.loading.news} error={widgets.errors.news} onRefresh={() => widgets.refresh("news")} />;
       case "sports":
-        return (
-          <SportsWidget
-            data={widgets.data.sports}
-            isLoading={widgets.loading.sports}
-            error={widgets.errors.sports}
-            onRefresh={() => widgets.refresh("sports")}
-          />
-        );
+        return <SportsWidget data={widgets.data.sports} isLoading={widgets.loading.sports} error={widgets.errors.sports} onRefresh={() => widgets.refresh("sports")} />;
       case "stocks":
-        return (
-          <StocksWidget
-            data={widgets.data.stocks}
-            isLoading={widgets.loading.stocks}
-            error={widgets.errors.stocks}
-            onRefresh={() => widgets.refresh("stocks")}
-          />
-        );
+        return <StocksWidget data={widgets.data.stocks} isLoading={widgets.loading.stocks} error={widgets.errors.stocks} onRefresh={() => widgets.refresh("stocks")} />;
       case "live":
         return <LiveTransportWidget />;
       default:
@@ -87,7 +57,12 @@ export default function DeckPage() {
   }
 
   return (
-    <div className="deck-page">
+    <div className="dashboard-stage">
+      <header className="dashboard-head">
+        <div className="label">Workspace</div>
+        <h1>Control Deck</h1>
+        <p>System health, models, services, live transport, market data, and recent work in one operational view.</p>
+      </header>
       <DashboardGrid
         items={layout.items}
         availableWidgets={layout.availableWidgets}

@@ -84,17 +84,25 @@ export function ModelsPane() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-      {/* Frosted Header */}
-      <div className="sticky top-0 z-10 bg-[var(--bg-secondary)] flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-        <span className="text-sm font-semibold tracking-tight">Models ({models.length})</span>
-        <button onClick={fetchModels} className="btn btn-secondary text-xs">
-          Refresh
-        </button>
-      </div>
+    <div className="models-stage">
+      <header className="models-head">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Local inference</div>
+            <h1>Models</h1>
+            <p>Installed Ollama models, pull controls, quantization details, and local availability.</p>
+          </div>
+          <div className="warp-pane-actions">
+            <span className="pill--mono">{models.length} installed</span>
+            <button onClick={fetchModels} className="btn btn-secondary text-xs">
+              Refresh
+            </button>
+          </div>
+        </div>
+      </header>
 
       {/* Pull new model — pill input */}
-      <div className="p-4 border-b border-[var(--border)]">
+      <div className="warp-pane-card p-4 mb-6">
         <div className="flex gap-2">
           <input
             type="text"
@@ -123,7 +131,7 @@ export function ModelsPane() {
       </div>
 
       {/* Models grid */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div>
         {loading ? (
           <div className="p-12 text-center text-[var(--text-muted)]">Loading...</div>
         ) : models.length === 0 ? (

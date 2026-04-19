@@ -62,32 +62,30 @@ export function VoicePane() {
   };
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="pane-header">
-        <span className="pane-title">Voice</span>
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-[var(--text-muted)]">
-            STT: Whisper | TTS: {engine}
+    <div className="voice-stage">
+      <header className="voice-head">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="label">Speech loop</div>
+            <h1>Voice</h1>
+            <p>Whisper speech input, local TTS engines, and live voice controls for the chat surface.</p>
           </div>
+          <div className="warp-pane-actions">
+            <span className="pill--mono">STT Whisper</span>
+            <span className="pill--mono">TTS {engine}</span>
           <div
             className="flex items-center gap-1"
             title={`Voice API: ${voiceApiStatus}`}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
-                voiceApiStatus === "connected"
-                  ? "bg-green-500"
-                  : voiceApiStatus === "checking"
-                  ? "bg-yellow-500 animate-pulse"
-                  : "bg-red-500"
-              }`}
+              className={`voice-status-dot voice-status-dot--${voiceApiStatus}`}
             />
           </div>
         </div>
-      </div>
+        </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="space-y-6">
         {/* Live Chat Mode Link */}
         <div className="card bg-[var(--accent)]/10 border-[var(--accent)]/30">
           <div className="flex items-center justify-between">

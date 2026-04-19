@@ -46,32 +46,20 @@ export function ThreadSidebar() {
             {threads.length} {threads.length === 1 ? "conversation" : "conversations"}
           </span>
         </div>
-        <button type="button" className="threads-new" title="New thread" onClick={startDraft}>
-          <Icon.Plus size={13} />
+        <button
+          type="button"
+          className={`threads-new ${activeThreadId ? "" : "on"}`}
+          title="New thread"
+          onClick={startDraft}
+        >
+          <Icon.Plus size={13} sw={1.5} />
         </button>
       </div>
       <div className="threads-list">
-        <button
-          type="button"
-          className={`thread thread-draft ${activeThreadId ? "" : "on"}`}
-          onClick={startDraft}
-        >
-          <span className="thread-icon">
-            <Icon.Plus size={13} />
-          </span>
-          <span className="thread-copy">
-            <span className="thread-title">New conversation</span>
-            <span className="thread-meta">Start from a clean prompt</span>
-          </span>
-        </button>
-
         {threadGroups.length === 0 ? (
           <div className="thread-empty">
-            <Icon.Chat size={18} />
-            <div>
-              <div className="thread-title">No saved threads</div>
-              <div className="thread-meta">Send a message to keep one here.</div>
-            </div>
+            <div className="thread-title">No saved threads</div>
+            <div className="thread-meta">Send a message to keep one here.</div>
           </div>
         ) : (
           threadGroups.map((group) => (
@@ -90,15 +78,10 @@ export function ThreadSidebar() {
                     selectThread(thread.id);
                   }}
                 >
-                  <span className="thread-icon">
-                    <Icon.Chat size={14} />
-                  </span>
-                  <span className="thread-copy">
-                    <span className="thread-title">{thread.title}</span>
-                    <span className="thread-meta">
-                      <span>{relativeTime(thread.lastMessageAt)}</span>
-                    </span>
-                  </span>
+                  <div className="thread-title">{thread.title}</div>
+                  <div className="thread-meta">
+                    <span>{relativeTime(thread.lastMessageAt)}</span>
+                  </div>
                   <button
                     type="button"
                     className="thread-delete"
@@ -115,7 +98,7 @@ export function ThreadSidebar() {
                       handleDelete(thread.id, thread.title);
                     }}
                   >
-                    <Icon.X size={13} />
+                    <Icon.X size={12} sw={1.5} />
                   </button>
                 </div>
               ))}

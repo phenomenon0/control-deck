@@ -299,67 +299,49 @@ body {
 }
 
 .thread {
+  position: relative;
+  display: block;
   width: 100%;
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
   text-align: left;
-  padding: 10px 12px;
+  padding: 9px 34px 9px 12px;
   border-radius: var(--r-md);
   cursor: pointer;
   font-size: 13px;
   color: var(--fg-muted);
   border: 1px solid transparent;
   background: transparent;
-  transition: background 140ms var(--ease-out);
+  transition: background 140ms var(--ease-out), color 140ms var(--ease-out);
   min-width: 0;
 }
 
 .thread:hover,
 .thread.on {
   background: var(--veil);
+  color: var(--fg);
 }
 
 .thread.on {
-  color: var(--fg);
   border-color: var(--mist);
   background: var(--veil-strong);
-}
-
-.thread-draft {
-  margin-bottom: 8px;
 }
 
 .thread-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 2px;
+  margin-top: 10px;
+}
+
+.thread-group:first-child {
+  margin-top: 4px;
 }
 
 .thread-group-label {
-  padding: 8px 12px 4px;
+  padding: 10px 12px 6px;
   color: var(--fg-faint);
   font-size: 10px;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-}
-
-.thread-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: var(--r-sm);
-  display: grid;
-  place-items: center;
-  color: var(--fg-faint);
-  flex: 0 0 auto;
-}
-
-.thread-copy {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  flex: 1;
 }
 
 .thread-title {
@@ -369,6 +351,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-bottom: 3px;
 }
 
 .thread-meta {
@@ -381,6 +364,10 @@ body {
 }
 
 .thread-delete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
   width: 22px;
   height: 22px;
   border-radius: var(--r-sm);
@@ -390,8 +377,8 @@ body {
   place-items: center;
   color: var(--fg-faint);
   opacity: 0;
-  flex: 0 0 auto;
   cursor: pointer;
+  transition: opacity 120ms var(--ease-out), color 120ms var(--ease-out);
 }
 
 .thread:hover .thread-delete,
@@ -404,15 +391,23 @@ body {
   background: var(--veil);
 }
 
+.threads-new.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .thread-empty {
   margin: 8px 10px 0;
   padding: 14px 12px;
-  display: flex;
-  gap: 10px;
   color: var(--fg-dim);
   border: 1px dashed var(--mist);
   border-radius: var(--r-md);
   background: var(--veil);
+}
+
+.thread-empty .thread-title {
+  margin-bottom: 4px;
+  color: var(--fg-muted);
 }
 
 .topbar {

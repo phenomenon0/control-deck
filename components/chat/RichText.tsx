@@ -174,11 +174,30 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
 }
 
 interface Block {
-  type: "paragraph" | "heading" | "ul" | "ol" | "blockquote" | "code";
+  type: "paragraph" | "heading" | "ul" | "ol" | "blockquote" | "code" | "table";
   content: string;
   level?: number; // heading level (1-3)
   lang?: string;  // code language
   items?: string[]; // list items
+  tableHeader?: string[];
+  tableRows?: string[][];
+  tableAlign?: ("left" | "right" | "center" | null)[];
+}
+
+function splitTableRow(line: string): string[] {
+  const trimmed = line.trim().replace(/^\||\|$/g, "");
+  return trimmed.split("|").map((c) => c.trim());
+}
+
+function parseTableAlign(sep: string): ("left" | "right" | "center" | null)[] {
+  return splitTableRow(sep).map((cell) => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
 }
 
 function parseBlocks(text: string): Block[] {
@@ -189,13 +208,11 @@ function parseBlocks(text: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    // Empty line — skip
     if (line.trim() === "") {
       i++;
       continue;
     }
 
-    // Heading: # ## ###
     const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
     if (headingMatch) {
       blocks.push({
@@ -207,7 +224,30 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Unordered list: - item or * item
+    // Table: header row + separator row with dashes
+    if (
+      /^\s*\|.+\|\s*$/.test(line) &&
+      i + 1 < lines.length &&
+      /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i + 1])
+    ) {
+      const header = splitTableRow(line);
+      const align = parseTableAlign(lines[i + 1]);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && /^\s*\|.+\|\s*$/.test(lines[i])) {
+        rows.push(splitTableRow(lines[i]));
+        i++;
+      }
+      blocks.push({
+        type: "table",
+        content: "",
+        tableHeader: header,
+        tableRows: rows,
+        tableAlign: align,
+      });
+      continue;
+    }
+
     if (/^[\s]*[-*]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^[\s]*[-*]\s+/.test(lines[i])) {
@@ -218,7 +258,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Ordered list: 1. item
     if (/^[\s]*\d+\.\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^[\s]*\d+\.\s+/.test(lines[i])) {
@@ -229,7 +268,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Blockquote: > text
     if (/^>\s?/.test(line)) {
       const quoteLines: string[] = [];
       while (i < lines.length && /^>\s?/.test(lines[i])) {
@@ -240,7 +278,6 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
 
-    // Paragraph — collect consecutive non-special lines
     const paraLines: string[] = [line];
     i++;
     while (
@@ -249,7 +286,8 @@ function parseBlocks(text: string): Block[] {
       !/^#{1,3}\s+/.test(lines[i]) &&
       !/^[\s]*[-*]\s+/.test(lines[i]) &&
       !/^[\s]*\d+\.\s+/.test(lines[i]) &&
-      !/^>\s?/.test(lines[i])
+      !/^>\s?/.test(lines[i]) &&
+      !/^\s*\|.+\|\s*$/.test(lines[i])
     ) {
       paraLines.push(lines[i]);
       i++;
@@ -299,6 +337,44 @@ function renderBlock(block: Block, index: number): ReactNode {
           {parseInline(block.content, `bq${index}`)}
         </blockquote>
       );
+
+    case "table": {
+      const header = block.tableHeader ?? [];
+      const rows = block.tableRows ?? [];
+      const align = block.tableAlign ?? [];
+      return (
+        <div key={`block-${index}`} className="rt-table-wrap">
+          <table className="rt-table">
+            <thead>
+              <tr>
+                {header.map((cell, h) => (
+                  <th
+                    key={h}
+                    style={align[h] ? { textAlign: align[h] as "left" | "right" | "center" } : undefined}
+                  >
+                    {parseInline(cell, `th${index}-${h}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td
+                      key={c}
+                      style={align[c] ? { textAlign: align[c] as "left" | "right" | "center" } : undefined}
+                    >
+                      {parseInline(cell, `td${index}-${r}-${c}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
 
     case "paragraph":
     default:

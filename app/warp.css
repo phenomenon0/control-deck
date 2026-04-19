@@ -1395,6 +1395,56 @@ textarea.input:focus {
   background: var(--err);
 }
 
+.rt-table-wrap {
+  margin: 14px 0;
+  border: 1px solid var(--mist);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+  background: var(--bg-card);
+}
+
+.rt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-family: var(--font-sans);
+}
+
+.rt-table th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  text-align: left;
+  padding: 10px 14px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--mist);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.rt-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in oklch, var(--mist) 55%, transparent);
+  color: var(--fg);
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.rt-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.rt-table tbody tr:hover td {
+  background: var(--veil);
+}
+
+.rt-table .rt-inline-code {
+  font-size: 12px;
+  padding: 1px 6px;
+}
+
 .reasoning {
   max-width: 560px;
   background: var(--bg);

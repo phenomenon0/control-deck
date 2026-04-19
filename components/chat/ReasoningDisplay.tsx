@@ -26,6 +26,11 @@ export interface ReasoningBubbleProps {
   timestamp?: string;
 }
 
+function tokenCount(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.round(text.length / 4));
+}
+
 export function ReasoningBubble({
   content,
   isStreaming = false,
@@ -36,34 +41,49 @@ export function ReasoningBubble({
 
   if (!content && !isStreaming) return null;
 
+  const paragraphs = content ? content.split(/\n{2,}/).filter(Boolean) : [];
+  const tokens = tokenCount(content);
+
   return (
-    <div className="rd-container rd-container--bubble">
-      {/* Header */}
+    <div className="reasoning">
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="rd-header"
+        className="reasoning-head"
+        type="button"
       >
-        <span
-          className={`rd-dot ${isStreaming ? "rd-dot--active animate-thinking-pulse" : ""}`}
-        />
-        <span className="rd-header-title">
-          {isStreaming ? "Thinking..." : "Thought Process"}
+        <span className="reasoning-head-left">
+          <span className="label">{isStreaming ? "Thinking" : "Reasoning"}</span>
+          {isStreaming && <span className="reasoning-head-dot" aria-hidden="true" />}
         </span>
-        {timestamp && (
-          <span className="rd-header-time">{timestamp}</span>
-        )}
-        <ChevronDown
-          width={12}
-          height={12}
-          className={`rd-chevron ${isCollapsed ? "" : "rd-chevron--open"} ${timestamp ? "" : "rd-chevron--auto-ml"}`}
-        />
+        <span className="reasoning-head-right">
+          {timestamp && <span className="reasoning-head-time">{timestamp}</span>}
+          {!isStreaming && tokens > 0 && (
+            <span className="reasoning-head-tokens">{tokens} tok</span>
+          )}
+          <ChevronDown
+            width={12}
+            height={12}
+            className={`reasoning-chevron ${isCollapsed ? "" : "reasoning-chevron--open"}`}
+          />
+        </span>
       </button>
 
-      {/* Content */}
       {!isCollapsed && (
-        <div className="animate-expand rd-bubble-content">
-          {content || "Processing..."}
-          {isStreaming && <span className="rd-cursor" />}
+        <div className="animate-expand reasoning-body">
+          {paragraphs.length > 0 ? (
+            paragraphs.map((p, i) => (
+              <p key={i}>
+                {p}
+                {isStreaming && i === paragraphs.length - 1 && (
+                  <span className="reasoning-cursor">▮</span>
+                )}
+              </p>
+            ))
+          ) : (
+            <p>
+              Processing<span className="reasoning-cursor">▮</span>
+            </p>
+          )}
         </div>
       )}
     </div>

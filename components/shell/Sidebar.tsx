@@ -39,7 +39,7 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
         const ItemIcon = item.icon;
         return (
           <Link key={item.href} href={item.href} className={`nav-item ${active ? "on" : ""}`}>
-            <ItemIcon size={14} />
+            <ItemIcon size={13} sw={1.25} />
             <span className="nav-item-label">{item.label}</span>
             <span className="kbd">{item.kbd}</span>
           </Link>
@@ -48,11 +48,11 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
 
       <div className="nav-section">Session</div>
       <button className="nav-item" onClick={() => setSettingsOpen(true)}>
-        <Icon.Settings size={14} />
+        <Icon.Settings size={13} sw={1.25} />
         <span className="nav-item-label">Settings</span>
       </button>
       <button className="nav-item" onClick={onOpenPalette}>
-        <Icon.CommandIcon size={14} />
+        <Icon.CommandIcon size={13} sw={1.25} />
         <span className="nav-item-label">Command</span>
         <span className="kbd">⌘K</span>
       </button>

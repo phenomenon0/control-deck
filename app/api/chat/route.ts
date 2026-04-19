@@ -33,6 +33,7 @@ import {
   finishRun,
   errorRun,
   updateRunPreview,
+  setAgentRunId,
   saveEvent,
   saveMessage,
   relinkArtifactRun,
@@ -434,6 +435,7 @@ export async function POST(req: Request) {
       const startData = await startResponse.json();
       agentRunId = startData.run_id;
       console.log(`[Chat] Agent-GO run started: ${agentRunId}`);
+      if (agentRunId) setAgentRunId(runId, agentRunId);
 
       // Stream events from Agent-GO
       const eventsResponse = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/events`, {

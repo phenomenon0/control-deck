@@ -139,6 +139,12 @@ function initSchema(db: Database.Database) {
   } catch {
     // Column already exists, ignore
   }
+
+  try {
+    db.exec(`ALTER TABLE runs ADD COLUMN agent_run_id TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
 }
 
 // Run operations
@@ -184,6 +190,19 @@ export function updateRunPreview(id: string, preview: string): void {
     preview.slice(0, 200),
     id
   );
+}
+
+export function setAgentRunId(id: string, agentRunId: string): void {
+  const db = getDb();
+  db.prepare(`UPDATE runs SET agent_run_id = ? WHERE id = ?`).run(agentRunId, id);
+}
+
+export function getAgentRunId(id: string): string | null {
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT agent_run_id FROM runs WHERE id = ?`)
+    .get(id) as { agent_run_id: string | null } | undefined;
+  return row?.agent_run_id ?? null;
 }
 
 export interface RunRow {

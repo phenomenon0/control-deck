@@ -2,7 +2,7 @@
 
 /**
  * TweaksProvider — React context for the same tweak attributes
- * the Control Deck mock uses. Applies [data-warmth], [data-type],
+ * the Control Deck handoff defines. Applies [data-warmth], [data-type],
  * [data-accent], [data-theme] to document.documentElement so all
  * token rules in tokens.standalone.css resolve correctly.
  *
@@ -14,7 +14,7 @@
  *
  * NOTE: the production app already runs a superset provider —
  * components/warp/WarpProvider.tsx — that sets the same four
- * data-* attributes plus `data-variant`. Don't mount both; this
+ * data-* attributes. Don't mount both; this
  * file is kept as the handoff-spec reference and for ports that
  * only need the documented tweak surface.
  *

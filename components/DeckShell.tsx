@@ -12,15 +12,17 @@ import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { ChatInspectorProvider } from "@/lib/hooks/useChatInspector";
 import { ThreadManagerProvider } from "@/lib/hooks/useThreadManager";
 import { Sidebar } from "./shell/Sidebar";
-import { TopBar } from "./shell/TopBar";
 import { InspectorSheet } from "./InspectorSheet";
 import { ThreadSidebar } from "./chat/ThreadSidebar";
+import { Icon } from "@/components/warp/Icons";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const pathname = usePathname();
   const isChat = pathname === "/deck/chat" || pathname.startsWith("/deck/chat/");
+  const showThreads = isChat;
+  const canvas = useCanvas();
 
   useShortcut("mod+k", () => setPaletteOpen((o) => !o), {
     label: "Toggle command palette",
@@ -37,32 +39,39 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <div className="deck-shell">
-      {/* Left sidebar */}
+    <div className={`app ${showThreads ? "" : "app--compact"}`}>
       <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
 
-      {/* Thread sidebar — shell-level, visible only on /deck/chat (DESIGN.md §4) */}
-      {isChat && <ThreadSidebar />}
+      {showThreads && <ThreadSidebar />}
 
-      {/* Right: header + main content */}
-      <div className="deck-body">
-        <TopBar
-          onOpenPalette={() => setPaletteOpen(true)}
-          onToggleInspector={() => setInspectorOpen((o) => !o)}
-          inspectorOpen={inspectorOpen}
-        />
-
-        <div className="deck-content">
-          <main className="deck-main">
-            <ErrorBoundary name="main-content">{children}</ErrorBoundary>
-          </main>
-          <ErrorBoundary name="canvas">
-            <CanvasPanel />
-          </ErrorBoundary>
+      <main className="main">
+        <ErrorBoundary name="main-content">{children}</ErrorBoundary>
+      </main>
+      <ErrorBoundary name="canvas">
+        <div className="canvas-panel-host">
+          <CanvasPanel />
         </div>
+      </ErrorBoundary>
+
+      <div className="right-rail" aria-label="Right pane controls">
+        <button
+          className={`right-rail-btn ${inspectorOpen ? "on" : ""}`}
+          onClick={() => setInspectorOpen((open) => !open)}
+          title="Inspector"
+        >
+          <Icon.Grid size={15} />
+          <span>Inspect</span>
+        </button>
+        <button
+          className={`right-rail-btn ${canvas.isOpen ? "on" : ""}`}
+          onClick={canvas.toggle}
+          title="Canvas"
+        >
+          <Icon.Box size={15} />
+          <span>Canvas</span>
+        </button>
       </div>
 
-      {/* Inspector slide-over sheet */}
       <ErrorBoundary name="inspector">
         <InspectorSheet
           open={inspectorOpen}
@@ -70,7 +79,6 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
         />
       </ErrorBoundary>
 
-      {/* Overlays */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <SettingsDrawer />
     </div>

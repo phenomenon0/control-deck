@@ -548,9 +548,17 @@ export function CanvasPanel() {
   const { isOpen, tabs, width, isResizing } = useCanvas();
   const activeTab = useActiveCanvasTab();
   
-  if (!isOpen || tabs.length === 0) return null;
+  if (!isOpen) return null;
   
   const renderContent = () => {
+    if (tabs.length === 0) return (
+      <div className="canvas-empty">
+        <div className="label">Canvas</div>
+        <h3>Artifacts open here.</h3>
+        <p>Code, previews, generated assets, and run outputs will dock in this pane when a run creates them.</p>
+      </div>
+    );
+
     if (!activeTab) return (
       <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
         No content selected
@@ -579,7 +587,7 @@ export function CanvasPanel() {
   
   return (
     <aside
-      className="flex h-full bg-[var(--bg-secondary)] border-l border-[var(--border)]"
+      className="canvas-panel flex h-full bg-[var(--bg-secondary)] border-l border-[var(--border)]"
       style={{ 
         width: width,
         minWidth: width,

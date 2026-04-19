@@ -1,63 +1,42 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { PanelRight } from "lucide-react";
-
-const TITLES: Record<string, string> = {
-  "/deck": "Dashboard",
-  "/deck/chat": "Chat",
-  "/deck/runs": "Runs",
-  "/deck/models": "Models",
-  "/deck/dojo": "Dojo",
-  "/deck/tools": "Tools",
-  "/deck/comfy": "Comfy",
-  "/deck/voice": "Voice",
-  "/deck/agentgo": "AgentGo",
-};
-
-function resolveTitle(pathname: string): string {
-  if (TITLES[pathname]) return TITLES[pathname];
-  // Match prefix for nested routes like /deck/chat/123
-  for (const [route, title] of Object.entries(TITLES)) {
-    if (route !== "/deck" && pathname.startsWith(route + "/")) return title;
-  }
-  return "Control Deck";
-}
+import { Icon } from "@/components/warp/Icons";
 
 interface TopBarProps {
-  onOpenPalette: () => void;
-  onToggleInspector: () => void;
-  inspectorOpen: boolean;
+  title: string;
+  subtitle?: string;
+  model?: string;
+  onInspector?: () => void;
 }
 
-export function TopBar({ onOpenPalette, onToggleInspector, inspectorOpen }: TopBarProps) {
-  const pathname = usePathname();
-  const title = resolveTitle(pathname);
-
+export function TopBar({ title, subtitle, model, onInspector }: TopBarProps) {
   return (
-    <header className="deck-header">
-      {/* Left: Page title */}
-      <div className="deck-header-left">
-        <span className="deck-header-title">{title}</span>
+    <div className="topbar">
+      <div className="topbar-crumb">
+        {subtitle && (
+          <>
+            <span>{subtitle}</span>
+            <span style={{ margin: "0 8px", opacity: 0.4 }}>/</span>
+          </>
+        )}
+        <b>{title}</b>
       </div>
-
-      {/* Right: actions */}
-      <div className="deck-header-right">
-        <button
-          onClick={onOpenPalette}
-          className="deck-header-btn"
-          title="Search (Cmd+K)"
-        >
-          <kbd className="kbd">K</kbd>
-        </button>
-        <button
-          onClick={onToggleInspector}
-          className={`deck-header-btn${inspectorOpen ? " active" : ""}`}
-          title="Toggle inspector (Cmd+I)"
-        >
-          <PanelRight size={16} />
-        </button>
-      </div>
-    </header>
+      <div className="topbar-spacer" />
+      {model && (
+        <div className="topbar-model">
+          <span className="topbar-model-dot" />
+          <span>{model}</span>
+        </div>
+      )}
+      <button className="topbar-icon" title="Canvas">
+        <Icon.Expand size={14} />
+      </button>
+      <button className="topbar-icon" title="Inspector" onClick={onInspector}>
+        <Icon.Grid size={14} />
+      </button>
+      <button className="topbar-icon" title="Command">
+        <Icon.CommandIcon size={14} />
+      </button>
+    </div>
   );
 }

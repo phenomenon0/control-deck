@@ -1,32 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import {
-  Search,
-  MessageSquare,
-  Play,
-  Cpu,
-  Swords,
-  Wrench,
-  Boxes,
-  Music2,
-  Settings,
-} from "lucide-react";
-import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { Icon } from "@/components/warp/Icons";
 
-const MAIN_NAV = [
-  { href: "/deck/chat", label: "Chat", icon: MessageSquare, shortcut: "1" },
-  { href: "/deck/runs", label: "Runs", icon: Play, shortcut: "2" },
-  { href: "/deck/models", label: "Models", icon: Cpu, shortcut: "3" },
-  { href: "/deck/dojo", label: "Dojo", icon: Swords, shortcut: "4" },
-] as const;
-
-const SECONDARY_NAV = [
-  { href: "/deck/tools", label: "Tools", icon: Wrench, shortcut: "5" },
-  { href: "/deck/comfy", label: "Comfy", icon: Boxes, shortcut: "6" },
-  { href: "/deck/live", label: "Live", icon: Music2, shortcut: "7" },
+const ITEMS = [
+  { href: "/deck/chat", label: "Chat", icon: Icon.Chat, kbd: "1" },
+  { href: "/deck/runs", label: "Runs", icon: Icon.Terminal, kbd: "2" },
+  { href: "/deck/models", label: "Models", icon: Icon.Cpu, kbd: "3" },
+  { href: "/deck/dojo", label: "DoJo", icon: Icon.Layers, kbd: "4" },
+  { href: "/deck/tools", label: "Tools", icon: Icon.Wrench, kbd: "5" },
+  { href: "/deck/comfy", label: "Comfy", icon: Icon.Image, kbd: "6" },
+  { href: "/deck/voice", label: "Voice", icon: Icon.Waveform, kbd: "7" },
 ] as const;
 
 interface SidebarProps {
@@ -34,118 +20,47 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onOpenPalette }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const { setSettingsOpen } = useDeckSettings();
 
-  // Toggle sidebar: Cmd+.
-  useShortcut("mod+.", () => setCollapsed((c) => !c), { label: "Toggle sidebar" });
-
-  // Number key shortcuts (1-6) — use location.href for reliable navigation
-  const nav = (href: string) => { window.location.href = href; };
-  useShortcut("1", () => nav(MAIN_NAV[0].href), {
-    when: "no-input",
-    label: `Go to ${MAIN_NAV[0].label}`,
-  });
-  useShortcut("2", () => nav(MAIN_NAV[1].href), {
-    when: "no-input",
-    label: `Go to ${MAIN_NAV[1].label}`,
-  });
-  useShortcut("3", () => nav(MAIN_NAV[2].href), {
-    when: "no-input",
-    label: `Go to ${MAIN_NAV[2].label}`,
-  });
-  useShortcut("4", () => nav(MAIN_NAV[3].href), {
-    when: "no-input",
-    label: `Go to ${MAIN_NAV[3].label}`,
-  });
-  useShortcut("5", () => nav(SECONDARY_NAV[0].href), {
-    when: "no-input",
-    label: `Go to ${SECONDARY_NAV[0].label}`,
-  });
-  useShortcut("6", () => nav(SECONDARY_NAV[1].href), {
-    when: "no-input",
-    label: `Go to ${SECONDARY_NAV[1].label}`,
-  });
-  useShortcut("7", () => nav(SECONDARY_NAV[2].href), {
-    when: "no-input",
-    label: `Go to ${SECONDARY_NAV[2].label}`,
-  });
-
-  const isActive = (href: string) =>
-    pathname === href || pathname.startsWith(href + "/");
-
   return (
-    <aside
-      className="deck-sidebar"
-      data-collapsed={collapsed}
-    >
-      {/* Search button */}
-      <button
-        className="sidebar-search-btn"
-        onClick={onOpenPalette}
-        title="Search (Cmd+K)"
-      >
-        <Search size={16} className="sidebar-icon" />
-        {!collapsed && <span>Search</span>}
-        {!collapsed && <kbd className="kbd">K</kbd>}
+    <aside className="nav">
+      <Link href="/deck/chat" className="nav-brand">
+        <div className="nav-brand-mark">◆</div>
+        <div className="nav-brand-word">
+          <div className="nav-brand-name">Control Deck</div>
+          <div className="nav-brand-sub">Warp ed.</div>
+        </div>
+      </Link>
+
+      <div className="nav-section">Surfaces</div>
+      {ITEMS.map((item) => {
+        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const ItemIcon = item.icon;
+        return (
+          <Link key={item.href} href={item.href} className={`nav-item ${active ? "on" : ""}`}>
+            <ItemIcon size={14} />
+            <span className="nav-item-label">{item.label}</span>
+            <span className="kbd">{item.kbd}</span>
+          </Link>
+        );
+      })}
+
+      <div className="nav-section">Session</div>
+      <button className="nav-item" onClick={() => setSettingsOpen(true)}>
+        <Icon.Settings size={14} />
+        <span className="nav-item-label">Settings</span>
+      </button>
+      <button className="nav-item" onClick={onOpenPalette}>
+        <Icon.CommandIcon size={14} />
+        <span className="nav-item-label">Command</span>
+        <span className="kbd">⌘K</span>
       </button>
 
-      {/* Main nav */}
-      <nav className="sidebar-nav">
-        {MAIN_NAV.map((item) => {
-          const active = isActive(item.href);
-          const Icon = item.icon;
-          return (
-            <a
-              key={item.href}
-              href={item.href}
-              className={`sidebar-item${active ? " active" : ""}`}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon size={16} className="sidebar-icon" />
-              {!collapsed && <span>{item.label}</span>}
-              {!collapsed && <kbd className="kbd">{item.shortcut}</kbd>}
-            </a>
-          );
-        })}
-      </nav>
-
-      {/* Separator */}
-      <div className="sidebar-separator" />
-
-      {/* Secondary nav */}
-      <nav className="sidebar-nav">
-        {SECONDARY_NAV.map((item) => {
-          const active = isActive(item.href);
-          const Icon = item.icon;
-          return (
-            <a
-              key={item.href}
-              href={item.href}
-              className={`sidebar-item${active ? " active" : ""}`}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon size={16} className="sidebar-icon" />
-              {!collapsed && <span>{item.label}</span>}
-              {!collapsed && <kbd className="kbd">{item.shortcut}</kbd>}
-            </a>
-          );
-        })}
-      </nav>
-
-      {/* Spacer */}
-      <div style={{ flex: 1 }} />
-
-      {/* Settings */}
-      <button
-        className="sidebar-item"
-        onClick={() => setSettingsOpen(true)}
-        title={collapsed ? "Settings" : undefined}
-      >
-        <Settings size={16} className="sidebar-icon" />
-        {!collapsed && <span>Settings</span>}
-      </button>
+      <div className="nav-foot">
+        <span className="nav-foot-dot" />
+        <span className="nav-item-label">Agent-GO · local</span>
+      </div>
     </aside>
   );
 }

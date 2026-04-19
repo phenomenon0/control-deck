@@ -1,10 +1,3 @@
-/**
- * InterruptDialog - Approval dialog for Agent-GO tool calls
- * 
- * Shows when Agent-GO requests approval for a risky tool operation
- * (file writes, shell commands, etc.)
- */
-
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -17,65 +10,66 @@ interface InterruptDialogProps {
   onReject: (reason?: string) => void;
 }
 
-const AGENTGO_URL = process.env.NEXT_PUBLIC_AGENTGO_URL ?? "http://localhost:4243";
-
-/**
- * Call Agent-GO approval endpoint
- */
-async function approveRun(runId: string): Promise<boolean> {
+async function postDecision(
+  path: "approve" | "reject",
+  runId: string,
+  reason?: string,
+): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`${AGENTGO_URL}/runs/${runId}/approve`, {
+    const res = await fetch(`/api/chat/${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(path === "reject" ? { runId, reason } : { runId }),
     });
-    return res.ok;
+    if (res.ok) return { ok: true };
+    const text = await res.text().catch(() => "");
+    let message = text || `HTTP ${res.status}`;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.error) message = parsed.error;
+    } catch {
+      // not JSON, keep raw text
+    }
+    return { ok: false, error: message };
   } catch (err) {
-    console.error("[InterruptDialog] Approve failed:", err);
-    return false;
-  }
-}
-
-/**
- * Call Agent-GO rejection endpoint
- */
-async function rejectRun(runId: string, reason?: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${AGENTGO_URL}/runs/${runId}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error("[InterruptDialog] Reject failed:", err);
-    return false;
+    return { ok: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }
 
 export function InterruptDialog({ request, onApprove, onReject }: InterruptDialogProps) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+  }, [request]);
 
   const handleApprove = useCallback(async () => {
     if (!request) return;
+    setError(null);
     setIsProcessing(true);
-    const success = await approveRun(request.runId);
+    const result = await postDecision("approve", request.runId);
     setIsProcessing(false);
-    if (success) {
+    if (result.ok) {
       onApprove();
+    } else {
+      setError(result.error ?? "Approval failed");
     }
   }, [request, onApprove]);
 
   const handleReject = useCallback(async () => {
     if (!request) return;
+    setError(null);
     setIsProcessing(true);
-    const success = await rejectRun(request.runId, "User rejected");
+    const result = await postDecision("reject", request.runId, "User rejected");
     setIsProcessing(false);
-    if (success) {
+    if (result.ok) {
       onReject("User rejected");
+    } else {
+      setError(result.error ?? "Rejection failed");
     }
   }, [request, onReject]);
 
-  // Escape key dismisses dialog (rejects the request)
   useEffect(() => {
     if (!request) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -89,7 +83,6 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
 
   if (!request) return null;
 
-  // Format args for display
   const formatArgs = (args: Record<string, unknown> | undefined) => {
     if (!args) return null;
     return Object.entries(args).map(([key, value]) => {
@@ -111,7 +104,6 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
   return (
     <div className="interrupt-overlay">
       <div className="interrupt-modal">
-        {/* Header */}
         <div className="interrupt-header">
           <div className={`interrupt-header-icon interrupt-header-icon--${riskModifier}`}>
             <AlertTriangle size={20} />
@@ -122,7 +114,6 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
           </div>
         </div>
 
-        {/* Tool info */}
         <div className="interrupt-tool-info">
           <div className="interrupt-tool-row">
             <span className={`interrupt-tool-badge interrupt-tool-badge--${riskModifier}`}>
@@ -137,7 +128,12 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
           )}
         </div>
 
-        {/* Actions */}
+        {error && (
+          <div className="interrupt-error" role="alert">
+            {error}
+          </div>
+        )}
+
         <div className="interrupt-actions">
           <button
             onClick={handleReject}
@@ -158,4 +154,3 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
     </div>
   );
 }
-

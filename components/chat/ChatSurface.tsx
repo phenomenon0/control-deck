@@ -72,8 +72,8 @@ export default function ChatSurface() {
   const {
     threads, activeThreadId, messages, setMessages,
     effectiveThreadId, fallbackThreadId,
-    setActiveThreadId, createThread, selectThread, deleteThread,
-    setThreads,
+    setActiveThreadId, selectThread, deleteThread,
+    setThreads, resetFallbackThreadId,
   } = useThreadManager();
 
   // ---------------------------------------------------------------------------
@@ -375,7 +375,9 @@ export default function ChatSurface() {
       // Cmd+N — new thread
       if (mod && e.key.toLowerCase() === "n") {
         e.preventDefault();
-        createThread();
+        resetFallbackThreadId();
+        setActiveThreadId(null);
+        setMessages([]);
         return;
       }
 
@@ -445,7 +447,7 @@ export default function ChatSurface() {
   }, [
     uploadTrayOpen, voiceChat, prefs.voice, setUploadTrayOpen,
     inputValue, activeThreadId, threads,
-    createThread, selectThread, deleteThread,
+    selectThread, deleteThread, resetFallbackThreadId, setActiveThreadId, setMessages,
   ]);
 
   const onSubmit = useCallback(async (e: React.FormEvent) => {

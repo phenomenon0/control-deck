@@ -149,8 +149,14 @@ function applyTheme(theme: ThemeName, reduceMotion: boolean, designSystem: Desig
   root.dataset.design = designSystem;
 
   if (designSystem === "cursor") {
-    root.classList.add("dark");
-    root.classList.remove("light");
+    const mode = (root.dataset.theme === "light" ? "light" : "dark") as "light" | "dark";
+    if (mode === "dark") {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    } else {
+      root.classList.remove("dark");
+      root.classList.add("light");
+    }
   } else {
     const mode = resolveMode(theme);
     if (mode === "dark") {
@@ -162,7 +168,6 @@ function applyTheme(theme: ThemeName, reduceMotion: boolean, designSystem: Desig
     }
   }
 
-  delete root.dataset.theme;
   root.dataset.reduceMotion = reduceMotion ? "1" : "0";
 }
 

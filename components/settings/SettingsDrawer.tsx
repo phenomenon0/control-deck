@@ -10,6 +10,13 @@ import {
   type ThemeName,
   type DesignSystem,
 } from "./DeckSettingsProvider";
+import {
+  useWarp,
+  type Accent,
+  type Theme,
+  type TypeSet,
+  type Warmth,
+} from "@/components/warp/WarpProvider";
 
 interface ProviderOption {
   id: string;
@@ -145,6 +152,7 @@ function useProviderInfo() {
 export function SettingsDrawer() {
   const { prefs, updatePrefs, updateVoicePrefs, settingsOpen, setSettingsOpen } =
     useDeckSettings();
+  const { tweaks, setTweak, reset: resetTweaks } = useWarp();
   const {
     models,
     loading: modelsLoading,
@@ -255,10 +263,81 @@ export function SettingsDrawer() {
             </div>
           </section>
 
+          {/* ─── UI VARIATIONS ─── */}
+          <section>
+            <SectionHeader>UI Variations</SectionHeader>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <SettingRow label="Theme">
+                <SegmentControl
+                  options={[
+                    { value: "dark", label: "Dark" },
+                    { value: "light", label: "Light" },
+                  ]}
+                  value={tweaks.theme}
+                  onChange={(v: string) => setTweak("theme", v as Theme)}
+                />
+              </SettingRow>
+
+              <SettingRow label="Typography">
+                <SegmentControl
+                  options={[
+                    { value: "matter", label: "Matter" },
+                    { value: "inter", label: "Inter" },
+                    { value: "editorial", label: "Editorial" },
+                  ]}
+                  value={tweaks.type}
+                  onChange={(v: string) => setTweak("type", v as TypeSet)}
+                />
+              </SettingRow>
+
+              <SettingRow label="Warmth">
+                <SegmentControl
+                  options={[
+                    { value: "cool", label: "Cool" },
+                    { value: "neutral", label: "Neutral" },
+                    { value: "warm", label: "Warm" },
+                    { value: "ember", label: "Ember" },
+                  ]}
+                  value={tweaks.warmth}
+                  onChange={(v: string) => setTweak("warmth", v as Warmth)}
+                />
+              </SettingRow>
+
+              <SettingRow label="Colors">
+                <SegmentControl
+                  options={[
+                    { value: "mono", label: "Mono" },
+                    { value: "amber", label: "Amber" },
+                    { value: "ember", label: "Ember" },
+                    { value: "sage", label: "Sage" },
+                  ]}
+                  value={tweaks.accent}
+                  onChange={(v: string) => setTweak("accent", v as Accent)}
+                />
+              </SettingRow>
+
+              <button
+                onClick={resetTweaks}
+                style={{
+                  alignSelf: "flex-start",
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  borderRadius: 6,
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                }}
+              >
+                Reset UI variations
+              </button>
+            </div>
+          </section>
+
           {/* ─── APPEARANCE ─── */}
           {prefs.designSystem === "apple" && (
             <section>
-              <SectionHeader>Appearance</SectionHeader>
+              <SectionHeader>Apple Appearance</SectionHeader>
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 <SegmentControl
                   options={[

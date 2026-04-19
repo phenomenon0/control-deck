@@ -11,6 +11,21 @@ import {
 } from "@/lib/chat/helpers";
 import type { Artifact } from "@/lib/types/chat";
 
+interface ThreadRow {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function normalizeThread(row: ThreadRow): Thread {
+  return {
+    id: row.id,
+    title: row.title?.trim() || "New conversation",
+    lastMessageAt: row.updated_at || row.created_at,
+  };
+}
+
 export function useThreads() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadIdState] = useState<string | null>(null);
@@ -23,6 +38,26 @@ export function useThreads() {
     setActiveThreadIdState(null);
     setMessages([]);
     setStoredActiveThread(null);
+
+    let cancelled = false;
+    fetch("/api/threads")
+      .then((r) => {
+        if (!r.ok) throw new Error(`Thread list returned ${r.status}`);
+        return r.json();
+      })
+      .then((data: { threads?: ThreadRow[] }) => {
+        if (cancelled || !Array.isArray(data.threads)) return;
+        const apiThreads = data.threads.map(normalizeThread);
+        setThreads(apiThreads);
+        setStoredThreads(apiThreads);
+      })
+      .catch((err) =>
+        console.error("[useThreads] Failed to load threads:", err)
+      );
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Load messages when thread changes
@@ -86,6 +121,17 @@ export function useThreads() {
     });
     setActiveThreadIdState(id);
     setMessages([]);
+    fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "create",
+        id,
+        ...(title ? { title } : {}),
+      }),
+    }).catch((err) =>
+      console.error("[useThreads] Failed to create thread:", err)
+    );
     return id;
   };
 

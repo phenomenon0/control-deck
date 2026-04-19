@@ -398,8 +398,11 @@ export function createThread(id: string, title?: string): void {
   const db = getDb();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`
+    `INSERT OR IGNORE INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)`
   ).run(id, title ?? null, now, now);
+  if (title) {
+    updateThreadTitle(id, title);
+  }
 }
 
 export function updateThreadTitle(id: string, title: string): void {

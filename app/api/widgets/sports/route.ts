@@ -5,38 +5,6 @@ import type { SportsData, SportScore } from "@/lib/widgets/types";
 let cache: { data: SportsData; timestamp: number } | null = null;
 const CACHE_TTL = 2 * 60 * 1000;
 
-// Fallback mock data when API is unavailable
-const MOCK_SCORES: SportScore[] = [
-  {
-    id: "1",
-    league: "EPL",
-    homeTeam: "Arsenal",
-    awayTeam: "Chelsea",
-    homeScore: 2,
-    awayScore: 1,
-    status: "final",
-  },
-  {
-    id: "2", 
-    league: "EPL",
-    homeTeam: "Man City",
-    awayTeam: "Liverpool",
-    homeScore: 0,
-    awayScore: 0,
-    status: "upcoming",
-    startTime: "Tomorrow 3PM",
-  },
-  {
-    id: "3",
-    league: "NBA",
-    homeTeam: "Lakers",
-    awayTeam: "Celtics",
-    homeScore: 112,
-    awayScore: 108,
-    status: "final",
-  },
-];
-
 async function fetchESPNScores(): Promise<SportScore[]> {
   const scores: SportScore[] = [];
   
@@ -181,12 +149,7 @@ export async function GET() {
   }
 
   try {
-    let scores = await fetchESPNScores();
-    
-    // Use mock data if API returns nothing
-    if (scores.length === 0) {
-      scores = MOCK_SCORES;
-    }
+    const scores = await fetchESPNScores();
     
     const sports: SportsData = {
       scores,
@@ -202,9 +165,8 @@ export async function GET() {
       return NextResponse.json(cache.data);
     }
     
-    // Return mock data as fallback
     return NextResponse.json({
-      scores: MOCK_SCORES,
+      scores: [],
       updatedAt: new Date().toISOString(),
     });
   }

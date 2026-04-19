@@ -30,9 +30,13 @@ export function SportsWidget({ data, isLoading, error, onRefresh }: SportsWidget
     >
       {data && (
         <div className="sports-content">
-          {data.scores.map((score) => (
-            <ScoreCard key={score.id} score={score} />
-          ))}
+          {data.scores.length === 0 ? (
+            <div className="widget-empty">No current scores available.</div>
+          ) : (
+            data.scores.map((score) => (
+              <ScoreCard key={score.id} score={score} />
+            ))
+          )}
         </div>
       )}
     </WidgetContainer>

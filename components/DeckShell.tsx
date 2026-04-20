@@ -15,6 +15,7 @@ import { Sidebar } from "./shell/Sidebar";
 import { InspectorSheet } from "./InspectorSheet";
 import { ThreadSidebar } from "./chat/ThreadSidebar";
 import { Icon } from "@/components/warp/Icons";
+import { useDeckSettings } from "./settings/DeckSettingsProvider";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -23,6 +24,7 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   const isChat = pathname === "/deck/chat" || pathname.startsWith("/deck/chat/");
   const showThreads = isChat;
   const canvas = useCanvas();
+  const { prefs } = useDeckSettings();
 
   useShortcut("mod+k", () => setPaletteOpen((o) => !o), {
     label: "Toggle command palette",
@@ -39,7 +41,11 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <div className={`app ${showThreads ? "" : "app--compact"}`}>
+    <div
+      className={`app ${showThreads ? "app--chat" : "app--compact"} ${
+        showThreads && prefs.chatContextRail ? "app--chat-context" : ""
+      }`}
+    >
       <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
 
       {showThreads && <ThreadSidebar />}

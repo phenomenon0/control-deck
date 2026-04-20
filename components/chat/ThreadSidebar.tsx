@@ -42,9 +42,6 @@ export function ThreadSidebar() {
       <div className="threads-head">
         <div>
           <span className="threads-title">Threads</span>
-          <span className="threads-kicker">
-            {threads.length} {threads.length === 1 ? "conversation" : "conversations"}
-          </span>
         </div>
         <button
           type="button"
@@ -64,7 +61,6 @@ export function ThreadSidebar() {
         ) : (
           threadGroups.map((group) => (
             <section key={group.label} className="thread-group">
-              <div className="thread-group-label">{group.label}</div>
               {group.threads.map((thread) => (
                 <div
                   key={thread.id}

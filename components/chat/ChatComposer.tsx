@@ -3,13 +3,16 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { Paperclip, Send, Square, AudioLines, Mic, X } from "lucide-react";
 import { VoiceInputIndicator } from "@/components/chat/VoiceWaveform";
+import { ComposerTweaks } from "@/components/chat/ComposerTweaks";
 import type { PendingUpload } from "@/components/chat/UploadTray";
 import type { UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
 import type { RunState } from "@/lib/types/agentRun";
+import type { ChatSurface } from "@/components/settings/DeckSettingsProvider";
 
 export interface ChatComposerProps {
   /** Current run state from useAgentRun */
   runState: RunState;
+  surface?: ChatSurface;
 
   // Input
   inputValue: string;
@@ -155,6 +158,7 @@ function ActionButton({
 
 export function ChatComposer({
   runState,
+  surface = "safe",
   inputValue,
   onInputChange,
   onSubmit,
@@ -197,10 +201,12 @@ export function ChatComposer({
   return (
     <form
       onSubmit={onSubmit}
-      className="composer-form"
+      className={`composer-form composer-form--${surface}`}
       aria-label="Message composer"
     >
-      <div className={`composer-container ${running ? "composer-container--running" : ""}`}>
+      <div
+        className={`composer-container composer-container--${surface} ${running ? "composer-container--running" : ""}`}
+      >
         <ContextRow
           model={model}
           uploads={pendingUploads}
@@ -259,6 +265,7 @@ export function ChatComposer({
           )}
 
           <div className="composer-actions">
+            <ComposerTweaks />
             <button
               type="button"
               onClick={onVoiceModeOpen}

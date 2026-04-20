@@ -83,49 +83,52 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
 
   if (!request) return null;
 
-  const formatArgs = (args: Record<string, unknown> | undefined) => {
-    if (!args) return null;
-    return Object.entries(args).map(([key, value]) => {
-      const displayValue = typeof value === "string"
-        ? (value.length > 100 ? value.slice(0, 100) + "..." : value)
-        : JSON.stringify(value).slice(0, 100);
-      return (
-        <div key={key} className="interrupt-arg-row">
-          <span className="interrupt-arg-key">{key}:</span>{" "}
-          <span className="interrupt-arg-value">{displayValue}</span>
-        </div>
-      );
-    });
-  };
-
   const isHighRisk = ["bash", "write_file", "edit_file"].includes(request.toolName);
   const riskModifier = isHighRisk ? "error" : "warning";
+  const payload = JSON.stringify(
+    {
+      tool: request.toolName,
+      args: request.args ?? {},
+    },
+    null,
+    2,
+  );
+  const riskCopy = isHighRisk
+    ? "This can change files or execute commands. Review the payload before continuing."
+    : "The assistant needs your approval before continuing this run.";
 
   return (
     <div className="interrupt-overlay">
-      <div className="interrupt-modal">
+      <div
+        className="interrupt-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="interrupt-title"
+      >
         <div className="interrupt-header">
           <div className={`interrupt-header-icon interrupt-header-icon--${riskModifier}`}>
             <AlertTriangle size={20} />
           </div>
           <div>
-            <h3 className="interrupt-title">Approval Required</h3>
-            <p className="interrupt-subtitle">The assistant wants to execute a tool</p>
+            <div className={`interrupt-kicker interrupt-kicker--${riskModifier}`}>
+              Pending approval
+            </div>
+            <h3 id="interrupt-title" className="interrupt-title">
+              Run {request.toolName}?
+            </h3>
+            <p className="interrupt-subtitle">{riskCopy}</p>
           </div>
         </div>
 
         <div className="interrupt-tool-info">
           <div className="interrupt-tool-row">
             <span className={`interrupt-tool-badge interrupt-tool-badge--${riskModifier}`}>
-              {request.toolName}
+              {isHighRisk ? "high risk" : "review"}
             </span>
+            <span className="interrupt-tool-name">{request.toolName}</span>
           </div>
 
-          {request.args && (
-            <div className="interrupt-args">
-              {formatArgs(request.args)}
-            </div>
-          )}
+          <pre className="interrupt-args">{payload}</pre>
         </div>
 
         {error && (
@@ -140,14 +143,14 @@ export function InterruptDialog({ request, onApprove, onReject }: InterruptDialo
             disabled={isProcessing}
             className="interrupt-btn interrupt-btn--reject"
           >
-            Reject
+            Deny
           </button>
           <button
             onClick={handleApprove}
             disabled={isProcessing}
             className="interrupt-btn interrupt-btn--approve"
           >
-            {isProcessing ? "Processing..." : "Approve"}
+            {isProcessing ? "Processing..." : "Approve & run"}
           </button>
         </div>
       </div>

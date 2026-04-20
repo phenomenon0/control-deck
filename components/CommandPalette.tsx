@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
 import { useRouter } from "next/navigation";
-import { useDeckSettings, type ThemeName } from "./settings/DeckSettingsProvider";
+import { useDeckSettings, type ChatSurface, type ThemeName } from "./settings/DeckSettingsProvider";
 
 interface Command {
   id: string;
@@ -20,6 +20,7 @@ interface CommandPaletteProps {
 }
 
 const RECENT_KEY = "deck:recent-commands";
+const CHAT_SURFACE_ORDER: ChatSurface[] = ["safe", "brave", "radical"];
 
 function getRecentIds(): string[] {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); }
@@ -64,6 +65,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     // Settings
     { id: "settings-open", label: "Open Settings", shortcut: "⌘,", action: () => setSettingsOpen(true), category: "Settings" },
     { id: "settings-inspector", label: "Toggle Sidebar", shortcut: "⌘I", action: () => setRailOpen(o => !o), category: "Settings" },
+    { id: "settings-chat-context-rail", label: `Chat Context Rail: ${prefs.chatContextRail ? "On" : "Off"}`, action: () => updatePrefs({ chatContextRail: !prefs.chatContextRail }), category: "Settings" },
+    {
+      id: "settings-chat-surface-cycle",
+      label: `Chat Surface: ${prefs.chatSurface}`,
+      action: () => {
+        const index = CHAT_SURFACE_ORDER.indexOf(prefs.chatSurface);
+        updatePrefs({ chatSurface: CHAT_SURFACE_ORDER[(index + 1) % CHAT_SURFACE_ORDER.length] });
+      },
+      category: "Settings",
+    },
     // Theme shortcuts
     { id: "theme-light", label: "Theme: Light", action: () => updatePrefs({ theme: "light" as ThemeName }), category: "Theme" },
     { id: "theme-dark", label: "Theme: Dark", action: () => updatePrefs({ theme: "dark" as ThemeName }), category: "Theme" },

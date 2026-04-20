@@ -14,8 +14,8 @@ import { useShortcut } from "@/lib/hooks/useShortcuts";
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type ThemeName = "light" | "dark" | "system";
-export type DesignSystem = "apple" | "cursor";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
+export type ChatSurface = "safe" | "brave" | "radical";
 
 export interface VoicePrefs {
   enabled: boolean;
@@ -29,8 +29,9 @@ export interface VoicePrefs {
 export interface DeckPrefs {
   model: string;
   theme: ThemeName;
-  designSystem: DesignSystem;
   reduceMotion: boolean;
+  chatContextRail: boolean;
+  chatSurface: ChatSurface;
   voice: VoicePrefs;
 }
 
@@ -63,8 +64,9 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
 const DEFAULT_PREFS: DeckPrefs = {
   model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "qwen2",
   theme: "dark",
-  designSystem: "cursor" as DesignSystem,
   reduceMotion: false,
+  chatContextRail: false,
+  chatSurface: "safe",
   voice: DEFAULT_VOICE_PREFS,
 };
 
@@ -92,10 +94,16 @@ function migrateThemeName(raw: string): ThemeName {
 function migratePrefs(): DeckPrefs {
   const newPrefs = safeParse<DeckPrefs>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
+    const migratedSurface =
+      (newPrefs.chatSurface as string) === "dossier"
+        ? "brave"
+        : (newPrefs.chatSurface as string) === "tower"
+          ? "radical"
+          : (newPrefs.chatSurface ?? "safe");
     return {
       ...DEFAULT_PREFS,
       ...newPrefs,
-      designSystem: (newPrefs as any).designSystem || "cursor",
+      chatSurface: migratedSurface as ChatSurface,
       theme: migrateThemeName(newPrefs.theme),
       voice: { ...DEFAULT_VOICE_PREFS, ...newPrefs.voice },
     };
@@ -144,30 +152,18 @@ function resolveMode(theme: ThemeName): "light" | "dark" {
   return "dark";
 }
 
-function applyTheme(theme: ThemeName, reduceMotion: boolean, designSystem: DesignSystem) {
+function applyTheme(theme: ThemeName, reduceMotion: boolean) {
   const root = document.documentElement;
-  root.dataset.design = designSystem;
-
-  if (designSystem === "cursor") {
-    const mode = (root.dataset.theme === "light" ? "light" : "dark") as "light" | "dark";
-    if (mode === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.remove("dark");
-      root.classList.add("light");
-    }
+  const mode = resolveMode(theme);
+  if (mode === "dark") {
+    root.classList.add("dark");
+    root.classList.remove("light");
+    root.dataset.theme = "dark";
   } else {
-    const mode = resolveMode(theme);
-    if (mode === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.remove("dark");
-      root.classList.add("light");
-    }
+    root.classList.remove("dark");
+    root.classList.add("light");
+    root.dataset.theme = "light";
   }
-
   root.dataset.reduceMotion = reduceMotion ? "1" : "0";
 }
 
@@ -191,18 +187,18 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   // Apply theme immediately after hydration
   useLayoutEffect(() => {
     if (hydrated) {
-      applyTheme(prefs.theme, prefs.reduceMotion, prefs.designSystem);
+      applyTheme(prefs.theme, prefs.reduceMotion);
     }
-  }, [hydrated, prefs.theme, prefs.reduceMotion, prefs.designSystem]);
+  }, [hydrated, prefs.theme, prefs.reduceMotion]);
 
   // Listen for system color-scheme changes when theme is "system"
   useEffect(() => {
     if (!hydrated || prefs.theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => applyTheme("system", prefs.reduceMotion, prefs.designSystem);
+    const handler = () => applyTheme("system", prefs.reduceMotion);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
-  }, [hydrated, prefs.theme, prefs.reduceMotion, prefs.designSystem]);
+  }, [hydrated, prefs.theme, prefs.reduceMotion]);
 
   // Persist prefs whenever they change (after hydration)
   useEffect(() => {

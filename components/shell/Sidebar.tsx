@@ -1,8 +1,11 @@
 "use client";
 
+import React, { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { useThreadManager } from "@/lib/hooks/useThreadManager";
+import { useWidgets } from "@/lib/hooks/useWidgets";
 import { Icon } from "@/components/warp/Icons";
 
 const ITEMS = [
@@ -57,10 +60,60 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
         <span className="kbd">⌘K</span>
       </button>
 
-      <div className="nav-foot">
-        <span className="nav-foot-dot" />
-        <span className="nav-item-label">Agent-GO · local</span>
-      </div>
+      <NowPanel />
     </aside>
   );
+}
+
+const NowPanel = memo(function NowPanel() {
+  const { threads, activeThreadId } = useThreadManager();
+  const { data } = useWidgets();
+  const stats = data.stats;
+  const activeThread = activeThreadId
+    ? threads.find((t) => t.id === activeThreadId)
+    : null;
+
+  const [openMin, setOpenMin] = useState<number>(() =>
+    stats ? minutesSince(stats.sessionStart) : 0
+  );
+
+  useEffect(() => {
+    if (!stats) return;
+    setOpenMin(minutesSince(stats.sessionStart));
+    const id = setInterval(() => setOpenMin(minutesSince(stats.sessionStart)), 60_000);
+    return () => clearInterval(id);
+  }, [stats?.sessionStart]);
+
+  const title = activeThread?.title?.trim() || "New thread";
+
+  return (
+    <div className="nav-now" aria-label="Session status">
+      <div className="nav-now-label">NOW</div>
+      <div className="nav-now-entry" title={title}>
+        <span className="nav-now-dot" />
+        <span className="nav-now-title">{title}</span>
+      </div>
+      <div className="nav-now-stats">
+        <NowStat label="Msgs" value={stats?.messagesCount ?? 0} />
+        <NowStat label="Tools" value={stats?.toolCalls ?? 0} />
+        <NowStat label="Open" value={`${openMin}m`} />
+        <NowStat label="Spend" value="—" />
+      </div>
+    </div>
+  );
+});
+
+function NowStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="nav-now-stat">
+      <span className="nav-now-stat-label">{label}</span>
+      <span className="nav-now-stat-value">{value}</span>
+    </div>
+  );
+}
+
+function minutesSince(iso: string): number {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 60_000));
 }

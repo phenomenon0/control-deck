@@ -564,7 +564,14 @@ function PatternGridEditor({
                 </div>
                 <div className="live-step-meta">
                   {fx?.length ? (
-                    <span>{fx.map((item) => item.type).join(" > ")}</span>
+                    <div className="live-step-fx-chain" aria-label="Effect chain">
+                      {fx.map((item, index) => (
+                        <span key={`${item.type}-${index}`} className="live-step-fx-stage">
+                          <span className="live-step-fx-node">{item.type}</span>
+                          {index < fx.length - 1 && <ChevronRight size={10} aria-hidden="true" />}
+                        </span>
+                      ))}
+                    </div>
                   ) : sample ? (
                     <span>{sample.loader}</span>
                   ) : (
@@ -649,26 +656,33 @@ function FxStrip({
   onWet: (idx: number, wet: number) => void;
 }) {
   return (
-    <div className="live-fx-strip">
+    <div className="live-fx-chain">
       {fx.map((f, i) => (
-        <div key={i} className="live-fx-chip">
-          <span className="live-fx-label">{f.type}</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(f.wet * 100)}
-            onChange={(e) => onWet(i, Number(e.target.value) / 100)}
-            className="live-wet-knob"
-            title={`wet: ${Math.round(f.wet * 100)}%`}
-          />
-          <button className="live-fx-remove" onClick={() => onRemove(i)} aria-label="Remove effect">
-            <X size={10} />
-          </button>
+        <div key={`${f.type}-${i}`} className="live-fx-stage">
+          {i > 0 && (
+            <span className="live-fx-link" aria-hidden="true">
+              <ChevronRight size={11} />
+            </span>
+          )}
+          <div className="live-fx-node">
+            <span className="live-fx-label">{f.type}</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round(f.wet * 100)}
+              onChange={(e) => onWet(i, Number(e.target.value) / 100)}
+              className="live-wet-knob"
+              title={`wet: ${Math.round(f.wet * 100)}%`}
+            />
+            <button className="live-fx-remove" onClick={() => onRemove(i)} aria-label="Remove effect">
+              <X size={10} />
+            </button>
+          </div>
         </div>
       ))}
       <select
-        className="live-fx-select"
+        className="live-fx-add"
         value=""
         onChange={(e) => { if (e.target.value) onAdd(e.target.value as FxType); }}
       >

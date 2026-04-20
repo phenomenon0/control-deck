@@ -15,7 +15,10 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import {
+  useDeckSettings,
+  type ChatSurface as ChatSurfaceVariant,
+} from "@/components/settings/DeckSettingsProvider";
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
@@ -26,6 +29,7 @@ import { ChatTimeline } from "@/components/chat/ChatTimeline";
 import { StatusStrip } from "@/components/chat/StatusStrip";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { UploadTray } from "@/components/chat/UploadTray";
+import { ContextRail } from "@/components/chat/ContextRail";
 import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
@@ -42,6 +46,229 @@ function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
       : value;
   }
   return result;
+}
+
+function formatModelLabel(model: string): string {
+  if (!model) return "model pending";
+  const parts = model.split(/[/\\]/);
+  return parts[parts.length - 1].replace(/\.gguf$/i, "");
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function phaseLabel(runState: import("@/lib/types/agentRun").RunState): string {
+  switch (runState.phase) {
+    case "submitted":
+      return "queued";
+    case "thinking":
+      return "thinking";
+    case "streaming":
+      return "writing";
+    case "executing":
+      return runState.toolName;
+    case "resuming":
+      return "resuming";
+    case "error":
+      return "error";
+    default:
+      return "standby";
+  }
+}
+
+function collectActivitySteps(
+  segments: import("@/lib/types/agentRun").TimelineSegment[],
+): ActivityStep[] {
+  return segments
+    .filter((segment): segment is AgentActivitySegment => segment.type === "agent-activity")
+    .flatMap((segment) => segment.steps);
+}
+
+function progressForRun(
+  runState: import("@/lib/types/agentRun").RunState,
+  steps: ActivityStep[],
+): number {
+  if (runState.phase === "error") return 100;
+  if (runState.phase === "idle") return steps.length ? 100 : 0;
+  if (runState.phase === "submitted") return 16;
+  if (runState.phase === "thinking") return 32;
+  if (runState.phase === "executing") return 58;
+  if (runState.phase === "streaming") return 78;
+  if (runState.phase === "resuming") return 88;
+  return 0;
+}
+
+function SurfaceHeader({
+  surface,
+  chatTitle,
+  model,
+  toolCount,
+  artifactCount,
+  messageCount,
+}: {
+  surface: ChatSurfaceVariant;
+  chatTitle: string;
+  model: string;
+  toolCount: number;
+  artifactCount: number;
+  messageCount: number;
+}) {
+  if (surface === "brave") {
+    return (
+      <header className="cs-thread-head cs-thread-head--brave">
+        <div className="cs-dossier-title-block">
+          <span className="cs-thread-kicker">Thread Brief</span>
+          <h1 className="cs-thread-title">{chatTitle}</h1>
+        </div>
+        <div className="cs-thread-meta cs-thread-meta--brave" aria-label="Thread routing">
+          <span className="cs-model-chip">{formatModelLabel(model)}</span>
+          <span>routed local</span>
+          <span>{messageCount} notes</span>
+          <span>{toolCount} tools</span>
+          <span>{artifactCount} files</span>
+        </div>
+      </header>
+    );
+  }
+
+  if (surface === "radical") {
+    return (
+      <header className="cs-thread-head cs-thread-head--radical">
+        <div className="cs-thread-title-block">
+          <span className="cs-thread-kicker">Session Log</span>
+          <h1 className="cs-thread-title">{chatTitle}</h1>
+        </div>
+        <div className="cs-thread-meta" aria-label="Thread routing">
+          <span className="cs-model-chip">{formatModelLabel(model)}</span>
+          <span>{toolCount} tools</span>
+          <span>{artifactCount} files</span>
+        </div>
+      </header>
+    );
+  }
+
+  return (
+    <header className="cs-thread-head">
+      <div className="cs-thread-title-block">
+        <span className="cs-thread-kicker">Field Journal</span>
+        <h1 className="cs-thread-title">{chatTitle}</h1>
+      </div>
+      <div className="cs-thread-meta" aria-label="Thread routing">
+        <span className="cs-model-chip">{formatModelLabel(model)}</span>
+        <span>local</span>
+        <span>{toolCount} tools</span>
+        <span>{artifactCount} files</span>
+      </div>
+    </header>
+  );
+}
+
+function RunDial({
+  runState,
+  elapsedMs,
+  steps,
+}: {
+  runState: import("@/lib/types/agentRun").RunState;
+  elapsedMs: number;
+  steps: ActivityStep[];
+}) {
+  const progress = progressForRun(runState, steps);
+  const running = runState.phase !== "idle" && runState.phase !== "error";
+  const angle = -135 + progress * 2.7;
+
+  return (
+    <div className={`cs-run-dial${running ? " cs-run-dial--active" : ""}`}>
+      <div className="cs-run-dial-ring" aria-hidden="true">
+        {Array.from({ length: 40 }).map((_, index) => (
+          <span
+            key={index}
+            className={index <= Math.round(progress / 2.5) ? "is-lit" : ""}
+            style={{ transform: `rotate(${index * 9}deg) translateY(-112px)` }}
+          />
+        ))}
+        <div
+          className="cs-run-dial-needle"
+          style={{ transform: `translate(-50%, -100%) rotate(${angle}deg)` }}
+        />
+      </div>
+      <div className="cs-run-dial-center">
+        <span>{phaseLabel(runState)}</span>
+        <strong>{running ? formatElapsed(elapsedMs) : "ready"}</strong>
+      </div>
+    </div>
+  );
+}
+
+function TowerPanel({
+  runState,
+  elapsedMs,
+  steps,
+  messageCount,
+  toolCount,
+  artifactCount,
+}: {
+  runState: import("@/lib/types/agentRun").RunState;
+  elapsedMs: number;
+  steps: ActivityStep[];
+  messageCount: number;
+  toolCount: number;
+  artifactCount: number;
+}) {
+  const recentSteps = steps.slice(-5).reverse();
+  const running = runState.phase !== "idle" && runState.phase !== "error";
+
+  return (
+    <aside className="cs-tower-panel" aria-label="Run control tower">
+      <div>
+        <span className="cs-thread-kicker">Control Tower</span>
+        <RunDial runState={runState} elapsedMs={elapsedMs} steps={steps} />
+      </div>
+
+      <div className="cs-tower-metrics" aria-label="Thread metrics">
+        <div>
+          <strong>{messageCount}</strong>
+          <span>entries</span>
+        </div>
+        <div>
+          <strong>{toolCount}</strong>
+          <span>tools</span>
+        </div>
+        <div>
+          <strong>{artifactCount}</strong>
+          <span>files</span>
+        </div>
+      </div>
+
+      <div className="cs-tower-card">
+        <span className="cs-thread-kicker">Run Trace</span>
+        {recentSteps.length ? (
+          <div className="cs-tower-step-list">
+            {recentSteps.map((step) => (
+              <div
+                key={step.toolCallId}
+                className={`cs-tower-step cs-tower-step--${step.status}`}
+              >
+                <span className="cs-tower-step-dot" />
+                <strong>{step.toolName}</strong>
+                <em>{step.status}</em>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p>No tools in this thread yet.</p>
+        )}
+      </div>
+
+      <div className="cs-tower-card">
+        <span className="cs-thread-kicker">Transmit</span>
+        <p>{running ? "Run is live. Keep the thread on task." : "Speak into the run when ready."}</p>
+      </div>
+    </aside>
+  );
 }
 
 /** Extract tool call summaries from segments for persistence */
@@ -653,86 +880,145 @@ export default function ChatSurface() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+  const activeThread = activeThreadId
+    ? threads.find((thread) => thread.id === activeThreadId)
+    : null;
+  const chatTitle = activeThread?.title || "New thread";
+  const chatSurface = prefs.chatSurface ?? "safe";
+  const showContextRail = prefs.chatContextRail;
+  const activitySteps = collectActivitySteps(segments);
+  const toolCount = segments.reduce(
+    (count, segment) => count + (segment.type === "agent-activity" ? segment.steps.length : 0),
+    0
+  );
+  const artifactCount = segments.filter((segment) => segment.type === "artifact").length;
+  const messageCount = messages.length;
+
+  const hiddenFileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept="image/*"
+      multiple
+      hidden
+      onChange={(e) => {
+        const files = e.target.files;
+        if (files) {
+          for (const file of files) handleFileUpload(file);
+        }
+        e.target.value = "";
+      }}
+    />
+  );
+
+  const uploadTray = (
+    <UploadTray
+      isOpen={uploadTrayOpen}
+      onClose={() => setUploadTrayOpen(false)}
+      uploads={pendingUploads}
+      onRemove={(id) => setPendingUploads((prev) => prev.filter((u) => u.id !== id))}
+      onAddMore={() => fileInputRef.current?.click()}
+    />
+  );
+
+  const timeline = (
+    <ChatTimeline
+      segments={segments}
+      isStreaming={isStreaming}
+      onRetry={handleRetry}
+      emptyState={
+        <div className="cs-empty">
+          <p className="cs-empty-primary">
+            What&apos;s on your mind?
+          </p>
+          {prefs.voice.enabled && (
+            <p className="cs-empty-hint">
+              {prefs.voice.mode === "push-to-talk" ? "Hold spacebar to speak" : "Click mic to talk"}
+            </p>
+          )}
+        </div>
+      }
+    />
+  );
+
+  const statusStrip = (
+    <StatusStrip
+      runState={runState}
+      onStop={handleStop}
+      elapsedMs={elapsedMs}
+    />
+  );
+
+  const composer = (
+    <ChatComposer
+      runState={runState}
+      surface={chatSurface}
+      inputValue={inputValue}
+      onInputChange={setInputValue}
+      onSubmit={onSubmit}
+      onStop={handleStop}
+      model={selectedModel}
+      voiceChat={voiceChat}
+      voiceEnabled={prefs.voice.enabled}
+      voiceMode={prefs.voice.mode}
+      onVoiceModeOpen={() => setVoiceModeOpen(true)}
+      onMicClick={handleMicClick}
+      onMicRelease={handleMicRelease}
+      pendingUploads={pendingUploads}
+      onAttachClick={handleAttachClick}
+      onRemoveUpload={handleRemoveUpload}
+      onEditLastMessage={handleEditLastMessage}
+      fileInputRef={fileInputRef}
+      inputRef={inputRef}
+    />
+  );
+
+  const chatStack = (
+    <>
+      <SurfaceHeader
+        surface={chatSurface}
+        chatTitle={chatTitle}
+        model={selectedModel}
+        toolCount={toolCount}
+        artifactCount={artifactCount}
+        messageCount={messageCount}
+      />
+      {hiddenFileInput}
+      {uploadTray}
+      {timeline}
+      {statusStrip}
+      {composer}
+    </>
+  );
+
   return (
     <div
-      className="cs-root"
+      className={`cs-root cs-root--surface-${chatSurface} ${showContextRail ? "cs-root--context" : ""}`}
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
     >
       {/* Main chat column */}
-      <main aria-label="Chat" className="cs-main">
-        {/* Hidden file input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(e) => {
-            const files = e.target.files;
-            if (files) {
-              for (const file of files) handleFileUpload(file);
-            }
-            e.target.value = "";
-          }}
-        />
-
-        <UploadTray
-          isOpen={uploadTrayOpen}
-          onClose={() => setUploadTrayOpen(false)}
-          uploads={pendingUploads}
-          onRemove={(id) => setPendingUploads((prev) => prev.filter((u) => u.id !== id))}
-          onAddMore={() => fileInputRef.current?.click()}
-        />
-
-        {/* Timeline - renders segments from useAgentRun */}
-        <ChatTimeline
-          segments={segments}
-          isStreaming={isStreaming}
-          onRetry={handleRetry}
-          emptyState={
-            <div className="cs-empty">
-              <p className="cs-empty-primary">
-                What&apos;s on your mind?
-              </p>
-              {prefs.voice.enabled && (
-                <p className="cs-empty-hint">
-                  {prefs.voice.mode === "push-to-talk" ? "Hold spacebar to speak" : "Click mic to talk"}
-                </p>
-              )}
-            </div>
-          }
-        />
-
-        {/* Status strip — driven by useAgentRun state */}
-        <StatusStrip
-          runState={runState}
-          onStop={handleStop}
-          elapsedMs={elapsedMs}
-        />
-
-        {/* Composer — driven by useAgentRun state */}
-        <ChatComposer
-          runState={runState}
-          inputValue={inputValue}
-          onInputChange={setInputValue}
-          onSubmit={onSubmit}
-          onStop={handleStop}
-          model={selectedModel}
-          voiceChat={voiceChat}
-          voiceEnabled={prefs.voice.enabled}
-          voiceMode={prefs.voice.mode}
-          onVoiceModeOpen={() => setVoiceModeOpen(true)}
-          onMicClick={handleMicClick}
-          onMicRelease={handleMicRelease}
-          pendingUploads={pendingUploads}
-          onAttachClick={handleAttachClick}
-          onRemoveUpload={handleRemoveUpload}
-          onEditLastMessage={handleEditLastMessage}
-          fileInputRef={fileInputRef}
-          inputRef={inputRef}
-        />
+      <main aria-label="Chat" className={`cs-main cs-main--${chatSurface}`}>
+        {chatSurface === "radical" ? (
+          <div className="cs-tower-shell">
+            <TowerPanel
+              runState={runState}
+              elapsedMs={elapsedMs}
+              steps={activitySteps}
+              messageCount={messageCount}
+              toolCount={toolCount}
+              artifactCount={artifactCount}
+            />
+            <section className="cs-tower-log" aria-label="Thread log">
+              {chatStack}
+            </section>
+          </div>
+        ) : (
+          chatStack
+        )}
       </main>
+
+      {showContextRail && <ContextRail />}
 
       {/* Voice Mode Sheet */}
       <VoiceModeSheet

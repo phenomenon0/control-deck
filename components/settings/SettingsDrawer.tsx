@@ -8,7 +8,7 @@ import {
   type TTSEngine,
   type VoiceMode,
   type ThemeName,
-  type DesignSystem,
+  type ChatSurface,
 } from "./DeckSettingsProvider";
 import {
   useWarp,
@@ -248,21 +248,6 @@ export function SettingsDrawer() {
           className="flex-1 overflow-y-auto"
           style={{ padding: "24px 20px", display: "flex", flexDirection: "column", gap: 32 }}
         >
-          {/* ─── DESIGN SYSTEM ─── */}
-          <section>
-            <SectionHeader>Design System</SectionHeader>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <SegmentControl
-                options={[
-                  { value: "cursor", label: "Cursor" },
-                  { value: "apple", label: "Apple" },
-                ]}
-                value={prefs.designSystem}
-                onChange={(v: string) => updatePrefs({ designSystem: v as DesignSystem })}
-              />
-            </div>
-          </section>
-
           {/* ─── UI VARIATIONS ─── */}
           <section>
             <SectionHeader>UI Variations</SectionHeader>
@@ -333,24 +318,6 @@ export function SettingsDrawer() {
               </button>
             </div>
           </section>
-
-          {/* ─── APPEARANCE ─── */}
-          {prefs.designSystem === "apple" && (
-            <section>
-              <SectionHeader>Apple Appearance</SectionHeader>
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                <SegmentControl
-                  options={[
-                    { value: "light", label: "Light" },
-                    { value: "dark", label: "Dark" },
-                    { value: "system", label: "System" },
-                  ]}
-                  value={prefs.theme}
-                  onChange={(v: string) => updatePrefs({ theme: v as ThemeName })}
-                />
-              </div>
-            </section>
-          )}
 
           {/* ─── MODEL ─── */}
           <section>
@@ -466,6 +433,23 @@ export function SettingsDrawer() {
           <section>
             <SectionHeader>Preferences</SectionHeader>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <SettingRow label="Chat Surface">
+                <SegmentControl
+                  options={[
+                    { value: "safe", label: "Safe" },
+                    { value: "brave", label: "Brave" },
+                    { value: "radical", label: "Radical" },
+                  ]}
+                  value={prefs.chatSurface}
+                  onChange={(v: string) => updatePrefs({ chatSurface: v as ChatSurface })}
+                />
+              </SettingRow>
+              <SettingRow label="Chat Context Rail">
+                <PrecisionToggle
+                  checked={prefs.chatContextRail}
+                  onChange={(v) => updatePrefs({ chatContextRail: v })}
+                />
+              </SettingRow>
               <SettingRow label="Reduce Motion">
                 <PrecisionToggle
                   checked={prefs.reduceMotion}

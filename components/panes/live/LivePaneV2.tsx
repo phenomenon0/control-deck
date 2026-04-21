@@ -6,6 +6,7 @@ import { importLiveScript } from "@/lib/live/importer";
 import { TransportBar } from "./TransportBar";
 import { Playlist } from "./Playlist";
 import { PatternRack } from "./PatternRack";
+import { LaunchBar } from "./LaunchBar";
 
 const PRESETS: Array<{ id: string; label: string; script: string }> = [
   {
@@ -71,8 +72,9 @@ export function LivePaneV2() {
   return (
     <div className="h-full w-full flex flex-col bg-[var(--panel)] text-[var(--text)] min-h-0">
       <TransportBar transport={transport} store={store} song={song} state={state} />
+      <LaunchBar transport={transport} store={store} song={song} state={state} />
 
-      {/* Quick preset loader (temporary until Pattern Rack lands) */}
+      {/* Quick preset seeder (kept as a starting-point helper). */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] bg-[var(--panel)]">
         <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">seed</span>
         {PRESETS.map((p) => (

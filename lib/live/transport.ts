@@ -16,19 +16,31 @@
  */
 
 import * as Tone from "tone";
-import type {
-  Channel,
-  FxSpec,
-  Insert,
-  Pattern,
-  PatternClip,
-  PlaylistClip,
-  Song,
-  StepDiv,
-  UUID,
+import {
+  newId,
+  type Channel,
+  type FxSpec,
+  type Insert,
+  type LaunchQuantize,
+  type Pattern,
+  type PatternClip,
+  type PlaylistClip,
+  type Song,
+  type StepDiv,
+  type UUID,
 } from "./model";
 import type { Step } from "./mini";
 import { SongStore } from "./store";
+
+function quantizeStart(q: LaunchQuantize): string {
+  switch (q) {
+    case "immediate": return "+0.01";
+    case "beat":      return "@4n";
+    case "bar":       return "@1m";
+    case "2bar":      return "@2m";
+    case "4bar":      return "@4m";
+  }
+}
 
 // ─── Pure helpers (exported for testing) ────────────────────────────────────
 
@@ -308,6 +320,7 @@ export interface TransportState {
   bar: number;
   beat: number;
   sixteenth: number;
+  activeSceneId: UUID | null;
 }
 
 type TransportListener = (state: TransportState) => void;
@@ -328,6 +341,9 @@ export class LiveTransport {
   private voices = new Map<UUID, Voice>();
   private inserts = new Map<UUID, InsertNodes>();
   private clips = new Map<UUID, ScheduledClip>();
+  // Scenes that have been fired but aren't part of the arranged playlist.
+  private liveScenes = new Map<UUID, ScheduledClip[]>();
+  private activeSceneId: UUID | null = null;
 
   private positionEventId: number | null = null;
   private listeners = new Set<TransportListener>();
@@ -338,6 +354,7 @@ export class LiveTransport {
     bar: 0,
     beat: 0,
     sixteenth: 0,
+    activeSceneId: null,
   };
 
   constructor(store: SongStore) {
@@ -388,6 +405,7 @@ export class LiveTransport {
 
   stop(): void {
     if (this.initialized) Tone.getTransport().stop();
+    this.stopAllScenesInternal();
     this.playing = false;
     this.emit();
   }
@@ -395,6 +413,95 @@ export class LiveTransport {
   async toggle(): Promise<void> {
     if (this.playing) this.stop();
     else await this.start();
+  }
+
+  /**
+   * Fire a LaunchGroup — schedule its triggers at the next quantized boundary.
+   * Any previously-live scene is stopped when the new scene's start time
+   * arrives. Starts the transport if idle.
+   */
+  async fireLaunchGroup(groupId: UUID): Promise<void> {
+    await this.init();
+    const song = this.store.getSong();
+    const group = song.launchGroups.find((g) => g.id === groupId);
+    if (!group) return;
+
+    const transport = Tone.getTransport();
+    if (!this.playing) {
+      transport.position = 0;
+      transport.start("+0.01");
+      this.playing = true;
+      this.emit();
+    }
+
+    const startTime = quantizeStart(group.quantize);
+    // Stop the previous scene exactly when the new one begins.
+    const prevId = this.activeSceneId;
+    if (prevId) {
+      transport.scheduleOnce(() => this.stopScene(prevId), startTime);
+    }
+    this.activeSceneId = group.id;
+    this.emit();
+
+    const scheduled: ScheduledClip[] = [];
+    for (const trig of group.triggers) {
+      if (trig.kind === "pattern") {
+        const pattern = song.patterns.find((p) => p.id === trig.patternId);
+        if (!pattern) continue;
+        for (const channelId of Object.keys(pattern.slices)) {
+          const voice = this.voices.get(channelId);
+          if (!voice) continue;
+          const events = buildPatternEvents(pattern, channelId);
+          if (events.length === 0) continue;
+          const part = new Tone.Part<PatternEvent>(
+            (time, ev) => voice.fireStep(ev.step, time),
+            events,
+          );
+          part.loop = true;
+          part.loopEnd = `${pattern.lengthBars}m`;
+          part.start(startTime);
+          scheduled.push({
+            clip: { id: newId(), kind: "pattern", patternId: pattern.id, lane: 0, startBar: 0, lengthBars: pattern.lengthBars, muted: false },
+            parts: [part],
+          });
+        }
+      } else {
+        const clip = song.playlist.clips.find((c) => c.id === trig.clipId);
+        if (!clip || clip.kind !== "audio" || !clip.sampleUrl) continue;
+        const player = new Tone.Player({ url: clip.sampleUrl, loop: true }).connect(this.masterBus);
+        Tone.loaded().then(() => {
+          player.sync().start(startTime);
+        }).catch(() => {});
+        scheduled.push({ clip, player });
+      }
+    }
+    this.liveScenes.set(group.id, scheduled);
+  }
+
+  /** Stop all live-fired scenes (does not affect arranged playlist clips). */
+  stopAllScenes(): void {
+    this.stopAllScenesInternal();
+    this.emit();
+  }
+
+  private stopAllScenesInternal(): void {
+    for (const id of [...this.liveScenes.keys()]) this.stopScene(id);
+    this.activeSceneId = null;
+  }
+
+  private stopScene(groupId: UUID): void {
+    const scheduled = this.liveScenes.get(groupId);
+    if (!scheduled) return;
+    for (const s of scheduled) {
+      if (s.parts) for (const p of s.parts) { p.stop(); p.dispose(); }
+      if (s.player) { s.player.stop(); s.player.disconnect(); s.player.dispose(); }
+    }
+    this.liveScenes.delete(groupId);
+    if (this.activeSceneId === groupId) this.activeSceneId = null;
+  }
+
+  getActiveSceneId(): UUID | null {
+    return this.activeSceneId;
   }
 
   dispose(): void {
@@ -434,6 +541,7 @@ export class LiveTransport {
       ...this.state,
       ready: this.initialized,
       playing: this.playing,
+      activeSceneId: this.activeSceneId,
     };
     for (const fn of this.listeners) fn(this.getState());
   }

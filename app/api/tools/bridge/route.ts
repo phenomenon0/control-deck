@@ -41,6 +41,10 @@ const BRIDGE_TOOLS = new Set<string>([
   "live.load_sample",
   "live.generate_sample",
   "live.bpm",
+  "native_locate",
+  "native_click",
+  "native_type",
+  "native_tree",
 ]);
 
 interface BridgeRequest {

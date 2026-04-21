@@ -1,14 +1,31 @@
 import Database from "better-sqlite3";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import type { AGUIEvent } from "./events";
 import { AGUI_SCHEMA_VERSION, normalizeEvent } from "./events";
 
-const DB_PATH = path.join(process.cwd(), "data", "deck.db");
+function resolveDbPath(): string {
+  if (process.env.DECK_DB_PATH) return process.env.DECK_DB_PATH;
+  // In packaged Electron builds `process.cwd()` points at the standalone
+  // server dir, which is read-only on AppImage mounts. Fall back to the
+  // user-data dir.
+  if (process.env.CONTROL_DECK_USER_DATA) {
+    return path.join(process.env.CONTROL_DECK_USER_DATA, "data", "deck.db");
+  }
+  const xdgState = process.env.XDG_STATE_HOME ?? path.join(os.homedir(), ".local", "state");
+  return path.join(xdgState, "control-deck", "data", "deck.db");
+}
+
+const DB_PATH = fs.existsSync(path.join(process.cwd(), "data"))
+  ? path.join(process.cwd(), "data", "deck.db")
+  : resolveDbPath();
 
 let db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (!db) {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
     db = new Database(DB_PATH);
     db.pragma("journal_mode = WAL");
     initSchema(db);

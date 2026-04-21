@@ -33,7 +33,12 @@ import type {
   LiveLoadSampleArgs,
   LiveGenerateSampleArgs,
   LiveBpmArgs,
+  NativeLocateArgs,
+  NativeClickArgs,
+  NativeTypeArgs,
+  NativeTreeArgs,
 } from "./definitions";
+import { getNativeAdapter } from "./native";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
@@ -148,6 +153,14 @@ export async function executeTool(
         return await executeLiveGenerateSample(tool.args, ctx);
       case "live.bpm":
         return executeLiveBpm(tool.args, ctx);
+      case "native_locate":
+        return await executeNativeLocate(tool.args);
+      case "native_click":
+        return await executeNativeClick(tool.args);
+      case "native_type":
+        return await executeNativeType(tool.args);
+      case "native_tree":
+        return await executeNativeTree(tool.args);
       default:
         return {
           success: false,
@@ -1177,4 +1190,60 @@ function comfyResultToExecutorResult(
     message: result.error ?? "ComfyUI execution failed",
     error: result.error,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Native accessibility tools
+// ---------------------------------------------------------------------------
+
+async function executeNativeLocate(args: NativeLocateArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    const results = await adapter.locate(args);
+    return {
+      success: true,
+      message: `Found ${results.length} native node${results.length === 1 ? "" : "s"}`,
+      data: { platform: adapter.platform, results },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_locate failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeClick(args: NativeClickArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    await adapter.click(args.handle);
+    return { success: true, message: "Native click dispatched" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_click failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeType(args: NativeTypeArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    await adapter.typeText(args.handle ?? null, args.text);
+    return { success: true, message: `Typed ${args.text.length} chars` };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_type failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeTree(args: NativeTreeArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    const tree = await adapter.getTree(args.handle);
+    return {
+      success: true,
+      message: "Native tree dumped",
+      data: { platform: adapter.platform, tree },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_tree failed";
+    return { success: false, message: msg, error: msg };
+  }
 }

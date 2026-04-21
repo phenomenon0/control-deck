@@ -352,7 +352,8 @@ async function testEditImage(imageId?: string): Promise<TestResult> {
 async function uploadTestImage(): Promise<string | null> {
   try {
     // Read existing test image from ComfyUI input
-    const testImagePath = "/home/omen/ai/ComfyUI/input/example.png";
+    const home = process.env.HOME || process.env.USERPROFILE || ".";
+    const testImagePath = process.env.TEST_IMAGE_PATH || `${home}/ai/ComfyUI/input/example.png`;
     const file = Bun.file(testImagePath);
     
     if (!(await file.exists())) {
@@ -399,13 +400,13 @@ async function main() {
   
   if (!services["Control Deck"]) {
     fail("\nControl Deck is not running!");
-    log("Start it with: cd /home/omen/Documents/INIT/control-deck && bun run dev");
+    log("Start it with: cd <control-deck-dir> && bun run dev");
     process.exit(1);
   }
   
   if (!services["ComfyUI"]) {
     log("\n⚠️  ComfyUI is not running - ComfyUI-based tools will be skipped");
-    log("Start it with: cd /home/omen/ai/ComfyUI && python main.py --listen");
+    log("Start it with: cd <comfy-dir> && python main.py --listen");
   }
   
   // Upload test image for image-based tests

@@ -32,8 +32,12 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+const IS_WIN = process.platform === "win32";
+
 function shellPath(): string {
-  return process.env.SHELL || "/bin/bash";
+  if (process.env.SHELL) return process.env.SHELL;
+  if (IS_WIN) return process.env.COMSPEC || "cmd.exe";
+  return "/bin/bash";
 }
 
 function normalizeCwd(input?: string): string {
@@ -102,6 +106,10 @@ function appendHistory(session: SessionRecord, data: string): void {
 }
 
 function commandExists(command: string): boolean {
+  if (IS_WIN) {
+    const result = spawnSync("where", [command], { stdio: "ignore", shell: false });
+    return result.status === 0;
+  }
   const shell = shellPath();
   const result = spawnSync(shell, ["-lc", `command -v ${command}`], {
     stdio: "ignore",
@@ -112,12 +120,16 @@ function commandExists(command: string): boolean {
 function profileLaunchSpec(session: SessionRecord): { file: string; args: string[] } {
   const shell = shellPath();
   if (session.profile === "shell") {
-    return { file: shell, args: ["-l"] };
+    return { file: shell, args: IS_WIN ? [] : ["-l"] };
   }
 
   const command = session.profile === "claude" ? "claude" : "opencode";
   if (!commandExists(command)) {
     throw new Error(`${command} is not installed or not on PATH for ${shell}.`);
+  }
+
+  if (IS_WIN) {
+    return { file: command, args: [] };
   }
 
   return {

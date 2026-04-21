@@ -16,6 +16,7 @@ import { InspectorSheet } from "./InspectorSheet";
 import { ThreadSidebar } from "./chat/ThreadSidebar";
 import { Icon } from "@/components/warp/Icons";
 import { useDeckSettings } from "./settings/DeckSettingsProvider";
+import { PreflightGate } from "./preflight/PreflightGate";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -139,7 +140,9 @@ export function DeckShell({ children }: { children: React.ReactNode }) {
         <CanvasProvider>
           <CanvasKeyboardHandler>
             <ChatInspectorProvider>
-              <DeckShellInner>{children}</DeckShellInner>
+              <PreflightGate>
+                <DeckShellInner>{children}</DeckShellInner>
+              </PreflightGate>
             </ChatInspectorProvider>
           </CanvasKeyboardHandler>
         </CanvasProvider>

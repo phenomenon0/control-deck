@@ -15,12 +15,14 @@
 
 set -e
 
-# Configuration
-AGENTGO_DIR="/home/omen/Documents/Project/Agent-GO"
-CONTROLDECK_DIR="/home/omen/Documents/INIT/control-deck"
-ATLAS_DIR="/home/omen/Documents/Project/Agent-GO/atlas-runtime"
-AGENTGO_PORT=4243
-CONTROLDECK_PORT=3333
+# Configuration — override any path via env var before invoking this script
+AGENTGO_DIR="${AGENTGO_DIR:-$HOME/Documents/Project/Agent-GO}"
+CONTROLDECK_DIR="${CONTROLDECK_DIR:-$HOME/Documents/INIT/control-deck}"
+ATLAS_DIR="${ATLAS_DIR:-$HOME/Documents/Project/Agent-GO/atlas-runtime}"
+AGENTGO_PORT="${AGENTGO_PORT:-4243}"
+CONTROLDECK_PORT="${CONTROLDECK_PORT:-3333}"
+LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/control-deck}"
+mkdir -p "$LOG_DIR"
 
 # =============================================================================
 # INFERENCE BACKEND: "atlas" or "ollama"
@@ -81,20 +83,20 @@ start_inference() {
         print_status "Starting Atlas inference server (GPU FULL RESIDENT)..."
         cd "$ATLAS_DIR"
         # Use Llama 3.2 3B - fits fully in GPU with KV cache
-        MODEL_PATH="/home/omen/.cache/atlas/models/llama-3.2-3b-instruct-q4_k_m.gguf"
+        MODEL_PATH="${ATLAS_MODEL_PATH:-$HOME/.cache/atlas/models/llama-3.2-3b-instruct-q4_k_m.gguf}"
         # For 8B model, disable GPU_FULL_RESIDENT or use hybrid mode
 
         # GPU settings for maximum performance
         export ATLAS_GPU_FULL_RESIDENT=1  # Load all weights to GPU
         export ATLAS_GPU_LAYERS=999       # All layers on GPU
 
-        nohup ./atlas serve -p 11434 -m "$MODEL_PATH" > /tmp/atlas.log 2>&1 &
+        nohup ./atlas serve -p 11434 -m "$MODEL_PATH" > "$LOG_DIR/atlas.log" 2>&1 &
         sleep 8  # GPU full resident needs more time
         if check_inference; then
             print_success "Atlas started on port 11434 (GPU)"
         else
             print_error "Failed to start Atlas"
-            cat /tmp/atlas.log
+            cat "$LOG_DIR/atlas.log"
             return 1
         fi
     else
@@ -145,14 +147,14 @@ start_servers() {
         print_warning "Agent-GO already running on port $AGENTGO_PORT"
     else
         cd "$AGENTGO_DIR"
-        nohup ./agentgo-server > /tmp/agentgo.log 2>&1 &
+        nohup ./agentgo-server > "$LOG_DIR/agentgo.log" 2>&1 &
         sleep 2
-        
+
         if check_agentgo; then
             print_success "Agent-GO started on port $AGENTGO_PORT (model: $OLLAMA_MODEL)"
         else
             print_error "Failed to start Agent-GO"
-            cat /tmp/agentgo.log
+            cat "$LOG_DIR/agentgo.log"
             exit 1
         fi
     fi
@@ -163,14 +165,14 @@ start_servers() {
         print_warning "Control Deck already running on port $CONTROLDECK_PORT"
     else
         cd "$CONTROLDECK_DIR"
-        nohup npm run dev > /tmp/controldeck.log 2>&1 &
+        nohup npm run dev > "$LOG_DIR/controldeck.log" 2>&1 &
         sleep 4
-        
+
         if check_controldeck; then
             print_success "Control Deck started on port $CONTROLDECK_PORT"
         else
             print_error "Failed to start Control Deck"
-            tail -20 /tmp/controldeck.log
+            tail -20 "$LOG_DIR/controldeck.log"
             exit 1
         fi
     fi
@@ -183,8 +185,8 @@ start_servers() {
     echo -e "  ${GREEN}LLM Model:${NC}     $OLLAMA_MODEL"
     echo ""
     echo "Logs:"
-    echo "  Agent-GO:      tail -f /tmp/agentgo.log"
-    echo "  Control Deck:  tail -f /tmp/controldeck.log"
+    echo "  Agent-GO:      tail -f $LOG_DIR/agentgo.log"
+    echo "  Control Deck:  tail -f $LOG_DIR/controldeck.log"
     echo ""
 }
 

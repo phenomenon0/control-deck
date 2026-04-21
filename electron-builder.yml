@@ -1,0 +1,55 @@
+appId: com.controldeck.app
+productName: Control Deck
+copyright: Copyright © ${author}
+
+directories:
+  output: dist-electron
+  buildResources: electron/resources
+
+files:
+  - ".electron-dist/**/*"
+  - "!node_modules/**/*"
+
+# Copy the Next.js standalone server + static assets into resources/app/.
+# Using extraFiles (not extraResources) so files land at resources/app/ rather
+# than resources/app/extra/, matching what main.ts expects. Manually copy via
+# postBuild hook below because electron-builder's built-in filters strip
+# nested node_modules from extraResources/extraFiles.
+extraMetadata:
+  name: control-deck
+
+afterPack: scripts/electron-after-pack.cjs
+
+asar: true
+asarUnpack:
+  # .node binaries cannot be loaded from inside asar archives.
+  - "**/*.node"
+  - "**/node_modules/node-pty/build/**"
+  - "**/node_modules/better-sqlite3/build/**"
+  - "**/node_modules/onnxruntime-node/bin/**"
+  - "**/node_modules/@img/**"
+
+# Native deps used by the embedded Next server are pre-staged into .next/standalone
+# by scripts/copy-native-binaries.cjs; no need for electron-builder to re-rebuild
+# against Electron's Node ABI (N-API keeps them compatible).
+npmRebuild: false
+buildDependenciesFromSource: false
+
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: electron/resources/entitlements.mac.plist
+  entitlementsInherit: electron/resources/entitlements.mac.plist
+
+win:
+  target:
+    - nsis
+  signAndEditExecutable: true
+
+linux:
+  target:
+    - AppImage
+  category: Development
+
+publish: null

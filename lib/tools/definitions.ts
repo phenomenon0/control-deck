@@ -208,6 +208,45 @@ export const LiveBpmSchema = z.object({
   }),
 });
 
+const NodeHandleSchema = z.object({
+  id: z.string(),
+  role: z.string().optional(),
+  name: z.string().optional(),
+  path: z.string().optional(),
+});
+
+export const NativeLocateSchema = z.object({
+  name: z.literal("native_locate"),
+  args: z.object({
+    name: z.string().optional().describe("Accessible name (substring match)"),
+    role: z.string().optional().describe("Role filter (e.g. 'button', 'window')"),
+    app: z.string().optional().describe("App/process hint"),
+    limit: z.number().int().min(1).max(50).default(10).describe("Max results"),
+  }),
+});
+
+export const NativeClickSchema = z.object({
+  name: z.literal("native_click"),
+  args: z.object({
+    handle: NodeHandleSchema.describe("Handle returned by native_locate"),
+  }),
+});
+
+export const NativeTypeSchema = z.object({
+  name: z.literal("native_type"),
+  args: z.object({
+    handle: NodeHandleSchema.nullable().optional().describe("Target handle; null for focused element"),
+    text: z.string().min(1).describe("Text to type"),
+  }),
+});
+
+export const NativeTreeSchema = z.object({
+  name: z.literal("native_tree"),
+  args: z.object({
+    handle: NodeHandleSchema.optional().describe("Root handle; omit for desktop root"),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -227,6 +266,10 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   LiveLoadSampleSchema,
   LiveGenerateSampleSchema,
   LiveBpmSchema,
+  NativeLocateSchema,
+  NativeClickSchema,
+  NativeTypeSchema,
+  NativeTreeSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -251,6 +294,10 @@ export type LiveFxArgs = z.infer<typeof LiveFxSchema>["args"];
 export type LiveLoadSampleArgs = z.infer<typeof LiveLoadSampleSchema>["args"];
 export type LiveGenerateSampleArgs = z.infer<typeof LiveGenerateSampleSchema>["args"];
 export type LiveBpmArgs = z.infer<typeof LiveBpmSchema>["args"];
+export type NativeLocateArgs = z.infer<typeof NativeLocateSchema>["args"];
+export type NativeClickArgs = z.infer<typeof NativeClickSchema>["args"];
+export type NativeTypeArgs = z.infer<typeof NativeTypeSchema>["args"];
+export type NativeTreeArgs = z.infer<typeof NativeTreeSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -430,6 +477,38 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Set the tempo of the live sequencer",
     parameters: [
       { name: "bpm", type: "number", required: true, description: "Tempo in BPM (40-300)" },
+    ],
+  },
+  {
+    name: "native_locate",
+    description: "Query the host OS accessibility tree for matching UI elements. Linux uses AT-SPI, macOS AX, Windows UIA.",
+    parameters: [
+      { name: "name", type: "string", required: false, description: "Accessible name substring" },
+      { name: "role", type: "string", required: false, description: "Role filter (button, window, etc.)" },
+      { name: "app", type: "string", required: false, description: "Application name hint" },
+      { name: "limit", type: "number", required: false, description: "Max results", default: 10 },
+    ],
+  },
+  {
+    name: "native_click",
+    description: "Click a native UI element by handle returned from native_locate.",
+    parameters: [
+      { name: "handle", type: "object", required: true, description: "Handle object from native_locate" },
+    ],
+  },
+  {
+    name: "native_type",
+    description: "Type text into a native UI element (pass handle) or the focused element (handle=null).",
+    parameters: [
+      { name: "handle", type: "object", required: false, description: "Target handle; null/omit for focused" },
+      { name: "text", type: "string", required: true, description: "Text to type" },
+    ],
+  },
+  {
+    name: "native_tree",
+    description: "Dump a native accessibility tree rooted at handle (or desktop if omitted). Depth-limited for sanity.",
+    parameters: [
+      { name: "handle", type: "object", required: false, description: "Root handle; omit for desktop" },
     ],
   },
 ];

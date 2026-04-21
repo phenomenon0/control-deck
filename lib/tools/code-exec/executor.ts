@@ -3,6 +3,8 @@
  */
 
 import { randomUUID } from "crypto";
+import os from "os";
+import path from "path";
 import type {
   CodeExecRequest,
   CodeExecResult,
@@ -88,7 +90,7 @@ export async function executeCode(
     runId: options?.runId ?? randomUUID(),
     threadId: options?.threadId ?? "default",
     workDir: "", // Set by runner
-    artifactsDir: options?.artifactsDir ?? "/tmp/codeexec-artifacts",
+    artifactsDir: options?.artifactsDir ?? path.join(os.tmpdir(), "codeexec-artifacts"),
     abortSignal: options?.abortSignal,
     onChunk: options?.onChunk,
   };

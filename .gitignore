@@ -14,6 +14,13 @@ out
 dist
 *.tgz
 
+# Electron build artifacts
+.electron-dist/
+dist-electron/
+
+# Claude session artifacts
+.claude/
+
 # data (local state)
 data/
 

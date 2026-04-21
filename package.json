@@ -2,6 +2,9 @@
   "name": "control-deck",
   "version": "0.1.0",
   "type": "module",
+  "main": ".electron-dist/main.js",
+  "description": "Agentic cockpit — web, terminal, and native surfaces under one shell",
+  "author": "Control Deck",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3333",
@@ -9,7 +12,12 @@
     "start": "next start -p 3333",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "terminal-service": "tsx scripts/terminal-service.ts"
+    "terminal-service": "tsx scripts/terminal-service.ts",
+    "electron:compile": "tsc -p electron/tsconfig.json && node scripts/postbuild-electron.cjs",
+    "electron:dev": "bun run electron:compile && electron .electron-dist/main.js",
+    "electron:build": "next build && node scripts/copy-native-binaries.cjs && bun run electron:compile",
+    "electron:pack": "bun run electron:build && electron-builder --config electron-builder.yml",
+    "electron:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.1",
@@ -25,7 +33,7 @@
     "@types/ws": "^8.18.1",
     "@wterm/react": "^0.1.9",
     "ai": "^5.0.113",
-    "better-sqlite3": "^12.5.0",
+    "better-sqlite3": "12.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "duck-duck-scrape": "^2.2.7",
@@ -46,12 +54,15 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "^1.3.4",
     "@types/node": "^25.0.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.0.10",
     "postcss": "^8.5.6",

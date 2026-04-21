@@ -29,7 +29,7 @@ export interface SystemProfile {
 }
 
 /**
- * Detect NVIDIA GPU info
+ * Detect NVIDIA GPU info via nvidia-smi (Linux + Windows when driver installed)
  */
 function detectNvidiaGpu(): GpuInfo | null {
   try {
@@ -49,6 +49,61 @@ function detectNvidiaGpu(): GpuInfo | null {
   } catch {
     return null;
   }
+}
+
+function detectMacGpu(): GpuInfo | null {
+  try {
+    const output = execSync("system_profiler SPDisplaysDataType -json", {
+      encoding: "utf-8",
+      timeout: 4000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    const parsed = JSON.parse(output);
+    const gpu = parsed?.SPDisplaysDataType?.[0];
+    if (!gpu) return null;
+    const name = gpu.sppci_model ?? gpu._name ?? "Apple GPU";
+    // Apple Silicon GPUs use unified memory — report system RAM as vram.
+    // Intel Macs: discrete GPU sppci_vram like "4 GB".
+    let vram = 0;
+    const vramStr = gpu.sppci_vram ?? gpu.spdisplays_vram ?? "";
+    const mbMatch = /(\d+)\s*MB/i.exec(vramStr);
+    const gbMatch = /(\d+)\s*GB/i.exec(vramStr);
+    if (mbMatch) vram = parseInt(mbMatch[1], 10);
+    else if (gbMatch) vram = parseInt(gbMatch[1], 10) * 1024;
+    else vram = Math.round(os.totalmem() / (1024 * 1024) / 2); // unified memory: assume half
+    return { name, vram };
+  } catch {
+    return null;
+  }
+}
+
+function detectWindowsGpu(): GpuInfo | null {
+  try {
+    const output = execSync(
+      'powershell -NoProfile -Command "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name, AdapterRAM | ConvertTo-Json -Compress"',
+      { encoding: "utf-8", timeout: 4000, stdio: ["pipe", "pipe", "pipe"] }
+    ).trim();
+    if (!output) return null;
+    const parsed = JSON.parse(output);
+    const name = parsed?.Name ?? "GPU";
+    const adapterRam = Number(parsed?.AdapterRAM ?? 0);
+    // AdapterRAM maxes out at 4 GB for 32-bit field; good enough for the mode decision.
+    const vram = adapterRam > 0 ? Math.round(adapterRam / (1024 * 1024)) : 0;
+    return { name, vram };
+  } catch {
+    return null;
+  }
+}
+
+function detectGpu(): GpuInfo | null {
+  if (process.platform === "darwin") {
+    return detectMacGpu();
+  }
+  // Linux + Windows: try nvidia-smi first; on Windows fall back to WMI.
+  const nv = detectNvidiaGpu();
+  if (nv) return nv;
+  if (process.platform === "win32") return detectWindowsGpu();
+  return null;
 }
 
 /**
@@ -119,7 +174,7 @@ function getRecommendedSettings(
  * Detect full system profile
  */
 export function detectSystem(): SystemProfile {
-  const gpu = detectNvidiaGpu();
+  const gpu = detectGpu();
   const ram = getSystemRam();
   const cpu = getCpuInfo();
   const mode = determineMode(gpu, ram);

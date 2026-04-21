@@ -6,6 +6,7 @@
 import { mkdir, copyFile, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
+import os from "os";
 import { hub } from "@/lib/agui/hub";
 import {
   createEvent,
@@ -19,8 +20,8 @@ import { jsonPayload } from "@/lib/agui/payload";
 import { createArtifact, saveEvent } from "@/lib/agui/db";
 
 const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
-const COMFY_OUTPUT_DIR = process.env.COMFY_OUTPUT_DIR ?? "/home/omen/ai/ComfyUI/output";
-const COMFY_INPUT_DIR = process.env.COMFY_INPUT_DIR ?? "/home/omen/ai/ComfyUI/input";
+const COMFY_OUTPUT_DIR = process.env.COMFY_OUTPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "output");
+const COMFY_INPUT_DIR = process.env.COMFY_INPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "input");
 const ARTIFACTS_DIR = path.join(process.cwd(), "data", "artifacts");
 const POLL_INTERVAL = 500; // ms - faster polling for quick jobs like SDXL Turbo
 const POLL_TIMEOUT = 300000; // 5 minutes (some workflows take longer)

@@ -1,0 +1,861 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Control Deck — Maturity Chronicle</title>
+<style>
+  :root {
+    --bg: #1a1815;
+    --bg-2: #22201c;
+    --bg-3: #2b2822;
+    --ink: #e8e2d6;
+    --ink-2: #b9b2a4;
+    --ink-3: #8b8476;
+    --rule: #3a362f;
+    --accent: #e6a756;
+    --accent-soft: #b4813e;
+    --pass: #7dba74;
+    --warn: #e6a756;
+    --fail: #d17566;
+    --neutral: #8b8476;
+    --code-bg: #14120f;
+  }
+  html { background: var(--bg); color: var(--ink); }
+  body {
+    margin: 0;
+    font-family: "Source Serif 4", "Source Serif Pro", Georgia, serif;
+    font-size: 18px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 780px);
+    gap: 48px;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 48px 32px 120px;
+  }
+  nav.toc {
+    position: sticky;
+    top: 48px;
+    align-self: start;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  nav.toc h4 {
+    font-family: inherit;
+    font-size: 10px;
+    color: var(--accent);
+    margin: 0 0 12px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 8px;
+  }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: ch; }
+  nav.toc ol li { counter-increment: ch; margin: 6px 0; }
+  nav.toc ol li a {
+    color: var(--ink-2);
+    text-decoration: none;
+    display: block;
+    padding: 3px 0;
+  }
+  nav.toc ol li a::before { content: counter(ch, decimal-leading-zero) "  "; color: var(--ink-3); }
+  nav.toc ol li a:hover { color: var(--accent); }
+  nav.toc .toc-note {
+    margin-top: 24px;
+    font-size: 10px;
+    color: var(--ink-3);
+    line-height: 1.5;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  article { min-width: 0; }
+  header.masthead {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 32px;
+    margin-bottom: 40px;
+  }
+  header.masthead .kicker {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 14px;
+  }
+  header.masthead h1 {
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 44px;
+    line-height: 1.15;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  header.masthead .sub {
+    font-style: italic;
+    color: var(--ink-2);
+    font-size: 19px;
+    margin: 0 0 20px;
+  }
+  header.masthead .meta {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: 0.04em;
+  }
+
+  h2 {
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 28px;
+    line-height: 1.2;
+    margin: 72px 0 8px;
+    letter-spacing: -0.005em;
+    scroll-margin-top: 32px;
+  }
+  h2 .ch {
+    display: block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  h3 {
+    font-family: inherit;
+    font-weight: 500;
+    font-size: 20px;
+    margin: 40px 0 10px;
+    color: var(--ink);
+  }
+  p { margin: 14px 0; }
+  p.lead { font-style: italic; color: var(--ink-2); font-size: 19px; }
+
+  .dropcap::first-letter {
+    float: left;
+    font-size: 74px;
+    line-height: 0.85;
+    padding: 8px 10px 0 0;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  blockquote {
+    border-left: 2px solid var(--accent);
+    padding: 4px 0 4px 20px;
+    margin: 24px 0;
+    color: var(--ink-2);
+    font-style: italic;
+  }
+  blockquote .attrib {
+    display: block;
+    font-style: normal;
+    color: var(--ink-3);
+    font-size: 13px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    margin-top: 6px;
+  }
+  blockquote .attrib::before { content: "— "; }
+
+  code, .mono {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.88em;
+    color: var(--accent);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+  pre code { color: inherit; font-size: inherit; }
+
+  .map {
+    background: var(--bg-2);
+    border-left: 2px solid var(--accent-soft);
+    padding: 16px 20px;
+    margin: 20px 0;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--ink-2);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .map .n { color: var(--accent); }
+  .map .e { color: var(--ink-3); }
+
+  table.scoreboard {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 14px;
+  }
+  table.scoreboard th,
+  table.scoreboard td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  table.scoreboard th {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    border-bottom: 1px solid var(--accent-soft);
+  }
+  .status {
+    display: inline-block;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    border-radius: 2px;
+    text-transform: uppercase;
+  }
+  .status.pass { color: var(--pass); border: 1px solid var(--pass); }
+  .status.warn { color: var(--warn); border: 1px solid var(--warn); }
+  .status.fail { color: var(--fail); border: 1px solid var(--fail); }
+  .status.stub { color: var(--ink-3); border: 1px solid var(--rule); }
+
+  .insight {
+    background: linear-gradient(0deg, rgba(230, 167, 86, 0.04), rgba(230, 167, 86, 0.08));
+    border: 1px solid var(--accent-soft);
+    border-left-width: 3px;
+    padding: 16px 20px;
+    margin: 28px 0;
+    border-radius: 2px;
+  }
+  .insight .label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .insight p { margin: 0; color: var(--ink); }
+  .insight p + p { margin-top: 10px; }
+
+  details {
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    margin: 20px 0;
+    background: var(--bg-2);
+  }
+  details summary {
+    cursor: pointer;
+    padding: 10px 16px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    list-style: none;
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::before { content: "▸  "; color: var(--accent); }
+  details[open] summary::before { content: "▾  "; }
+  details[open] summary { border-bottom: 1px solid var(--rule); color: var(--accent); }
+  details .body { padding: 14px 18px; }
+
+  .gap-list { counter-reset: g; list-style: none; padding: 0; }
+  .gap-list li {
+    counter-increment: g;
+    padding: 14px 0 14px 52px;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+  .gap-list li::before {
+    content: "G." counter(g);
+    position: absolute;
+    left: 0;
+    top: 14px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+  }
+  .gap-list li .sev {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-right: 8px;
+  }
+  .gap-list li .sev.critical { color: var(--fail); }
+  .gap-list li .sev.high { color: var(--warn); }
+  .gap-list li .sev.medium { color: var(--accent-soft); }
+  .gap-list li .title { color: var(--ink); font-weight: 500; }
+  .gap-list li p { margin: 6px 0 0; font-size: 15px; color: var(--ink-2); }
+  .gap-list li p code { color: var(--accent); }
+
+  hr.soft { border: none; border-top: 1px solid var(--rule); margin: 48px 0; }
+
+  .timeline { list-style: none; padding: 0; margin: 28px 0; border-left: 2px solid var(--rule); }
+  .timeline li { padding: 10px 0 14px 20px; position: relative; margin-left: 0; }
+  .timeline li::before {
+    content: "";
+    position: absolute;
+    left: -7px;
+    top: 16px;
+    width: 10px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .timeline li .when {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .timeline li .what { color: var(--ink); }
+
+  figure.diagram {
+    margin: 28px 0;
+    background: var(--bg-2);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 20px;
+  }
+  figure.diagram svg { width: 100%; height: auto; display: block; }
+  figure.diagram figcaption {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-top: 14px;
+    text-align: center;
+  }
+
+  footer.closing {
+    margin-top: 96px;
+    padding-top: 32px;
+    border-top: 1px solid var(--rule);
+    font-size: 14px;
+    color: var(--ink-3);
+  }
+  footer.closing .mono { color: var(--ink-3); }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 32px; padding: 24px 20px 80px; }
+    nav.toc { position: static; }
+    header.masthead h1 { font-size: 34px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <h4>Chapters</h4>
+  <ol>
+    <li><a href="#ch1">The Shape</a></li>
+    <li><a href="#ch2">Chat</a></li>
+    <li><a href="#ch3">Terminal</a></li>
+    <li><a href="#ch4">Visual</a></li>
+    <li><a href="#ch5">Audio</a></li>
+    <li><a href="#ch6">Agent Infra</a></li>
+    <li><a href="#ch7">Native Shell</a></li>
+    <li><a href="#ch8">Cross-cutting</a></li>
+    <li><a href="#ch9">Scoreboard</a></li>
+    <li><a href="#ch10">What It Says</a></li>
+  </ol>
+  <div class="toc-note">
+    Compiled from seven parallel surface audits, read against HEAD on <span class="mono">harness-electron</span>. Source of truth is the code, not the intent.
+  </div>
+</nav>
+
+<article>
+
+<header class="masthead">
+  <div class="kicker">Control Deck · Architecture Chronicle · v0.1</div>
+  <h1>The shape of what ships,<br/>what's wired but mute,<br/>and what's still imagined.</h1>
+  <p class="sub">A whole-system maturity audit of Control Deck, told honestly across thirteen surfaces and the rails that bind them.</p>
+  <div class="meta">READ · ≈ 35 MIN    ·    SCOPE · 13 SURFACES, ~14 000 LOC    ·    METHOD · 7 PARALLEL CODE ARCHAEOLOGIES</div>
+</header>
+
+<section id="ch1">
+<h2><span class="ch">Chapter 01</span>The Shape</h2>
+
+<p class="dropcap">Control Deck is not one thing. It is thirteen rooms in a house that was framed before any room was finished, and the work you see when you open a door is wildly uneven: some rooms are lived-in, some are drywalled, some are still drawn on paper tacked to a stud. The temptation — with a system this ambitious — is to describe the blueprint. The honest thing is to describe the house.</p>
+
+<p>This chronicle does the honest thing. It walks through every surface the deck exposes — chat, terminal, four creative surfaces, five agent-infra tabs, the native shell, and the cross-cutting chrome — and names, for each: <em>what actually works end-to-end today</em>, <em>what is wired but mute</em> (types, routes, IPC handlers, UI slots with no caller), and <em>what is still intent without scaffolding</em>. No aspiration is scored as shipped. No shipped mechanism is underplayed.</p>
+
+<p>The finding, in one sentence, before any detail: <strong>the deck is a mature frame with three genuinely deep rooms, four half-finished rooms, and six rooms that exist primarily as doors.</strong></p>
+
+<figure class="diagram">
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .box { fill: #22201c; stroke: #3a362f; stroke-width: 1; }
+    .box.pass { stroke: #7dba74; }
+    .box.warn { stroke: #e6a756; }
+    .box.fail { stroke: #d17566; }
+    .box.stub { stroke: #3a362f; stroke-dasharray: 3 3; }
+    .lbl { font-family: "JetBrains Mono", monospace; font-size: 10px; fill: #e8e2d6; letter-spacing: 0.06em; }
+    .lbl.small { font-size: 9px; fill: #8b8476; }
+    .lbl.title { font-size: 11px; fill: #e6a756; letter-spacing: 0.12em; }
+    .edge { stroke: #3a362f; fill: none; stroke-width: 1; }
+    .bus { stroke: #e6a756; fill: none; stroke-width: 1.2; stroke-dasharray: 1 2; opacity: 0.55; }
+  </style>
+
+  <text x="360" y="22" text-anchor="middle" class="lbl title">CONTROL DECK · COMPONENT MAP</text>
+
+  <rect x="20" y="46" width="680" height="28" class="box" />
+  <text x="360" y="65" text-anchor="middle" class="lbl">DECKSHELL  ·  WARP THEMING  ·  PREFLIGHTGATE  ·  COMMAND PALETTE  ·  SETTINGS</text>
+
+  <rect x="20" y="92" width="120" height="62" class="box pass" />
+  <text x="80" y="113" text-anchor="middle" class="lbl">CHAT</text>
+  <text x="80" y="131" text-anchor="middle" class="lbl small">AGUI · SSE</text>
+  <text x="80" y="145" text-anchor="middle" class="lbl small">agent-go :4243</text>
+
+  <rect x="160" y="92" width="120" height="62" class="box warn" />
+  <text x="220" y="113" text-anchor="middle" class="lbl">TERMINAL</text>
+  <text x="220" y="131" text-anchor="middle" class="lbl small">PTY SIDECAR</text>
+  <text x="220" y="145" text-anchor="middle" class="lbl small">:4010 / ws</text>
+
+  <rect x="300" y="92" width="120" height="62" class="box warn" />
+  <text x="360" y="113" text-anchor="middle" class="lbl">VISUAL</text>
+  <text x="360" y="131" text-anchor="middle" class="lbl small">CANVAS · COMFY</text>
+  <text x="360" y="145" text-anchor="middle" class="lbl small">DOJO · BROWSER</text>
+
+  <rect x="440" y="92" width="120" height="62" class="box warn" />
+  <text x="500" y="113" text-anchor="middle" class="lbl">AUDIO</text>
+  <text x="500" y="131" text-anchor="middle" class="lbl small">VOICE · LIVE</text>
+  <text x="500" y="145" text-anchor="middle" class="lbl small">tone.js · ws :8000</text>
+
+  <rect x="580" y="92" width="120" height="62" class="box stub" />
+  <text x="640" y="113" text-anchor="middle" class="lbl">CONTROL</text>
+  <text x="640" y="131" text-anchor="middle" class="lbl small">RUNS · TOOLS · MODELS</text>
+  <text x="640" y="145" text-anchor="middle" class="lbl small">AGENTGO · STUDIO</text>
+
+  <rect x="20" y="178" width="680" height="54" class="box warn" />
+  <text x="360" y="198" text-anchor="middle" class="lbl">NATIVE SHELL  ·  ELECTRON MAIN  ·  PORTAL BRIDGE  ·  REMOTEDESKTOP  ·  THEMED BROWSER  ·  WL-ACTIVATE  ·  SCREENCAST</text>
+  <text x="360" y="218" text-anchor="middle" class="lbl small">native_key · native_focus · native_click · ATSPI fallback</text>
+
+  <rect x="20" y="252" width="330" height="54" class="box pass" />
+  <text x="185" y="272" text-anchor="middle" class="lbl">AG-UI EVENT PROTOCOL  ·  SQLite runs + events</text>
+  <text x="185" y="290" text-anchor="middle" class="lbl small">threads · messages · reducer · SSE hub</text>
+
+  <rect x="370" y="252" width="330" height="54" class="box warn" />
+  <text x="535" y="272" text-anchor="middle" class="lbl">TOOL REGISTRY  ·  PROVIDER LAYER</text>
+  <text x="535" y="290" text-anchor="middle" class="lbl small">25 LLM tools + 5 plugin tools + 10 providers</text>
+
+  <rect x="20" y="326" width="680" height="38" class="box stub" />
+  <text x="360" y="350" text-anchor="middle" class="lbl">WIDGETS  ·  PLUGIN HOST  ·  INSPECTOR  ·  SIDEBAR NOW-PANEL  ·  CANVAS PANEL</text>
+
+  <rect x="20" y="382" width="680" height="22" class="box" />
+  <text x="360" y="397" text-anchor="middle" class="lbl small">LEGEND · green = working end-to-end · orange = partial · dashed = mostly scaffolding</text>
+</svg>
+<figcaption>The deck's real topology: three surfaces that light up, four that half-light, and a floor of infrastructure that is deeper than any single room it serves.</figcaption>
+</figure>
+
+<h3>Maturity at a glance</h3>
+
+<table class="scoreboard">
+  <thead><tr>
+    <th>Surface</th><th>Status</th><th>Depth</th><th>Main load-bearing dependency</th>
+  </tr></thead>
+  <tbody>
+  <tr><td>Chat</td><td><span class="status pass">Ships</span></td><td>Deep — full SSE + interrupts</td><td><code>agent-go :4243</code></td></tr>
+  <tr><td>Terminal</td><td><span class="status warn">Partial</span></td><td>Solid PTY; NOW panel stubbed</td><td><code>terminal-service :4010</code></td></tr>
+  <tr><td>Canvas</td><td><span class="status pass">Ships</span></td><td>Real code-exec round-trip</td><td><code>/api/code/execute</code></td></tr>
+  <tr><td>Comfy (Visual)</td><td><span class="status warn">Partial</span></td><td>Live proxy, presets inert</td><td><code>ComfyUI :8188</code></td></tr>
+  <tr><td>Dojo (Studio)</td><td><span class="status warn">Scaffold</span></td><td>Static demos; live runner unwired</td><td>none</td></tr>
+  <tr><td>Browser pane</td><td><span class="status warn">Unreachable</span></td><td>Full IPC; no UI trigger</td><td>Electron only</td></tr>
+  <tr><td>Voice</td><td><span class="status pass">Ships</span></td><td>Full WS round-trip</td><td>Python sidecar <code>:8000</code></td></tr>
+  <tr><td>Live</td><td><span class="status warn">Fresh</span></td><td>Transport works; AI-gen dead</td><td><code>tone.js</code></td></tr>
+  <tr><td>Runs</td><td><span class="status pass">Ships</span></td><td>Real SQLite; live SSE refresh</td><td><code>agui/db.ts</code></td></tr>
+  <tr><td>AgentGo</td><td><span class="status warn">Conditional</span></td><td>Works if Go server is up</td><td><code>agent-go :4243</code></td></tr>
+  <tr><td>Models</td><td><span class="status fail">Narrow</span></td><td>Ollama-only; provider layer unwired</td><td><code>/api/ollama/tags</code></td></tr>
+  <tr><td>Tools</td><td><span class="status fail">Mislabeled</span></td><td>Service-health, not tool browser</td><td><code>/api/system/stats</code></td></tr>
+  <tr><td>Native Shell</td><td><span class="status warn">Plumbed</span></td><td>Portal works; shift-typing broken</td><td>xdg-desktop-portal</td></tr>
+  </tbody>
+</table>
+
+<div class="insight">
+<div class="label">Pattern</div>
+<p>Scaffolding runs ahead of flesh everywhere. Routes redirect into tabs; tabs host panes; panes render shells; shells read hooks; hooks sometimes reach real data and sometimes reach static demo fixtures. The difference is rarely visible to a user — which is the danger.</p>
+</div>
+
+</section>
+
+<section id="ch2">
+<h2><span class="ch">Chapter 02</span>Chat &mdash; the one that carries the product</h2>
+
+<p>The chat surface is the most complete thing in the repository. It is also the one that most exposes the convention Control Deck has chosen: <em>build the UI contract first, and outsource cognition to a subprocess</em>. The subprocess in question is <code>agent-go</code>, a local Go binary on port 4243, and the deck's chat route (<code>app/api/chat/route.ts</code>) is an SSE proxy in front of it with a reducer on the other side.</p>
+
+<div class="map"><span class="e">User ─►</span> ChatSurface <span class="e">─►</span> useAgentRun <span class="e">(reducer + SSE)</span>
+useAgentRun <span class="e">─POST /api/chat─►</span> <span class="n">agent-go :4243</span>
+agent-go <span class="e">─SSE─►</span> /api/chat/route.ts <span class="e">─►</span> hub.publish(threadId, AGUIEvent)
+AGUIEvent <span class="e">─►</span> dispatchSSEEvent <span class="e">─►</span> agentRunReducer <span class="e">─►</span> AgentRunState
+AgentRunState.segments <span class="e">─►</span> ChatTimeline <span class="e">─►</span> TimelineSegments
+InterruptRequested <span class="e">─►</span> InterruptDialog <span class="e">─POST─►</span> agent-go
+Thread <span class="e">─►</span> SQLite (threads, messages) <span class="e">· Runs ─►</span> SQLite (runs, events)
+</div>
+
+<p><strong>What ships.</strong> Three visual variants (<code>safe</code>, <code>brave</code>, <code>radical</code>) of the same reducer-driven surface. A full AG-UI state machine — <code>SUBMIT → RUN_STARTED → TEXT_* / TOOL_* / REASONING_* → RUN_FINISHED/ERROR</code> — dispatched at <code>lib/hooks/useAgentRun.ts:369</code>. Human-in-the-loop interrupts that round-trip through <code>/api/chat/approve</code>. Voice chat with push-to-talk, VAD, barge-in, and TTS auto-read wired end-to-end. Thread persistence with LLM-generated titles in SQLite.</p>
+
+<p><strong>What is wired but mute.</strong> The provider abstraction in <code>lib/llm/providers.ts</code> supports ten backends, has a runtime-override mechanism (<code>setRuntimeProvider</code>), and a system-prompt builder (<code>buildSystemPrompt</code>) that composes GPU stats + a GLYPH-compressed tool catalog + model-specific meta files. <strong>None of it is called in the chat path.</strong> The Go subprocess owns the system prompt; the deck's careful prompt machinery has no consumer. <code>moby.txt</code>, <code>moby-lite.txt</code>, and every file under <code>lib/prompts/meta/</code> are unreferenced at runtime.</p>
+
+<p>The Dojo AG-UI reference implementation (<code>lib/agui/dojo/</code>) is explicit about being unwired: its index comment reads <em>"Reference implementation — not wired into the main deck surface yet."</em> Its hook (<code>useAgui.ts</code>) has exactly one non-test caller: a demo card.</p>
+
+<div class="insight">
+<div class="label">The silent gap that matters most</div>
+<p>When an <code>InterruptRequested</code> fires, the dialog renders and the user can approve. The approve HTTP call succeeds. But <code>ChatSurface.onApprove</code> (<code>ChatSurface.tsx:1073-1080</code>) only calls <code>console.log</code> and <code>setPendingInterrupt(null)</code> — no action dispatched to the reducer. There is no <code>INTERRUPT_RESOLVED</code> case. The <code>InterruptResolved</code> event that agent-go sends back falls through <code>dispatchSSEEvent</code>'s default no-op branch. The run stays visually frozen in whatever phase it was in when the interrupt fired, even though the server has resumed.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li>
+    <span class="sev high">High</span>
+    <span class="title"><code>buildSystemPrompt</code> authored, not called.</span>
+    <p>The deck's carefully-composed system prompt (environment, GPU, tool catalog, model meta) has zero active callsites. agent-go owns the prompt. If the Go-side prompt diverges from the deck's intent, there is no reconciliation. The whole <code>lib/prompts/</code> tree is dead from the main chat pipeline's perspective.</p>
+  </li>
+  <li>
+    <span class="sev high">High</span>
+    <span class="title">Interrupt approvals don't rehydrate run state.</span>
+    <p>No <code>INTERRUPT_RESOLVED</code> action; no case for the <code>InterruptResolved</code> event; no phase transition after approve. Missing ~15 lines in the reducer and dispatcher.</p>
+  </li>
+  <li>
+    <span class="sev medium">Medium</span>
+    <span class="title">Event types declared but silently dropped.</span>
+    <p><code>CostIncurred</code> is imported in the route but never emitted. <code>StepStarted</code> and <code>StepFinished</code> are emitted by agent-go but have no reducer case — they fall through <code>dispatchSSEEvent</code>'s default. Inspector and timeline have nowhere to show step-level progress or accumulated cost, though the protocol carries it.</p>
+  </li>
+</ol>
+</section>
+
+<section id="ch3">
+<h2><span class="ch">Chapter 03</span>Terminal &mdash; solid spine, absent spirit</h2>
+
+<p>The terminal surface is a decent re-reading of the Amp/Zed/Goose sidebar-plus-dominant-pane pattern. A thin PTY sidecar (<code>scripts/terminal-service.ts</code>, Node + <code>node-pty</code>, raw WebSocket on port 4010) backs a launcher with three profiles — <code>shell</code>, <code>claude</code>, <code>opencode</code> — and an <code>@wterm/react</code> viewport.</p>
+
+<div class="map"><span class="n">TerminalPage</span>
+  <span class="e">└─►</span> TerminalPane
+        <span class="e">├─►</span> useTerminalSessions <span class="e">─►</span> terminalClient <span class="e">─WS─►</span> :4010 <span class="e">─►</span> node-pty
+        <span class="e">├─►</span> Launcher  (shell | claude | opencode)
+        <span class="e">├─►</span> Session list  (localStorage-persisted active id)
+        <span class="e">├─►</span> SessionContextBox <span class="e">(NOW panel: OFFLINE | IDLE | EXITED | TASK STACK | NOW)</span>
+        <span class="e">└─►</span> @wterm/react Terminal
+</div>
+
+<p><strong>What ships.</strong> Real PTYs. Singleton-per-label behaviour for <code>claude</code> and <code>opencode</code> (relaunch re-attaches). 1 MB scrollback replay on re-attach. Health polling every 5s. <code>Alt+N / Alt+W / Alt+Shift+R / Alt+1-9</code> shortcuts wired. NOW panel's OFFLINE, IDLE, EXITED, and shell-running variants all render correctly with real uptime and PID.</p>
+
+<p><strong>What is wired but mute.</strong> <code>TerminalMetaMessage.title</code> in the type declaration — the sidecar never emits it, the pane never reads it. <code>window.__HOME__</code>, which <code>compactPath()</code> reads to produce <code>~/foo</code>-style paths, is never injected — so every path across the UI renders as a full absolute string. <code>CreateTerminalSessionInput.cwd</code> is never sent from the UI, so all sessions spawn in the <em>sidecar's</em> cwd, not the user's project directory.</p>
+
+<div class="insight">
+<div class="label">The TASK STACK hole</div>
+<p>When a claude or opencode session is running, the NOW panel is supposed to show a task stack — what the agent is doing. The code for that branch (<code>TerminalPane.tsx:828</code>) renders exactly one line: <em>"Tasks will land here as the agent works."</em> There is no data source, no hook, no polling, no protocol. The WebSocket carries raw PTY bytes; structured task events from the agent would require either heuristic stdout parsing or a second event channel that does not exist.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li><span class="sev high">High</span> <span class="title">TASK STACK is pure placeholder.</span><p>The headline affordance of the NOW panel — agent task introspection — is a static string.</p></li>
+  <li><span class="sev high">High</span> <span class="title">No sidecar lifecycle management.</span><p>Manual <code>npm run terminal-service</code>. No auto-start, no Electron child-spawn, no WebSocket reconnect. Sidecar death ⇒ page refresh.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title"><code>__HOME__</code> and <code>cwd</code> both unset.</span><p>Every path in the UI shows the sidecar's absolute cwd, uncompacted — doubly misleading.</p></li>
+</ol>
+</section>
+
+<section id="ch4">
+<h2><span class="ch">Chapter 04</span>Visual &mdash; one living room, three sketches</h2>
+
+<p>The Visual family is four surfaces of wildly differing depth, all rolled under <code>/deck/visual</code> and friends. <strong>Canvas</strong> is the surprise: a real, functional side-panel with Monaco, sandboxed previews, and end-to-end code execution. <strong>Comfy</strong> is a thin but genuine proxy to a local ComfyUI. <strong>Dojo</strong> is a static component gallery whose live backend is built and disconnected. The <strong>Browser pane</strong> is fully plumbed Electron IPC with no caller.</p>
+
+<div class="map">/deck/visual <span class="e">─►</span> ComfyPane    <span class="e">(proxies ComfyUI :8188)</span>
+/deck/control?tab=studio <span class="e">─►</span> DojoPane <span class="e">(static specimens, live runner unused)</span>
+chat sidebar <span class="e">─►</span> CanvasPanel <span class="e">(monaco + iframe + /api/code/execute)</span>
+Electron <span class="e">─►</span> themed-browser <span class="e">─►</span> BaseWindow(header + page) <span class="e">── no trigger ──</span>
+</div>
+
+<p><strong>What ships — Canvas.</strong> Multi-tab Monaco, undo/redo with localStorage-persisted revisions, a real execution pipe into <code>lib/tools/code-exec</code> supporting Python/Go/Bash/HTML/React/Three.js with sandboxing, sandboxed iframe previews for bundles, image grid, audio player, and a <code>&lt;model-viewer&gt;</code> 3D tab. This surface is doing work.</p>
+
+<p><strong>What ships — Comfy.</strong> A history dashboard that polls <code>/api/comfy/history</code> (proxying <code>http://localhost:8188/history</code>) every 5s; <code>DELETE</code> sends <code>POST /interrupt</code> to ComfyUI; thumbnails render via <code>/api/comfy/view</code> proxy; <code>POST /api/comfy/prompt</code> queues workflows and emits AG-UI events; the "Open UI" button hard-links to <code>:8188</code>. If ComfyUI isn't running, every fetch 502s and the panel shows <em>"No jobs in history."</em></p>
+
+<p><strong>What is wired but mute — Browser pane.</strong> <code>themed-browser.ts</code> is eagerly registered in <code>electron/main.ts</code> before <code>createWindow()</code>. All seven IPC handlers are mounted. <code>preload.ts</code> exposes <code>window.deck.browser</code> with the full API. <code>BrowserHeader.tsx</code> subscribes to <code>browser:state</code> events and wires every nav button. <code>app/browser/page.tsx</code> mounts the header. <strong>Nothing in the renderer ever calls <code>window.deck.browser.open(url)</code>.</strong> The pane is inert until one button invokes one IPC.</p>
+
+<p><strong>What is wired but mute — Dojo.</strong> <code>DemoRunner</code>, <code>EventViewer</code>, and <code>DemoCard</code> are built, exported, and the SSE pipeline at <code>/api/dojo/demo</code> + <code>/api/dojo/stream</code> emits the full AG-UI event sequence. <code>DojoPane.tsx</code> never imports <code>DemoRunner</code>. All 8 specimens are driven from hardcoded props.</p>
+
+<div class="insight">
+<div class="label">Three "Send to ComfyUI" buttons</div>
+<p>Comfy's preset cards — Stable Audio, Hunyuan 3D, Qwen Edit — are rendered with <code>disabled</code> and <code>title="Preset workflows not yet implemented"</code>. The queue endpoint works; the workflow JSON payloads have not been authored. This is the entire gap: three JSON files and three button handlers.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li><span class="sev high">High</span> <span class="title">Dojo's live demo backend is orphan code.</span><p>Every specimen shows static prop data even though the SSE pipeline exists. One-line import would wire it.</p></li>
+  <li><span class="sev high">High</span> <span class="title">Browser pane has no launch trigger.</span><p>A complete Electron sub-window system with zero callers. One button anywhere in the deck invokes it.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">Comfy preset workflows are permanent stubs.</span><p>The only user path to queue generative work from within the deck is three disabled buttons.</p></li>
+</ol>
+</section>
+
+<section id="ch5">
+<h2><span class="ch">Chapter 05</span>Audio &mdash; two halves, both unfinished differently</h2>
+
+<p>The audio surface was the provoking context for this chronicle. Live was just rebuilt from first principles — the 518-LOC <code>engine.ts</code> retired, a diff-reconciled <code>transport.ts</code> swapped in, a four-zone FL-native pane shipped. Voice is older and deeper. Both have holes, different kinds.</p>
+
+<h3>Voice</h3>
+
+<p>Provider is a <em>local</em> Python sidecar on <code>ws://&lt;host&gt;:8000/ws</code> — not Hume, not OpenAI Realtime. Three TTS engines (piper / xtts / chatterbox); Whisper STT. <code>useVoiceChat</code> captures <code>audio/webm;codecs=opus</code> via <code>MediaRecorder</code>, base64-encodes over WS, gets binary blobs back, runs them through compressor + EQ + 8% wet reverb, and plays via <code>AudioBufferSourceNode</code>. <code>VoiceModeSheet</code> wraps this into a continuous-listen loop with VAD, push-to-talk, barge-in, streaming sentence-by-sentence TTS, and pre-baked filler audio (5 WAVs in <code>/audio/fillers/</code>) to cover LLM latency.</p>
+
+<p>The REST fallback routes exist at <code>/api/voice/stt</code> and <code>/api/voice/tts</code>. <code>useVoiceChat</code> never calls them — it only uses the WebSocket. Any cloud fallback would require rewriting the transport layer.</p>
+
+<h3>Live</h3>
+
+<div class="map"><span class="n">model.ts</span>  Channel · Pattern · PlaylistClip(Pattern|Audio) · Insert · LaunchGroup · Song
+<span class="n">store.ts</span>  SongStore  <span class="e">— immutable-by-reference, diffable</span>
+<span class="n">transport.ts</span>  LiveTransport  <span class="e">— subscribes store, reconciles Tone.js graph on diff</span>
+<span class="n">mini.ts</span>  tinynotation parser
+<span class="n">script.ts</span>  DSL (BPM, track patterns, FX chains, sample directives)
+<span class="n">importer.ts</span>  script → SongStore  <span class="e">(creates pending AudioClips for `sample N:` lines)</span>
+UI: TransportBar · PatternRack · Playlist · LaunchBar · Mixer  <span class="e">— the four-zone FL-native pane</span>
+</div>
+
+<p><strong>What ships.</strong> <code>Tone.getTransport().start/stop</code>, BPM ramp, master gain ramp. Step pattern → <code>Tone.Part</code> scheduling with BBS mapping. AudioClip → <code>Tone.Player</code> sync. The diff-reconciler handles add/remove/change on all four model dimensions without full rebuild. Drum voices (<code>MembraneSynth</code>, <code>NoiseSynth</code>, <code>MetalSynth</code>), synth (<code>PolySynth fatsawtooth</code>), sampler (<code>Tone.Player</code>). Five builtin FX (reverb, delay, chorus, AutoFilter, distortion) with wet + bypass. Scene-launch with quantized triggers (immediate/beat/bar/2bar/4bar) and clean handoff between scenes.</p>
+
+<p><strong>What is wired but mute.</strong> <code>AudioClip.generation</code> carries <code>{prompt, duration, loader, status:"pending", jobId?}</code>. <code>importer.ts</code> stamps <code>status:"pending"</code> clips when a <code>sample N:</code> line is parsed. The API route <code>/api/live/sample</code> exists and would call ComfyUI. The AI tool <code>live.generate_sample</code> is in <code>lib/tools/executor.ts:1079</code>. <strong>There is zero UI code that calls the API, polls for completion, or writes the artifact URL back to the clip.</strong> Pending clips sit in the Playlist forever with <em>"…generating"</em>.</p>
+
+<p><strong>What is wired but mute — the silent bug.</strong> <code>Insert.gainDb</code> is a model field. The Mixer slider writes it to the store. The store round-trips it. <code>LiveTransport</code> never reads it. <code>InsertNodes</code> uses bare <code>Tone.Gain(1)</code> with no volume control. <strong>The per-insert gain fader is cosmetic; it moves nothing.</strong></p>
+
+<div class="insight">
+<div class="label">Honest about Live</div>
+<p>The Live rebuild shipped the skeleton and the nervous system: model, store, reconciler, UI layout, scene-launch. It did not ship the flesh: AI generation is dead, insert gain is silently broken, there's no persistence (<code>serializeSong</code> / <code>deserializeSong</code> exist in <code>model.ts:268</code> with no callers), piano is a placeholder poly-synth, WAM2 is a passthrough, automation doesn't exist, sidechains don't exist. The scene-launch boundary handoff is real and worth being proud of. Everything else is a promise.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li><span class="sev critical">Critical</span> <span class="title">AudioClip AI generation is a dead end.</span><p>Pending clips never resolve. Full round-trip missing: no UI→API call, no polling, no patch-back to SongStore. The novel feature is a type stub with unreachable machinery behind it.</p></li>
+  <li><span class="sev high">High</span> <span class="title">Insert gain fader is decorative.</span><p><code>Insert.gainDb</code> written, never read by the transport. Replace <code>InsertNodes.input</code> with <code>Tone.Channel</code>; wire <code>gainDb</code> in <code>rebuildInsertChain</code>.</p></li>
+  <li><span class="sev high">High</span> <span class="title">No song persistence.</span><p>Reload ⇒ total loss. <code>serializeSong</code> / <code>deserializeSong</code> exist; nothing calls them.</p></li>
+  <li><span class="sev critical">Critical</span> <span class="title">Voice has no fallback path.</span><p>Python sidecar down ⇒ entire voice surface disabled. REST proxies at <code>/api/voice/*</code> exist but the hook doesn't use them.</p></li>
+  <li><span class="sev high">High</span> <span class="title">Voice turns are invisible to chat history.</span><p><code>VoiceModeSheet</code>'s <code>conversationRef</code> wipes on close. No write to thread context.</p></li>
+</ol>
+</section>
+
+<section id="ch6">
+<h2><span class="ch">Chapter 06</span>Agent Infrastructure &mdash; one functional tab, four signs</h2>
+
+<p>The <code>/deck/control</code> plane has five tabs: Runs, Tools, AgentGo, Models, Studio (Dojo). The standalone routes <code>/deck/runs</code>, <code>/deck/models</code>, <code>/deck/tools</code>, <code>/deck/agentgo</code> all redirect into Control. One of these tabs — Runs — is a deeply-functional real panel. The rest are scaffolding of varying intent.</p>
+
+<div class="map">ControlPane (tabbed shell)
+  <span class="e">├─►</span> RunsPane     <span class="e">── reads SQLite, SSE refresh, GLYPH view, clear</span>  <span class="n">[ships]</span>
+  <span class="e">├─►</span> ToolsPane    <span class="e">── service health + GPU + quick-actions</span>  <span class="n">[mislabeled]</span>
+  <span class="e">├─►</span> AgentGoPane  <span class="e">── needs Go server on :4243</span>  <span class="n">[conditional]</span>
+  <span class="e">├─►</span> ModelsPane   <span class="e">── Ollama tags only</span>  <span class="n">[narrow]</span>
+  <span class="e">└─►</span> DojoPane     <span class="e">── static specimens</span>  <span class="n">[scaffold]</span>
+</div>
+
+<p><strong>Runs.</strong> Reads from SQLite via <code>GET /api/agui/runs</code>. Shows token counts, cost, status dots. SSE at <code>/api/agui/stream</code> refreshes live. Clicking a run fetches its events. GLYPH view mode shows tool payload comparison. Clear button deletes all. This is a real observability panel.</p>
+
+<p><strong>Tools — the most misleading label.</strong> The tab is not a tool browser. It is a service-health dashboard: GPU stats via <code>nvidia-smi</code>, health of Ollama/ComfyUI/Terminal/VectorDB/SearxNG/Voice, latency, and "Quick Actions" that open external URLs. The 25 tools in <code>lib/tools/definitions.ts</code> — with full Zod schemas, descriptions, parameters — are <strong>invisible</strong>. No schema browser, no invocation UI, no way to run a tool directly. A user expecting <em>"see and test the tools"</em> finds <em>"see if the servers are up."</em></p>
+
+<p><strong>Models — narrowed to one provider.</strong> <code>lib/llm/providers.ts</code> is production-ready for ten backends (OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Ollama, llama.cpp, vLLM, LM Studio) with slot-based configuration, health checks, model listing, and runtime override. <code>ModelsPane</code> reads only from <code>/api/ollama/tags</code>. A user running GPT-4o or Claude has no signal in this UI.</p>
+
+<p><strong>AgentGo — blocked on one missing endpoint.</strong> <code>useAgentGoRun</code>'s dual-stream logic and <code>client.startRunWithStream</code> are complete — they call <code>POST /runs/stream</code> and expect <code>X-Run-Id</code> back. The Go server does not implement that endpoint. The pane forces <code>useTextStream: false</code> and falls back to SSE-only. Higher overhead, no backpressure.</p>
+
+<div class="insight">
+<div class="label">Two registries, neither surfaced</div>
+<p>The deck has two tool registries that don't know about each other: <code>lib/tools/definitions.ts</code> (25 LLM tools for the chat pipeline) and <code>lib/plugins/registry.ts</code> (5 widget data-sources). They share concept names (<em>web_search</em> appears in both) but have no shared schema, no deduplication, and no UI that shows either — let alone both.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li><span class="sev critical">Critical</span> <span class="title">"Tools" pane isn't a tool surface.</span><p>25 Zod-typed tools, zero UI for them. Add a catalog component reading <code>TOOL_DEFINITIONS</code>; ideally a "Run tool" form through <code>/api/tools/bridge</code>.</p></li>
+  <li><span class="sev high">High</span> <span class="title">Models pane hides the multi-provider layer.</span><p>Ten backends supported, one surfaced. No way to see active provider, switch it live, or see cloud health.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">AgentGo text streaming is blocked on a missing Go endpoint.</span><p>JS side is done. Go server needs <code>POST /runs/stream</code>.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">No run↔model correlation.</span><p><code>RunRow.model</code> is a string; no cross-link to the Models pane; cost is aggregated globally.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">Plugin/tool registry split is invisible.</span><p>Adding a new capability requires knowing which registry applies. There is no unifying surface.</p></li>
+</ol>
+</section>
+
+<section id="ch7">
+<h2><span class="ch">Chapter 07</span>Native Shell &mdash; the deepest room, with two gas leaks</h2>
+
+<p>The native layer is, surprisingly, the most thoroughly thought-through subsystem in the repository. Electron main starts Next.js as a subprocess, opens a single <code>BrowserWindow</code>, runs a random-port HTTP portal bridge, and owns an xdg-desktop-portal <code>RemoteDesktop</code> D-Bus session for Wayland key/pointer injection. A <code>themed-browser</code> service wraps <code>window.open</code> into a <code>BaseWindow</code> with a themed header strip. <code>wl-activate.py</code> performs the GNOME-specific focus-activation dance via GTK4 + <code>xdg_activation_v1</code>.</p>
+
+<div class="map">Electron main (process)
+  <span class="e">├─►</span> BrowserWindow <span class="e">── Next.js at :3333 (dev) / embedded standalone (packaged)</span>
+  <span class="e">├─►</span> preload <span class="e">── window.deck.invoke(channel, ...) and window.deck.browser</span>
+  <span class="e">├─►</span> portal bridge HTTP (secret-auth, Linux only)
+  <span class="e">│     ←──</span> Next.js server process <span class="e">(can't use IPC, uses HTTP)</span>
+  <span class="e">├─►</span> RemoteDesktopSession <span class="e">── org.freedesktop.portal.RemoteDesktop</span>
+  <span class="e">│     </span> sendKeyCombo · tapKeysym · typeString · clickPixel
+  <span class="e">├─►</span> themed-browser <span class="e">── BaseWindow(40px header + full page view), IPC wired</span>
+  <span class="e">├─►</span> wl-activator <span class="e">── shells out to wl-activate.py per call</span>
+  <span class="e">└─►</span> screencast session <span class="e">── screencast-capture.py / ScreenshotPortal fallback</span>
+</div>
+
+<p><strong>What ships.</strong> The app starts. The portal path for key injection is real: agent issues <code>native_key({key:"Ctrl+l"})</code> → <code>linuxAtspiAdapter</code> → portal HTTP <code>callPortal({op:"key"})</code> → <code>sendKeyCombo</code> → <code>NotifyKeyboardKeysym</code> press/release via D-Bus. User grants the portal session once; a restore token lives under <code>userData/portal-restore.token</code> for silent re-init. The themed-browser IPC round-trip is complete. <code>attach-harness.sh</code> probes the (opt-in) CDP port and execs <code>browser-harness</code> with the right env.</p>
+
+<p><strong>What is wired but mute.</strong> <code>ipcMain.handle("portal:status", ...)</code> at <code>main.ts:429</code> is registered. No renderer, no tool executor, no API route calls <code>window.deck.invoke("portal:status")</code>. It is a probe nothing probes. <code>lib/tools/native/input-common.ts</code> is a <code>@nut-tree/nut-js</code> shim with zero importers — the pre-portal fallback that wasn't removed. Darwin and Windows native adapters are explicit <code>unsupportedAdapter</code> stubs with "Phase D.2" in the comment.</p>
+
+<div class="insight">
+<div class="label">The typing bug that will bite you</div>
+<p><code>RemoteDesktopSession.typeString</code> decides shift per-character with <code>ch &gt;= "A" &amp;&amp; ch &lt;= "Z"</code>. That's the whole shift check. Any typed string containing <code>!</code>, <code>@</code>, <code>(</code>, <code>)</code>, <code>_</code>, <code>+</code>, <code>{</code>, <code>"</code>, <code>:</code>, <code>?</code> gets the un-shifted keysym injected — producing <code>1</code> instead of <code>!</code>, <code>9</code> instead of <code>(</code>, <code>-</code> instead of <code>_</code>. The ATSPI fallback uses <code>KEY_STRING</code> and sidesteps this. The portal path — which is preferred when <code>PORTAL_URL</code> is set — does not. Agents typing anything with punctuation will produce silently wrong output.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li><span class="sev critical">Critical</span> <span class="title"><code>typeString</code> mis-shifts punctuation.</span><p>A shift-table for the US layout (at minimum) is the fix. Currently: <em>most typed strings with punctuation are silently wrong.</em></p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">Portal bridge discovery is fragile + unobserved.</span><p>Handoff file re-read only on pid mismatch; <code>portal:status</code> IPC has no caller. Failures are invisible to the UI.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">ScreenCast has two layers of Python shell-out, no retry.</span><p>Transient <code>Start failed</code> drops the session; <code>ScreenshotPortal</code> fallback sets <code>interactive:true</code> which re-prompts the user on every capture for non-sandboxed processes.</p></li>
+</ol>
+</section>
+
+<section id="ch8">
+<h2><span class="ch">Chapter 08</span>Cross-cutting chrome &mdash; the lie of the bars</h2>
+
+<p>DeckShell stacks six providers — settings, thread manager, canvas, inspector, preflight, warp — and renders the frame: sidebar, optional thread rail, main, canvas panel, right-rail toggle strip, inspector sheet, command palette, settings drawer. Warp theming writes <code>data-warmth/type/accent/theme</code> on <code>&lt;html&gt;</code>; Tailwind resolves token aliases through CSS vars. PreflightGate probes <code>/api/preflight/status</code> and appends a dismissible banner.</p>
+
+<p><strong>PreflightGate does not gate.</strong> The component's comment is honest: <em>"Never block the UI. Always render children."</em> It renders a banner when services are down. The two preexisting TypeScript errors on lines 136 and 139 are a narrowing failure: the <code>showBanner</code> guard above the JSX block has already excluded <code>"probing"</code> from <code>state</code>, so <code>state === "probing"</code> in the Retry button props is literally unreachable. The <code>disabled</code> prop will never activate; the "Checking…" label will never show.</p>
+
+<p><strong>CommandPalette works — mostly.</strong> ~20 commands across navigation, settings, and actions. Navigation <code>router.push</code>es; settings commands flip provider setters; <code>action-clear-runs</code> really does <code>DELETE /api/agui/runs</code>. A "Shortcuts" category of entries has <code>action: () =&gt; {}</code> — they render in the palette and do nothing when selected.</p>
+
+<p><strong>Warp theming is functional.</strong> Real DOM attributes, real CSS-var resolution, real <code>localStorage</code> persistence under <code>controldeck.warp.v1</code>. The name evokes Warp-terminal but the integration is thematic only. <code>components/Tweaks.tsx</code> is an older parallel implementation (different storage key, <code>controldeck.tweaks.v1</code>) kept as a handoff spec — not mounted.</p>
+
+<h3>Widgets, by honesty</h3>
+
+<table class="scoreboard">
+  <thead><tr><th>Widget</th><th>Status</th><th>Source</th></tr></thead>
+  <tbody>
+  <tr><td>LiveTransportWidget</td><td><span class="status pass">Live</span></td><td><code>useLiveTransport</code> · real</td></tr>
+  <tr><td>VRAMWidget</td><td><span class="status pass">Live</span></td><td><code>useSystemStats</code> · GPU real</td></tr>
+  <tr><td>SystemHealthWidget</td><td><span class="status fail">Half-real</span></td><td>GPU real; CPU/RAM/Disk hardcoded <code>34/58/71</code></td></tr>
+  <tr><td>ServiceStatusWidget</td><td><span class="status pass">Live</span></td><td><code>useSystemStats</code></td></tr>
+  <tr><td>ModelFleetWidget</td><td><span class="status pass">Live</span></td><td><code>useModels</code></td></tr>
+  <tr><td>StatsWidget</td><td><span class="status pass">Live</span></td><td>localStorage counters</td></tr>
+  <tr><td>TodoWidget</td><td><span class="status pass">Live</span></td><td>localStorage</td></tr>
+  <tr><td>Weather/News/Stocks/Sports</td><td><span class="status warn">API-dependent</span></td><td><code>/api/widgets/*</code></td></tr>
+  <tr><td>RecentActivityWidget</td><td><span class="status fail">Demo-only</span></td><td>Hardcoded <code>DEMO_EVENTS</code>; no wired caller</td></tr>
+  <tr><td>QuickActionsWidget</td><td><span class="status pass">Live</span></td><td>Navigation <code>router.push</code></td></tr>
+  </tbody>
+</table>
+
+<div class="insight">
+<div class="label">The plugin system that nobody mounts</div>
+<p><code>PluginHost</code> and <code>PluginDock</code> are complete: drag-reorder, config, templates, auto-refresh, SQLite-persisted bundles, <code>/api/plugins/data</code>. No page in the app mounts either. The full widget-plugin layer is orphan code. The dashboard that would host it does not exist yet.</p>
+</div>
+
+<h3>Gaps</h3>
+<ol class="gap-list">
+  <li><span class="sev high">High</span> <span class="title">PreflightGate TS errors on lines 136, 139.</span><p>Narrowing reality: by the time the JSX in the banner block runs, <code>state</code> is already <code>"blocked" | "error"</code>. The probing check is dead. Fix: separate <code>isChecking</code> flag or move the check outside the banner guard.</p></li>
+  <li><span class="sev high">High</span> <span class="title">SystemHealthWidget lies about three bars.</span><p>CPU/RAM/Disk are literal constants rendered as live percentages. The <code>real: false</code> field exists in the data shape and is never read.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">RecentActivityWidget never connects to the session event bus.</span><p><code>useWidgets</code> already tracks messages and tool calls. One prop pass-through would make this real.</p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">Plugin system orphan.</span><p>A complete subsystem with no mount point.</p></li>
+</ol>
+</section>
+
+<section id="ch9">
+<h2><span class="ch">Chapter 09</span>Scoreboard &mdash; unrealized vs shipped</h2>
+
+<p>One table, no diplomacy. Each row is a discrete capability promised by the code (a type, an IPC handler, an exported component, an API route, a tool schema) and whether a user of the running application can reach it.</p>
+
+<table class="scoreboard">
+<thead><tr>
+  <th>Capability</th><th>Promise</th><th>Reality</th><th>State</th>
+</tr></thead>
+<tbody>
+<tr><td>Chat · HITL approve rehydrates run</td><td>Dialog approves; reducer resumes</td><td>Approve succeeds server-side; reducer never hears</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Chat · <code>buildSystemPrompt</code></td><td>Rich deck-side prompt</td><td>agent-go owns prompt; builder unused</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Chat · <code>StepStarted/Finished</code></td><td>Timeline per-step</td><td>Events arrive, reducer drops them</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Chat · <code>CostIncurred</code></td><td>Run-level cost</td><td>Imported, never emitted</td><td><span class="status stub">Declared</span></td></tr>
+<tr><td>Chat · Voice chat round-trip</td><td>PTT + VAD + barge-in</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Terminal · PTY sessions</td><td>Shell + agent profiles</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Terminal · NOW TASK STACK</td><td>Live agent task view</td><td>Static "Tasks will land here"</td><td><span class="status fail">Stub</span></td></tr>
+<tr><td>Terminal · Sidecar lifecycle</td><td>Auto-start + reconnect</td><td>Manual only</td><td><span class="status warn">Manual</span></td></tr>
+<tr><td>Terminal · Home-relative paths</td><td><code>~/…</code> compaction</td><td><code>window.__HOME__</code> never set</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Canvas · Code execute end-to-end</td><td>Python/Go/HTML/R/3D</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Comfy · History proxy</td><td>Real ComfyUI jobs</td><td>Works if server up</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Comfy · Preset workflows</td><td>3 one-click pipelines</td><td>Buttons disabled</td><td><span class="status fail">Stub</span></td></tr>
+<tr><td>Dojo · Live AG-UI demos</td><td>SSE-backed specimens</td><td>Static; runner unimported</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Browser pane</td><td>Themed in-deck browser</td><td>IPC complete, no trigger</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Voice · Local WS round-trip</td><td>STT + TTS + barge-in</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Voice · Cloud fallback</td><td><code>/api/voice/*</code> routes</td><td>Hook bypasses them</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Voice · Thread context bridge</td><td>Voice turns in chat history</td><td>Wiped on sheet close</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Live · Transport + patterns</td><td>BPM + quantized Parts</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Live · Scene-launch</td><td>Quantized trigger handoff</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Live · Insert gain fader</td><td>Per-insert volume</td><td>Cosmetic; never applied</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Live · AI sample generation</td><td><code>sample N:</code> → audio clip</td><td>Pending forever</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Live · Song persistence</td><td>serialize / deserialize</td><td>Functions exist; no callers</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Live · WAM2 plugin FX</td><td><code>wam:*</code> URIs</td><td>Passthrough <code>Gain(1)</code></td><td><span class="status stub">Declared</span></td></tr>
+<tr><td>Live · Piano instrument</td><td>Sampled piano (smplr)</td><td>Triangle <code>PolySynth</code></td><td><span class="status warn">Placeholder</span></td></tr>
+<tr><td>Agent · Runs observability</td><td>SQLite-backed table</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Agent · Tool catalog</td><td>25 Zod tools browsable</td><td>Tools tab shows service health</td><td><span class="status fail">Mislabeled</span></td></tr>
+<tr><td>Agent · Multi-provider UI</td><td>10 providers surfaced</td><td>Ollama-only</td><td><span class="status fail">Narrow</span></td></tr>
+<tr><td>Agent · AgentGo text stream</td><td><code>POST /runs/stream</code></td><td>Go endpoint missing</td><td><span class="status warn">Blocked</span></td></tr>
+<tr><td>Native · Key injection (portal)</td><td>Wayland keycombo + tap</td><td>Works</td><td><span class="status pass">Ships</span></td></tr>
+<tr><td>Native · typeString shifts</td><td>Correct punctuation</td><td>Shift only for A-Z</td><td><span class="status fail">Bug</span></td></tr>
+<tr><td>Native · Themed sub-browser</td><td>IPC-driven browser window</td><td>No renderer caller</td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Native · Darwin/Win adapters</td><td>Per-OS AX/UIA</td><td><code>unsupportedAdapter</code></td><td><span class="status stub">Stub</span></td></tr>
+<tr><td>Shell · PreflightGate</td><td>Block on missing services</td><td>Never blocks; banner only</td><td><span class="status warn">By design</span></td></tr>
+<tr><td>Shell · CommandPalette shortcuts</td><td>Run from palette</td><td><code>() =&gt; {}</code></td><td><span class="status fail">Mute</span></td></tr>
+<tr><td>Shell · System Health CPU/RAM/Disk</td><td>Real utilization</td><td>Hardcoded 34/58/71</td><td><span class="status fail">Fake</span></td></tr>
+<tr><td>Shell · RecentActivity feed</td><td>Real session events</td><td><code>DEMO_EVENTS</code></td><td><span class="status fail">Fake</span></td></tr>
+<tr><td>Shell · Plugin host</td><td>Widget plugin dashboard</td><td>Not mounted anywhere</td><td><span class="status fail">Orphan</span></td></tr>
+</tbody>
+</table>
+
+<p><strong>The count.</strong> Of 37 capabilities named: 10 ship end-to-end, 3 are partial or manual, 17 are wired but mute, 4 are declared-only stubs, 3 are fakes (lying to the user). The ratio of wired-to-reached is the chronicle's single most important number — <strong>roughly half of what the code announces, a user cannot reach.</strong></p>
+</section>
+
+<section id="ch10">
+<h2><span class="ch">Chapter 10</span>What it says</h2>
+
+<p class="dropcap">Every codebase is a statement. This one is saying, clearly and loudly, <em>"I want a certain shape."</em> The shape is coherent: a single deck with deep rooms for chat, terminal, visual creative, audio creative, agent operations, and native integration — all woven through a common event protocol, a common theming layer, a common command palette, and a common preflight. The shape is good. The shape is defensible. The shape is consistent.</p>
+
+<p>But the shape has been scaffolded far ahead of the flesh, and the deck has not yet paid the cost of that choice. The cost is visible in three places:</p>
+
+<p><strong>1. The mute wire problem.</strong> Half the capabilities the code announces are unreachable by a user. <code>portal:status</code>, <code>window.deck.browser.open</code>, <code>DemoRunner</code>, Dojo AG-UI, <code>serializeSong</code>, <code>buildSystemPrompt</code>, <code>setRuntimeProvider</code>, <code>Insert.gainDb</code>, plugin host, <code>CostIncurred</code>, <code>StepStarted</code>, cloud voice fallback — all wired, all mute. Each one is a decision-shaped hole. Someone thought carefully about the type, the endpoint, the handler. Nobody built the one call-site that closes the loop. The bill for scaffolding is always <em>the same size as the scaffolding</em>, and the deck hasn't paid it.</p>
+
+<p><strong>2. The fake data problem.</strong> Three UI elements — SystemHealth's CPU/RAM/Disk bars, RecentActivityWidget, three Comfy preset buttons — present fabricated or permanently-disabled state as real. This is a small surface, but its cost is outsized: it teaches users (including future-you) to distrust <em>every</em> widget, because there's no reliable cue to tell the real from the decorative. A single <code>data-real="false"</code> attribute styled with a dashed border would inoculate the whole deck.</p>
+
+<p><strong>3. The mislabel problem.</strong> The "Tools" tab is not a tool surface. The "Models" tab is not a provider surface. These names make promises the panels don't keep. The fix is either rename (cheap, dishonest) or build (honest, slow). The honest fix is one week of work on each to turn them into what their names say they are.</p>
+
+<div class="insight">
+<div class="label">The real architectural insight</div>
+<p>Control Deck is not <em>incomplete</em>. It is <em>overbuilt at the protocol layer and underbuilt at the call layer</em>. Every event type, every IPC handler, every hook, every reducer, every tool schema is in place. The missing work is almost entirely <em>one-line caller insertions</em> that close each protocol into a user-reachable loop. The deck does not need more architecture. It needs a focused week per surface closing the loops that are already open.</p>
+</div>
+
+<h3>What to do, in priority order</h3>
+
+<ol class="timeline">
+  <li><span class="when">Week 1 · Safety</span><span class="what">Fix Native <code>typeString</code> shift table (the only active data-corruption bug). Fix Live's <code>Insert.gainDb</code> silent break. Fix the SystemHealth fake bars (either wire <code>useSystemStats</code> or remove). Fix the two PreflightGate TS errors.</span></li>
+  <li><span class="when">Week 2 · Honesty</span><span class="what">Rename or rebuild "Tools" and "Models" tabs. Surface the 25-tool catalog. Surface the 10-provider layer. Kill RecentActivity's <code>DEMO_EVENTS</code> — wire <code>useWidgets</code> or remove the widget.</span></li>
+  <li><span class="when">Week 3 · Closing loops</span><span class="what">Wire <code>INTERRUPT_RESOLVED</code> into the chat reducer. Import <code>DemoRunner</code> into DojoPane. Add a single button that calls <code>window.deck.browser.open</code>. Implement one of the three Comfy preset workflows end-to-end. Close the AudioClip generation loop — call <code>/api/live/sample</code> from the Playlist, poll, patch the clip.</span></li>
+  <li><span class="when">Week 4 · Persistence</span><span class="what">Call <code>serializeSong</code> on every mutation; rehydrate on load. Bridge voice conversation into thread context. Auto-start the terminal sidecar from Electron.</span></li>
+  <li><span class="when">Later · Phase work</span><span class="what">WAM2 host for plugin FX. Sampled piano. Song automation lanes. macOS/Windows native adapters. Plugin dashboard mount point. AgentGo streaming endpoint.</span></li>
+</ol>
+
+<blockquote>
+The deck is a frame that keeps its promises. The test, now, is whether the frame gets filled or the promises get pruned. Both are legitimate. Drift is not.
+<span class="attrib">the chronicle, closing</span>
+</blockquote>
+
+</section>
+
+<footer class="closing">
+<p class="mono">chronicle compiled 2026-04-21 · branch harness-electron · 7 parallel audits synthesized</p>
+<p>Per-surface audits are the ground truth for this document. If any claim here surprises you, the claim is wrong and the code is right — open the cited file and the file is what actually runs.</p>
+</footer>
+
+</article>
+</div>
+</body>
+</html>

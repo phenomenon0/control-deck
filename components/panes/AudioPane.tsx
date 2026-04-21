@@ -10,9 +10,9 @@ import { Suspense, useCallback, type ComponentType } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { VoicePane } from "@/components/panes/VoicePane";
 
-// LivePane is dynamic-only (uses browser-only APIs) in the legacy route
+// LivePane uses Web Audio — browser-only.
 const LivePane = dynamic(
-  () => import("@/components/panes/LivePane").then((m) => m.LivePane),
+  () => import("@/components/panes/live/LivePane").then((m) => m.LivePane),
   { ssr: false, loading: () => <div className="p-6 text-sm text-[var(--text-muted)]">Loading…</div> },
 );
 

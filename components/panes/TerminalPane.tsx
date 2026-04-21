@@ -421,6 +421,37 @@ export function TerminalPane() {
       {/* ─── main: sidebar + surface ───────────────────────────────── */}
       <div className="tp-main">
         <aside className="tp-sidebar">
+          <div className="tp-sidebar-launch">
+            <button
+              type="button"
+              className="tp-new-btn tp-new-btn--primary"
+              onClick={() => void handleLaunch("shell")}
+              disabled={!serviceOnline || busyAction !== null}
+              title={`New shell (${KBD_NEW_SHELL})`}
+            >
+              <Icon.Plus size={12} sw={2} />
+              <span>Shell</span>
+              <span className="tp-new-btn-kbd">{KBD_NEW_SHELL}</span>
+            </button>
+            <button
+              type="button"
+              className="tp-new-btn"
+              onClick={() => void handleLaunch("claude")}
+              disabled={!serviceOnline || busyAction !== null}
+            >
+              <Icon.Plus size={12} sw={2} />
+              <span>Claude</span>
+            </button>
+            <button
+              type="button"
+              className="tp-new-btn"
+              onClick={() => void handleLaunch("opencode")}
+              disabled={!serviceOnline || busyAction !== null}
+            >
+              <Icon.Plus size={12} sw={2} />
+              <span>OpenCode</span>
+            </button>
+          </div>
           <div className="tp-sidebar-list">
             {sessions.length === 0 ? (
               <div className="tp-sidebar-empty">No shells yet.</div>
@@ -468,37 +499,18 @@ export function TerminalPane() {
               })
             )}
           </div>
-          <div className="tp-sidebar-new">
-            <button
-              type="button"
-              className="tp-new-btn tp-new-btn--primary"
-              onClick={() => void handleLaunch("shell")}
-              disabled={!serviceOnline || busyAction !== null}
-              title={`New shell (${KBD_NEW_SHELL})`}
-            >
-              <Icon.Plus size={12} sw={2} />
-              <span>Shell</span>
-              <span className="tp-new-btn-kbd">{KBD_NEW_SHELL}</span>
-            </button>
-            <button
-              type="button"
-              className="tp-new-btn"
-              onClick={() => void handleLaunch("claude")}
-              disabled={!serviceOnline || busyAction !== null}
-            >
-              <Icon.Plus size={12} sw={2} />
-              <span>Claude</span>
-            </button>
-            <button
-              type="button"
-              className="tp-new-btn"
-              onClick={() => void handleLaunch("opencode")}
-              disabled={!serviceOnline || busyAction !== null}
-            >
-              <Icon.Plus size={12} sw={2} />
-              <span>OpenCode</span>
-            </button>
-          </div>
+          <SessionContextBox
+            session={activeSession}
+            status={detailStatus}
+            pid={detailPid}
+            exitCode={meta.exitCode ?? null}
+            errorText={meta.error ?? null}
+            serviceOnline={serviceOnline}
+            staleCount={staleCount}
+            busy={busyAction !== null}
+            onRestart={() => void handleRestart()}
+            onKill={() => void handleKill()}
+          />
         </aside>
 
         <div className="tp-surface-wrap">
@@ -569,6 +581,152 @@ export function TerminalPane() {
             {serviceOnline ? "● online" : "○ offline"} · {health?.host ?? "127.0.0.1"}:
             {health?.port ?? 4010}
           </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────
+function SessionContextBox({
+  session,
+  status,
+  pid,
+  exitCode,
+  errorText,
+  serviceOnline,
+  staleCount,
+  busy,
+  onRestart,
+  onKill,
+}: {
+  session: TerminalSession | null;
+  status: TerminalSessionStatus | null;
+  pid: number | null;
+  exitCode: number | null;
+  errorText: string | null;
+  serviceOnline: boolean;
+  staleCount: number;
+  busy: boolean;
+  onRestart: () => void;
+  onKill: () => void;
+}) {
+  // offline
+  if (!serviceOnline) {
+    return (
+      <div className="tp-nowbox tp-nowbox--offline">
+        <div className="tp-nowbox-head">
+          <span className="tp-nowbox-tag tp-nowbox-tag--warn">OFFLINE</span>
+        </div>
+        <div className="tp-nowbox-body">
+          <div className="tp-nowbox-line tp-nowbox-dim">PTY sidecar isn't responding.</div>
+          <code className="tp-nowbox-code">npm run terminal-service</code>
+        </div>
+      </div>
+    );
+  }
+
+  // no active session
+  if (!session) {
+    return (
+      <div className="tp-nowbox tp-nowbox--idle">
+        <div className="tp-nowbox-head">
+          <span className="tp-nowbox-tag">IDLE</span>
+        </div>
+        <div className="tp-nowbox-body">
+          <div className="tp-nowbox-line tp-nowbox-dim">No thread attached.</div>
+          <div className="tp-nowbox-line tp-nowbox-dim">Launch one above, or pick a session from the list.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const isAgent = session.profile === "claude" || session.profile === "opencode";
+  const isRunning = status === "running" || status === "starting";
+  const isExited = status === "exited" || status === "error";
+
+  // exited — show exit code + restart
+  if (isExited) {
+    const code = typeof exitCode === "number" ? exitCode : null;
+    return (
+      <div className="tp-nowbox tp-nowbox--exited">
+        <div className="tp-nowbox-head">
+          <span className="tp-nowbox-tag tp-nowbox-tag--err">EXITED</span>
+          {code !== null && (
+            <span
+              className={`tp-nowbox-code-chip tp-nowbox-code-chip--${code === 0 ? "ok" : "err"}`}
+            >
+              code {code}
+            </span>
+          )}
+        </div>
+        <div className="tp-nowbox-body">
+          <div className="tp-nowbox-line tp-nowbox-dim">
+            stopped {formatRelativeTime(session.lastActiveAt)}
+          </div>
+          {errorText && <div className="tp-nowbox-line tp-nowbox-err">{errorText}</div>}
+          <button type="button" className="tp-nowbox-cta" onClick={onRestart} disabled={busy}>
+            Restart thread
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // agent running — task stack scaffold
+  if (isAgent && isRunning) {
+    return (
+      <div className="tp-nowbox tp-nowbox--agent">
+        <div className="tp-nowbox-head">
+          <span className="tp-nowbox-tag">TASK STACK</span>
+          <span className="tp-nowbox-pulse" />
+        </div>
+        <div className="tp-nowbox-body">
+          <div className="tp-nowbox-line tp-nowbox-dim">
+            {PROFILE_LABEL[session.profile]} running · pid {pid ?? "—"}
+          </div>
+          <div className="tp-nowbox-stack">
+            <div className="tp-nowbox-stack-empty">
+              Tasks will land here as the agent works.
+            </div>
+          </div>
+          <button type="button" className="tp-nowbox-cta tp-nowbox-cta--ghost" onClick={onKill} disabled={busy}>
+            <Icon.Stop size={10} sw={2} />
+            <span>Stop agent</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // shell running — live NOW panel
+  return (
+    <div className="tp-nowbox tp-nowbox--now">
+      <div className="tp-nowbox-head">
+        <span className="tp-nowbox-tag">NOW</span>
+        <span className="tp-nowbox-pulse" />
+      </div>
+      <div className="tp-nowbox-body">
+        <div className="tp-nowbox-row">
+          <span className="tp-nowbox-key">uptime</span>
+          <span className="tp-nowbox-val">{formatRelativeTime(session.startedAt)}</span>
+        </div>
+        {pid && (
+          <div className="tp-nowbox-row">
+            <span className="tp-nowbox-key">pid</span>
+            <span className="tp-nowbox-val">{pid}</span>
+          </div>
+        )}
+        <div className="tp-nowbox-row">
+          <span className="tp-nowbox-key">close</span>
+          <span className="tp-nowbox-val">
+            <kbd className="tp-nowbox-kbd">{KBD_CLOSE}</kbd> or <code>exit</code>
+          </span>
+        </div>
+        {staleCount > 0 && (
+          <div className="tp-nowbox-line tp-nowbox-dim tp-nowbox-stale">
+            {staleCount} exited · clean up
+          </div>
         )}
       </div>
     </div>

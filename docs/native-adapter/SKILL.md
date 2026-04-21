@@ -81,38 +81,56 @@ breaks resolution — always echo the whole handle returned by `native_locate`.
 
 ## Status & coverage (2026-04)
 
-Linux is a *control layer*, not the core deck. These tools are best-effort
-and their reliability depends on the compositor, portal backend, and the
-Electron/Node ABI being compatible with `dbus-next`. Treat the matrix below
-as the source of truth — not the tool table above.
+Two platforms are live: **Linux** (AT-SPI + xdg-desktop-portal via Python
+helpers) and **macOS** (AX + CGEvent via a compiled Swift helper).
+Reliability depends on the compositor/portal backend on Linux, and on the
+user having granted Accessibility + Screen Recording permissions on macOS.
+Treat the matrices below as the source of truth — not the tool table above.
 
-### Working (verified)
+### Linux — working (verified)
 
 | Tool | Surface | Notes |
 |:---|:---|:---|
 | `native_locate` | AT-SPI via `scripts/atspi-helper.py` | Stable across Qt/GTK3. GTK4 partial (see Framework matrix). |
 | `native_click` | AT-SPI Action → focus+Enter → mouse cascade | Qt is reliable; GTK4 mostly falls through to cascade stage 2. |
 | `native_tree` | AT-SPI | Stable. |
+| `native_focus` (AT-SPI `grabFocus`) | AT-SPI | Qt reliable; GTK4 throws `atspi_error` — known toolkit bug, use keyboard navigation instead. |
 | `native_focus_window` | `scripts/wl-activate.py` (GDK + xdg_activation_v1) | Reliable on GNOME Mutter; verified against Telegram and GTK4 apps. |
 | `native_screen_grab` | `scripts/screencast-capture.py` (ScreenCast portal + gst-launch) | Silent after first accept, ~250 ms per call. Requires `gst-launch-1.0 pipewiresrc pngenc` and `dbus-python`. |
+| `native_key`, `native_type`, `native_click_pixel` | `scripts/remote-desktop.py` (long-lived Python daemon, RemoteDesktop portal) | One-time permission prompt on first launch; silent thereafter. Key+type share one keyboard-only session (persists across restarts via `restore_token`). Pixel clicks use a combined RD+ScreenCast session that re-prompts per launch (GNOME rejects persist_mode on combined sessions). |
 
-### Broken / degraded
+**Pivot from the old `dbus-next` path (2026-04):** `electron/services/remote-desktop.ts`
+still exists as an emergency fallback, gated behind `CONTROL_DECK_USE_DBUS_NEXT=1`.
+The default is the Python daemon at `scripts/remote-desktop.py` +
+`electron/services/remote-desktop-client.ts`. This unblocks Electron 41 / Node 24
+deployments that would otherwise hang at `bus.getProxyObject(...)`.
 
-| Tool | Symptom | Root cause |
+### macOS — working
+
+| Tool | Surface | Notes |
 |:---|:---|:---|
-| `native_key` | Electron main hangs on first call (no response, no error) | `RemoteDesktopSession.init()` awaits `bus.getProxyObject(...)` on `dbus-next`. In Electron 41 / Node 24, that call hangs indefinitely — same failure mode that drove `native_screen_grab` to the Python helper. |
-| `native_type` | Same as `native_key`. | Same. |
-| `native_click_pixel` | Same as `native_key`. | Same. |
-| `native_focus` (AT-SPI `grabFocus`) | `atspi_error` on GTK4 widgets | Known GTK4/AT-SPI toolkit bug — not our side. Qt widgets OK. |
+| `native_locate` | `AXUIElementCopyAttributeValue` via `scripts/macos-ax-helper.bin` (Swift) | Walks running apps filtered by bundle id / localized name; DFS with limit cap. |
+| `native_click` | `kAXPressAction` → focus+Return → CGEvent mouse cascade | AXPress works for nearly all native buttons, menu items, links. Focus+Return handles default buttons inside dialogs. CGEvent mouse is final fallback for non-accessible widgets. |
+| `native_type` | `AXUIElementSetAttributeValue(kAXValueAttribute, …)` with CGEvent unicode fallback | Direct AXValue write is instant even for long strings; CGEvent fallback handles non-text elements and the handle-less "type at caret" path. |
+| `native_tree` | AX tree serialization via helper | Bounded by depth arg (default 20) so deep SwiftUI trees don't explode. |
+| `native_key` | CGEvent keyboard (`CGEventKeyboardSetUnicodeString` for raw chars; `kVK_*` virtual keycodes for named keys + combos) | Modifier masks honored. ASCII-only keycode map for modifier+letter combos (good enough for Cmd+A, Ctrl+Shift+Tab, etc.). |
+| `native_focus` | `AXUIElementSetAttributeValue(kAXFocusedAttribute, true)` + `kAXRaiseAction` fallback | |
+| `native_focus_window` | `NSRunningApplication.runningApplications(withBundleIdentifier:)` + `.activate(options: .activateAllWindows)` | Works with both bundle identifiers (`com.apple.calculator`) and localized names (`Calculator`). |
+| `native_screen_grab` | `/usr/sbin/screencapture -x -t png` shell-out | No native-module dependency. `-x` suppresses shutter sound. |
+| `native_click_pixel` | CGEvent mouse at absolute screen coords (left/right/middle) | |
 
-**Scope of the `dbus-next` regression:** everything that goes through
-`electron/services/remote-desktop.ts` — key, type, click_pixel. Anything
-that shells out to a Python helper (`wl-activate`, `atspi-helper`,
-`screencast-capture`) is unaffected.
+**Permissions:** first call prompts for *Accessibility* (for AX tree + CGEvent) and
+*Screen Recording* (for `screencapture`). Prompt copy comes from the
+`NSAccessibilityUsageDescription` / `NSScreenCaptureDescription` strings in
+`electron-builder.yml`'s `mac.extendInfo`. Until the app is signed and
+notarised, macOS shows "Electron" as the grantee, not "Control Deck" — cosmetic
+but worth documenting for testers.
 
-**Next step if key/type/click_pixel matter:** pivot them to a Python RemoteDesktop
-helper, same shape as `screencast-capture.py`. Not yet done — the control
-deck is web-first and these are nice-to-haves, not blockers.
+**Architecture note:** the Swift helper is deliberately out-of-process (spawned
+per call, single JSON request/response) instead of an N-API native addon. Same
+rationale as the Python helpers on Linux: Electron ABI bumps don't require
+rebuilding, and there's no way to "hang the main process on a system call"
+from a separate binary.
 
 ### Environment requirements
 
@@ -128,12 +146,19 @@ deck is web-first and these are nice-to-haves, not blockers.
 
 ### Known non-coverage
 
-- **Windows, macOS**: not implemented. Plan is per-OS adapters (UIA / AX);
+- **Windows**: not implemented. Plan is a per-OS adapter (UIA via FlaUI);
   nothing shipped yet. `unsupportedAdapter` stub returns a clear error.
 - **Hyprland, Sway, other wlroots compositors**: portal support is patchy.
   `focus_window` and `screen_grab` may fall back to X11 or fail silently.
 - **X11 sessions**: the code paths exist but are untested recently — tier-4
   priority is Wayland-first.
+- **macOS Chrome/Electron inner a11y**: same limitation as Linux — Chromium
+  only exposes its frame, not the DOM, unless `app.setAccessibilitySupportEnabled(true)`
+  is invoked on the target Electron app. Use CDP instead.
+- **macOS non-ASCII key combos**: the ASCII→keycode map in the Swift helper
+  is US-ANSI only. Composing e.g. `Ctrl+é` on a French keyboard falls back to
+  unicode injection (which drops modifiers). Full i18n would need
+  `TISCopyCurrentKeyboardInputSource` + `UCKeyTranslate`; not shipped.
 
 ## Workflow — the locate → act loop
 

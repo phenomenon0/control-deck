@@ -10,9 +10,27 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const ROOT = path.resolve(__dirname, "..");
 const STANDALONE = path.join(ROOT, ".next", "standalone");
+
+// Build the Swift AX helper on darwin builds so the compiled binary is
+// ready when electron-after-pack.cjs stages helper files.
+if (process.platform === "darwin") {
+  const buildScript = path.join(__dirname, "build-macos-helper.sh");
+  if (fs.existsSync(buildScript)) {
+    console.log("[copy-native] running build-macos-helper.sh");
+    const result = spawnSync("bash", [buildScript], {
+      stdio: "inherit",
+      cwd: ROOT,
+    });
+    if (result.status !== 0) {
+      console.error("[copy-native] macos helper build failed");
+      process.exit(result.status ?? 1);
+    }
+  }
+}
 
 // Map node's process.platform to onnxruntime-node's subdir layout.
 const PLATFORM_DIR = process.platform === "win32"

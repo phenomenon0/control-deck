@@ -41,6 +41,19 @@ mac:
   gatekeeperAssess: false
   entitlements: electron/resources/entitlements.mac.plist
   entitlementsInherit: electron/resources/entitlements.mac.plist
+  extendInfo:
+    # macOS shows these strings in the Accessibility / Screen Recording
+    # permission prompts. Without them, users see generic "Electron wants
+    # to ..." text instead of app-specific copy.
+    NSAccessibilityUsageDescription: >-
+      Control Deck reads the accessibility tree of other apps so the agent
+      can locate buttons, fill text fields, and click on your behalf.
+    NSAppleEventsUsageDescription: >-
+      Control Deck uses AppleScript events to raise windows and interact
+      with running applications.
+    NSScreenCaptureDescription: >-
+      Control Deck captures your screen so the agent can reason about what
+      is currently on display.
 
 win:
   target:

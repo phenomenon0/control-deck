@@ -91,7 +91,7 @@ macOS and Windows targets are pre-configured in `electron-builder.yml` but not y
 - `electron/preload.ts` — minimal `window.deck` surface (platform info + IPC invoke).
 - `scripts/electron-after-pack.cjs` — copies `.next/standalone` + `.next/static` + `public/` into the packaged `resources/app/` (works around electron-builder's node_modules stripping in extraResources).
 - `components/preflight/PreflightGate.tsx` — boot-time preflight probe that surfaces Agent-GO / Ollama / SearXNG / terminal-service status and shows install hints for missing services.
-- `lib/tools/native/` — native-surface adapters. Linux (`linux-atspi.ts` + `scripts/atspi-helper.py`) is live; macOS (AX) and Windows (UIA) are stubbed with clear error messages. Synthetic input via optional `@nut-tree/nut-js` in `input-common.ts`.
+- `lib/tools/native/` — native-surface adapters. Linux (`linux-atspi.ts` + `scripts/atspi-helper.py` for AT-SPI; `scripts/remote-desktop.py` daemon for portal key/type/click_pixel) and macOS (`macos-ax.ts` + compiled `scripts/macos-ax-helper.bin` using AXUIElement + CGEvent) are live. Windows (UIA) is stubbed with a clear error message. `input-common.ts` is a latent `@nut-tree/nut-js` fallback — the live adapters bypass it.
 
 ### Data dirs
 

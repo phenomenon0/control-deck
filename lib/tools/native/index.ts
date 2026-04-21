@@ -19,12 +19,9 @@ export async function getNativeAdapter(): Promise<NativeAdapter> {
     return cached;
   }
 
-  // macOS and Windows adapters are stubbed — the full build lands in Phase D.2.
   if (process.platform === "darwin") {
-    cached = unsupportedAdapter(
-      "darwin",
-      "macOS AX adapter not yet implemented; ship as part of the macOS build",
-    );
+    const { macosAxAdapter } = await import("./macos-ax");
+    cached = macosAxAdapter;
     return cached;
   }
 

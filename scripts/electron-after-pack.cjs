@@ -61,16 +61,30 @@ module.exports = async function afterPack(context) {
   ];
 
   // Individual helper files used by server-side adapters (native surfaces).
-  const scriptFiles = [
-    "atspi-helper.py",
-  ];
+  // Linux uses Python helpers (require python3 + dbus-python + pyatspi on host).
+  // macOS uses the compiled Swift helper (self-contained).
+  const platformName = context.packager.platform.name;
+  const scriptFiles = [];
+  if (platformName === "linux") {
+    scriptFiles.push("atspi-helper.py", "remote-desktop.py", "wl-activate.py", "screencast-capture.py");
+  } else if (platformName === "mac") {
+    scriptFiles.push("macos-ax-helper.bin");
+  }
   fs.mkdirSync(path.join(resourcesApp, "scripts"), { recursive: true });
   for (const name of scriptFiles) {
     const src = path.join(ROOT, "scripts", name);
     const dst = path.join(resourcesApp, "scripts", name);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, dst);
+      // Preserve executable bit for the Swift helper + Python scripts.
+      try {
+        fs.chmodSync(dst, 0o755);
+      } catch {
+        /* best effort */
+      }
       console.log(`[after-pack] copied helper ${name}`);
+    } else {
+      console.warn(`[after-pack] helper missing at ${src}`);
     }
   }
 

@@ -112,20 +112,21 @@ export function useAgentGoRun(options: UseAgentGoRunOptions = {}): UseAgentGoRun
 
       case "RunError":
         setStatus("failed");
-        onError?.(new Error((event as any).error?.message || "Run failed"));
+        onError?.(new Error(event.error?.message || "Run failed"));
         break;
 
-      case "InterruptRequested":
+      case "InterruptRequested": {
         const interrupt: PendingInterrupt = {
           runId: event.runId,
-          requestId: (event as any).requestId,
-          toolName: (event as any).toolName || "unknown",
-          args: (event as any).args,
+          requestId: event.requestId,
+          toolName: event.toolName || "unknown",
+          args: event.args,
           timestamp: event.timestamp,
         };
         setPendingInterrupt(interrupt);
         onInterrupt?.(event);
         break;
+      }
 
       case "InterruptResolved":
         setPendingInterrupt(null);
@@ -134,7 +135,7 @@ export function useAgentGoRun(options: UseAgentGoRunOptions = {}): UseAgentGoRun
       // Handle text message events (SSE fallback if not using fetch stream)
       case "TextMessageContent":
         if (!useTextStream) {
-          const delta = (event as any).delta || "";
+          const delta = event.delta || "";
           setAssistantText(prev => prev + delta);
           onTextChunk?.(delta, ""); // fullText not available in SSE mode
         }

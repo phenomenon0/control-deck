@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useAgentGoRun } from "@/lib/agentgo";
+import { useAgentGoRun, type AgentGoEvent } from "@/lib/agentgo";
 import { InterruptDialog } from "@/components/dojo/ui/InterruptDialog";
 import { ToolCallCard } from "@/components/dojo/ui/ToolCallCard";
 import { ActivityCard } from "@/components/dojo/ui/ActivityCard";
@@ -92,7 +92,10 @@ export default function AgentGoPage() {
     let query = "";
 
     for (const event of events) {
-      const e = event as Record<string, unknown>;
+      // AgentGoEvent is a discriminated union; this processor reads fields
+      // opportunistically across variants (success, durationMs, stepIndex, etc.)
+      // so we intentionally widen to Record<string, unknown> here.
+      const e = event as unknown as Record<string, unknown>;
 
       switch (e.type) {
         case "RunStarted": {
@@ -485,7 +488,7 @@ export default function AgentGoPage() {
   );
 }
 
-function EventLogItem({ event, index }: { event: Record<string, unknown>; index: number }) {
+function EventLogItem({ event, index }: { event: AgentGoEvent; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const type = String(event.type);
   const timestamp = new Date(String(event.timestamp)).toLocaleTimeString();

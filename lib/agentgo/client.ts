@@ -39,14 +39,119 @@ export interface HealthResponse {
   };
 }
 
-export interface AgentGoEvent {
-  type: string;
+/**
+ * AgentGoEvent — discriminated union of all events emitted by the Agent-GO
+ * server on `/runs/:id/events`.
+ *
+ * Structurally aligned with the AG-UI protocol (see `lib/agui/events.ts`) but
+ * uses the Agent-GO wire format directly — no `DeckPayload` envelope, raw
+ * top-level fields. The `schemaVersion` field is always 2.
+ *
+ * When the server adds new event types, extend this union; consumers that
+ * `switch` on `event.type` will narrow automatically and the compiler will
+ * flag any missing cases.
+ */
+
+interface AgentGoEventBase {
   threadId: string;
   runId: string;
   timestamp: string;
   schemaVersion: number;
-  [key: string]: unknown;
 }
+
+export interface AgentGoRunStartedEvent extends AgentGoEventBase {
+  type: "RunStarted";
+  model?: string;
+  input?: unknown;
+}
+
+export interface AgentGoRunFinishedEvent extends AgentGoEventBase {
+  type: "RunFinished";
+  result?: unknown;
+}
+
+export interface AgentGoRunErrorEvent extends AgentGoEventBase {
+  type: "RunError";
+  error: {
+    message: string;
+    stack?: string;
+    code?: string;
+  };
+}
+
+export interface AgentGoToolCallStartEvent extends AgentGoEventBase {
+  type: "ToolCallStart";
+  toolCallId: string;
+  toolName: string;
+  args?: unknown;
+}
+
+export interface AgentGoToolCallResultEvent extends AgentGoEventBase {
+  type: "ToolCallResult";
+  toolCallId: string;
+  toolName?: string;
+  result?: unknown;
+  error?: string;
+}
+
+export interface AgentGoInterruptRequestedEvent extends AgentGoEventBase {
+  type: "InterruptRequested";
+  requestId?: string;
+  toolName?: string;
+  args?: unknown;
+  toolCallId?: string;
+}
+
+export interface AgentGoInterruptResolvedEvent extends AgentGoEventBase {
+  type: "InterruptResolved";
+  requestId?: string;
+  approved: boolean;
+  reason?: string;
+}
+
+export interface AgentGoStepStartedEvent extends AgentGoEventBase {
+  type: "STEP_STARTED";
+  stepId?: string;
+  stepName?: string;
+}
+
+export interface AgentGoStepCompletedEvent extends AgentGoEventBase {
+  type: "STEP_COMPLETED";
+  stepId?: string;
+  stepName?: string;
+  result?: unknown;
+}
+
+export interface AgentGoTextMessageStartEvent extends AgentGoEventBase {
+  type: "TextMessageStart";
+  messageId: string;
+  role?: "assistant" | "user" | "system";
+}
+
+export interface AgentGoTextMessageContentEvent extends AgentGoEventBase {
+  type: "TextMessageContent";
+  messageId: string;
+  delta: string;
+}
+
+export interface AgentGoTextMessageEndEvent extends AgentGoEventBase {
+  type: "TextMessageEnd";
+  messageId: string;
+}
+
+export type AgentGoEvent =
+  | AgentGoRunStartedEvent
+  | AgentGoRunFinishedEvent
+  | AgentGoRunErrorEvent
+  | AgentGoToolCallStartEvent
+  | AgentGoToolCallResultEvent
+  | AgentGoInterruptRequestedEvent
+  | AgentGoInterruptResolvedEvent
+  | AgentGoStepStartedEvent
+  | AgentGoStepCompletedEvent
+  | AgentGoTextMessageStartEvent
+  | AgentGoTextMessageContentEvent
+  | AgentGoTextMessageEndEvent;
 
 export async function checkHealth(): Promise<HealthResponse> {
   const res = await fetch(`${AGENTGO_URL}/health`);

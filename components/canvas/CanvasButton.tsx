@@ -10,8 +10,9 @@
  */
 
 import React from "react";
-import { Maximize2, Code2, Eye } from "lucide-react";
+import { Maximize2, Code2, Eye, Play } from "lucide-react";
 import { useCanvas } from "@/lib/hooks/useCanvas";
+import { openCanvas as busOpenCanvas } from "@/lib/canvas/bus";
 
 function ExpandIcon({ size = 14 }: { size?: number }) {
   return <Maximize2 width={size} height={size} />;
@@ -106,6 +107,32 @@ export function OpenPreviewButton({ html, title, className }: OpenPreviewButtonP
       className={className}
       onClick={handleClick}
     />
+  );
+}
+
+interface OpenInCanvasButtonProps {
+  code: string;
+  language: string;
+  title?: string;
+  autoRun?: boolean;
+  label?: string;
+  className?: string;
+}
+
+export function OpenInCanvasButton({ code, language, title, autoRun, label, className }: OpenInCanvasButtonProps) {
+  const handleClick = () => {
+    busOpenCanvas({ code, language, title, autoRun });
+  };
+  const Icon = autoRun ? Play : Code2;
+  const defaultLabel = autoRun ? "Run in Canvas" : "Open in Canvas";
+  return (
+    <button
+      onClick={handleClick}
+      className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-medium text-[var(--text-secondary)] hover:text-white bg-[var(--bg-tertiary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-bright)] rounded transition-colors ${className || ""}`}
+    >
+      <Icon width={12} height={12} />
+      <span>{label || defaultLabel}</span>
+    </button>
   );
 }
 

@@ -8,10 +8,11 @@
 export { Canvas } from "./Canvas";
 export { CanvasPanel } from "./CanvasPanel";
 export { MonacoEditor } from "./MonacoEditor";
-export { 
-  CanvasButton, 
-  OpenCodeButton, 
-  OpenPreviewButton, 
+export {
+  CanvasButton,
+  OpenCodeButton,
+  OpenPreviewButton,
   OpenArtifactButton,
-  CodeBlockWithCanvas 
+  OpenInCanvasButton,
+  CodeBlockWithCanvas
 } from "./CanvasButton";

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
+import { canvasBus } from "@/lib/canvas/bus";
 
 export type CanvasContentType =
   | "code"
@@ -481,6 +482,31 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     return currentIndex < revisions.length - 1;
   }, [state.tabs]);
   
+  // Imperative bus — lets non-React callers (command palette, helpers,
+  // other surfaces) open Canvas without a React context.
+  useEffect(() => {
+    const offOpen = canvasBus.onOpen((req) => {
+      const id = openCode(req.code, req.language, req.title);
+      if (req.autoRun) {
+        // executeCode reads the latest tab from state; give React a tick to commit
+        setTimeout(() => {
+          void executeCode(id);
+        }, 0);
+      }
+    });
+    const offPreview = canvasBus.onPreview((req) => openPreview(req.html, req.title));
+    const offArtifact = canvasBus.onArtifact((req) => openArtifact(req));
+    const offToggle = canvasBus.onToggle(() => toggle());
+    const offClose = canvasBus.onClose(() => close());
+    return () => {
+      offOpen();
+      offPreview();
+      offArtifact();
+      offToggle();
+      offClose();
+    };
+  }, [openCode, openPreview, openArtifact, toggle, close, executeCode]);
+
   const value: CanvasContextValue = {
     ...state,
     open,

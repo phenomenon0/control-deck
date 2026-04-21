@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Music, Box, FileText, Download, X } from "lucide-react";
+import { Music, Box, FileText, Download, X, Maximize2 } from "lucide-react";
+import { openArtifactInCanvas } from "@/lib/canvas";
 
 export interface ArtifactItem {
   id: string;
@@ -63,8 +64,19 @@ function ArtifactCard({ item }: { item: ArtifactItem }) {
         )}
 
         {/* Hover overlay */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
           <span className="text-white text-xs font-medium">View</span>
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              openArtifactInCanvas(item);
+            }}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 border border-white/30 text-white text-[10px] font-medium cursor-pointer"
+            title="Open in Canvas"
+          >
+            <Maximize2 width={10} height={10} />
+            Canvas
+          </span>
         </div>
 
         {/* Name badge */}

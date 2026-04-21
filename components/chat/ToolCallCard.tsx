@@ -19,6 +19,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
+import { openCanvas } from "@/lib/canvas";
 
 import type { ToolCallData } from "@/lib/types/chat";
 
@@ -175,8 +176,24 @@ export function ToolCallCard(props: ToolCallCardProps) {
           {/* Main Prompt (chat-style rich view) */}
           {mainPrompt && (
             <div className="pt-2">
-              <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">
-                Input
+              <div className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1 flex items-center justify-between">
+                <span>Input</span>
+                {toolName === "execute_code" && typeof args?.code === "string" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openCanvas({
+                        language: (args.language as string) || "python",
+                        code: args.code as string,
+                        title: `${(args.language as string) || "code"} from chat`,
+                      });
+                    }}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--accent)]/10 border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors font-normal normal-case tracking-normal"
+                    title="Open in Canvas"
+                  >
+                    ⛶ Canvas
+                  </button>
+                )}
               </div>
               <div className="text-xs font-mono p-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] whitespace-pre-wrap break-words leading-relaxed">
                 {mainPrompt}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ToolCallData } from "@/components/chat/ToolCallCard";
+import { openCanvas, openPreviewInCanvas } from "@/lib/canvas";
 
 interface CodeExecutionCardProps {
   tool: ToolCallData;
@@ -159,6 +160,19 @@ export function CodeExecutionCard({ tool }: CodeExecutionCardProps) {
           </button>
           <button
             className="action-btn"
+            onClick={() =>
+              openCanvas({
+                language,
+                code: displayCode,
+                title: `${language} from agent`,
+              })
+            }
+            title="Open in Canvas"
+          >
+            ⛶ Canvas
+          </button>
+          <button
+            className="action-btn"
             onClick={() => setExpanded(!expanded)}
           >
             {expanded ? "↑ Collapse" : "↓ Expand"}
@@ -176,6 +190,18 @@ export function CodeExecutionCard({ tool }: CodeExecutionCardProps) {
           <div className="code-preview">
             <div className="code-block-header">
               <span>Preview</span>
+              <button
+                className="code-action-btn"
+                onClick={() =>
+                  openPreviewInCanvas({
+                    html: data.preview!.bundled!,
+                    title: `${language} preview`,
+                  })
+                }
+                title="Open preview in Canvas"
+              >
+                ⛶
+              </button>
             </div>
             <iframe
               srcDoc={data.preview.bundled}

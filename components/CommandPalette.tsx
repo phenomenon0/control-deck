@@ -6,6 +6,7 @@ import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
 import { useRouter } from "next/navigation";
 import { useDeckSettings, type ChatSurface } from "./settings/DeckSettingsProvider";
 import { useWarp, type Theme } from "@/components/warp/WarpProvider";
+import { openCanvas, toggleCanvas, closeCanvas } from "@/lib/canvas";
 
 interface Command {
   id: string;
@@ -90,6 +91,16 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: "action-new-chat", label: "New Chat", action: () => { router.push("/deck/chat?new=1"); }, category: "Actions" },
     { id: "action-clear-runs", label: "Clear Run History", action: async () => { if (confirm("Clear all run history? This cannot be undone.")) { await fetch("/api/agui/runs", { method: "DELETE" }); window.location.reload(); } }, category: "Actions" },
     { id: "action-refresh", label: "Refresh Stats", action: () => window.location.reload(), category: "Actions" },
+    // Canvas
+    { id: "canvas-toggle", label: "Canvas: Toggle Panel", action: () => toggleCanvas(), category: "Canvas" },
+    { id: "canvas-close", label: "Canvas: Close", action: () => closeCanvas(), category: "Canvas" },
+    { id: "canvas-new-python", label: "Canvas: New Python", action: () => openCanvas({ language: "python", title: "python scratch", code: "# python scratch — plt.show() auto-captures figures\nprint('hello from canvas')\n" }), category: "Canvas" },
+    { id: "canvas-new-javascript", label: "Canvas: New JavaScript", action: () => openCanvas({ language: "javascript", title: "node scratch", code: "console.log('hello from canvas');\n" }), category: "Canvas" },
+    { id: "canvas-new-go", label: "Canvas: New Go", action: () => openCanvas({ language: "go", title: "go scratch", code: "package main\n\nimport \"fmt\"\n\nfunc main() {\n    fmt.Println(\"hello from canvas\")\n}\n" }), category: "Canvas" },
+    { id: "canvas-new-bash", label: "Canvas: New Bash", action: () => openCanvas({ language: "bash", title: "bash scratch", code: "#!/usr/bin/env bash\necho \"hello from canvas\"\n" }), category: "Canvas" },
+    { id: "canvas-new-react", label: "Canvas: New React Preview", action: () => openCanvas({ language: "react", title: "react preview", code: "function App() {\n  return <div style={{padding:24}}>hello from canvas</div>;\n}\n", autoRun: true }), category: "Canvas" },
+    { id: "canvas-new-html", label: "Canvas: New HTML Preview", action: () => openCanvas({ language: "html", title: "html preview", code: "<h1>hello from canvas</h1>\n", autoRun: true }), category: "Canvas" },
+    { id: "canvas-new-threejs", label: "Canvas: New Three.js Preview", action: () => openCanvas({ language: "threejs", title: "three.js preview", code: "const { scene, camera, renderer } = createDefaultScene();\nconst geo = new THREE.BoxGeometry();\nconst mat = new THREE.MeshBasicMaterial({ color: 0xe6a756, wireframe: true });\nconst cube = new THREE.Mesh(geo, mat);\nscene.add(cube);\n(function tick() {\n  cube.rotation.x += 0.01; cube.rotation.y += 0.01;\n  renderer.render(scene, camera);\n  requestAnimationFrame(tick);\n})();\n", autoRun: true }), category: "Canvas" },
   ];
 
   // Merge registered shortcuts as discoverable commands

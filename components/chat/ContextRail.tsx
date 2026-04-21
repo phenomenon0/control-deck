@@ -5,6 +5,7 @@ import { useChatInspectorData } from "@/lib/hooks/useChatInspector";
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useSystemStats } from "@/lib/hooks/useSystemStats";
 import type { Artifact, ToolCallData } from "@/lib/types/chat";
+import { openArtifactInCanvas } from "@/lib/canvas";
 
 function formatModelLabel(model: string): string {
   if (!model) return "model pending";
@@ -52,13 +53,12 @@ export function ContextRail() {
         {latestArtifacts.length > 0 ? (
           <div className="ctx-artifact-grid">
             {latestArtifacts.map((artifact, index) => (
-              <a
+              <button
                 key={`${artifact.id}-${index}`}
+                type="button"
                 className="ctx-artifact"
-                href={artifact.url}
-                target="_blank"
-                rel="noreferrer"
-                title={artifact.name}
+                onClick={() => openArtifactInCanvas(artifact)}
+                title={`Open ${artifact.name} in Canvas`}
               >
                 {artifact.mimeType?.startsWith("image/") ? (
                   <img src={artifact.url} alt="" />
@@ -66,7 +66,7 @@ export function ContextRail() {
                   <Icon.Box size={16} sw={1.2} />
                 )}
                 <span>{artifact.name || artifactKind(artifact)}</span>
-              </a>
+              </button>
             ))}
           </div>
         ) : (

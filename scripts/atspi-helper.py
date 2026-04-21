@@ -255,24 +255,65 @@ def _resolve_handle(handle: dict[str, Any]):
 
 
 def op_click(handle: dict[str, Any]) -> dict[str, Any]:
+    """Click cascade: Action.doAction → Component.grabFocus + Enter key →
+    synthetic mouse click at component center.
+
+    GTK4 list items advertise the Action interface but have nActions==0, so
+    the action path doesn't work and we have to fall through. Chromium
+    widgets usually respond to the key fallback; native toolkits that move
+    focus correctly respond to grabFocus+Enter; as a last resort we generate
+    a compositor-level mouse event via AT-SPI's DeviceEventController."""
     pyatspi = _import_pyatspi()
     node = _resolve_handle(handle)
     if node is None:
         return {"ok": False, "error": "node not found (stale handle)"}
+
+    # 1. Action interface with a sensible action name
     try:
         action = node.queryAction()
-        for i in range(action.nActions):
-            name = action.getName(i)
-            if name.lower() in ("click", "press", "activate"):
-                action.doAction(i)
-                return {"ok": True}
-        # fall back to first action
         if action.nActions > 0:
-            action.doAction(0)
-            return {"ok": True}
-        return {"ok": False, "error": "node has no actions"}
+            preferred = None
+            for i in range(action.nActions):
+                name = action.getName(i).lower()
+                if name in ("click", "press", "activate", "jump", "open", "do default"):
+                    preferred = i
+                    break
+            if preferred is None:
+                preferred = 0
+            try:
+                action.doAction(preferred)
+                return {"ok": True, "data": {"method": "action", "name": action.getName(preferred)}}
+            except Exception:
+                pass  # fall through to focus/mouse fallbacks
+    except Exception:
+        pass
+
+    # 2. grabFocus + synthetic Enter
+    focus_ok = False
+    try:
+        comp = node.queryComponent()
+        focus_ok = bool(comp.grabFocus())
+    except Exception:
+        pass
+    if focus_ok:
+        try:
+            pyatspi.Registry.generateKeyboardEvent(36, None, pyatspi.KEY_PRESSRELEASE)  # keycode 36 = Return
+            return {"ok": True, "data": {"method": "focus+enter"}}
+        except Exception:
+            pass
+
+    # 3. Synthetic mouse click at component center (compositor-level)
+    try:
+        comp = node.queryComponent()
+        ext = comp.getExtents(pyatspi.DESKTOP_COORDS)
+        cx = ext.x + ext.width // 2
+        cy = ext.y + ext.height // 2
+        if cx <= 0 or cy <= 0 or ext.width <= 0 or ext.height <= 0:
+            return {"ok": False, "error": f"node off-screen or hidden (x={ext.x},y={ext.y},w={ext.width},h={ext.height})"}
+        pyatspi.Registry.generateMouseEvent(cx, cy, "b1c")
+        return {"ok": True, "data": {"method": "mouse", "x": cx, "y": cy}}
     except Exception as e:
-        return {"ok": False, "error": f"click: {e}"}
+        return {"ok": False, "error": f"click: all fallbacks failed ({e})"}
 
 
 def op_type(handle: dict[str, Any] | None, text: str) -> dict[str, Any]:

@@ -21,6 +21,52 @@ import type {
   TreeNode,
 } from "./types";
 
+const PORTAL_URL = process.env.CONTROL_DECK_PORTAL_URL || "";
+const PORTAL_SECRET = process.env.CONTROL_DECK_PORTAL_SECRET || "";
+
+const KEYSYMS: Record<string, number> = {
+  return: 0xff0d, enter: 0xff0d, tab: 0xff09, escape: 0xff1b,
+  backspace: 0xff08, delete: 0xffff, space: 0x0020,
+  up: 0xff52, down: 0xff54, left: 0xff51, right: 0xff53,
+  home: 0xff50, end: 0xff57, pageup: 0xff55, pagedown: 0xff56,
+  f1: 0xffbe, f2: 0xffbf, f3: 0xffc0, f4: 0xffc1, f5: 0xffc2, f6: 0xffc3,
+  f7: 0xffc4, f8: 0xffc5, f9: 0xffc6, f10: 0xffc7, f11: 0xffc8, f12: 0xffc9,
+  menu: 0xff67,
+};
+const MODIFIERS: Record<string, number> = {
+  shift: 0xffe1, ctrl: 0xffe3, control: 0xffe3, alt: 0xffe9, super: 0xffeb, meta: 0xffe7,
+};
+
+function parseKeySpec(spec: string): { modifiers: number[]; primary: number } {
+  const parts = spec.split("+").map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) throw new Error(`empty key spec: ${spec}`);
+  const primaryRaw = parts[parts.length - 1];
+  const modifiers = parts.slice(0, -1)
+    .map((p) => MODIFIERS[p.toLowerCase()])
+    .filter((k): k is number => typeof k === "number");
+  const lower = primaryRaw.toLowerCase();
+  let primary: number;
+  if (KEYSYMS[lower] !== undefined) primary = KEYSYMS[lower];
+  else if (primaryRaw.length === 1) primary = primaryRaw.codePointAt(0)!;
+  else throw new Error(`unknown key ${primaryRaw}`);
+  return { modifiers, primary };
+}
+
+async function callPortal(body: Record<string, unknown>): Promise<void> {
+  const res = await fetch(PORTAL_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-deck-portal-auth": PORTAL_SECRET,
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || `portal ${res.status}`);
+  }
+}
+
 function resolveHelper(): string {
   const candidates = [
     process.env.CONTROL_DECK_SCRIPTS_DIR
@@ -117,11 +163,16 @@ export const linuxAtspiAdapter: NativeAdapter = {
   },
 
   async typeText(handle, text) {
-    const res = await runHelper({
-      op: "type",
-      handle: handle ?? undefined,
-      text,
-    });
+    if (handle) {
+      const res = await runHelper({ op: "type", handle, text });
+      if (res.ok) return;
+      if (!PORTAL_URL) throw new Error(res.error ?? "type failed");
+    }
+    if (PORTAL_URL) {
+      await callPortal({ op: "type", text });
+      return;
+    }
+    const res = await runHelper({ op: "type", text });
     if (!res.ok) throw new Error(res.error ?? "type failed");
   },
 
@@ -133,6 +184,11 @@ export const linuxAtspiAdapter: NativeAdapter = {
   },
 
   async key(event: KeyEvent) {
+    if (PORTAL_URL) {
+      const { modifiers, primary } = parseKeySpec(event.key);
+      await callPortal({ op: "key", modifiers, keysym: primary });
+      return;
+    }
     const res = await runHelper({ op: "key", key: event.key });
     if (!res.ok) throw new Error(res.error ?? "key failed");
   },

@@ -1,9 +1,10 @@
-import { app, BrowserWindow, shell, Menu, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, shell, Menu, dialog } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as path from "node:path";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
+import { RemoteDesktopSession } from "./services/remote-desktop";
 
 const IS_DEV = !app.isPackaged;
 const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
@@ -17,6 +18,27 @@ if (process.platform === "linux") {
 
 let serverProc: ChildProcess | null = null;
 let serverUrl: string | null = null;
+let portalSession: RemoteDesktopSession | null = null;
+let portalInitPromise: Promise<RemoteDesktopSession> | null = null;
+let portalBridgePort: number | null = null;
+let portalBridgeSecret: string | null = null;
+
+async function getPortalSession(): Promise<RemoteDesktopSession> {
+  if (portalSession) return portalSession;
+  if (portalInitPromise) return portalInitPromise;
+  portalInitPromise = (async () => {
+    const sess = new RemoteDesktopSession(app.getPath("userData"));
+    await sess.init();
+    portalSession = sess;
+    return sess;
+  })();
+  try {
+    return await portalInitPromise;
+  } catch (err) {
+    portalInitPromise = null;
+    throw err;
+  }
+}
 
 function probeHttp(url: string, timeoutMs = 800): Promise<boolean> {
   return new Promise((resolve) => {
@@ -84,6 +106,10 @@ async function startEmbeddedServer(): Promise<string> {
       NODE_ENV: "production",
       CONTROL_DECK_USER_DATA: app.getPath("userData"),
       CONTROL_DECK_SCRIPTS_DIR: path.join(process.resourcesPath, "app", "scripts"),
+      CONTROL_DECK_PORTAL_URL: portalBridgePort
+        ? `http://127.0.0.1:${portalBridgePort}`
+        : "",
+      CONTROL_DECK_PORTAL_SECRET: portalBridgeSecret ?? "",
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
@@ -138,8 +164,91 @@ async function createWindow(): Promise<void> {
   await win.loadURL(`${url}${DEFAULT_ROUTE}`);
 }
 
+async function startPortalBridge(): Promise<void> {
+  if (portalBridgePort) return;
+  portalBridgeSecret = require("node:crypto").randomBytes(16).toString("hex");
+
+  const server = http.createServer(async (req, res) => {
+    const auth = req.headers["x-deck-portal-auth"];
+    if (auth !== portalBridgeSecret) {
+      res.statusCode = 403;
+      res.end(JSON.stringify({ ok: false, error: "forbidden" }));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", async () => {
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as {
+          op?: string;
+          modifiers?: number[];
+          keysym?: number;
+          text?: string;
+        };
+        const sess = await getPortalSession();
+        if (body.op === "key" && typeof body.keysym === "number") {
+          await sess.sendKeyCombo(body.modifiers ?? [], body.keysym);
+          res.end(JSON.stringify({ ok: true }));
+          return;
+        }
+        if (body.op === "type" && typeof body.text === "string") {
+          await sess.typeString(body.text);
+          res.end(JSON.stringify({ ok: true, len: body.text.length }));
+          return;
+        }
+        res.statusCode = 400;
+        res.end(JSON.stringify({ ok: false, error: "bad request" }));
+      } catch (err) {
+        res.statusCode = 500;
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) =>
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (typeof addr === "object" && addr) portalBridgePort = addr.port;
+      resolve();
+    }),
+  );
+  server.unref();
+}
+
+ipcMain.handle(
+  "portal:key",
+  async (_evt, payload: { modifiers?: number[]; keysym: number }) => {
+    const sess = await getPortalSession();
+    await sess.sendKeyCombo(payload.modifiers ?? [], payload.keysym);
+    return { ok: true };
+  },
+);
+
+ipcMain.handle("portal:type", async (_evt, payload: { text: string }) => {
+  const sess = await getPortalSession();
+  await sess.typeString(payload.text);
+  return { ok: true, len: payload.text.length };
+});
+
+ipcMain.handle("portal:status", async () => ({
+  available: process.platform === "linux",
+  initialised: portalSession !== null,
+}));
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  if (process.platform === "linux") {
+    try {
+      await startPortalBridge();
+    } catch (err) {
+      console.error("[electron] portal bridge failed to start:", err);
+    }
+  }
   try {
     await createWindow();
   } catch (err) {
@@ -165,5 +274,9 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   if (serverProc && !serverProc.killed) {
     serverProc.kill("SIGTERM");
+  }
+  if (portalSession) {
+    portalSession.close().catch(() => {});
+    portalSession = null;
   }
 });

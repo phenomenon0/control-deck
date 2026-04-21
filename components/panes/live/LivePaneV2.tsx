@@ -5,6 +5,7 @@ import { useLiveTransport } from "@/lib/hooks/useLiveTransport";
 import { importLiveScript } from "@/lib/live/importer";
 import { TransportBar } from "./TransportBar";
 import { Playlist } from "./Playlist";
+import { PatternRack } from "./PatternRack";
 
 const PRESETS: Array<{ id: string; label: string; script: string }> = [
   {
@@ -91,14 +92,24 @@ export function LivePaneV2() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0">
-        <Playlist
-          store={store}
-          song={song}
-          state={state}
-          selectedPatternId={selectedPatternId}
-          onSelectPattern={setSelectedPatternId}
-        />
+      <div className="flex-1 min-h-0 flex">
+        <div className="shrink-0 w-[360px] min-w-[320px]">
+          <PatternRack
+            store={store}
+            song={song}
+            selectedPatternId={selectedPatternId}
+            onSelectPattern={setSelectedPatternId}
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <Playlist
+            store={store}
+            song={song}
+            state={state}
+            selectedPatternId={selectedPatternId}
+            onSelectPattern={setSelectedPatternId}
+          />
+        </div>
       </div>
     </div>
   );

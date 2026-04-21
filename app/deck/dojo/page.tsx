@@ -1,5 +1,6 @@
-import { DojoPane } from "@/components/dojo";
+import { redirect } from "next/navigation";
 
-export default function DojoPage() {
-  return <DojoPane />;
+/** Legacy route. DoJo is now "UI Studio" — a tab inside the Control plane. */
+export default function DojoLegacyPage() {
+  redirect("/deck/control?tab=studio");
 }

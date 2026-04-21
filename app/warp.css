@@ -3441,3 +3441,126 @@ textarea.input:focus {
     min-height: 520px;
   }
 }
+
+/* ==========================================================================
+   Control / Audio tab bar — top-level tab navigation inside a surface
+   ========================================================================== */
+.control-tabbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 14px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.control-tabbar::-webkit-scrollbar { display: none; }
+
+.control-tab {
+  position: relative;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  transition: color 140ms cubic-bezier(0, 0, 0.2, 1),
+    background-color 140ms cubic-bezier(0, 0, 0.2, 1);
+  white-space: nowrap;
+}
+.control-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+.control-tab--active {
+  color: var(--text-primary);
+}
+.control-tab--active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+/* ==========================================================================
+   SurfaceStrip — blended hub row on the Runs tab that lets you jump into
+   sibling Control tabs (Tools, UI Studio, Agent-GO, Models) without losing
+   the "I'm at the overview" feeling.
+   ========================================================================== */
+.surface-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+
+.surface-strip-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms cubic-bezier(0, 0, 0.2, 1),
+    background-color 140ms cubic-bezier(0, 0, 0.2, 1),
+    transform 140ms cubic-bezier(0, 0, 0.2, 1);
+}
+.surface-strip-tile:hover {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
+}
+.surface-strip-tile:active {
+  transform: translateY(0);
+}
+
+.surface-strip-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.surface-strip-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.surface-strip-tile-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+.surface-strip-tile-live {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+  animation: surface-strip-pulse 1.6s ease-in-out infinite;
+}
+.surface-strip-tile-blurb {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
+
+@keyframes surface-strip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}

@@ -1,5 +1,6 @@
-import { ToolsPane } from "@/components/panes/ToolsPane";
+import { redirect } from "next/navigation";
 
-export default function ToolsPage() {
-  return <ToolsPane />;
+/** Legacy route. Tools is now a tab inside the Control plane. */
+export default function ToolsLegacyPage() {
+  redirect("/deck/control?tab=tools");
 }

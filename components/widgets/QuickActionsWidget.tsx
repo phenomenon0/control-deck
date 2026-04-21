@@ -13,12 +13,12 @@ interface Action {
 
 const ACTIONS: Action[] = [
   { label: "New Chat", icon: <MessageSquare size={14} />, href: "/deck/chat?new=1" },
-  { label: "Voice Mode", icon: <Mic size={14} />, href: "/deck/voice" },
-  { label: "Generate Image", icon: <ImageIcon size={14} />, href: "/deck/comfy" },
-  { label: "Run Agent", icon: <Bot size={14} />, href: "/deck/agentgo" },
-  { label: "Models", icon: <Brain size={14} />, href: "/deck/models" },
+  { label: "Voice Mode", icon: <Mic size={14} />, href: "/deck/audio" },
+  { label: "Generate Image", icon: <ImageIcon size={14} />, href: "/deck/visual" },
+  { label: "Run Agent", icon: <Bot size={14} />, href: "/deck/control?tab=agentgo" },
+  { label: "Models", icon: <Brain size={14} />, href: "/deck/control?tab=models" },
   { label: "Terminal", icon: <Icon.Terminal size={14} />, href: "/deck/terminal" },
-  { label: "Tools", icon: <Wrench size={14} />, href: "/deck/tools" },
+  { label: "Tools", icon: <Wrench size={14} />, href: "/deck/control?tab=tools" },
 ];
 
 export function QuickActionsWidget() {

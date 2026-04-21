@@ -1,5 +1,6 @@
-import { VoicePane } from "@/components/panes/VoicePane";
+import { redirect } from "next/navigation";
 
-export default function VoicePage() {
-  return <VoicePane />;
+/** Legacy route. Voice is the default tab of the Audio surface. */
+export default function VoiceLegacyPage() {
+  redirect("/deck/audio");
 }

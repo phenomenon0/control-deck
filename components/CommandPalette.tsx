@@ -52,17 +52,21 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: Command[] = [
-    // Navigation - Primary
+    // Navigation — top-level surfaces
     { id: "nav-chat", label: "Go to Chat", shortcut: "1", action: () => router.push("/deck/chat"), category: "Navigation" },
-    { id: "nav-runs", label: "Go to Runs", shortcut: "2", action: () => router.push("/deck/runs"), category: "Navigation" },
-    { id: "nav-models", label: "Go to Models", shortcut: "3", action: () => router.push("/deck/models"), category: "Navigation" },
-    { id: "nav-dojo", label: "Go to Dojo", shortcut: "4", action: () => router.push("/deck/dojo"), category: "Navigation" },
-    // Navigation - Advanced
-    { id: "nav-tools", label: "Go to Tools", shortcut: "5", action: () => router.push("/deck/tools"), category: "Navigation" },
-    { id: "nav-comfy", label: "Go to Comfy", shortcut: "6", action: () => router.push("/deck/comfy"), category: "Navigation" },
-    { id: "nav-voice", label: "Go to Voice", shortcut: "7", action: () => router.push("/deck/voice"), category: "Navigation" },
-    { id: "nav-terminal", label: "Go to Terminal", shortcut: "8", action: () => router.push("/deck/terminal"), category: "Navigation" },
-    { id: "nav-agentgo", label: "Go to AgentGo", shortcut: "9", action: () => router.push("/deck/agentgo"), category: "Navigation" },
+    { id: "nav-terminal", label: "Go to Terminal", shortcut: "2", action: () => router.push("/deck/terminal"), category: "Navigation" },
+    { id: "nav-visual", label: "Go to Visual", shortcut: "3", action: () => router.push("/deck/visual"), category: "Navigation" },
+    { id: "nav-audio", label: "Go to Audio", shortcut: "4", action: () => router.push("/deck/audio"), category: "Navigation" },
+    { id: "nav-control", label: "Go to Control", shortcut: "5", action: () => router.push("/deck/control"), category: "Navigation" },
+    // Navigation — Control tabs (direct jumps)
+    { id: "nav-runs", label: "Go to Runs", action: () => router.push("/deck/control"), category: "Navigation" },
+    { id: "nav-tools", label: "Go to Tools", action: () => router.push("/deck/control?tab=tools"), category: "Navigation" },
+    { id: "nav-studio", label: "Go to UI Studio", action: () => router.push("/deck/control?tab=studio"), category: "Navigation" },
+    { id: "nav-agentgo", label: "Go to Agent-GO", action: () => router.push("/deck/control?tab=agentgo"), category: "Navigation" },
+    { id: "nav-models", label: "Go to Models", action: () => router.push("/deck/control?tab=models"), category: "Navigation" },
+    // Navigation — Audio tabs
+    { id: "nav-voice", label: "Go to Voice", action: () => router.push("/deck/audio"), category: "Navigation" },
+    { id: "nav-live", label: "Go to Live", action: () => router.push("/deck/audio?tab=live"), category: "Navigation" },
     // Settings
     { id: "settings-open", label: "Open Settings", shortcut: "⌘,", action: () => setSettingsOpen(true), category: "Settings" },
     { id: "settings-inspector", label: "Toggle Sidebar", shortcut: "⌘I", action: () => setRailOpen(o => !o), category: "Settings" },

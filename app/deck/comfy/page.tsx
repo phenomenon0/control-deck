@@ -1,5 +1,6 @@
-import { ComfyPane } from "@/components/panes/ComfyPane";
+import { redirect } from "next/navigation";
 
-export default function ComfyPage() {
-  return <ComfyPane />;
+/** Legacy route. Comfy is now the Visual surface. */
+export default function ComfyLegacyPage() {
+  redirect("/deck/visual");
 }

@@ -1,5 +1,6 @@
-import { RunsPane } from "@/components/panes/RunsPane";
+import { redirect } from "next/navigation";
 
-export default function RunsPage() {
-  return <RunsPane />;
+/** Legacy route. Runs is the default (landing) tab of the Control plane. */
+export default function RunsLegacyPage() {
+  redirect("/deck/control");
 }

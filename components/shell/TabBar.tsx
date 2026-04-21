@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { MessageSquare, Play, Cpu, Swords } from "lucide-react";
+import { MessageSquare, Terminal, ImageIcon, AudioWaveform, LayoutGrid } from "lucide-react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 
 const TABS = [
   { href: "/deck/chat", label: "Chat", icon: MessageSquare, shortcut: "1" },
-  { href: "/deck/runs", label: "Runs", icon: Play, shortcut: "2" },
-  { href: "/deck/models", label: "Models", icon: Cpu, shortcut: "3" },
-  { href: "/deck/dojo", label: "Dojo", icon: Swords, shortcut: "4" },
+  { href: "/deck/terminal", label: "Terminal", icon: Terminal, shortcut: "2" },
+  { href: "/deck/visual", label: "Visual", icon: ImageIcon, shortcut: "3" },
+  { href: "/deck/audio", label: "Audio", icon: AudioWaveform, shortcut: "4" },
+  { href: "/deck/control", label: "Control", icon: LayoutGrid, shortcut: "5" },
 ] as const;
 
 export function TabBar() {
@@ -32,6 +33,10 @@ export function TabBar() {
   useShortcut("4", () => router.push(TABS[3].href), {
     when: "no-input",
     label: `Go to ${TABS[3].label}`,
+  });
+  useShortcut("5", () => router.push(TABS[4].href), {
+    when: "no-input",
+    label: `Go to ${TABS[4].label}`,
   });
 
   return (

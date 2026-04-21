@@ -43,7 +43,7 @@ function LiveTransportWidgetInner() {
           <div className="live-widget-label">bpm</div>
         </div>
         <Link
-          href="/deck/live"
+          href="/deck/audio?tab=live"
           style={{
             marginLeft: "auto",
             fontSize: 11,

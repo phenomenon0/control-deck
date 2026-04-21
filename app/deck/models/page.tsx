@@ -1,5 +1,6 @@
-import { ModelsPane } from "@/components/panes/ModelsPane";
+import { redirect } from "next/navigation";
 
-export default function ModelsPage() {
-  return <ModelsPane />;
+/** Legacy route. Models is now a tab inside the Control plane. */
+export default function ModelsLegacyPage() {
+  redirect("/deck/control?tab=models");
 }

@@ -47,37 +47,21 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     when: "no-input",
     label: "Go to Chat",
   });
-  useShortcut("2", () => router.push("/deck/runs"), {
-    when: "no-input",
-    label: "Go to Runs",
-  });
-  useShortcut("3", () => router.push("/deck/models"), {
-    when: "no-input",
-    label: "Go to Models",
-  });
-  useShortcut("4", () => router.push("/deck/dojo"), {
-    when: "no-input",
-    label: "Go to DoJo",
-  });
-  useShortcut("5", () => router.push("/deck/tools"), {
-    when: "no-input",
-    label: "Go to Tools",
-  });
-  useShortcut("6", () => router.push("/deck/comfy"), {
-    when: "no-input",
-    label: "Go to Comfy",
-  });
-  useShortcut("7", () => router.push("/deck/voice"), {
-    when: "no-input",
-    label: "Go to Voice",
-  });
-  useShortcut("8", () => router.push("/deck/terminal"), {
+  useShortcut("2", () => router.push("/deck/terminal"), {
     when: "no-input",
     label: "Go to Terminal",
   });
-  useShortcut("9", () => router.push("/deck/agentgo"), {
+  useShortcut("3", () => router.push("/deck/visual"), {
     when: "no-input",
-    label: "Go to AgentGo",
+    label: "Go to Visual",
+  });
+  useShortcut("4", () => router.push("/deck/audio"), {
+    when: "no-input",
+    label: "Go to Audio",
+  });
+  useShortcut("5", () => router.push("/deck/control"), {
+    when: "no-input",
+    label: "Go to Control",
   });
 
   return (

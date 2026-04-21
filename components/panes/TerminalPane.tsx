@@ -17,7 +17,6 @@ import type {
 const LAST_SESSION_KEY = "deck:last-terminal-session";
 
 type SocketState = "disconnected" | "connecting" | "connected" | "error";
-type StatusFilter = "all" | "running" | "exited" | "error";
 
 interface SessionMetaState {
   cwd?: string;
@@ -43,7 +42,6 @@ export function TerminalPane() {
   const {
     sessions,
     health,
-    loading,
     error,
     serviceOnline,
     refresh,
@@ -66,7 +64,6 @@ export function TerminalPane() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [meta, setMeta] = useState<SessionMetaState>({});
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const focusTerminalSoon = useCallback(
     (delay = 0) => {
@@ -76,7 +73,6 @@ export function TerminalPane() {
     [focus],
   );
 
-  // ── Derived ────────────────────────────────────────────────────────────
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeSessionId) ?? null,
     [sessions, activeSessionId],
@@ -90,22 +86,6 @@ export function TerminalPane() {
   const staleCount = sessions.filter(
     (s) => s.status === "exited" || s.status === "error",
   ).length;
-  const errorCount = sessions.filter((s) => s.status === "error").length;
-
-  const visibleSessions = useMemo(() => {
-    if (statusFilter === "all") return sessions;
-    return sessions.filter((s) => s.status === statusFilter);
-  }, [sessions, statusFilter]);
-
-  const statusCounts = useMemo(
-    () => ({
-      all: sessions.length,
-      running: sessions.filter((s) => s.status === "running").length,
-      exited: sessions.filter((s) => s.status === "exited").length,
-      error: errorCount,
-    }),
-    [sessions, errorCount],
-  );
 
   useEffect(() => {
     if (activeSessionId && sessions.some((s) => s.id === activeSessionId)) return;
@@ -289,23 +269,6 @@ export function TerminalPane() {
     [activeSessionId, deleteSession],
   );
 
-  const handleClearExited = useCallback(async () => {
-    const stale = sessions.filter(
-      (s) => s.status === "exited" || s.status === "error",
-    );
-    if (stale.length === 0) return;
-    try {
-      setActionError(null);
-      setBusyAction("clear-exited");
-      await Promise.all(stale.map((s) => deleteSession(s.id)));
-      if (stale.some((s) => s.id === activeSessionId)) setActiveSessionId(null);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Unable to clear.");
-    } finally {
-      setBusyAction(null);
-    }
-  }, [activeSessionId, deleteSession, sessions]);
-
   const handleCopyDirectory = useCallback(async () => {
     const cwd = meta.cwd ?? activeSession?.cwd;
     if (!cwd || typeof navigator === "undefined" || !navigator.clipboard) {
@@ -392,178 +355,106 @@ export function TerminalPane() {
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className="tp-stage">
-      {/* ─── header ─────────────────────────────────────────────────── */}
-      <header className="tp-header">
-        <div>
-          <div className="tp-eyebrow">Console</div>
-          <h1 className="tp-title">Terminal</h1>
-          <p className="tp-lede">
-            Persistent PTYs for Claude, OpenCode, and shell work — every shell becomes
-            a pinned thread with its own cwd, pid, and history.
-          </p>
-        </div>
-        <div className="tp-header-actions">
-          {activeSession && (
-            <button
-              type="button"
-              className="tp-pill-ghost"
-              onClick={() => void handleRestart()}
-              disabled={busyAction !== null}
-              title={`Restart (${KBD_RESTART})`}
-            >
-              Restart
-            </button>
-          )}
-          <button
-            type="button"
-            className="tp-pill-ghost"
-            onClick={() => void handleLaunch("claude")}
-            disabled={!serviceOnline || busyAction !== null}
-          >
-            Claude
-          </button>
-          <button
-            type="button"
-            className="tp-pill-ghost"
-            onClick={() => void handleLaunch("opencode")}
-            disabled={!serviceOnline || busyAction !== null}
-          >
-            OpenCode
-          </button>
-          <button
-            type="button"
-            className="tp-pill"
-            onClick={() => void handleLaunch("shell")}
-            disabled={!serviceOnline || busyAction !== null}
-            title={`New shell (${KBD_NEW_SHELL})`}
-          >
-            New shell
-            <span className="tp-pill-kbd">{KBD_NEW_SHELL}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* ─── meters ─────────────────────────────────────────────────── */}
-      <section className="tp-meters">
-        <div className="tp-meter">
-          <div className="tp-meter-label">Shells</div>
-          <div className="tp-meter-value">{sessions.length}</div>
-          <div className="tp-meter-trend">
-            {staleCount > 0 ? `${staleCount} exited` : loading ? "syncing…" : "—"}
+    <div className="tp-root">
+      {/* ─── top strip: active-thread breadcrumb + actions ─────────── */}
+      <div className="tp-topbar">
+        {activeSession ? (
+          <div className="tp-crumb">
+            <span className={`tp-crumb-dot tp-crumb-dot--${activeSession.status}`} />
+            <span className="tp-crumb-profile">{PROFILE_LABEL[activeSession.profile]}</span>
+            <span className="tp-crumb-slash">/</span>
+            <span className="tp-crumb-label">{activeLabel}</span>
+            {detailCwd && (
+              <code className="tp-crumb-path" title={detailCwd}>
+                {compactPath(detailCwd)}
+              </code>
+            )}
           </div>
-        </div>
-        <div className="tp-meter">
-          <div className="tp-meter-label">Running</div>
-          <div className="tp-meter-value">{runningCount}</div>
-          <div
-            className={`tp-meter-trend${runningCount > 0 ? " tp-meter-trend--good" : ""}`}
-          >
-            {runningCount > 0 ? "live" : "idle"}
-          </div>
-        </div>
-        <div className="tp-meter">
-          <div className="tp-meter-label">Issues</div>
-          <div className="tp-meter-value">{errorCount}</div>
-          <div
-            className={`tp-meter-trend${errorCount > 0 ? " tp-meter-trend--bad" : " tp-meter-trend--good"}`}
-          >
-            {errorCount > 0 ? "attention" : "clean"}
-          </div>
-        </div>
-        <div className="tp-meter">
-          <div className="tp-meter-label">Service</div>
-          <div className="tp-meter-value tp-meter-value--text">
-            {serviceOnline ? "online" : "offline"}
-          </div>
-          <div
-            className={`tp-meter-trend${serviceOnline ? " tp-meter-trend--good" : " tp-meter-trend--bad"}`}
-          >
-            {health?.host ?? "127.0.0.1"}:{health?.port ?? 4010}
-          </div>
-        </div>
-      </section>
-
-      {/* ─── filters ────────────────────────────────────────────────── */}
-      <div className="tp-filterbar">
-        {(["all", "running", "exited", "error"] as const).map((f) => (
-          <button
-            key={f}
-            type="button"
-            className={`tp-filter-pill${statusFilter === f ? " tp-filter-pill--on" : ""}`}
-            onClick={() => setStatusFilter(f)}
-          >
-            {f[0].toUpperCase() + f.slice(1)}
-            <span className="tp-filter-count">{statusCounts[f]}</span>
-          </button>
-        ))}
-        {staleCount > 0 && (
-          <button
-            type="button"
-            className="tp-filterbar-link"
-            onClick={() => void handleClearExited()}
-            disabled={busyAction !== null}
-          >
-            Clear {staleCount} exited
-          </button>
+        ) : (
+          <div className="tp-crumb tp-crumb--empty">No active thread</div>
         )}
+        <div className="tp-topbar-actions">
+          {activeSession && (
+            <>
+              <button
+                type="button"
+                className="tp-chip"
+                onClick={() => void handleCopyDirectory()}
+                disabled={!detailCwd}
+                title="Copy working directory"
+              >
+                copy path
+              </button>
+              {activeCanStop && (
+                <button
+                  type="button"
+                  className="tp-chip"
+                  onClick={() => void handleKill()}
+                  disabled={busyAction !== null}
+                >
+                  stop
+                </button>
+              )}
+              <button
+                type="button"
+                className="tp-chip"
+                onClick={() => void handleRestart()}
+                disabled={busyAction !== null}
+                title={`Restart (${KBD_RESTART})`}
+              >
+                restart
+              </button>
+              <button
+                type="button"
+                className="tp-chip tp-chip--danger"
+                onClick={() => void handleDelete()}
+                disabled={busyAction !== null}
+                title={`Close thread (${KBD_CLOSE})`}
+              >
+                close
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* ─── split: list + viewport ─────────────────────────────────── */}
-      <div className="tp-split">
-        {/* ─── list ─────────────────────────────────────────────── */}
-        <div className="tp-list-wrap">
-          <div className="tp-list-head">
-            <span>Shell</span>
-            <span>Seen</span>
-          </div>
-          {visibleSessions.length === 0 ? (
-            <div className="tp-list-empty">
-              {sessions.length === 0
-                ? "No shells yet — launch one above."
-                : `No ${statusFilter} shells.`}
-            </div>
-          ) : (
-            <div className="tp-list">
-              {visibleSessions.map((session) => {
+      {/* ─── main: sidebar + surface ───────────────────────────────── */}
+      <div className="tp-main">
+        <aside className="tp-sidebar">
+          <div className="tp-sidebar-list">
+            {sessions.length === 0 ? (
+              <div className="tp-sidebar-empty">No shells yet.</div>
+            ) : (
+              sessions.map((session, i) => {
                 const isActive = session.id === activeSessionId;
-                const globalIndex = sessions.indexOf(session);
-                const canStop =
-                  session.status === "running" || session.status === "starting";
                 return (
                   <div
                     key={session.id}
-                    className={`tp-row${isActive ? " tp-row--on" : ""}`}
+                    className={`tp-thread${isActive ? " tp-thread--on" : ""}`}
                   >
                     <button
                       type="button"
-                      className="tp-row-main"
+                      className="tp-thread-main"
                       onClick={() => handleSelectSession(session.id)}
                       title={`${PROFILE_LABEL[session.profile]} — ${session.cwd}`}
                     >
-                      <span className="tp-row-label-wrap">
-                        <span className={`tp-dot tp-dot--${session.status}`} />
-                        <span className="tp-row-label">{session.label}</span>
-                        {globalIndex < 9 && (
-                          <span className="tp-row-kbd">⌥{globalIndex + 1}</span>
-                        )}
-                      </span>
-                      <span className="tp-row-meta">
-                        <span className="tp-row-profile">
-                          {PROFILE_LABEL[session.profile]}
-                        </span>
-                        <span className="tp-row-sep">·</span>
-                        <span className="tp-row-path">{compactPath(session.cwd)}</span>
-                      </span>
+                      <span className={`tp-thread-dot tp-thread-dot--${session.status}`} />
+                      <div className="tp-thread-body">
+                        <div className="tp-thread-row">
+                          <span className="tp-thread-name">{session.label}</span>
+                          {i < 9 && <span className="tp-thread-kbd">⌥{i + 1}</span>}
+                        </div>
+                        <div className="tp-thread-meta">
+                          <span>{PROFILE_LABEL[session.profile]}</span>
+                          <span className="tp-thread-sep">·</span>
+                          <span>{formatRelativeTime(session.lastActiveAt)}</span>
+                        </div>
+                      </div>
                     </button>
-                    <span className="tp-row-time">
-                      {formatRelativeTime(session.lastActiveAt)}
-                    </span>
                     <button
                       type="button"
-                      className="tp-row-close"
+                      className="tp-thread-close"
                       aria-label={`Close ${session.label}`}
-                      title={canStop ? "Stop & remove" : "Remove"}
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleDeleteSession(session.id);
@@ -574,13 +465,43 @@ export function TerminalPane() {
                     </button>
                   </div>
                 );
-              })}
-            </div>
-          )}
-        </div>
+              })
+            )}
+          </div>
+          <div className="tp-sidebar-new">
+            <button
+              type="button"
+              className="tp-new-btn tp-new-btn--primary"
+              onClick={() => void handleLaunch("shell")}
+              disabled={!serviceOnline || busyAction !== null}
+              title={`New shell (${KBD_NEW_SHELL})`}
+            >
+              <Icon.Plus size={12} sw={2} />
+              <span>Shell</span>
+              <span className="tp-new-btn-kbd">{KBD_NEW_SHELL}</span>
+            </button>
+            <button
+              type="button"
+              className="tp-new-btn"
+              onClick={() => void handleLaunch("claude")}
+              disabled={!serviceOnline || busyAction !== null}
+            >
+              <Icon.Plus size={12} sw={2} />
+              <span>Claude</span>
+            </button>
+            <button
+              type="button"
+              className="tp-new-btn"
+              onClick={() => void handleLaunch("opencode")}
+              disabled={!serviceOnline || busyAction !== null}
+            >
+              <Icon.Plus size={12} sw={2} />
+              <span>OpenCode</span>
+            </button>
+          </div>
+        </aside>
 
-        {/* ─── viewport / trace ─────────────────────────────────── */}
-        <aside className="tp-trace">
+        <div className="tp-surface-wrap">
           {!serviceOnline ? (
             <TPEmpty
               title="Terminal service is down"
@@ -591,115 +512,70 @@ export function TerminalPane() {
           ) : !activeSession ? (
             <TPEmpty
               title="No thread selected"
-              body="Open a shell from the header, or pick Claude / OpenCode. Each shell becomes a pinned thread."
+              body="Open a shell from the left, or pick Claude / OpenCode. Each shell becomes a pinned thread."
               action={
                 <button
                   type="button"
-                  className="tp-pill"
+                  className="tp-new-btn tp-new-btn--primary"
                   onClick={() => void handleLaunch("shell")}
                   disabled={busyAction !== null}
                 >
-                  Open a shell <span className="tp-pill-kbd">{KBD_NEW_SHELL}</span>
+                  <Icon.Plus size={12} sw={2} />
+                  <span>Shell</span>
+                  <span className="tp-new-btn-kbd">{KBD_NEW_SHELL}</span>
                 </button>
               }
             />
           ) : (
-            <>
-              <div className="tp-trace-head">
-                <div className="tp-eyebrow">Active thread</div>
-                <h3 className="tp-trace-title">{activeLabel}</h3>
-                <div className="tp-trace-meta">
-                  <span>{PROFILE_LABEL[activeSession.profile]}</span>
-                  <span className="tp-trace-sep">·</span>
-                  <SocketChip state={socketState} />
-                  {detailPid && (
-                    <>
-                      <span className="tp-trace-sep">·</span>
-                      <span>pid {detailPid}</span>
-                    </>
-                  )}
-                  {detailCwd && (
-                    <>
-                      <span className="tp-trace-sep">·</span>
-                      <code className="tp-trace-path" title={detailCwd}>
-                        {compactPath(detailCwd)}
-                      </code>
-                    </>
-                  )}
-                </div>
-                <div className="tp-trace-actions">
-                  <button
-                    type="button"
-                    className="tp-pill-sm"
-                    onClick={() => void handleCopyDirectory()}
-                    disabled={!detailCwd}
-                  >
-                    Copy path
-                  </button>
-                  {activeCanStop && (
-                    <button
-                      type="button"
-                      className="tp-pill-sm"
-                      onClick={() => void handleKill()}
-                      disabled={busyAction !== null}
-                    >
-                      Stop
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="tp-pill-sm"
-                    onClick={() => void handleRestart()}
-                    disabled={busyAction !== null}
-                    title={`Restart (${KBD_RESTART})`}
-                  >
-                    Restart
-                  </button>
-                  <button
-                    type="button"
-                    className="tp-pill-sm tp-pill-sm--danger"
-                    onClick={() => void handleDelete()}
-                    disabled={busyAction !== null}
-                    title={`Close thread (${KBD_CLOSE})`}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-              <div
-                className="tp-surface"
+            <div
+              className="tp-surface"
+              data-hotkeys-ignore="true"
+              onMouseDownCapture={() => focusTerminalSoon(0)}
+              onClick={() => focusTerminalSoon(0)}
+            >
+              <Terminal
+                key={activeSessionKey}
+                ref={ref}
+                className="tp-screen"
+                cols={120}
+                rows={36}
+                autoResize
+                cursorBlink
                 data-hotkeys-ignore="true"
-                onMouseDownCapture={() => focusTerminalSoon(0)}
-                onClick={() => focusTerminalSoon(0)}
-              >
-                <Terminal
-                  key={activeSessionKey}
-                  ref={ref}
-                  className="tp-screen"
-                  cols={120}
-                  rows={36}
-                  autoResize
-                  cursorBlink
-                  data-hotkeys-ignore="true"
-                  onReady={handleTerminalReady}
-                  onResize={sendResize}
-                  onData={sendInput}
-                />
-              </div>
-              {errorNotice && <div className="tp-error">{errorNotice}</div>}
-            </>
+                onReady={handleTerminalReady}
+                onResize={sendResize}
+                onData={sendInput}
+              />
+            </div>
           )}
-        </aside>
+        </div>
+      </div>
+
+      {/* ─── bottom status bar ──────────────────────────────────────── */}
+      <div className="tp-statusbar">
+        <span className={`tp-socket tp-socket--${socketState}`}>{socketState}</span>
+        {detailPid && <span className="tp-statusbar-item">pid {detailPid}</span>}
+        <span className="tp-statusbar-item tp-statusbar-dim">
+          {sessions.length} thread{sessions.length === 1 ? "" : "s"} · {runningCount} live
+          {staleCount > 0 && ` · ${staleCount} exited`}
+        </span>
+        <span className="tp-statusbar-grow" />
+        {errorNotice ? (
+          <span className="tp-statusbar-err" title={errorNotice}>
+            {errorNotice}
+          </span>
+        ) : (
+          <span className="tp-statusbar-item tp-statusbar-dim">
+            {serviceOnline ? "● online" : "○ offline"} · {health?.host ?? "127.0.0.1"}:
+            {health?.port ?? 4010}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
 // ──────────────────────────────────────────────────────────────────────
-function SocketChip({ state }: { state: SocketState }) {
-  return <span className={`tp-socket tp-socket--${state}`}>{state}</span>;
-}
-
 function TPEmpty({
   title,
   body,
@@ -722,7 +598,7 @@ function TPEmpty({
       <p className="tp-empty-body">{body}</p>
       {code && <code className="tp-empty-code">{code}</code>}
       {action}
-      {error && <div className="tp-error">{error}</div>}
+      {error && <div className="tp-empty-error">{error}</div>}
     </div>
   );
 }

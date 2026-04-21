@@ -369,24 +369,25 @@ def _parse_key(spec: str) -> tuple[list[int], int]:
 
 
 def op_key(spec: str) -> dict[str, Any]:
-    """Send a keystroke or combo to the currently focused widget."""
+    """Send a keystroke or combo to the currently focused widget.
+
+    Values in _KEYSYMS / _MODIFIER_KEYSYMS / ord(char) are X11 keysyms, so we
+    must use pyatspi.KEY_SYM (not KEY_PRESSRELEASE, which treats the value as
+    a keycode and silently sends a garbled event for values > 255).
+    """
     pyatspi = _import_pyatspi()
     try:
         modifiers, primary = _parse_key(spec)
     except Exception as e:
         return {"ok": False, "error": str(e)}
     try:
-        # Press modifiers.
         for mod in modifiers:
             pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_PRESS)
-        # Tap primary.
-        pyatspi.Registry.generateKeyboardEvent(primary, None, pyatspi.KEY_PRESSRELEASE)
-        # Release modifiers in reverse order.
+        pyatspi.Registry.generateKeyboardEvent(primary, None, pyatspi.KEY_SYM)
         for mod in reversed(modifiers):
             pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_RELEASE)
         return {"ok": True, "data": {"spec": spec, "keysym": primary, "modifiers": modifiers}}
     except Exception as e:
-        # Release any stuck modifiers defensively.
         for mod in reversed(modifiers):
             try:
                 pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_RELEASE)
@@ -412,7 +413,23 @@ def op_focus(handle: dict[str, Any]) -> dict[str, Any]:
 
 
 def op_type(handle: dict[str, Any] | None, text: str) -> dict[str, Any]:
+    """Type into a widget via EditableText, or into the focused window via
+    KEY_STRING synthesis when no handle is given / EditableText is unavailable.
+
+    Qt apps (and Electron under --force-renderer-accessibility) often do not
+    expose EditableText on their search bars. The KEY_STRING fallback routes
+    through AT-SPI's DeviceEventController, which feeds XTest / Wayland
+    input-method injection depending on session type.
+    """
     pyatspi = _import_pyatspi()
+
+    def _key_string(s: str) -> dict[str, Any]:
+        try:
+            pyatspi.Registry.generateKeyboardEvent(0, s, pyatspi.KEY_STRING)
+            return {"ok": True, "data": {"method": "key_string", "len": len(s)}}
+        except Exception as e:
+            return {"ok": False, "error": f"type: key_string failed ({e})"}
+
     if handle:
         node = _resolve_handle(handle)
         if node is None:
@@ -420,11 +437,13 @@ def op_type(handle: dict[str, Any] | None, text: str) -> dict[str, Any]:
         try:
             editable = node.queryEditableText()
             editable.insertText(editable.caretOffset, text, len(text))
-            return {"ok": True}
-        except Exception as e:
-            return {"ok": False, "error": f"type: {e}"}
-    # No handle: delegate to input-common (caller should use synthetic input)
-    return {"ok": False, "error": "no handle supplied; use input-common for focused typing"}
+            return {"ok": True, "data": {"method": "editable_text"}}
+        except Exception:
+            # EditableText not supported (common on Qt search bars). Fall
+            # through to KEY_STRING — whatever the user has focused on-screen
+            # receives the characters.
+            return _key_string(text)
+    return _key_string(text)
 
 
 def op_tree(handle: dict[str, Any] | None) -> dict[str, Any]:

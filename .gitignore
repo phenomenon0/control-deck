@@ -1,6 +1,11 @@
 # dependencies (bun install)
 node_modules
 
+# non-bun lockfiles (this project uses bun.lock)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # Next.js build output
 .next
 

@@ -1,7 +1,26 @@
 /**
- * AG-UI Event Types - aligned with https://docs.ag-ui.com/concepts/events
- * 
- * Schema Version 2: All payload fields use DeckPayload envelope
+ * AG-UI Event Types — canonical event protocol for Control-Deck.
+ *
+ * Structurally aligned with the AG-UI spec
+ * (https://docs.ag-ui.com/concepts/events), the open agent-to-UI
+ * interaction protocol adopted by LangGraph, CrewAI, Mastra, AG2,
+ * Pydantic AI, LlamaIndex, Google ADK, MS Agent Framework, and AWS
+ * Strands. This module is the source of truth for every event that
+ * flows through the deck's SSE/WS pipeline.
+ *
+ * Deck-specific extensions (not in the base spec):
+ *   • `DeckPayload` envelope wraps all payload fields (JSON or GLYPH-
+ *     compressed) so downstream code can decode uniformly. See
+ *     `lib/agui/payload.ts`.
+ *   • `ArtifactCreated` — deck surfaces tool outputs (images, audio,
+ *     3D models, files) as first-class events.
+ *   • `CostIncurred` — token/cost telemetry per run.
+ *
+ * The `@/lib/agentgo` module mirrors this union with the Agent-GO wire
+ * format (no DeckPayload envelope, flat fields) — keep the two in sync
+ * when adding event types.
+ *
+ * Schema Version 2: All payload fields use DeckPayload envelope.
  */
 
 import type { DeckPayload } from "./payload";
@@ -139,6 +158,30 @@ export interface InterruptResolved extends AGUIBase {
   reason?: string;
 }
 
+/**
+ * AG-UI spec lifecycle events — surfaces the agent's plan / step
+ * boundaries so UIs can render progress.
+ */
+export interface StepStarted extends AGUIBase {
+  type: "StepStarted";
+  runId: string;
+  stepIndex: number;
+  /** Human-readable description of what this step does */
+  description?: string;
+  /** Optional stable id the agent assigns to the step */
+  stepId?: string;
+}
+
+export interface StepFinished extends AGUIBase {
+  type: "StepFinished";
+  runId: string;
+  stepIndex: number;
+  stepId?: string;
+  /** Did the step succeed? (undefined = unknown / partial) */
+  success?: boolean;
+  result?: DeckPayload;
+}
+
 export type AGUIEvent =
   | RunStarted
   | RunFinished
@@ -152,7 +195,9 @@ export type AGUIEvent =
   | ArtifactCreated
   | CostIncurred
   | InterruptRequested
-  | InterruptResolved;
+  | InterruptResolved
+  | StepStarted
+  | StepFinished;
 
 export type AGUIEventType = AGUIEvent["type"];
 
@@ -287,4 +332,20 @@ export function isArtifactCreated(e: AGUIEvent): e is ArtifactCreated {
 
 export function isCostIncurred(e: AGUIEvent): e is CostIncurred {
   return e.type === "CostIncurred";
+}
+
+export function isInterruptRequested(e: AGUIEvent): e is InterruptRequested {
+  return e.type === "InterruptRequested";
+}
+
+export function isInterruptResolved(e: AGUIEvent): e is InterruptResolved {
+  return e.type === "InterruptResolved";
+}
+
+export function isStepStarted(e: AGUIEvent): e is StepStarted {
+  return e.type === "StepStarted";
+}
+
+export function isStepFinished(e: AGUIEvent): e is StepFinished {
+  return e.type === "StepFinished";
 }

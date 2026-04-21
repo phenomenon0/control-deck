@@ -60,6 +60,20 @@ module.exports = async function afterPack(context) {
     { from: path.join(ROOT, "public"), to: path.join(resourcesApp, ".next", "standalone", "public") },
   ];
 
+  // Individual helper files used by server-side adapters (native surfaces).
+  const scriptFiles = [
+    "atspi-helper.py",
+  ];
+  fs.mkdirSync(path.join(resourcesApp, "scripts"), { recursive: true });
+  for (const name of scriptFiles) {
+    const src = path.join(ROOT, "scripts", name);
+    const dst = path.join(resourcesApp, "scripts", name);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, dst);
+      console.log(`[after-pack] copied helper ${name}`);
+    }
+  }
+
   let total = 0;
   for (const t of targets) {
     const copied = copyDir(t.from, t.to);

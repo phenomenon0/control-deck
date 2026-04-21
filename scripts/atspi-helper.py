@@ -61,15 +61,18 @@ def _import_pyatspi():
 
 
 def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
-    """Build a stable-ish handle dict and cache the live object."""
+    """Build a stable-ish handle dict and cache the live object.
+
+    Path format: "<app_name>/<idx_in_app>/<idx_in_frame>/...". Indices are
+    each node's position in its own parent. The leaf is the node itself.
+    """
     try:
         app = node.getApplication()
         app_name = app.name if app else ""
     except Exception:
         app_name = ""
 
-    # Build a path via repeated parent() to produce a semi-stable id
-    parts: list[str] = []
+    indices: list[str] = []
     cursor = node
     while cursor is not None:
         try:
@@ -77,15 +80,17 @@ def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             parent = None
         if parent is None:
-            parts.append(cursor.name or cursor.getRoleName())
+            # Reached the application root.
+            indices.append(cursor.name or cursor.getRoleName())
             break
         try:
-            parts.append(str(parent.getIndexInParent() if hasattr(cursor, "getIndexInParent") else 0))
+            idx = cursor.getIndexInParent()
         except Exception:
-            parts.append("?")
+            idx = -1
+        indices.append(str(idx))
         cursor = parent
 
-    path_str = "/".join(reversed(parts))
+    path_str = "/".join(reversed(indices))
     handle_id = f"{app_name}::{path_str}"
     cache_entries[handle_id] = {"app": app_name, "path": path_str, "name": node.name}
 
@@ -182,14 +187,65 @@ def op_locate(query: dict[str, Any]) -> dict[str, Any]:
 
 
 def _resolve_handle(handle: dict[str, Any]):
-    """Re-walk the desktop to find a live node matching the cached handle."""
+    """Re-walk the desktop to find a live node matching the cached handle.
+
+    Preference order:
+      1. Walk the recorded index path (most specific / survives empty names).
+      2. Fall back to name match inside the target app.
+    """
     pyatspi = _import_pyatspi()
     hid = handle.get("id", "")
     name = handle.get("name") or ""
+    path_str = handle.get("path") or ""
     app_name, _, _ = hid.partition("::")
 
     registry = pyatspi.Registry.getDesktop(0)
-    for app in registry:
+
+    def find_app():
+        for i in range(registry.childCount):
+            a = registry.getChildAtIndex(i)
+            if a is None:
+                continue
+            if not app_name or app_name == (a.name or ""):
+                return a
+        return None
+
+    # Path-based resolution: "<app_name>/<idx>/<idx>/..."
+    if path_str:
+        parts = path_str.split("/")
+        app = find_app()
+        if app is None:
+            return None
+        cursor = app
+        for seg in parts[1:]:
+            try:
+                idx = int(seg)
+            except ValueError:
+                cursor = None
+                break
+            if cursor is None:
+                break
+            try:
+                count = cursor.childCount
+            except Exception:
+                cursor = None
+                break
+            if idx < 0 or idx >= count:
+                cursor = None
+                break
+            try:
+                cursor = cursor.getChildAtIndex(idx)
+            except Exception:
+                cursor = None
+                break
+        if cursor is not None:
+            return cursor
+
+    # Name fallback
+    for i in range(registry.childCount):
+        app = registry.getChildAtIndex(i)
+        if app is None:
+            continue
         if app_name and app_name != (app.name or ""):
             continue
         for node in _walk(app):

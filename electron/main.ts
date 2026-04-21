@@ -83,6 +83,7 @@ async function startEmbeddedServer(): Promise<string> {
       HOSTNAME: "127.0.0.1",
       NODE_ENV: "production",
       CONTROL_DECK_USER_DATA: app.getPath("userData"),
+      CONTROL_DECK_SCRIPTS_DIR: path.join(process.resourcesPath, "app", "scripts"),
     },
     stdio: ["ignore", "inherit", "inherit"],
   });

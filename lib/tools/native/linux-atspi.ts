@@ -10,6 +10,7 @@
  */
 
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
   LocateQuery,
@@ -18,7 +19,22 @@ import type {
   TreeNode,
 } from "./types";
 
-const HELPER = path.join(process.cwd(), "scripts", "atspi-helper.py");
+function resolveHelper(): string {
+  const candidates = [
+    process.env.CONTROL_DECK_SCRIPTS_DIR
+      ? path.join(process.env.CONTROL_DECK_SCRIPTS_DIR, "atspi-helper.py")
+      : null,
+    path.join(process.cwd(), "scripts", "atspi-helper.py"),
+    path.join(process.cwd(), "..", "scripts", "atspi-helper.py"),
+    path.join(process.cwd(), "..", "..", "scripts", "atspi-helper.py"),
+  ].filter((p): p is string => p !== null);
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0] ?? path.join(process.cwd(), "scripts", "atspi-helper.py");
+}
+
+const HELPER = resolveHelper();
 const HELPER_TIMEOUT_MS = 5_000;
 
 interface HelperCommand {

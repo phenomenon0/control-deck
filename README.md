@@ -83,3 +83,96 @@ In packaged builds, the SQLite DB path resolves via:
 3. `${XDG_STATE_HOME:-$HOME/.local/state}/control-deck/data/deck.db`
 
 Running from source still uses `./data/deck.db` if that directory exists.
+
+### Themed browser windows
+
+Any external link opened from inside the deck — chat links, tool dashboards,
+plugin tickers, `window.open`, `<a target="_blank">`, or a deliberate
+`window.deck.browser.open(url)` call — spawns a themed Chromium window instead
+of handing the URL to the OS default browser.
+
+Each themed window is a standalone OS window with Control Deck's dark palette:
+a 40px header (back, forward, reload/stop, URL input, close) sitting above a
+full-bleed web view. The header route is `/browser`; the web view is a plain
+`WebContentsView` loading the target URL.
+
+**Programmatic API** (exposed via preload as `window.deck.browser`):
+
+```ts
+// Open a new themed window
+await window.deck.browser.open("https://example.com");
+
+// Drive the active window from inside its header
+await window.deck.browser.navigate("https://other.example");
+await window.deck.browser.back();
+await window.deck.browser.forward();
+await window.deck.browser.reload();
+await window.deck.browser.stop();
+await window.deck.browser.close();
+
+// Subscribe to nav state (only meaningful inside the /browser header route)
+const unsubscribe = window.deck.browser.onState((state) => {
+  console.log(state.url, state.title, state.loading);
+});
+```
+
+The implementation lives in `electron/services/themed-browser.ts`
+(`BaseWindow` + two `WebContentsView`s, header/page split, IPC routing keyed by
+the header's `webContents.id`). The page view is a first-class CDP target, so
+once the devtools port is enabled it attaches just like a regular tab.
+
+### Browser automation (browser-harness)
+
+Control Deck exposes a CDP endpoint on demand so
+[browser-harness](../ai_tools/browser-harness) and similar tools can drive the
+main deck window **and** any themed browser window as ordinary Chromium tabs.
+
+The devtools port is **opt-in** — off by default in both dev and packaged
+builds, on only when `CONTROL_DECK_DEVTOOLS_PORT` is set.
+
+```bash
+# Launch the deck with CDP on (dev)
+CONTROL_DECK_DEVTOOLS_PORT=9223 bun run electron:dev
+
+# In another terminal — attach the harness to whatever's listening there
+./scripts/attach-harness.sh <<'PY'
+# page_info, screenshot, click, js, etc. are pre-imported
+print(page_info())
+screenshot("/tmp/deck.png")
+PY
+```
+
+`scripts/attach-harness.sh` reads `http://127.0.0.1:<port>/json/version`,
+extracts the `webSocketDebuggerUrl`, then execs `browser-harness` with
+`BU_CDP_WS` and `BU_NAME=control-deck` set. Any arguments you pass to the
+script are forwarded to `browser-harness` unchanged.
+
+**Attaching to a specific themed browser window** instead of whatever the
+harness picks first:
+
+```python
+targets = cdp("Target.getTargets")["targetInfos"]
+for t in targets:
+    print(t["targetId"], t["url"])
+# Then `set_target(targetId)` or drive via its session.
+```
+
+**Caveats**
+
+- The harness's `new_tab(url)` calls `Target.createTarget`, which in Electron
+  creates a page but no visible `BrowserWindow`. To open a **visible** themed
+  window from the harness, evaluate `window.deck.browser.open(url)` on the main
+  deck page via `js(...)` instead, then re-list targets.
+- Driving `window.deck.browser.close()` via `js(..., target_id=<header>)` will
+  raise a `JSONDecodeError` inside the harness — the header target destroys
+  itself before it can flush the CDP response. The Electron side still closes
+  cleanly; it's purely a harness-side read artifact. Real users clicking the
+  header's X button never see this. If you need to close a themed window from
+  the harness, evaluate on the main deck target (once a `closeById` surface
+  lands) or drive the X button with a coordinate click.
+- The port is sticky across the whole Electron app — exposing it in production
+  means any local process can drive the deck. Don't set
+  `CONTROL_DECK_DEVTOOLS_PORT` in packaged builds you ship to users.
+- `remote-allow-origins=*` is set alongside the port so the harness's
+  WebSocket handshake isn't rejected. Combined with the "dev-only" posture,
+  this is fine — do not flip it on in production.

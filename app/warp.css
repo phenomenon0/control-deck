@@ -4030,27 +4030,155 @@ textarea.input:focus {
      ─ everything else = terminal surface
    ================================================================== */
 
+.terminal-stage--deck {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 22px 28px 56px;
+}
+
+.terminal-head--deck {
+  margin-bottom: 0;
+  padding-bottom: 12px;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.terminal-head-copy {
+  min-width: 0;
+}
+
+.terminal-head--deck h1 {
+  font-size: 22px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 6px 0 6px;
+}
+
+.terminal-head--deck p {
+  font-size: 12.5px;
+  line-height: 1.5;
+  max-width: 900px;
+  margin: 0;
+}
+
+.terminal-overview-grid--deck {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.terminal-overview-card {
+  border: 1px solid var(--mist);
+  border-radius: var(--r-lg);
+  background: color-mix(in oklch, var(--veil) 92%, var(--bg-card));
+  padding: 12px 14px;
+  min-height: 82px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.terminal-overview-card--accent {
+  border-color: color-mix(in oklch, var(--accent) 22%, var(--mist));
+  background: color-mix(in oklch, var(--veil) 90%, var(--bg-card));
+}
+
+.terminal-overview-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.terminal-overview-label {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.terminal-overview-badge {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--mist);
+  color: var(--fg-dim);
+  background: color-mix(in oklch, var(--veil) 92%, transparent);
+}
+
+.terminal-overview-badge--ok {
+  color: var(--ok);
+  border-color: color-mix(in oklch, var(--ok) 38%, transparent);
+  background: color-mix(in oklch, var(--ok) 10%, transparent);
+}
+
+.terminal-overview-badge--err {
+  color: var(--err);
+  border-color: color-mix(in oklch, var(--err) 38%, transparent);
+  background: color-mix(in oklch, var(--err) 10%, transparent);
+}
+
+.terminal-overview-value {
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: clamp(17px, 1.8vw, 22px);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.terminal-overview-sub {
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  min-height: auto;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-deck-shell {
+  flex: 1 1 auto;
+  min-height: clamp(480px, 66vh, 820px);
+  overflow: hidden;
+  display: flex;
+}
+
 .tp-root {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
   height: 100%;
   min-height: 0;
-  background: var(--bg);
+  background: color-mix(in oklch, var(--bg-card) 94%, var(--bg));
   color: var(--fg);
   overflow: hidden;
 }
 
-/* ── top strip: active-thread breadcrumb + actions ────────────────── */
+/* ── top strip: active-session breadcrumb + actions ───────────────── */
 
 .tp-topbar {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   padding: 0 var(--sp-4);
-  height: 40px;
+  height: 42px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-card);
+  border-bottom: 1px solid var(--mist);
+  background: color-mix(in oklch, var(--bg-card) 92%, var(--bg));
 }
 
 .tp-crumb {
@@ -4132,9 +4260,9 @@ textarea.input:focus {
 .tp-chip {
   appearance: none;
   background: transparent;
-  border: 1px solid transparent;
+  border: 1px solid var(--mist);
   border-radius: var(--r-sm);
-  color: var(--fg-dim);
+  color: var(--fg-muted);
   padding: 4px 10px;
   font-size: var(--fs-xs);
   letter-spacing: var(--label-tracking-tight);
@@ -4169,18 +4297,19 @@ textarea.input:focus {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  background: color-mix(in oklch, var(--bg-card) 90%, var(--bg));
 }
 
 /* ── sidebar ──────────────────────────────────────────────────────── */
 
 .tp-sidebar {
-  width: 260px;
+  width: 274px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
-  background: var(--bg-card);
+  border-right: 1px solid var(--mist);
+  background: color-mix(in oklch, var(--bg-card) 94%, var(--bg));
 }
 
 .tp-sidebar-list {
@@ -4346,22 +4475,53 @@ textarea.input:focus {
 /* ── sidebar launcher (top of sidebar) ────────────────────────────── */
 
 .tp-sidebar-launch {
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px;
+  border-bottom: 1px solid var(--mist);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   flex-shrink: 0;
-  background: var(--bg-inset);
+  background: color-mix(in oklch, var(--veil) 88%, var(--bg-card));
+}
+
+.tp-sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.tp-sidebar-kicker {
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 4px;
+}
+
+.tp-sidebar-copy {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+  max-width: 24ch;
+}
+
+.tp-sidebar-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  white-space: nowrap;
 }
 
 .tp-new-btn {
   appearance: none;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 1px solid var(--mist);
   border-radius: var(--r-sm);
   color: var(--fg-muted);
-  padding: 6px 10px;
+  padding: 8px 10px;
   font-size: var(--fs-xs);
   font-family: var(--font-sans);
   display: flex;
@@ -4418,7 +4578,7 @@ textarea.input:focus {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: color-mix(in oklch, var(--bg) 92%, var(--bg-card));
 }
 
 .tp-surface {
@@ -4509,8 +4669,8 @@ textarea.input:focus {
   padding: 0 var(--sp-3);
   height: 28px;
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg-card);
+  border-top: 1px solid var(--mist);
+  background: color-mix(in oklch, var(--bg-card) 90%, var(--bg));
   font-family: var(--font-mono);
   font-size: 11px;
   min-width: 0;
@@ -4554,8 +4714,8 @@ textarea.input:focus {
 /* ── semantic context box (bottom of sidebar) ─────────────────────── */
 
 .tp-nowbox {
-  border-top: 1px solid var(--border);
-  background: var(--bg-inset);
+  border-top: 1px solid var(--mist);
+  background: color-mix(in oklch, var(--veil) 88%, var(--bg-card));
   padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
@@ -4755,8 +4915,56 @@ textarea.input:focus {
 
 /* ── responsive collapse ──────────────────────────────────────────── */
 
+@media (max-width: 1180px) {
+  .terminal-overview-grid--deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .terminal-stage--deck {
+    overflow-y: auto;
+    padding: 18px 18px 44px;
+  }
+
+  .terminal-deck-shell {
+    flex: none;
+    min-height: 640px;
+  }
+}
+
 @media (max-width: 760px) {
-  .tp-sidebar { width: 220px; }
+  .terminal-overview-grid--deck {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .terminal-deck-shell {
+    min-height: 720px;
+  }
+
+  .tp-main {
+    flex-direction: column;
+  }
+
+  .tp-sidebar {
+    width: 100%;
+    max-height: 360px;
+    border-right: 0;
+    border-bottom: 1px solid var(--mist);
+  }
+
+  .tp-topbar {
+    height: auto;
+    min-height: 52px;
+    padding: 10px 14px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .tp-topbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 
 @keyframes tp-pulse {

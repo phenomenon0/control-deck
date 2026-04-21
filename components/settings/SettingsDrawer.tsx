@@ -7,7 +7,6 @@ import {
   useDeckSettings,
   type TTSEngine,
   type VoiceMode,
-  type ThemeName,
   type ChatSurface,
 } from "./DeckSettingsProvider";
 import {

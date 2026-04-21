@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
 import { useRouter } from "next/navigation";
-import { useDeckSettings, type ChatSurface, type ThemeName } from "./settings/DeckSettingsProvider";
+import { useDeckSettings, type ChatSurface } from "./settings/DeckSettingsProvider";
+import { useWarp, type Theme } from "@/components/warp/WarpProvider";
 
 interface Command {
   id: string;
@@ -46,6 +47,7 @@ function fuzzyMatch(label: string, query: string): boolean {
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
   const { setSettingsOpen, setRailOpen, updatePrefs, prefs } = useDeckSettings();
+  const { setTweak } = useWarp();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
@@ -81,9 +83,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       category: "Settings",
     },
     // Theme shortcuts
-    { id: "theme-light", label: "Theme: Light", action: () => updatePrefs({ theme: "light" as ThemeName }), category: "Theme" },
-    { id: "theme-dark", label: "Theme: Dark", action: () => updatePrefs({ theme: "dark" as ThemeName }), category: "Theme" },
-    { id: "theme-system", label: "Theme: System", action: () => updatePrefs({ theme: "system" as ThemeName }), category: "Theme" },
+    { id: "theme-light", label: "Theme: Light", action: () => setTweak("theme", "light" as Theme), category: "Theme" },
+    { id: "theme-dark", label: "Theme: Dark", action: () => setTweak("theme", "dark" as Theme), category: "Theme" },
     { id: "settings-reduce-motion", label: `Reduce Motion: ${prefs.reduceMotion ? "On" : "Off"}`, action: () => updatePrefs({ reduceMotion: !prefs.reduceMotion }), category: "Settings" },
     // Actions
     { id: "action-new-chat", label: "New Chat", action: () => { router.push("/deck/chat?new=1"); }, category: "Actions" },

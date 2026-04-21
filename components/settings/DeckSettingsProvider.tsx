@@ -13,7 +13,6 @@ import { useShortcut } from "@/lib/hooks/useShortcuts";
 
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
-export type ThemeName = "light" | "dark" | "system";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 export type ChatSurface = "safe" | "brave" | "radical";
 
@@ -28,7 +27,6 @@ export interface VoicePrefs {
 
 export interface DeckPrefs {
   model: string;
-  theme: ThemeName;
   reduceMotion: boolean;
   chatContextRail: boolean;
   chatSurface: ChatSurface;
@@ -63,7 +61,6 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
 
 const DEFAULT_PREFS: DeckPrefs = {
   model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "qwen2",
-  theme: "dark",
   reduceMotion: false,
   chatContextRail: false,
   chatSurface: "safe",
@@ -83,17 +80,10 @@ function safeParse<T>(value: string | null): T | null {
   }
 }
 
-/** Map legacy 6-theme names to light/dark/system */
-function migrateThemeName(raw: string): ThemeName {
-  if (raw === "light" || raw === "dark" || raw === "system") return raw;
-  // Legacy theme names: paper was light, everything else was dark
-  if (raw === "paper") return "light";
-  return "dark";
-}
-
 function migratePrefs(): DeckPrefs {
-  const newPrefs = safeParse<DeckPrefs>(localStorage.getItem(PREFS_KEY));
+  const newPrefs = safeParse<(DeckPrefs & { theme?: string })>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
+    const { theme: _legacyTheme, ...rest } = newPrefs;
     const migratedSurface =
       (newPrefs.chatSurface as string) === "dossier"
         ? "brave"
@@ -102,9 +92,8 @@ function migratePrefs(): DeckPrefs {
           : (newPrefs.chatSurface ?? "safe");
     return {
       ...DEFAULT_PREFS,
-      ...newPrefs,
+      ...rest,
       chatSurface: migratedSurface as ChatSurface,
-      theme: migrateThemeName(newPrefs.theme),
       voice: { ...DEFAULT_VOICE_PREFS, ...newPrefs.voice },
     };
   }
@@ -120,7 +109,6 @@ function migratePrefs(): DeckPrefs {
 
   const migrated: DeckPrefs = {
     ...DEFAULT_PREFS,
-    theme: oldTheme === "light" || oldTheme === "paper" ? "light" : "system",
     voice: oldVoice
       ? {
           enabled: oldVoice.enabled ?? false,
@@ -135,35 +123,13 @@ function migratePrefs(): DeckPrefs {
 
   localStorage.setItem(PREFS_KEY, JSON.stringify(migrated));
   localStorage.removeItem(OLD_VOICE_KEY);
-  localStorage.removeItem(OLD_THEME_KEY);
+  if (oldTheme) localStorage.removeItem(OLD_THEME_KEY);
 
   return migrated;
 }
 
-/** Resolve effective mode ("light" | "dark") from preference + system */
-function resolveMode(theme: ThemeName): "light" | "dark" {
-  if (theme === "light" || theme === "dark") return theme;
-  // system
-  if (typeof window !== "undefined") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  }
-  return "dark";
-}
-
-function applyTheme(theme: ThemeName, reduceMotion: boolean) {
+function applyRootPrefs(reduceMotion: boolean) {
   const root = document.documentElement;
-  const mode = resolveMode(theme);
-  if (mode === "dark") {
-    root.classList.add("dark");
-    root.classList.remove("light");
-    root.dataset.theme = "dark";
-  } else {
-    root.classList.remove("dark");
-    root.classList.add("light");
-    root.dataset.theme = "light";
-  }
   root.dataset.reduceMotion = reduceMotion ? "1" : "0";
 }
 
@@ -187,18 +153,9 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   // Apply theme immediately after hydration
   useLayoutEffect(() => {
     if (hydrated) {
-      applyTheme(prefs.theme, prefs.reduceMotion);
+      applyRootPrefs(prefs.reduceMotion);
     }
-  }, [hydrated, prefs.theme, prefs.reduceMotion]);
-
-  // Listen for system color-scheme changes when theme is "system"
-  useEffect(() => {
-    if (!hydrated || prefs.theme !== "system") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => applyTheme("system", prefs.reduceMotion);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [hydrated, prefs.theme, prefs.reduceMotion]);
+  }, [hydrated, prefs.reduceMotion]);
 
   // Persist prefs whenever they change (after hydration)
   useEffect(() => {

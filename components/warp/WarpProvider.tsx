@@ -30,6 +30,8 @@ const DEFAULTS: WarpTweaks = {
 };
 
 const STORAGE_KEY = "controldeck.warp.v1";
+const LEGACY_DECK_PREFS_KEY = "deck.prefs";
+const LEGACY_THEME_KEY = "deck:theme";
 
 interface WarpContextValue {
   tweaks: WarpTweaks;
@@ -45,6 +47,19 @@ export function WarpProvider({ children }: { children: ReactNode }) {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) return { ...DEFAULTS, ...JSON.parse(stored) };
+
+      const legacyPrefs = localStorage.getItem(LEGACY_DECK_PREFS_KEY);
+      if (legacyPrefs) {
+        const parsed = JSON.parse(legacyPrefs) as { theme?: string };
+        if (parsed.theme === "light" || parsed.theme === "dark") {
+          return { ...DEFAULTS, theme: parsed.theme };
+        }
+      }
+
+      const legacyTheme = localStorage.getItem(LEGACY_THEME_KEY);
+      if (legacyTheme === "light" || legacyTheme === "dark") {
+        return { ...DEFAULTS, theme: legacyTheme };
+      }
     } catch {
       // localStorage may be unavailable in restricted browser contexts.
     }

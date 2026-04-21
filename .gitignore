@@ -46,6 +46,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 *.tsbuildinfo
 target/
 **/src-tauri/gen/
+__pycache__/
 
 # IntelliJ based IDEs
 .idea

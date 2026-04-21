@@ -28,12 +28,17 @@ export async function GET(
 ) {
   const { runId, filename } = await params;
 
-  // Validate inputs to prevent path traversal
-  if (runId.includes("..") || filename.includes("..")) {
+  // Prevent path traversal: resolve the candidate path and assert it still
+  // lives under ARTIFACTS_DIR. Catches `..`, encoded variants Next already
+  // decoded, absolute paths, and symlink-style tricks in a single check.
+  const artifactsRoot = path.resolve(ARTIFACTS_DIR);
+  const filePath = path.resolve(artifactsRoot, runId, filename);
+  if (
+    filePath !== artifactsRoot &&
+    !filePath.startsWith(artifactsRoot + path.sep)
+  ) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   }
-
-  const filePath = path.join(ARTIFACTS_DIR, runId, filename);
 
   try {
     // Check if file exists

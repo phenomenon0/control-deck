@@ -220,8 +220,6 @@ export interface ServiceStatus {
   backendType: string;
   comfy: boolean;
   gpu: GPUStatus;
-  /** @deprecated Use llmBackend instead */
-  ollama: boolean;
 }
 
 export async function getServiceStatus(): Promise<ServiceStatus> {
@@ -231,13 +229,11 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
     checkService("http://localhost:8188/system_stats"),
     getGPUStatus(),
   ]);
-  
-  return { 
-    llmBackend, 
+
+  return {
+    llmBackend,
     backendType: backendCfg.primary.type,
-    comfy, 
+    comfy,
     gpu,
-    // Backward compatibility
-    ollama: llmBackend,
   };
 }

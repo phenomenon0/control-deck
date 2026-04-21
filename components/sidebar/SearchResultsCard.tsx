@@ -49,7 +49,8 @@ export function SearchResultsCard({ tool }: SearchResultsCardProps) {
         setPreview(data);
         setLoadingPreview(false);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.warn("[SearchResultsCard] preview fetch failed", { url: selectedResult.url, err });
         setLoadingPreview(false);
       });
   }, [selectedResult]);

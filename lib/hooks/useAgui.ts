@@ -101,6 +101,7 @@ export function useAgui(options: UseAguiOptions): UseAguiReturn {
   const storeRef = useRef<DojoStore | null>(null);
   const emitterRef = useRef<DojoEventEmitter | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // State
   const [isConnected, setIsConnected] = useState(false);
@@ -184,14 +185,23 @@ export function useAgui(options: UseAguiOptions): UseAguiReturn {
       setIsConnected(false);
       eventSource.close();
       eventSourceRef.current = null;
-      
-      // Reconnect after delay
-      setTimeout(connect, 2000);
+
+      // Reconnect after delay; track the timer so disconnect() can cancel it
+      // and we don't orphan an EventSource on fast unmount/remount.
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, 2000);
     };
   }, [threadId, apiUrl]);
-  
+
   // Disconnect from SSE stream
   const disconnect = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;

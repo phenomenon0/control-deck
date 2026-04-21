@@ -91,9 +91,9 @@ export function ComfyPane() {
             {PRESET_WORKFLOWS.map((wf) => (
               <button
                 key={wf.id}
-                disabled={queueing}
-                className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] p-4 text-left"
-                onClick={() => alert(`TODO: Load ${wf.id} workflow`)}
+                disabled
+                title="Preset workflows not yet implemented"
+                className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] p-4 text-left opacity-50 cursor-not-allowed"
               >
                 <div className="text-sm font-semibold text-[var(--text-primary)]">{wf.name}</div>
                 <div className="text-xs text-[var(--text-muted)] mt-1">{wf.description}</div>

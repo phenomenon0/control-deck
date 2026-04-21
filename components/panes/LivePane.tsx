@@ -209,7 +209,9 @@ export function LivePane() {
                 .then(() => {
                   if (typeof args.name === "string") engine.setTrackName(args.track as number, args.name);
                 })
-                .catch(() => undefined);
+                .catch((err) => {
+                  console.warn("[LivePane] load_sample failed", { track: args.track, url: args.url, err });
+                });
             }
             break;
           case "live.bpm":

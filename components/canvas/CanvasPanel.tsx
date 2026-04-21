@@ -479,8 +479,16 @@ function AudioView({ tab }: { tab: CanvasTab }) {
 }
 
 function Model3DView({ tab }: { tab: CanvasTab }) {
+  // Register the <model-viewer> custom element on first mount.
+  // ES module cache makes the second import a no-op.
+  useEffect(() => {
+    import("@google/model-viewer").catch((err) => {
+      console.warn("[CanvasPanel] failed to load @google/model-viewer", err);
+    });
+  }, []);
+
   if (!tab.artifact) return null;
-  
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">

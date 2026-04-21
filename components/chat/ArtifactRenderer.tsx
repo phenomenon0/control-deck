@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Paperclip, Download, Box, ImageOff } from "lucide-react";
 import type { Artifact } from "@/lib/types/chat";
 
@@ -139,6 +139,14 @@ function VideoPlayer({ url, name }: { url: string; name: string }) {
 
 function ModelViewer({ url, name }: { url: string; name: string }) {
   const [error, setError] = useState(false);
+
+  // Register the <model-viewer> custom element on first mount.
+  // ES module cache makes the second import a no-op.
+  useEffect(() => {
+    import("@google/model-viewer").catch((err) => {
+      console.warn("[ArtifactRenderer] failed to load @google/model-viewer", err);
+    });
+  }, []);
 
   if (error) {
     return (

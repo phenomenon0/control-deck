@@ -3,20 +3,18 @@
 import dynamic from "next/dynamic";
 
 /**
- * Phase 3 smoke-test harness for the new LiveTransport.
- * Imports a legacy script preset into SongStore, boots the Tone-backed
- * transport, exposes play/stop + scalar controls, and renders the Song tree.
- *
- * Delete this route once the new LivePane ships and engine.ts retires.
+ * Preview route for the FL-native LivePane. Will replace /deck/audio?tab=live
+ * once the 4 zones (Transport / Playlist / Pattern Rack / Launch Bar / Mixer)
+ * are wired up.
  */
-const LivePreviewHarness = dynamic(
-  () => import("@/components/panes/LivePreviewHarness").then((m) => m.LivePreviewHarness),
+const LivePaneV2 = dynamic(
+  () => import("@/components/panes/live/LivePaneV2").then((m) => m.LivePaneV2),
   {
     ssr: false,
-    loading: () => <div className="p-6 text-sm text-[var(--text-muted)]">Loading live preview…</div>,
+    loading: () => <div className="p-6 text-sm text-[var(--text-muted)]">Loading live pane…</div>,
   },
 );
 
 export default function LivePreviewPage() {
-  return <LivePreviewHarness />;
+  return <LivePaneV2 />;
 }

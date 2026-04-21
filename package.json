@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start -p 3333",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
     "terminal-service": "tsx scripts/terminal-service.ts"
   },
   "dependencies": {

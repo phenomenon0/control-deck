@@ -7,6 +7,7 @@ import { TransportBar } from "./TransportBar";
 import { Playlist } from "./Playlist";
 import { PatternRack } from "./PatternRack";
 import { LaunchBar } from "./LaunchBar";
+import { Mixer } from "./Mixer";
 
 const PRESETS: Array<{ id: string; label: string; script: string }> = [
   {
@@ -113,6 +114,8 @@ export function LivePaneV2() {
           />
         </div>
       </div>
+
+      <Mixer store={store} song={song} />
     </div>
   );
 }

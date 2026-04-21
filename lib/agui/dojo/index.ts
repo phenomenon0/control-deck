@@ -1,7 +1,14 @@
 /**
- * AG-UI Dojo - Complete Protocol Implementation
- * 
- * This module provides a full implementation of the AG-UI protocol including:
+ * AG-UI Dojo — REFERENCE IMPLEMENTATION (kept in-tree intentionally).
+ *
+ * Not the default path — see `../README.md` and `../events.ts` for the
+ * canonical AG-UI event protocol used by the main deck surface. This
+ * dojo is a richer, more experimental implementation we plan to mine
+ * as those features mature (generative UI, reasoning traces,
+ * activity messages, meta events). Do NOT import from production
+ * paths; treat it as a staging area.
+ *
+ * Full AG-UI protocol implementation including:
  * - All 16+ standard event types
  * - State management with JSON Patch
  * - Activity messages for streaming UI
@@ -10,7 +17,7 @@
  * - Interrupts/human-in-the-loop (draft)
  * - Generative UI (draft)
  * - Meta events (draft)
- * 
+ *
  * @see https://docs.ag-ui.com
  */
 

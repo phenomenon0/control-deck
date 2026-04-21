@@ -1,9 +1,13 @@
 /**
- * AG-UI Module - Agentic GUI Event System
- * 
+ * AG-UI Module — the deck's canonical agent-to-UI event protocol.
+ *
+ * This is the default path for any new agent-streaming feature. See
+ * `./README.md` for architecture, rationale, and the relationship to
+ * the (still-in-tree-for-reference) `./dojo/` implementation.
+ *
  * Exports:
  * - DeckPayload: Canonical envelope for all structured data
- * - Events: AG-UI event types and factory
+ * - Events: AG-UI event types and factory (aligned with docs.ag-ui.com)
  * - Hub: Pub/sub event distribution
  * - DB: Persistence layer
  */
@@ -47,6 +51,10 @@ export type {
   ToolCallResult,
   ArtifactCreated,
   CostIncurred,
+  InterruptRequested,
+  InterruptResolved,
+  StepStarted,
+  StepFinished,
 } from "./events";
 
 export {
@@ -66,6 +74,10 @@ export {
   isToolCallResult,
   isArtifactCreated,
   isCostIncurred,
+  isInterruptRequested,
+  isInterruptResolved,
+  isStepStarted,
+  isStepFinished,
 } from "./events";
 
 // Hub (pub/sub)

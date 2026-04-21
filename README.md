@@ -8,6 +8,12 @@ A Next.js 16 control surface for local + hosted AI workflows — chat, dojo, too
 bun install
 ```
 
+Create a local env file before running the full deck:
+
+```bash
+cp .env.example .env.local
+```
+
 ## Run
 
 ```bash
@@ -28,12 +34,25 @@ Other scripts:
 
 ## Environment
 
-Copy / create `.env.local` at the repo root. Notable variables:
+Copy / create `.env.local` at the repo root. `.env.example` includes the
+recommended local-first defaults. Notable variables:
 
 - `DECK_TOKEN` — bearer token required on every `/api/*` request (see `middleware.ts`). **If this is unset or empty, API auth is disabled** and the deck is fully open (file upload, code exec, search proxy, etc. all exposed). Set it for any non-local deployment.
-- Provider API keys (set the ones you use): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `HUGGINGFACE_API_KEY`, `OPENROUTER_API_KEY`.
-- Local-LLM endpoints (optional): `OLLAMA_HOST`, `LLAMA_SERVER_URL`, `VLLM_URL`, `LMSTUDIO_URL`.
-- `LLM_PROVIDER`, `LLM_MODEL` — default provider + model for new chats.
+- Local services: `AGENTGO_URL`, `AGENTGO_HEALTH_URL`, `OLLAMA_URL`, `TERMINAL_SERVICE_URL`, `SEARXNG_URL`.
+- Provider API keys (set the ones you use): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `HUGGINGFACE_API_KEY`.
+- Primary model slot: `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`.
+- Optional extra slots for routing by task: `LLM_FAST_*`, `LLM_VISION_*`, `LLM_EMBEDDING_*`.
+- OpenAI-compatible local endpoints are configured through `LLM_BASE_URL` or the slot-specific `*_BASE_URL` vars. Typical defaults are Ollama `http://localhost:11434/v1`, llama.cpp server `http://localhost:8080/v1`, vLLM `http://localhost:8000/v1`, and LM Studio `http://localhost:1234/v1`.
+
+For a local-first setup, use:
+
+- `LLM_PROVIDER=ollama`
+- `LLM_BASE_URL=http://localhost:11434/v1`
+- `LLM_MODEL=qwen2.5:7b`
+
+For a cloud or gateway-backed setup, switch `LLM_PROVIDER` to the provider you
+want and set its matching API key. If you use a unified gateway, point
+`LLM_BASE_URL` at that gateway and keep the deck on a single provider entry.
 
 ## Package manager
 
@@ -71,7 +90,7 @@ macOS and Windows targets are pre-configured in `electron-builder.yml` but not y
 - `electron/main.ts` — main process. Picks a free port, spawns the Next standalone server via `ELECTRON_RUN_AS_NODE=1`, waits for readiness, loads the URL in a `BrowserWindow`.
 - `electron/preload.ts` — minimal `window.deck` surface (platform info + IPC invoke).
 - `scripts/electron-after-pack.cjs` — copies `.next/standalone` + `.next/static` + `public/` into the packaged `resources/app/` (works around electron-builder's node_modules stripping in extraResources).
-- `components/preflight/PreflightGate.tsx` — blocking modal on boot that probes Agent-GO / Ollama / SearXNG / terminal-service and shows install hints for whichever required service is down.
+- `components/preflight/PreflightGate.tsx` — boot-time preflight probe that surfaces Agent-GO / Ollama / SearXNG / terminal-service status and shows install hints for missing services.
 - `lib/tools/native/` — native-surface adapters. Linux (`linux-atspi.ts` + `scripts/atspi-helper.py`) is live; macOS (AX) and Windows (UIA) are stubbed with clear error messages. Synthetic input via optional `@nut-tree/nut-js` in `input-common.ts`.
 
 ### Data dirs

@@ -78,6 +78,7 @@ export function PreflightGate({ children }: { children: React.ReactNode }) {
   }, [check]);
 
   // Never block the UI. Always render children; surface status as a banner.
+  const checking = state === "probing";
   const showBanner = !dismissed && (state === "blocked" || state === "error");
   const down = services.filter((s) => s.status === "down");
   const requiredDown = down.filter((s) => s.required);
@@ -133,10 +134,10 @@ export function PreflightGate({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => void check()}
-                  disabled={state === "probing"}
+                  disabled={checking}
                   className="text-xs text-emerald-400 underline-offset-2 hover:text-emerald-300 hover:underline disabled:opacity-50"
                 >
-                  {state === "probing" ? "Checking…" : "Retry"}
+                  {checking ? "Checking…" : "Retry"}
                 </button>
               </div>
               {expanded && services.length > 0 && (

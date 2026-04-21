@@ -40,7 +40,7 @@ import {
   getThread,
   type MessageMetadata,
 } from "@/lib/agui/db";
-import { getBackendConfig, getDefaultModel } from "@/lib/llm";
+import { getDefaultModel, getProviderConfig } from "@/lib/llm";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 
@@ -321,18 +321,28 @@ export async function POST(req: Request) {
     });
   }
 
-  // Get backend config for LLM settings
+  // Get provider config for LLM settings
   const systemProfile = getSystemProfile();
-  const backendCfg = getBackendConfig();
+  const providerCfg = getProviderConfig();
   const hasImages = hasImageContent(messages);
-  
-  // Model selection priority: request > env > backend config > system profile > fallback
-  const selectedModel = hasImages 
-    ? (backendCfg.vision?.defaultModel ?? "llama3.2-vision:11b")
-    : (model ?? process.env.LLM_MODEL ?? getDefaultModel("primary") ?? backendCfg.primary?.defaultModel ?? systemProfile.recommended.textModel ?? "llama3.2:3b");
-  
-  const clientSlot = hasImages && backendCfg.vision ? "vision" : "primary";
-  const activeConfig = backendCfg[clientSlot]!;
+
+  const clientSlot = hasImages && providerCfg.vision ? "vision" : "primary";
+  const activeConfig = providerCfg[clientSlot];
+
+  if (!activeConfig) {
+    return new Response(JSON.stringify({ error: `provider slot "${clientSlot}" is not configured` }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Model selection priority: request > selected provider slot > primary slot > system profile > fallback
+  const selectedModel =
+    model ??
+    getDefaultModel(clientSlot) ??
+    (clientSlot !== "primary" ? getDefaultModel("primary") : undefined) ??
+    systemProfile.recommended.textModel ??
+    (hasImages ? "llama3.2-vision:11b" : "llama3.2:3b");
 
   const thread = threadId ?? generateId();
   const runId = generateId();

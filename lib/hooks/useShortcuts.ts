@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { isEditableElement } from "@/lib/dom/editable";
 
 export interface ShortcutOptions {
   /** Whether this shortcut is currently active. Defaults to true. */
@@ -107,12 +108,7 @@ function matchesEvent(parsed: ParsedCombo, e: KeyboardEvent): boolean {
 }
 
 function isFocusedOnInput(): boolean {
-  const el = document.activeElement;
-  if (!el) return false;
-  const tag = el.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA") return true;
-  if ((el as HTMLElement).isContentEditable) return true;
-  return false;
+  return isEditableElement(document.activeElement);
 }
 
 let listenerAttached = false;

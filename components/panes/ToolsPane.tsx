@@ -1,8 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useSystemStats, type ServiceStatus } from "@/lib/hooks/useSystemStats";
 
 export function ToolsPane() {
+  const router = useRouter();
   const { stats, refresh } = useSystemStats();
   const services = stats?.services ?? [];
   const gpu = stats?.gpu ?? null;
@@ -148,6 +150,22 @@ export function ToolsPane() {
                         </div>
                       </div>
                     )}
+                    {svc.name === "Terminal Service" && svc.extra && svc.status === "online" && (
+                      <div className="mt-3 pt-3 border-t border-[var(--border)] grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <div className="text-[var(--text-muted)]">Sessions</div>
+                          <div className="font-mono text-[var(--text-primary)]">{svc.extra.sessions ?? 0}</div>
+                        </div>
+                        <div>
+                          <div className="text-[var(--text-muted)]">Running</div>
+                          <div className="font-mono text-[var(--text-primary)]">{svc.extra.running ?? 0}</div>
+                        </div>
+                        <div>
+                          <div className="text-[var(--text-muted)]">Host</div>
+                          <div className="font-mono text-[var(--text-primary)]">{svc.extra.host ?? "127.0.0.1"}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -157,6 +175,12 @@ export function ToolsPane() {
             <div>
               <h3 className="section-title mb-3">Quick Actions</h3>
               <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => router.push("/deck/terminal")}
+                  className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] px-3 py-2.5 text-sm text-[var(--text-secondary)] text-left flex items-center justify-start gap-2"
+                >
+                  Open Terminal Surface
+                </button>
                 <button
                   onClick={() => {
                     const svc = services.find(s => s.name === "ComfyUI");

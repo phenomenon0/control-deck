@@ -209,6 +209,7 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
 
   // Keyboard shortcuts
   useShortcut("mod+,", () => setSettingsOpen((o) => !o), {
+    when: "no-input",
     label: "Toggle settings",
   });
 

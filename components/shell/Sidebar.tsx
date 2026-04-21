@@ -10,12 +10,13 @@ import { Icon } from "@/components/warp/Icons";
 
 const ITEMS = [
   { href: "/deck/chat", label: "Chat", icon: Icon.Chat, kbd: "1" },
-  { href: "/deck/runs", label: "Runs", icon: Icon.Terminal, kbd: "2" },
+  { href: "/deck/runs", label: "Runs", icon: Icon.Code, kbd: "2" },
   { href: "/deck/models", label: "Models", icon: Icon.Cpu, kbd: "3" },
   { href: "/deck/dojo", label: "DoJo", icon: Icon.Layers, kbd: "4" },
   { href: "/deck/tools", label: "Tools", icon: Icon.Wrench, kbd: "5" },
   { href: "/deck/comfy", label: "Comfy", icon: Icon.Image, kbd: "6" },
   { href: "/deck/voice", label: "Voice", icon: Icon.Waveform, kbd: "7" },
+  { href: "/deck/terminal", label: "Terminal", icon: Icon.Terminal, kbd: "8" },
 ] as const;
 
 interface SidebarProps {

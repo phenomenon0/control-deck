@@ -55,13 +55,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     // Navigation - Primary
     { id: "nav-chat", label: "Go to Chat", shortcut: "1", action: () => router.push("/deck/chat"), category: "Navigation" },
     { id: "nav-runs", label: "Go to Runs", shortcut: "2", action: () => router.push("/deck/runs"), category: "Navigation" },
-    { id: "nav-tools", label: "Go to Tools", shortcut: "3", action: () => router.push("/deck/tools"), category: "Navigation" },
+    { id: "nav-models", label: "Go to Models", shortcut: "3", action: () => router.push("/deck/models"), category: "Navigation" },
     { id: "nav-dojo", label: "Go to Dojo", shortcut: "4", action: () => router.push("/deck/dojo"), category: "Navigation" },
     // Navigation - Advanced
-    { id: "nav-models", label: "Go to Models", shortcut: "5", action: () => router.push("/deck/models"), category: "Navigation" },
+    { id: "nav-tools", label: "Go to Tools", shortcut: "5", action: () => router.push("/deck/tools"), category: "Navigation" },
     { id: "nav-comfy", label: "Go to Comfy", shortcut: "6", action: () => router.push("/deck/comfy"), category: "Navigation" },
     { id: "nav-voice", label: "Go to Voice", shortcut: "7", action: () => router.push("/deck/voice"), category: "Navigation" },
-    { id: "nav-agentgo", label: "Go to AgentGo", shortcut: "8", action: () => router.push("/deck/agentgo"), category: "Navigation" },
+    { id: "nav-terminal", label: "Go to Terminal", shortcut: "8", action: () => router.push("/deck/terminal"), category: "Navigation" },
+    { id: "nav-agentgo", label: "Go to AgentGo", shortcut: "9", action: () => router.push("/deck/agentgo"), category: "Navigation" },
     // Settings
     { id: "settings-open", label: "Open Settings", shortcut: "⌘,", action: () => setSettingsOpen(true), category: "Settings" },
     { id: "settings-inspector", label: "Toggle Sidebar", shortcut: "⌘I", action: () => setRailOpen(o => !o), category: "Settings" },

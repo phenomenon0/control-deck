@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { CommandPalette } from "./CommandPalette";
 import { DeckSettingsProvider } from "./settings/DeckSettingsProvider";
@@ -21,16 +21,19 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const isChat = pathname === "/deck/chat" || pathname.startsWith("/deck/chat/");
   const showThreads = isChat;
   const canvas = useCanvas();
   const { prefs } = useDeckSettings();
 
   useShortcut("mod+k", () => setPaletteOpen((o) => !o), {
+    when: "no-input",
     label: "Toggle command palette",
   });
 
   useShortcut("mod+i", () => setInspectorOpen((o) => !o), {
+    when: "no-input",
     label: "Toggle inspector",
   });
 
@@ -38,6 +41,43 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     enabled: inspectorOpen,
     priority: 20,
     label: "Close inspector",
+  });
+
+  useShortcut("1", () => router.push("/deck/chat"), {
+    when: "no-input",
+    label: "Go to Chat",
+  });
+  useShortcut("2", () => router.push("/deck/runs"), {
+    when: "no-input",
+    label: "Go to Runs",
+  });
+  useShortcut("3", () => router.push("/deck/models"), {
+    when: "no-input",
+    label: "Go to Models",
+  });
+  useShortcut("4", () => router.push("/deck/dojo"), {
+    when: "no-input",
+    label: "Go to DoJo",
+  });
+  useShortcut("5", () => router.push("/deck/tools"), {
+    when: "no-input",
+    label: "Go to Tools",
+  });
+  useShortcut("6", () => router.push("/deck/comfy"), {
+    when: "no-input",
+    label: "Go to Comfy",
+  });
+  useShortcut("7", () => router.push("/deck/voice"), {
+    when: "no-input",
+    label: "Go to Voice",
+  });
+  useShortcut("8", () => router.push("/deck/terminal"), {
+    when: "no-input",
+    label: "Go to Terminal",
+  });
+  useShortcut("9", () => router.push("/deck/agentgo"), {
+    when: "no-input",
+    label: "Go to AgentGo",
   });
 
   return (
@@ -95,6 +135,7 @@ function CanvasKeyboardHandler({ children }: { children: React.ReactNode }) {
   const { toggle, isOpen } = useCanvas();
 
   useShortcut("mod+shift+c", () => toggle(), {
+    when: "no-input",
     label: "Toggle canvas panel",
   });
 

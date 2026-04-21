@@ -114,26 +114,61 @@ async function checkVectorDB(url: string): Promise<ServiceStatus> {
   }
 }
 
+async function checkTerminalService(url: string): Promise<ServiceStatus> {
+  const start = Date.now();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    const res = await fetch(`${url}/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      return { name: "Terminal Service", url, status: "offline" };
+    }
+
+    const data = await res.json();
+    return {
+      name: "Terminal Service",
+      url,
+      status: "online",
+      latencyMs: Date.now() - start,
+      extra: {
+        sessions: data.sessions ?? 0,
+        running: data.running ?? 0,
+        host: data.host ?? "127.0.0.1",
+      },
+    };
+  } catch {
+    return { name: "Terminal Service", url, status: "offline" };
+  }
+}
+
 export async function GET() {
   const OLLAMA_URL = process.env.OLLAMA_BASE_URL?.replace("/v1", "") ?? "http://localhost:11434";
   const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
   const VOICE_URL = process.env.VOICE_API_URL ?? "http://localhost:8000";
   const VECTORDB_URL = process.env.VECTORDB_URL ?? "http://localhost:4242";
   const SEARXNG_URL = process.env.SEARXNG_URL ?? "http://localhost:8888";
+  const TERMINAL_SERVICE_URL = process.env.TERMINAL_SERVICE_URL ?? "http://127.0.0.1:4010";
 
   // Check all services in parallel
-  const [gpu, ollama, comfy, voice, vectordb, searxng] = await Promise.all([
+  const [gpu, ollama, comfy, voice, vectordb, searxng, terminalService] = await Promise.all([
     getGpuStats(),
     checkService("Ollama", `${OLLAMA_URL}/api/tags`),
     checkService("ComfyUI", `${COMFY_URL}/system_stats`),
     checkService("Voice API", `${VOICE_URL}/health`),
     checkVectorDB(VECTORDB_URL),
     checkService("SearxNG", `${SEARXNG_URL}/healthz`),
+    checkTerminalService(TERMINAL_SERVICE_URL),
   ]);
 
   return NextResponse.json({
     gpu,
-    services: [ollama, comfy, vectordb, searxng, voice],
+    services: [ollama, comfy, terminalService, vectordb, searxng, voice],
     timestamp: new Date().toISOString(),
   });
 }

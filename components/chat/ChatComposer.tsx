@@ -8,6 +8,7 @@ import type { PendingUpload } from "@/components/chat/UploadTray";
 import type { UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
 import type { RunState } from "@/lib/types/agentRun";
 import type { ChatSurface } from "@/components/settings/DeckSettingsProvider";
+import { shouldMoveFocusTo } from "@/lib/dom/editable";
 
 export interface ChatComposerProps {
   /** Current run state from useAgentRun */
@@ -192,7 +193,11 @@ export function ChatComposer({
 
   const prevPhaseRef = useRef(runState.phase);
   useEffect(() => {
-    if (prevPhaseRef.current !== "idle" && runState.phase === "idle") {
+    if (
+      prevPhaseRef.current !== "idle" &&
+      runState.phase === "idle" &&
+      shouldMoveFocusTo(inputRef.current)
+    ) {
       inputRef.current?.focus();
     }
     prevPhaseRef.current = runState.phase;

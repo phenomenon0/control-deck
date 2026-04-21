@@ -3,6 +3,7 @@
 import { Zap, MessageSquare, Mic, ImageIcon, Bot, Brain, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { WidgetContainer } from "@/components/widgets/WidgetContainer";
+import { Icon } from "@/components/warp/Icons";
 
 interface Action {
   label: string;
@@ -16,6 +17,7 @@ const ACTIONS: Action[] = [
   { label: "Generate Image", icon: <ImageIcon size={14} />, href: "/deck/comfy" },
   { label: "Run Agent", icon: <Bot size={14} />, href: "/deck/agentgo" },
   { label: "Models", icon: <Brain size={14} />, href: "/deck/models" },
+  { label: "Terminal", icon: <Icon.Terminal size={14} />, href: "/deck/terminal" },
   { label: "Tools", icon: <Wrench size={14} />, href: "/deck/tools" },
 ];
 

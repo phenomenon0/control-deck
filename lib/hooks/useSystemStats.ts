@@ -21,6 +21,9 @@ export interface ServiceStatus {
     embedder?: string;
     model?: string;
     dimension?: number;
+    sessions?: number;
+    running?: number;
+    host?: string;
   };
 }
 

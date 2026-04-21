@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback } from "react";
 import { useVoiceChat, type TTSEngine, type VoiceInputMode } from "@/lib/hooks/useVoiceChat";
+import { isEditableElement } from "@/lib/dom/editable";
 import { AudioLevelIndicator } from "./AudioLevelIndicator";
 
 interface VoiceInputProps {
@@ -45,10 +46,7 @@ export function VoiceInput({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't trigger if user is typing in an input
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
+      if (isEditableElement(e.target)) {
         return;
       }
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./warp.css";
+import "@wterm/react/css";
 import { WarpProvider } from "@/components/warp/WarpProvider";
 
 export const metadata: Metadata = {

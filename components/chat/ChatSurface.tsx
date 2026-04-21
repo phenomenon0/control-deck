@@ -34,6 +34,7 @@ import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
 import { useCanvas } from "@/lib/hooks/useCanvas";
+import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
 
@@ -324,6 +325,13 @@ export default function ChatSurface() {
   const lastSpokenIdRef = useRef<string | null>(null);
   const sendMessageRef = useRef<(text: string) => void>(() => {});
   const pendingTTSRef = useRef<string | null>(null);
+  const queueComposerFocus = useCallback((delay = 0) => {
+    window.setTimeout(() => {
+      if (shouldMoveFocusTo(inputRef.current)) {
+        inputRef.current?.focus();
+      }
+    }, delay);
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Agent Run — unified SSE consumer (replaces useSendMessage + useSSE)
@@ -422,9 +430,9 @@ export default function ChatSurface() {
     if (prevThreadRef.current !== activeThreadId) {
       prevThreadRef.current = activeThreadId;
       setPendingUploads([]);
-      setTimeout(() => inputRef.current?.focus(), 100);
+      queueComposerFocus(100);
     }
-  }, [activeThreadId, setPendingUploads]);
+  }, [activeThreadId, queueComposerFocus, setPendingUploads]);
 
   // ---------------------------------------------------------------------------
   // Elapsed time for StatusStrip
@@ -568,9 +576,7 @@ export default function ChatSurface() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      const inInput =
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement;
+      const inInput = isEditableElement(e.target);
 
       // --- Priority 100: Escape (modals, overlays) ---
       if (e.key === "Escape") {
@@ -819,11 +825,11 @@ export default function ChatSurface() {
     }
 
     // Refocus input
-    setTimeout(() => inputRef.current?.focus(), 100);
+    queueComposerFocus(100);
   }, [
     inputValue, pendingUploads, isRunning, activeThreadId, fallbackThreadId,
     messages, selectedModel, agentRun, voiceChat, prefs.voice,
-    setMessages, setActiveThreadId, setThreads, clearUploads,
+    setMessages, setActiveThreadId, setThreads, clearUploads, queueComposerFocus,
   ]);
 
   // Wire voice auto-send
@@ -851,8 +857,8 @@ export default function ChatSurface() {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUserMsg) return;
     setInputValue(lastUserMsg.content);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, [messages]);
+    queueComposerFocus(0);
+  }, [messages, queueComposerFocus]);
 
   const handleMicClick = () => {
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();

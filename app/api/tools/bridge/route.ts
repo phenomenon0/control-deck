@@ -45,6 +45,8 @@ const BRIDGE_TOOLS = new Set<string>([
   "native_click",
   "native_type",
   "native_tree",
+  "native_key",
+  "native_focus",
 ]);
 
 interface BridgeRequest {

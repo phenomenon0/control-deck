@@ -30,7 +30,7 @@ The path is the index of each node inside its parent, rooted at the top-level
 application. `id` is `"<app_name>::<path>"`. Passing a fake id like `"id":"x"`
 breaks resolution — always echo the whole handle returned by `native_locate`.
 
-## The four tools
+## The six tools
 
 | Tool | Args | Returns |
 |---|---|---|
@@ -38,14 +38,23 @@ breaks resolution — always echo the whole handle returned by `native_locate`.
 | `native_click` | `{handle: NodeHandle}` | `{method: "action"\|"focus+enter"\|"mouse"}` |
 | `native_type` | `{handle?: NodeHandle, text: string}` | `{typed: number}` |
 | `native_tree` | `{handle?: NodeHandle}` | `{platform, tree: TreeNode}` |
+| `native_key` | `{key: string}` (char, keysym, or `"ctrl+shift+t"` combo) | `{key: string}` |
+| `native_focus` | `{handle: NodeHandle}` | `{focused: boolean}` |
 
 - `limit` defaults to 10; raise it when enumerating (e.g. listing all buttons).
 - Match on `name` and `role` is substring + case-insensitive; `app` is matched
   against the top-level application name.
 - `native_click` cascades through three strategies; see **Click cascade** below.
 - `native_type` requires an editable-text handle (role contains "text" or
-  "entry"). Without a handle, it errors — use synthetic input (`input-common`,
-  nut-js optional) for focused typing.
+  "entry"). Without a handle, it errors — use `native_key` to drive the
+  focused window instead.
+- `native_key` sends to **whatever has keyboard focus right now** — there is
+  no per-handle targeting. Bring focus first (via `native_click`,
+  `native_focus`, or user action) then fire the key. Modifier combos use `+`
+  as separator: `ctrl+shift+t`, `alt+F10`, `super+l`.
+- `native_focus` calls AT-SPI `grabFocus`. Qt widgets respect it; **GTK4
+  widgets consistently fail with `atspi_error`** (known toolkit bug). Use
+  `native_click` on a focusable sibling instead when focus fails.
 
 ## Workflow — the locate → act loop
 
@@ -94,7 +103,7 @@ Wayland, April 2026):
 
 | Toolkit | Tree | `locate` | Action on buttons | Action on list items | Extents valid | EditableText |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
-| **GTK4** (Nautilus, gnome-text-editor, gnome-control-center) | ✅ | ✅ | ⚠️ inconsistent | ❌ 0 actions | ❌ Wayland returns garbage / window-local | ✅ |
+| **GTK4** (Nautilus, gnome-text-editor, gnome-control-center) | ✅ | ✅ | ⚠️ inconsistent | ❌ 0 actions — keyboard-drive with `native_key` | ❌ Wayland returns garbage / window-local | ✅ |
 | **Qt / QWidget** (TelegramDesktop) | ✅ | ✅ | ✅ | ✅ menu items | ⚠️ window-local under Wayland | ✅ |
 | **Chromium / Electron** (Chrome, control-deck itself) | frame only | frame title only | ❌ no inner a11y | ❌ | n/a | ❌ |
 | **GTK3** (older gnome apps) | ✅ | ✅ | ✅ | ✅ | ✅ Xorg; ⚠️ Wayland | ✅ |
@@ -137,8 +146,17 @@ Use a different harness for these surfaces:
   screen pixels and the mouse-click fallback lands in the top-left corner.
 - **GTK4 `AdwNavigationRow` / nav sidebar rows raise `atspi_error` on
   `grabFocus()`.** The whole click cascade fails silently — Action has 0,
-  focus throws, mouse misses. Navigate by clicking a visible **button** or
-  keyboard-drive via Tab+arrow from a focusable anchor.
+  focus throws, mouse misses. Use `native_click` on a visible **button** in
+  the same window to bring focus there, then `native_key` arrows + Enter to
+  navigate (see `workflows/keyboard-navigate.md`).
+- **`native_focus` returns `{focused: false}` without throwing when grabFocus
+  silently no-ops** — Qt usually succeeds, GTK4 usually throws. Treat a
+  `false` return as *do not assume focus landed*. Fire a benign key
+  (`Escape`) after and verify visually.
+- **`native_key` is fire-and-forget against the focused window.** There is no
+  targeting — an unrelated window popping up between your `native_click` and
+  your `native_key` will eat the keystrokes. Chain them with minimal latency
+  and avoid sending keys in a loop if the user might interact.
 - **pyatspi lists `Action` in `get_interfaces()` even when `nActions == 0`.**
   Don't trust the interface list; check `nActions` before assuming `doAction`
   will work.
@@ -190,6 +208,34 @@ curl -s -X POST $BRIDGE -H 'Content-Type: application/json' \
   | jq '.data.tree | .. | objects | select(.handle.role=="button") | .handle.name' | sort -u
 ```
 
+### Keyboard-drive a broken GTK4 sidebar
+
+When a sidebar row reports `Action.nActions == 0` and `grabFocus` throws:
+
+```bash
+# 1. Anchor focus in the window by clicking any working button.
+BACK=$(curl -s -X POST $BRIDGE ... '{"tool":"native_locate","args":{"app":"gnome-control-center","name":"Back","role":"button","limit":1}, ...}' | jq -c '.data.results[0]')
+curl -s -X POST $BRIDGE ... "{\"tool\":\"native_click\",\"args\":{\"handle\":$BACK}, ...}"
+
+# 2. Move to the sidebar list with Tab/Shift+Tab, then walk with arrows.
+for k in Tab Down Down Down; do
+  curl -s -X POST $BRIDGE ... "{\"tool\":\"native_key\",\"args\":{\"key\":\"$k\"}, ...}"
+done
+curl -s -X POST $BRIDGE ... '{"tool":"native_key","args":{"key":"Return"}, ...}'
+```
+
+### Fire a keyboard shortcut
+
+```bash
+# Ctrl+L in the focused file manager → jumps to the path bar.
+curl -s -X POST $BRIDGE ... '{"tool":"native_key","args":{"key":"ctrl+l"}, ...}'
+```
+
+Valid key specs: single characters (`a`, `1`, `/`), named keys (`Return`,
+`Tab`, `Escape`, `Backspace`, `Delete`, `Space`, `Up`/`Down`/`Left`/`Right`,
+`Home`/`End`, `PageUp`/`PageDown`, `F1`..`F12`, `Menu`), and `+`-joined
+combos with modifiers (`Ctrl`, `Shift`, `Alt`, `Super`, `Meta`).
+
 ### Verify a click took effect
 
 AT-SPI gives you back the mechanism (`action` / `focus+enter` / `mouse`) but
@@ -213,7 +259,7 @@ Agent-GO / in-app caller
 app/api/tools/bridge/route.ts   ← BRIDGE_TOOLS whitelist
    │
    ▼  dispatch by tool name
-lib/tools/executor.ts           ← executeNative{Locate,Click,Type,Tree}
+lib/tools/executor.ts           ← executeNative{Locate,Click,Type,Tree,Key,Focus}
    │
    ▼  getNativeAdapter()
 lib/tools/native/index.ts       ← platform router (linux / darwin / win32)

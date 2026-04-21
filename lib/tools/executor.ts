@@ -37,6 +37,8 @@ import type {
   NativeClickArgs,
   NativeTypeArgs,
   NativeTreeArgs,
+  NativeKeyArgs,
+  NativeFocusArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
@@ -161,6 +163,10 @@ export async function executeTool(
         return await executeNativeType(tool.args);
       case "native_tree":
         return await executeNativeTree(tool.args);
+      case "native_key":
+        return await executeNativeKey(tool.args);
+      case "native_focus":
+        return await executeNativeFocus(tool.args);
       default:
         return {
           success: false,
@@ -1214,8 +1220,15 @@ async function executeNativeLocate(args: NativeLocateArgs): Promise<ToolExecutio
 async function executeNativeClick(args: NativeClickArgs): Promise<ToolExecutionResult> {
   try {
     const adapter = await getNativeAdapter();
-    await adapter.click(args.handle);
-    return { success: true, message: "Native click dispatched" };
+    const result = await adapter.click(args.handle);
+    const note = result.method === "mouse"
+      ? " (Wayland mouse fallback — verify side effect; retry with native_key if unreliable)"
+      : "";
+    return {
+      success: true,
+      message: `Native click via ${result.method}${note}`,
+      data: { method: result.method, platform: adapter.platform },
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "native_click failed";
     return { success: false, message: msg, error: msg };
@@ -1244,6 +1257,32 @@ async function executeNativeTree(args: NativeTreeArgs): Promise<ToolExecutionRes
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "native_tree failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeKey(args: NativeKeyArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    await adapter.key({ key: args.key });
+    return { success: true, message: `Sent key: ${args.key}`, data: { key: args.key } };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_key failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeFocus(args: NativeFocusArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    const focused = await adapter.focus(args.handle);
+    return {
+      success: true,
+      message: focused ? "Focus granted" : "Focus returned false (widget may not be focusable)",
+      data: { focused },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_focus failed";
     return { success: false, message: msg, error: msg };
   }
 }

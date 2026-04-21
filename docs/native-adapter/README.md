@@ -13,6 +13,8 @@ End-to-end flows with copyable curl + `jq` snippets:
 - [click-button.md](./workflows/click-button.md)
 - [type-into-field.md](./workflows/type-into-field.md)
 - [explore-tree.md](./workflows/explore-tree.md) — survey a new app first
+- [keyboard-navigate.md](./workflows/keyboard-navigate.md) — escape hatch
+  when GTK4 click fails: anchor focus, then drive with `native_key`.
 
 ## Per-app / per-toolkit notes
 

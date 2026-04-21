@@ -247,6 +247,25 @@ export const NativeTreeSchema = z.object({
   }),
 });
 
+export const NativeKeySchema = z.object({
+  name: z.literal("native_key"),
+  args: z.object({
+    key: z
+      .string()
+      .min(1)
+      .describe(
+        "Key or combo: single character, keysym name ('Return', 'F10'), or '+'-joined combo ('Ctrl+l', 'Alt+F10')",
+      ),
+  }),
+});
+
+export const NativeFocusSchema = z.object({
+  name: z.literal("native_focus"),
+  args: z.object({
+    handle: NodeHandleSchema.describe("Handle to grab focus on"),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -270,6 +289,8 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   NativeClickSchema,
   NativeTypeSchema,
   NativeTreeSchema,
+  NativeKeySchema,
+  NativeFocusSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -298,6 +319,8 @@ export type NativeLocateArgs = z.infer<typeof NativeLocateSchema>["args"];
 export type NativeClickArgs = z.infer<typeof NativeClickSchema>["args"];
 export type NativeTypeArgs = z.infer<typeof NativeTypeSchema>["args"];
 export type NativeTreeArgs = z.infer<typeof NativeTreeSchema>["args"];
+export type NativeKeyArgs = z.infer<typeof NativeKeySchema>["args"];
+export type NativeFocusArgs = z.infer<typeof NativeFocusSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -509,6 +532,25 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Dump a native accessibility tree rooted at handle (or desktop if omitted). Depth-limited for sanity.",
     parameters: [
       { name: "handle", type: "object", required: false, description: "Root handle; omit for desktop" },
+    ],
+  },
+  {
+    name: "native_key",
+    description: "Send a keystroke or combo to the focused widget. Use for GTK4 gaps (Main Menu, sidebar rows) and keyboard shortcuts.",
+    parameters: [
+      {
+        name: "key",
+        type: "string",
+        required: true,
+        description: "Single char, keysym ('Return','Tab','F10','Escape','Down','Left'), or '+'-combo ('Ctrl+l','Alt+F10')",
+      },
+    ],
+  },
+  {
+    name: "native_focus",
+    description: "Move keyboard focus to a native UI element by handle. Often a prerequisite for native_key to hit the right target.",
+    parameters: [
+      { name: "handle", type: "object", required: true, description: "Handle object from native_locate" },
     ],
   },
 ];

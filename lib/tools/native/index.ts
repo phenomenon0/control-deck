@@ -53,8 +53,10 @@ function unsupportedAdapter(
     click: fail,
     typeText: fail,
     getTree: fail,
+    key: fail,
+    focus: fail,
     isAvailable: async () => false,
   };
 }
 
-export type { NativeAdapter, NodeHandle, LocateQuery, TreeNode } from "./types";
+export type { ClickResult, KeyEvent, NativeAdapter, NodeHandle, LocateQuery, TreeNode } from "./types";

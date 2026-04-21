@@ -316,6 +316,101 @@ def op_click(handle: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"click: all fallbacks failed ({e})"}
 
 
+# X11 keysym table — just the keys we actually need. Extend on demand.
+# Values from /usr/include/X11/keysymdef.h; pyatspi accepts keycodes via XTEST,
+# and keysyms via Atspi.generate_keyboard_event with KEY_SYM.
+_KEYSYMS: dict[str, int] = {
+    "return": 0xFF0D,
+    "enter": 0xFF0D,
+    "tab": 0xFF09,
+    "escape": 0xFF1B,
+    "backspace": 0xFF08,
+    "delete": 0xFFFF,
+    "space": 0x0020,
+    "up": 0xFF52,
+    "down": 0xFF54,
+    "left": 0xFF51,
+    "right": 0xFF53,
+    "home": 0xFF50,
+    "end": 0xFF57,
+    "pageup": 0xFF55,
+    "pagedown": 0xFF56,
+    "f1": 0xFFBE, "f2": 0xFFBF, "f3": 0xFFC0, "f4": 0xFFC1,
+    "f5": 0xFFC2, "f6": 0xFFC3, "f7": 0xFFC4, "f8": 0xFFC5,
+    "f9": 0xFFC6, "f10": 0xFFC7, "f11": 0xFFC8, "f12": 0xFFC9,
+    "menu": 0xFF67,
+}
+
+_MODIFIER_KEYSYMS: dict[str, int] = {
+    "shift": 0xFFE1,
+    "ctrl": 0xFFE3,
+    "control": 0xFFE3,
+    "alt": 0xFFE9,
+    "super": 0xFFEB,
+    "meta": 0xFFE7,
+}
+
+
+def _parse_key(spec: str) -> tuple[list[int], int]:
+    """Split "Ctrl+Shift+Tab" into (modifier_keysyms, primary_keysym)."""
+    parts = [p.strip() for p in spec.split("+") if p.strip()]
+    if not parts:
+        raise ValueError(f"empty key spec: {spec!r}")
+    primary = parts[-1]
+    modifiers = [_MODIFIER_KEYSYMS[p.lower()] for p in parts[:-1] if p.lower() in _MODIFIER_KEYSYMS]
+    key_lower = primary.lower()
+    if key_lower in _KEYSYMS:
+        ks = _KEYSYMS[key_lower]
+    elif len(primary) == 1:
+        ks = ord(primary)
+    else:
+        raise ValueError(f"unknown key {primary!r}")
+    return modifiers, ks
+
+
+def op_key(spec: str) -> dict[str, Any]:
+    """Send a keystroke or combo to the currently focused widget."""
+    pyatspi = _import_pyatspi()
+    try:
+        modifiers, primary = _parse_key(spec)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    try:
+        # Press modifiers.
+        for mod in modifiers:
+            pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_PRESS)
+        # Tap primary.
+        pyatspi.Registry.generateKeyboardEvent(primary, None, pyatspi.KEY_PRESSRELEASE)
+        # Release modifiers in reverse order.
+        for mod in reversed(modifiers):
+            pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_RELEASE)
+        return {"ok": True, "data": {"spec": spec, "keysym": primary, "modifiers": modifiers}}
+    except Exception as e:
+        # Release any stuck modifiers defensively.
+        for mod in reversed(modifiers):
+            try:
+                pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_RELEASE)
+            except Exception:
+                pass
+        return {"ok": False, "error": f"key: {e}"}
+
+
+def op_focus(handle: dict[str, Any]) -> dict[str, Any]:
+    """grabFocus on the node; returns True / False / error if unsupported."""
+    node = _resolve_handle(handle)
+    if node is None:
+        return {"ok": False, "error": "node not found (stale handle)"}
+    try:
+        comp = node.queryComponent()
+    except Exception as e:
+        return {"ok": False, "error": f"focus: no Component interface ({e})"}
+    try:
+        result = bool(comp.grabFocus())
+        return {"ok": True, "data": {"focused": result}}
+    except Exception as e:
+        return {"ok": False, "error": f"focus: {e}"}
+
+
 def op_type(handle: dict[str, Any] | None, text: str) -> dict[str, Any]:
     pyatspi = _import_pyatspi()
     if handle:
@@ -384,6 +479,10 @@ def main() -> int:
             result = op_type(cmd.get("handle"), cmd.get("text") or "")
         elif op == "tree":
             result = op_tree(cmd.get("handle"))
+        elif op == "key":
+            result = op_key(cmd.get("key") or "")
+        elif op == "focus":
+            result = op_focus(cmd.get("handle") or {})
         else:
             result = {"ok": False, "error": f"unknown op: {op}"}
     except Exception as e:

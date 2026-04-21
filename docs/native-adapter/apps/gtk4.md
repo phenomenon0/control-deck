@@ -37,13 +37,16 @@ In order of preference:
 
 1. **Find a classic button that does the same thing.** Close/Minimize/Back
    all work — if the task can be expressed through them, use them.
-2. **Keyboard-drive via synthetic input.** Move focus into the app via
-   `Alt+F10` (menu focus), `Tab`, or `F10`, then arrow keys + Enter. Keys
-   go through the Registry's keyboard event channel, not coordinates —
-   unaffected by the Wayland coord bug.
+2. **Anchor-then-drive with `native_key`.** Click a working classic button
+   in the same window (to bring it focus), then chain `native_key`
+   calls — `F10` to open the main menu, `Tab` to walk focus into a broken
+   sidebar, arrow keys + `Return` to commit. Keys flow through
+   `Registry.generateKeyboardEvent`, independent of the broken
+   Action/extents/grabFocus paths. See `workflows/keyboard-navigate.md`.
 3. **Use a desktop-level keyboard shortcut** where one exists. `Ctrl+L` to
    focus an address bar, `Ctrl+F` to open find, `Ctrl+,` for preferences —
-   these routinely bypass the menu-button gotcha.
+   these routinely bypass the menu-button gotcha and can be fired directly
+   via `native_key` once any widget in the app is focused.
 4. **Screenshot + browser-harness coordinate click.** The harness's
    `click(x, y)` goes through the compositor and works on any rendered
    surface, even when AT-SPI is lying.

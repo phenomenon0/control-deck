@@ -13,6 +13,8 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
+  ClickResult,
+  KeyEvent,
   LocateQuery,
   NativeAdapter,
   NodeHandle,
@@ -38,10 +40,11 @@ const HELPER = resolveHelper();
 const HELPER_TIMEOUT_MS = 5_000;
 
 interface HelperCommand {
-  op: "locate" | "click" | "type" | "tree" | "available";
+  op: "locate" | "click" | "type" | "tree" | "available" | "key" | "focus";
   query?: LocateQuery;
   handle?: NodeHandle;
   text?: string;
+  key?: string;
 }
 
 interface HelperResult<T = unknown> {
@@ -107,9 +110,10 @@ export const linuxAtspiAdapter: NativeAdapter = {
     return res.data ?? [];
   },
 
-  async click(handle) {
-    const res = await runHelper({ op: "click", handle });
+  async click(handle): Promise<ClickResult> {
+    const res = await runHelper<{ method?: ClickResult["method"] }>({ op: "click", handle });
     if (!res.ok) throw new Error(res.error ?? "click failed");
+    return { method: res.data?.method ?? "unknown" };
   },
 
   async typeText(handle, text) {
@@ -126,5 +130,16 @@ export const linuxAtspiAdapter: NativeAdapter = {
     if (!res.ok) throw new Error(res.error ?? "tree failed");
     if (!res.data) throw new Error("empty tree response");
     return res.data;
+  },
+
+  async key(event: KeyEvent) {
+    const res = await runHelper({ op: "key", key: event.key });
+    if (!res.ok) throw new Error(res.error ?? "key failed");
+  },
+
+  async focus(handle) {
+    const res = await runHelper<{ focused?: boolean }>({ op: "focus", handle });
+    if (!res.ok) throw new Error(res.error ?? "focus failed");
+    return Boolean(res.data?.focused);
   },
 };

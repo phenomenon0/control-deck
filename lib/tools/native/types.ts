@@ -33,6 +33,21 @@ export interface TreeNode {
   children: TreeNode[];
 }
 
+export interface ClickResult {
+  /** Which strategy in the cascade actually fired. */
+  method: "action" | "focus+enter" | "mouse" | "unknown";
+}
+
+export interface KeyEvent {
+  /**
+   * Key identifier. Accepts:
+   *  - single characters ("a", "1", " ")
+   *  - X11 keysym names ("Return", "Tab", "Escape", "F10", "Left", "Down")
+   *  - key combos as "+"-separated ("Ctrl+l", "Alt+F10", "Ctrl+Shift+Tab")
+   */
+  key: string;
+}
+
 export interface NativeAdapter {
   /** Platform label, mostly for diagnostics. */
   readonly platform: "linux" | "darwin" | "win32" | "unsupported";
@@ -40,14 +55,20 @@ export interface NativeAdapter {
   /** Query the accessibility tree for matching nodes. */
   locate(query: LocateQuery): Promise<NodeHandle[]>;
 
-  /** Click an element previously returned from locate. */
-  click(handle: NodeHandle): Promise<void>;
+  /** Click an element previously returned from locate. Returns which method fired. */
+  click(handle: NodeHandle): Promise<ClickResult>;
 
   /** Type text into an element (or the focused one if handle is null). */
   typeText(handle: NodeHandle | null, text: string): Promise<void>;
 
   /** Dump the accessibility tree rooted at handle (or the active window). */
   getTree(handle?: NodeHandle): Promise<TreeNode>;
+
+  /** Send a key or key combo to the focused widget. */
+  key(event: KeyEvent): Promise<void>;
+
+  /** Move focus to an element; returns true if the widget accepted focus. */
+  focus(handle: NodeHandle): Promise<boolean>;
 
   /** Optional readiness probe — returns false if the adapter can't work here. */
   isAvailable?(): Promise<boolean>;

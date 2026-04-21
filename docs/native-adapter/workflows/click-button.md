@@ -38,8 +38,10 @@ Recovery:
 1. **Find an actionable sibling.** If `Back` button has `nActions=1` and the
    hamburger button doesn't, prefer `Back`. Enumerate all buttons and read
    their action count via `native_tree` + pyatspi if needed.
-2. **Drive via keyboard.** If the app is focused and the target is
-   sequentially focusable, send `Tab` + arrow keys via synthetic input.
+2. **Drive via keyboard** — the escape hatch for broken GTK4 widgets. Click
+   any working button in the same window to anchor focus, then chain
+   `native_key` calls (`Tab`, arrows, `Return`, `F10`, `ctrl+shift+t`, etc.)
+   to reach and activate the target. See `workflows/keyboard-navigate.md`.
 3. **Fall back to browser-harness coordinate click.** `screenshot() → click(x,y)`
    works at the compositor level regardless of toolkit a11y wiring.
 

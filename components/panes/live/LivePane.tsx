@@ -48,7 +48,7 @@ fx 5: delay 0.22 > reverb 0.18`,
   },
 ];
 
-export function LivePaneV2() {
+export function LivePane() {
   const { transport, store, song, state } = useLiveTransport();
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(null);
 

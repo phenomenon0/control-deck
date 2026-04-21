@@ -78,18 +78,22 @@ interface CaptureResult {
 // which must propagate so the caller knows permission was denied.
 async function captureScreen(): Promise<CaptureResult> {
   try {
+    console.log("[capture] getScreenCastSession()");
     const sess = await getScreenCastSession();
+    console.log("[capture] captureFrame()");
     const shot = await sess.captureFrame();
+    console.log(`[capture] ok: ${shot.width}x${shot.height} @ ${shot.pngPath}`);
     return { ...shot, source: "screencast" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Recoverable: we can retry via Screenshot portal.
-    // - missing tool: gst-launch / pipewiresrc not installed
-    // - misrouted backend: user has ScreenCast=hyprland in portals.conf
-    //   while running GNOME, so CreateSession / SelectSources hit a
-    //   backend that can't serve them ("Unknown method").
+    console.error("[capture] screencast path failed:", msg);
+    // Recoverable: we can retry via Screenshot portal. Broad match covers
+    // missing tooling (gst-launch / python3 / helper script), backend
+    // misrouting on portals.conf, and per-op failures. User-denied is NOT
+    // recoverable and is allowed to propagate.
     const isRecoverable =
-      /gst-launch|ENOENT|pipewiresrc|CreateSession failed|SelectSources failed|Unknown method/.test(
+      !/user denied/.test(msg) &&
+      /gst-launch|ENOENT|pipewiresrc|CreateSession failed|SelectSources failed|Start failed|Unknown method|helper missing|no JSON|invalid JSON|helper.*timed out|python3/.test(
         msg,
       );
     if (!isRecoverable) throw err;
@@ -146,7 +150,7 @@ async function getScreenCastSession(): Promise<ScreenCastSession> {
   if (screenCastSession) return screenCastSession;
   if (screenCastInitPromise) return screenCastInitPromise;
   screenCastInitPromise = (async () => {
-    const sess = new ScreenCastSession();
+    const sess = new ScreenCastSession(app.getPath("userData"));
     await sess.init();
     screenCastSession = sess;
     return sess;

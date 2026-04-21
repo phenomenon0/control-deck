@@ -58,10 +58,14 @@ breaks resolution — always echo the whole handle returned by `native_locate`.
 - `native_focus` calls AT-SPI `grabFocus`. Qt widgets respect it; **GTK4
   widgets consistently fail with `atspi_error`** (known toolkit bug). Use
   `native_click` on a focusable sibling instead when focus fails.
-- `native_screen_grab` hits `org.freedesktop.portal.Screenshot` through the
-  Electron main process. First call shows the user a permission dialog;
-  subsequent calls are silent. Returns a base64 PNG — do not re-encode it on
-  the way back to the LLM (the executor already excludes it from glyph wrap).
+- `native_screen_grab` uses `org.freedesktop.portal.ScreenCast` via a Python
+  helper (`scripts/screencast-capture.py`) spawned from Electron main. First
+  call shows the user a permission dialog; subsequent calls are silent
+  (~250 ms) thanks to a persisted `restore_token` at
+  `<userData>/portal-screencast.token`. Returns a base64 PNG — do not
+  re-encode it on the way back to the LLM (the executor already excludes it
+  from glyph wrap). Falls back to the stateless Screenshot portal if the
+  helper is missing or the user denies permission.
 - `native_focus_window` raises an app by desktop `app_id` using an
   `xdg_activation_v1` token minted via a tiny GDK helper (`scripts/wl-activate.py`
   spawned from Electron main). Works reliably on GNOME Mutter and KWin; ignored
@@ -74,6 +78,62 @@ breaks resolution — always echo the whole handle returned by `native_locate`.
   `native_screen_grab`'s PNG). Lazy-inits on first call — expect a one-time
   screen-share permission dialog. Never shown again after the user checks
   "remember".
+
+## Status & coverage (2026-04)
+
+Linux is a *control layer*, not the core deck. These tools are best-effort
+and their reliability depends on the compositor, portal backend, and the
+Electron/Node ABI being compatible with `dbus-next`. Treat the matrix below
+as the source of truth — not the tool table above.
+
+### Working (verified)
+
+| Tool | Surface | Notes |
+|:---|:---|:---|
+| `native_locate` | AT-SPI via `scripts/atspi-helper.py` | Stable across Qt/GTK3. GTK4 partial (see Framework matrix). |
+| `native_click` | AT-SPI Action → focus+Enter → mouse cascade | Qt is reliable; GTK4 mostly falls through to cascade stage 2. |
+| `native_tree` | AT-SPI | Stable. |
+| `native_focus_window` | `scripts/wl-activate.py` (GDK + xdg_activation_v1) | Reliable on GNOME Mutter; verified against Telegram and GTK4 apps. |
+| `native_screen_grab` | `scripts/screencast-capture.py` (ScreenCast portal + gst-launch) | Silent after first accept, ~250 ms per call. Requires `gst-launch-1.0 pipewiresrc pngenc` and `dbus-python`. |
+
+### Broken / degraded
+
+| Tool | Symptom | Root cause |
+|:---|:---|:---|
+| `native_key` | Electron main hangs on first call (no response, no error) | `RemoteDesktopSession.init()` awaits `bus.getProxyObject(...)` on `dbus-next`. In Electron 41 / Node 24, that call hangs indefinitely — same failure mode that drove `native_screen_grab` to the Python helper. |
+| `native_type` | Same as `native_key`. | Same. |
+| `native_click_pixel` | Same as `native_key`. | Same. |
+| `native_focus` (AT-SPI `grabFocus`) | `atspi_error` on GTK4 widgets | Known GTK4/AT-SPI toolkit bug — not our side. Qt widgets OK. |
+
+**Scope of the `dbus-next` regression:** everything that goes through
+`electron/services/remote-desktop.ts` — key, type, click_pixel. Anything
+that shells out to a Python helper (`wl-activate`, `atspi-helper`,
+`screencast-capture`) is unaffected.
+
+**Next step if key/type/click_pixel matter:** pivot them to a Python RemoteDesktop
+helper, same shape as `screencast-capture.py`. Not yet done — the control
+deck is web-first and these are nice-to-haves, not blockers.
+
+### Environment requirements
+
+- `xdg-desktop-portal` (v1.18+) + a matching backend (`xdg-desktop-portal-gnome`
+  on GNOME). If the user has `ScreenCast=hyprland` or `Screenshot=hyprland`
+  in `~/.config/xdg-desktop-portal/portals.conf` on a non-Hyprland session,
+  `native_screen_grab` will fail with "Unknown method". Remove those lines.
+- `gst-launch-1.0` with `pipewiresrc` and `pngenc` plugins
+  (Fedora: `gstreamer1-plugins-good`, `pipewire-gstreamer`).
+- `python3` with `dbus-python` and `gi` (GObject introspection, for
+  `Gst`/`Gtk`/`Gio`).
+- A Wayland session with `pipewire` running (default on GNOME 42+, KDE 5.27+).
+
+### Known non-coverage
+
+- **Windows, macOS**: not implemented. Plan is per-OS adapters (UIA / AX);
+  nothing shipped yet. `unsupportedAdapter` stub returns a clear error.
+- **Hyprland, Sway, other wlroots compositors**: portal support is patchy.
+  `focus_window` and `screen_grab` may fall back to X11 or fail silently.
+- **X11 sessions**: the code paths exist but are untested recently — tier-4
+  priority is Wayland-first.
 
 ## Workflow — the locate → act loop
 

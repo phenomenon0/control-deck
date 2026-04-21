@@ -1,7 +1,7 @@
 import { parsePattern, type Step } from "./mini";
-import type { FxType } from "./engine";
 
 export const LIVE_FX_TYPES = ["reverb", "delay", "chorus", "filter", "distortion"] as const;
+export type FxType = typeof LIVE_FX_TYPES[number];
 
 export interface LiveFxSpec {
   type: FxType;

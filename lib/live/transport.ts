@@ -10,9 +10,8 @@
  *   - inserts → FX chain + I/O pair (builtin:* for now; wam:* in Phase 4)
  *   - routing → channel output → insert.input or master
  *   - playlist clips → Tone.Part (PatternClip) or Tone.Player (AudioClip)
- *
- * Parity contract: given a Song produced by importer.importLiveScript(),
- * audible output should match the existing `lib/live/engine.ts`.
+ *   - launch groups  → fireLaunchGroup schedules live scenes at the next
+ *                      quantized boundary, independent of the playlist.
  */
 
 import * as Tone from "tone";

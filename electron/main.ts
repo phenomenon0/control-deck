@@ -5,6 +5,7 @@ import * as http from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import { RemoteDesktopSession } from "./services/remote-desktop";
+import { RemoteDesktopClient } from "./services/remote-desktop-client";
 import { ScreenshotPortal } from "./services/screenshot-portal";
 import { ScreenCastSession } from "./services/screencast";
 import { focusApp } from "./services/wl-activator";
@@ -54,6 +55,38 @@ let screenshotPortal: ScreenshotPortal | null = null;
 let portalBridgePort: number | null = null;
 let portalBridgeSecret: string | null = null;
 let themedBrowser: ThemedBrowserRegistry | null = null;
+let remoteDesktopClient: RemoteDesktopClient | null = null;
+
+// Opt-out flag for the new Python daemon path, in case the pivot regresses
+// in production. Default is the Python daemon; set CONTROL_DECK_USE_DBUS_NEXT=1
+// to fall back to the old (broken-on-Electron-41) dbus-next client.
+const USE_DBUS_NEXT_FALLBACK = process.env.CONTROL_DECK_USE_DBUS_NEXT === "1";
+
+function resolveRemoteDesktopHelper(): string {
+  const candidates = [
+    process.env.CONTROL_DECK_SCRIPTS_DIR
+      ? path.join(process.env.CONTROL_DECK_SCRIPTS_DIR, "remote-desktop.py")
+      : null,
+    path.join(process.resourcesPath ?? "", "app", "scripts", "remote-desktop.py"),
+    path.join(__dirname, "..", "scripts", "remote-desktop.py"),
+    path.join(process.cwd(), "scripts", "remote-desktop.py"),
+  ].filter((p): p is string => Boolean(p));
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
+async function getRemoteDesktopClient(): Promise<RemoteDesktopClient> {
+  if (!remoteDesktopClient) {
+    remoteDesktopClient = new RemoteDesktopClient({
+      userDataDir: app.getPath("userData"),
+      helperPath: resolveRemoteDesktopHelper(),
+    });
+  }
+  await remoteDesktopClient.init();
+  return remoteDesktopClient;
+}
 
 function getScreenshotPortal(): ScreenshotPortal {
   if (!screenshotPortal) screenshotPortal = new ScreenshotPortal();
@@ -229,6 +262,10 @@ async function startEmbeddedServer(): Promise<string> {
       NODE_ENV: "production",
       CONTROL_DECK_USER_DATA: app.getPath("userData"),
       CONTROL_DECK_SCRIPTS_DIR: path.join(process.resourcesPath, "app", "scripts"),
+      CONTROL_DECK_MACOS_HELPER:
+        process.platform === "darwin"
+          ? path.join(process.resourcesPath, "app", "scripts", "macos-ax-helper.bin")
+          : "",
       CONTROL_DECK_PORTAL_URL: portalBridgePort
         ? `http://127.0.0.1:${portalBridgePort}`
         : "",
@@ -325,8 +362,13 @@ async function startPortalBridge(): Promise<void> {
           typeof body.x === "number" &&
           typeof body.y === "number"
         ) {
-          const sess = await getPixelSession();
-          await sess.clickPixel(body.x, body.y, body.button ?? "left");
+          if (USE_DBUS_NEXT_FALLBACK) {
+            const sess = await getPixelSession();
+            await sess.clickPixel(body.x, body.y, body.button ?? "left");
+          } else {
+            const client = await getRemoteDesktopClient();
+            await client.clickPixel({ x: body.x, y: body.y, button: body.button ?? "left" });
+          }
           res.end(JSON.stringify({ ok: true, x: body.x, y: body.y }));
           return;
         }
@@ -350,14 +392,25 @@ async function startPortalBridge(): Promise<void> {
           );
           return;
         }
-        const sess = await getPortalSession();
         if (body.op === "key" && typeof body.keysym === "number") {
-          await sess.sendKeyCombo(body.modifiers ?? [], body.keysym);
+          if (USE_DBUS_NEXT_FALLBACK) {
+            const sess = await getPortalSession();
+            await sess.sendKeyCombo(body.modifiers ?? [], body.keysym);
+          } else {
+            const client = await getRemoteDesktopClient();
+            await client.key({ modifiers: body.modifiers, keysym: body.keysym });
+          }
           res.end(JSON.stringify({ ok: true }));
           return;
         }
         if (body.op === "type" && typeof body.text === "string") {
-          await sess.typeString(body.text);
+          if (USE_DBUS_NEXT_FALLBACK) {
+            const sess = await getPortalSession();
+            await sess.typeString(body.text);
+          } else {
+            const client = await getRemoteDesktopClient();
+            await client.type(body.text);
+          }
           res.end(JSON.stringify({ ok: true, len: body.text.length }));
           return;
         }
@@ -414,22 +467,51 @@ function portalHandoffPath(): string | null {
 ipcMain.handle(
   "portal:key",
   async (_evt, payload: { modifiers?: number[]; keysym: number }) => {
-    const sess = await getPortalSession();
-    await sess.sendKeyCombo(payload.modifiers ?? [], payload.keysym);
+    if (USE_DBUS_NEXT_FALLBACK) {
+      const sess = await getPortalSession();
+      await sess.sendKeyCombo(payload.modifiers ?? [], payload.keysym);
+    } else {
+      const client = await getRemoteDesktopClient();
+      await client.key({ modifiers: payload.modifiers, keysym: payload.keysym });
+    }
     return { ok: true };
   },
 );
 
 ipcMain.handle("portal:type", async (_evt, payload: { text: string }) => {
-  const sess = await getPortalSession();
-  await sess.typeString(payload.text);
+  if (USE_DBUS_NEXT_FALLBACK) {
+    const sess = await getPortalSession();
+    await sess.typeString(payload.text);
+  } else {
+    const client = await getRemoteDesktopClient();
+    await client.type(payload.text);
+  }
   return { ok: true, len: payload.text.length };
 });
 
-ipcMain.handle("portal:status", async () => ({
-  available: process.platform === "linux",
-  initialised: portalSession !== null,
-}));
+ipcMain.handle("portal:status", async () => {
+  if (USE_DBUS_NEXT_FALLBACK) {
+    return {
+      available: process.platform === "linux",
+      initialised: portalSession !== null,
+      backend: "dbus-next",
+    };
+  }
+  const status = remoteDesktopClient
+    ? await remoteDesktopClient.status().catch(() => ({
+        alive: false,
+        keyboardReady: false,
+        pointerReady: false,
+      }))
+    : { alive: false, keyboardReady: false, pointerReady: false };
+  return {
+    available: process.platform === "linux",
+    initialised: status.alive,
+    keyboard_ready: status.keyboardReady,
+    pointer_ready: status.pointerReady,
+    backend: "python-daemon",
+  };
+});
 
 ipcMain.handle("portal:screen_grab", async () => {
   const shot = await captureScreen();
@@ -458,8 +540,13 @@ ipcMain.handle(
     _evt,
     payload: { x: number; y: number; button?: "left" | "right" | "middle" },
   ) => {
-    const sess = await getPixelSession();
-    await sess.clickPixel(payload.x, payload.y, payload.button ?? "left");
+    if (USE_DBUS_NEXT_FALLBACK) {
+      const sess = await getPixelSession();
+      await sess.clickPixel(payload.x, payload.y, payload.button ?? "left");
+    } else {
+      const client = await getRemoteDesktopClient();
+      await client.clickPixel({ x: payload.x, y: payload.y, button: payload.button ?? "left" });
+    }
     return { ok: true, x: payload.x, y: payload.y };
   },
 );
@@ -520,6 +607,10 @@ app.on("before-quit", () => {
   if (screenCastSession) {
     screenCastSession.close().catch(() => {});
     screenCastSession = null;
+  }
+  if (remoteDesktopClient) {
+    remoteDesktopClient.close().catch(() => {});
+    remoteDesktopClient = null;
   }
   try {
     const handoff = portalHandoffPath();

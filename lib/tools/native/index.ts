@@ -55,8 +55,22 @@ function unsupportedAdapter(
     getTree: fail,
     key: fail,
     focus: fail,
+    screenGrab: fail,
+    focusWindow: fail,
+    clickPixel: fail,
     isAvailable: async () => false,
   };
 }
 
-export type { ClickResult, KeyEvent, NativeAdapter, NodeHandle, LocateQuery, TreeNode } from "./types";
+export type {
+  ClickResult,
+  KeyEvent,
+  NativeAdapter,
+  NodeHandle,
+  LocateQuery,
+  TreeNode,
+  ScreenGrabResult,
+  FocusWindowResult,
+  PointerButton,
+  ClickPixelArgs,
+} from "./types";

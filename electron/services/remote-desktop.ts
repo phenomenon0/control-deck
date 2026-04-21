@@ -17,13 +17,30 @@
 
 import * as dbus from "dbus-next";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import { spawn } from "node:child_process";
 
 const BUS = "org.freedesktop.portal.Desktop";
 const PATH = "/org/freedesktop/portal/desktop";
 const REMOTE_IFACE = "org.freedesktop.portal.RemoteDesktop";
+const SCREENCAST_IFACE = "org.freedesktop.portal.ScreenCast";
 const REQUEST_IFACE = "org.freedesktop.portal.Request";
+
+// ScreenCast source-type flags (bitfield).
+const SOURCE_TYPE_MONITOR = 1;
+// Linux input event-code button numbers (include/uapi/linux/input-event-codes.h).
+const BTN_LEFT = 0x110;
+const BTN_RIGHT = 0x111;
+const BTN_MIDDLE = 0x112;
+
+export const POINTER_BUTTONS = {
+  left: BTN_LEFT,
+  right: BTN_RIGHT,
+  middle: BTN_MIDDLE,
+} as const;
+export type PointerButton = keyof typeof POINTER_BUTTONS;
 
 // dbus-next only pre-populates interfaces it can introspect. Request objects
 // live at transient paths the daemon rejects introspection for, so we have
@@ -52,27 +69,56 @@ interface PortalResponse {
   results: Record<string, dbus.Variant>;
 }
 
+interface ScreenCastStream {
+  nodeId: number;
+  position?: { x: number; y: number };
+  size?: { width: number; height: number };
+}
+
 interface StartOutcome {
   sessionHandle: string;
   restoreToken?: string;
   devices: number;
+  streams?: ScreenCastStream[];
+}
+
+export interface RemoteDesktopOptions {
+  /**
+   * Enable ScreenCast alongside RemoteDesktop so absolute-coord pointer
+   * methods (NotifyPointerMotionAbsolute) have a stream_id to target.
+   * Shows a screen-share permission dialog on first run — reserve this
+   * session for pixel-click use cases.
+   */
+  includeScreenCast?: boolean;
 }
 
 export class RemoteDesktopSession {
   private bus: dbus.MessageBus | null = null;
   private iface: dbus.ClientInterface | null = null;
+  private screenCastIface: dbus.ClientInterface | null = null;
   private sessionHandle: string | null = null;
   private restoreTokenPath: string;
   private senderName = "";
+  private includeScreenCast: boolean;
+  private streams: ScreenCastStream[] = [];
 
-  constructor(userDataDir: string) {
-    this.restoreTokenPath = path.join(userDataDir, "portal-restore.token");
+  constructor(userDataDir: string, options: RemoteDesktopOptions = {}) {
+    this.includeScreenCast = Boolean(options.includeScreenCast);
+    const suffix = this.includeScreenCast ? "portal-restore-screencast.token" : "portal-restore.token";
+    this.restoreTokenPath = path.join(userDataDir, suffix);
+  }
+
+  get pointerStreamId(): number | null {
+    return this.streams[0]?.nodeId ?? null;
   }
 
   async init(): Promise<StartOutcome> {
     this.bus = dbus.sessionBus();
     const obj = await this.bus.getProxyObject(BUS, PATH);
     this.iface = obj.getInterface(REMOTE_IFACE);
+    if (this.includeScreenCast) {
+      this.screenCastIface = obj.getInterface(SCREENCAST_IFACE);
+    }
     const busName = (this.bus as unknown as { name?: string }).name ?? "";
     this.senderName = busName.replace(/^:/, "").replace(/\./g, "_");
 
@@ -92,8 +138,12 @@ export class RemoteDesktopSession {
     });
     const restoreToken = this.readRestoreToken();
     await this.selectDevices(sessionHandle, restoreToken);
+    if (this.includeScreenCast) {
+      await this.selectSources(sessionHandle);
+    }
     const outcome = await this.start(sessionHandle);
     this.sessionHandle = sessionHandle;
+    this.streams = outcome.streams ?? [];
 
     if (outcome.restoreToken) this.writeRestoreToken(outcome.restoreToken);
     return { sessionHandle, ...outcome };
@@ -167,10 +217,16 @@ export class RemoteDesktopSession {
     const requestPath = this.requestPath(handleToken);
     const pending = this.awaitResponse(requestPath);
 
+    // On GNOME, combined RemoteDesktop+ScreenCast sessions reject ANY
+    // persistence ("Remote desktop sessions cannot persist"). Keyboard-only
+    // sessions accept mode 2 fine. So: 0 for combined, 2 for keyboard-only.
+    // Upside: within a single Electron launch the session stays warm in
+    // memory and all calls are silent. Downside: re-prompted on every
+    // Electron boot for the pixel session — acceptable tradeoff.
     const options: Record<string, dbus.Variant> = {
       handle_token: new dbus.Variant("s", handleToken),
       types: new dbus.Variant("u", DEVICE_KEYBOARD | DEVICE_POINTER),
-      persist_mode: new dbus.Variant("u", 2),
+      persist_mode: new dbus.Variant("u", this.includeScreenCast ? 0 : 2),
     };
     if (restoreToken) options.restore_token = new dbus.Variant("s", restoreToken);
 
@@ -179,7 +235,32 @@ export class RemoteDesktopSession {
     if (res.code !== 0) throw new Error(`SelectDevices failed (code=${res.code})`);
   }
 
-  private async start(sessionHandle: string): Promise<{ restoreToken?: string; devices: number }> {
+  private async selectSources(sessionHandle: string): Promise<void> {
+    if (!this.screenCastIface) throw new Error("ScreenCast iface not attached");
+    const handleToken = this.handleToken();
+    const requestPath = this.requestPath(handleToken);
+    const pending = this.awaitResponse(requestPath);
+
+    // Don't pass cursor_mode — the portal advertises AvailableCursorModes
+    // which can be 0 on GNOME, and any explicit cursor_mode is rejected as
+    // "Unavailable cursor mode N". Defaulting is always safe.
+    //
+    // persist_mode: GNOME rejects any persistence on combined sessions
+    // ("Remote desktop sessions cannot persist"). Use mode 0 to match
+    // SelectDevices in the combined path.
+    await this.screenCastIface.SelectSources(sessionHandle, {
+      handle_token: new dbus.Variant("s", handleToken),
+      types: new dbus.Variant("u", SOURCE_TYPE_MONITOR),
+      multiple: new dbus.Variant("b", false),
+      persist_mode: new dbus.Variant("u", 0),
+    });
+    const res = await pending;
+    if (res.code !== 0) throw new Error(`SelectSources failed (code=${res.code})`);
+  }
+
+  private async start(
+    sessionHandle: string,
+  ): Promise<{ restoreToken?: string; devices: number; streams?: ScreenCastStream[] }> {
     if (!this.iface) throw new Error("portal not initialised");
     const handleToken = this.handleToken();
     const requestPath = this.requestPath(handleToken);
@@ -199,7 +280,8 @@ export class RemoteDesktopSession {
     }
     const devices = (res.results.devices?.value as number | undefined) ?? 0;
     const restoreToken = res.results.restore_token?.value as string | undefined;
-    return { restoreToken, devices };
+    const streams = parseStreams(res.results.streams);
+    return { restoreToken, devices, streams };
   }
 
   private ensureReady(): dbus.ClientInterface {
@@ -245,6 +327,128 @@ export class RemoteDesktopSession {
     }
   }
 
+  async notifyPointerMotionAbsolute(streamId: number, x: number, y: number): Promise<void> {
+    const iface = this.ensureReady();
+    await iface.NotifyPointerMotionAbsolute(this.sessionHandle!, {}, streamId, x, y);
+  }
+
+  async notifyPointerButton(button: number, state: 0 | 1): Promise<void> {
+    const iface = this.ensureReady();
+    await iface.NotifyPointerButton(this.sessionHandle!, {}, button, state);
+  }
+
+  async clickPixel(x: number, y: number, button: PointerButton = "left"): Promise<void> {
+    const streamId = this.pointerStreamId;
+    if (streamId === null) {
+      throw new Error(
+        "no ScreenCast stream — session must be created with includeScreenCast:true",
+      );
+    }
+    const btn = POINTER_BUTTONS[button];
+    await this.notifyPointerMotionAbsolute(streamId, x, y);
+    await this.notifyPointerButton(btn, 1);
+    await this.notifyPointerButton(btn, 0);
+  }
+
+  /**
+   * Open the PipeWire client socket for this session. Returns a native FD —
+   * the caller owns it and must close it (or pass it to a child via spawn's
+   * stdio array, which dup's and reaps on child exit).
+   *
+   * Only works after `init()` has created the session with
+   * `includeScreenCast:true`.
+   */
+  async openPipeWireRemote(): Promise<number> {
+    if (!this.screenCastIface || !this.sessionHandle) {
+      throw new Error(
+        "ScreenCast session not active — construct with includeScreenCast:true",
+      );
+    }
+    const result = (await this.screenCastIface.OpenPipeWireRemote(
+      this.sessionHandle,
+      {},
+    )) as unknown;
+    // dbus-next surfaces `h` (unix_fd) as a plain number already duplicated
+    // into this process. Reject NaN defensively in case the signature changes.
+    const fd = Number(result);
+    if (!Number.isInteger(fd) || fd < 0) {
+      throw new Error(`OpenPipeWireRemote returned non-FD value: ${result}`);
+    }
+    return fd;
+  }
+
+  /**
+   * Pull a single PNG frame from the warm ScreenCast stream via gstreamer.
+   * Silent after the first `Start` accept — no permission prompt, no Capture
+   * button. Writes the PNG to a temp file and returns its path + dimensions.
+   *
+   * Requires `gst-launch-1.0` with the `pipewiresrc` and `pngenc` plugins on
+   * PATH (Fedora: `gstreamer1-plugins-good`, `pipewire-gstreamer`).
+   */
+  async captureFrame(): Promise<{ pngPath: string; width: number; height: number }> {
+    const streamId = this.pointerStreamId;
+    if (streamId === null) {
+      throw new Error(
+        "no ScreenCast stream — session must be created with includeScreenCast:true",
+      );
+    }
+    const fd = await this.openPipeWireRemote();
+    const outPath = path.join(
+      os.tmpdir(),
+      `control-deck-grab-${crypto.randomBytes(6).toString("hex")}.png`,
+    );
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        // Child sees the pipewire socket at fd=3 (first entry after stdin/out/err).
+        const proc = spawn(
+          "gst-launch-1.0",
+          [
+            "-q",
+            "pipewiresrc",
+            "fd=3",
+            `path=${streamId}`,
+            "num-buffers=1",
+            "!",
+            "videoconvert",
+            "!",
+            "pngenc",
+            "snapshot=true",
+            "!",
+            "filesink",
+            `location=${outPath}`,
+          ],
+          { stdio: ["ignore", "pipe", "pipe", fd] },
+        );
+        let stderr = "";
+        proc.stderr?.on("data", (c: Buffer) => (stderr += c.toString("utf8")));
+        const timer = setTimeout(() => {
+          proc.kill("SIGKILL");
+          reject(new Error("gst-launch capture timed out"));
+        }, 5_000);
+        proc.on("error", (err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+        proc.on("close", (code) => {
+          clearTimeout(timer);
+          if (code === 0) resolve();
+          else reject(new Error(`gst-launch exited ${code}: ${stderr.trim()}`));
+        });
+      });
+    } finally {
+      // Child inherited fd=3 via dup and closes on exit; we also close our copy
+      // so the PipeWire client reference is dropped promptly.
+      try { fs.closeSync(fd); } catch {}
+    }
+
+    if (!fs.existsSync(outPath)) {
+      throw new Error(`gst-launch produced no file at ${outPath}`);
+    }
+    const { width, height } = readPngDimensions(outPath);
+    return { pngPath: outPath, width, height };
+  }
+
   async close(): Promise<void> {
     if (!this.bus || !this.sessionHandle) return;
     try {
@@ -266,4 +470,48 @@ function charToKeysym(ch: string): number | null {
   if (code < 0x20 || code === 0x7f) return null;
   if (code <= 0xff) return code;
   return 0x01000000 + code;
+}
+
+// PNG IHDR is always the first chunk; width/height are big-endian u32s at
+// offsets 16 and 20. Saves a pull of the `sharp` dep for a 2-field read.
+function readPngDimensions(pngPath: string): { width: number; height: number } {
+  const fd = fs.openSync(pngPath, "r");
+  try {
+    const header = Buffer.alloc(24);
+    fs.readSync(fd, header, 0, 24, 0);
+    if (header.toString("ascii", 1, 4) !== "PNG") {
+      throw new Error("not a PNG");
+    }
+    return {
+      width: header.readUInt32BE(16),
+      height: header.readUInt32BE(20),
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// The Start response's `streams` field is `a(ua{sv})` — array of
+// (uint32 pipewire_node_id, dict of stream properties). The dict may
+// carry `position: (ii)` and `size: (ii)` when ScreenCast sources are
+// monitors; we capture both for pixel-coord translation.
+function parseStreams(variant: dbus.Variant | undefined): ScreenCastStream[] {
+  if (!variant) return [];
+  const raw = variant.value as unknown;
+  if (!Array.isArray(raw)) return [];
+  const out: ScreenCastStream[] = [];
+  for (const entry of raw as Array<[number, Record<string, dbus.Variant>]>) {
+    if (!Array.isArray(entry) || entry.length < 2) continue;
+    const nodeId = Number(entry[0]);
+    if (!Number.isFinite(nodeId)) continue;
+    const props = entry[1] ?? {};
+    const posRaw = props.position?.value as [number, number] | undefined;
+    const sizeRaw = props.size?.value as [number, number] | undefined;
+    out.push({
+      nodeId,
+      position: posRaw ? { x: posRaw[0], y: posRaw[1] } : undefined,
+      size: sizeRaw ? { width: sizeRaw[0], height: sizeRaw[1] } : undefined,
+    });
+  }
+  return out;
 }

@@ -266,6 +266,35 @@ export const NativeFocusSchema = z.object({
   }),
 });
 
+export const NativeScreenGrabSchema = z.object({
+  name: z.literal("native_screen_grab"),
+  args: z.object({}).describe("No args — captures the full desktop as PNG"),
+});
+
+export const NativeFocusWindowSchema = z.object({
+  name: z.literal("native_focus_window"),
+  args: z.object({
+    app_id: z
+      .string()
+      .min(1)
+      .describe(
+        "Desktop app-id without the .desktop suffix (e.g. 'org.telegram.desktop', 'firefox', 'org.gnome.Nautilus')",
+      ),
+  }),
+});
+
+export const NativeClickPixelSchema = z.object({
+  name: z.literal("native_click_pixel"),
+  args: z.object({
+    x: z.number().int().min(0).describe("Absolute desktop X pixel coordinate"),
+    y: z.number().int().min(0).describe("Absolute desktop Y pixel coordinate"),
+    button: z
+      .enum(["left", "right", "middle"])
+      .default("left")
+      .describe("Mouse button to click"),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -291,6 +320,9 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   NativeTreeSchema,
   NativeKeySchema,
   NativeFocusSchema,
+  NativeScreenGrabSchema,
+  NativeFocusWindowSchema,
+  NativeClickPixelSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -321,6 +353,9 @@ export type NativeTypeArgs = z.infer<typeof NativeTypeSchema>["args"];
 export type NativeTreeArgs = z.infer<typeof NativeTreeSchema>["args"];
 export type NativeKeyArgs = z.infer<typeof NativeKeySchema>["args"];
 export type NativeFocusArgs = z.infer<typeof NativeFocusSchema>["args"];
+export type NativeScreenGrabArgs = z.infer<typeof NativeScreenGrabSchema>["args"];
+export type NativeFocusWindowArgs = z.infer<typeof NativeFocusWindowSchema>["args"];
+export type NativeClickPixelArgs = z.infer<typeof NativeClickPixelSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -551,6 +586,27 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     description: "Move keyboard focus to a native UI element by handle. Often a prerequisite for native_key to hit the right target.",
     parameters: [
       { name: "handle", type: "object", required: true, description: "Handle object from native_locate" },
+    ],
+  },
+  {
+    name: "native_screen_grab",
+    description: "Capture the full desktop as a PNG via xdg-desktop-portal. Returns base64 png bytes + width/height. Use for visual verification, OCR pipelines, or feeding an image to analyze_image.",
+    parameters: [],
+  },
+  {
+    name: "native_focus_window",
+    description: "Raise and focus a running Linux app by desktop app-id (e.g. 'org.telegram.desktop'). Mints a real xdg_activation token so Mutter honours the request. Prerequisite for native_key/native_type when the target isn't already focused.",
+    parameters: [
+      { name: "app_id", type: "string", required: true, description: "Desktop app-id (without .desktop suffix)" },
+    ],
+  },
+  {
+    name: "native_click_pixel",
+    description: "Click at absolute desktop pixel coords via xdg-desktop-portal RemoteDesktop + ScreenCast. First call prompts for screen-share permission (once per app install). Use when AT-SPI widget extents are unavailable (Qt on Wayland) and you have visual coordinates from native_screen_grab.",
+    parameters: [
+      { name: "x", type: "number", required: true, description: "Absolute desktop X pixel" },
+      { name: "y", type: "number", required: true, description: "Absolute desktop Y pixel" },
+      { name: "button", type: "string", required: false, description: "'left', 'right', or 'middle'", default: "left" },
     ],
   },
 ];

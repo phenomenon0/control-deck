@@ -48,6 +48,30 @@ export interface KeyEvent {
   key: string;
 }
 
+export interface ScreenGrabResult {
+  /** Base64-encoded PNG bytes of the full desktop. */
+  pngBase64: string;
+  /** Pixel width of the capture. */
+  width: number;
+  /** Pixel height of the capture. */
+  height: number;
+}
+
+export interface FocusWindowResult {
+  /** True if the helper dispatched an Activate — not a guarantee of raise. */
+  dispatched: boolean;
+  /** Diagnostic log from the helper (tokens minted, errors, etc.). */
+  log: string;
+}
+
+export type PointerButton = "left" | "right" | "middle";
+
+export interface ClickPixelArgs {
+  x: number;
+  y: number;
+  button?: PointerButton;
+}
+
 export interface NativeAdapter {
   /** Platform label, mostly for diagnostics. */
   readonly platform: "linux" | "darwin" | "win32" | "unsupported";
@@ -69,6 +93,15 @@ export interface NativeAdapter {
 
   /** Move focus to an element; returns true if the widget accepted focus. */
   focus(handle: NodeHandle): Promise<boolean>;
+
+  /** Capture the full desktop as a PNG (Wayland-safe via xdg Screenshot portal). */
+  screenGrab(): Promise<ScreenGrabResult>;
+
+  /** Raise + focus a running app by desktop app-id (e.g. "org.telegram.desktop"). */
+  focusWindow(appId: string): Promise<FocusWindowResult>;
+
+  /** Click at absolute desktop pixel coords via ScreenCast stream (Wayland). */
+  clickPixel(args: ClickPixelArgs): Promise<void>;
 
   /** Optional readiness probe — returns false if the adapter can't work here. */
   isAvailable?(): Promise<boolean>;

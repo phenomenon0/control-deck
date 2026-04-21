@@ -39,6 +39,9 @@ import type {
   NativeTreeArgs,
   NativeKeyArgs,
   NativeFocusArgs,
+  NativeScreenGrabArgs,
+  NativeFocusWindowArgs,
+  NativeClickPixelArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
@@ -83,6 +86,7 @@ const GLYPH_EXCLUDE_TOOLS = new Set([
   'live.load_sample', // Client-side dispatch
   'live.generate_sample', // Generates artifact, then client-side load
   'live.bpm',         // Client-side dispatch
+  'native_screen_grab', // Base64 PNG blob — nonsense to GLYPH-encode
 ]);
 
 export interface ToolExecutionResult {
@@ -167,6 +171,12 @@ export async function executeTool(
         return await executeNativeKey(tool.args);
       case "native_focus":
         return await executeNativeFocus(tool.args);
+      case "native_screen_grab":
+        return await executeNativeScreenGrab(tool.args);
+      case "native_focus_window":
+        return await executeNativeFocusWindow(tool.args);
+      case "native_click_pixel":
+        return await executeNativeClickPixel(tool.args);
       default:
         return {
           success: false,
@@ -1283,6 +1293,69 @@ async function executeNativeFocus(args: NativeFocusArgs): Promise<ToolExecutionR
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "native_focus failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeScreenGrab(
+  _args: NativeScreenGrabArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    const shot = await adapter.screenGrab();
+    return {
+      success: true,
+      message: `Captured desktop ${shot.width}x${shot.height} (${Math.round(shot.pngBase64.length * 3 / 4 / 1024)} KB)`,
+      data: {
+        platform: adapter.platform,
+        png_base64: shot.pngBase64,
+        width: shot.width,
+        height: shot.height,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_screen_grab failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeFocusWindow(
+  args: NativeFocusWindowArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    const result = await adapter.focusWindow(args.app_id);
+    return {
+      success: true,
+      message: result.dispatched
+        ? `Activation token dispatched to ${args.app_id}`
+        : `Focus-raise completed but helper reported no dispatch for ${args.app_id}`,
+      data: {
+        platform: adapter.platform,
+        app_id: args.app_id,
+        dispatched: result.dispatched,
+        log: result.log,
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_focus_window failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeClickPixel(
+  args: NativeClickPixelArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    await adapter.clickPixel({ x: args.x, y: args.y, button: args.button });
+    return {
+      success: true,
+      message: `Clicked ${args.button ?? "left"} at (${args.x}, ${args.y})`,
+      data: { x: args.x, y: args.y, button: args.button ?? "left" },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_click_pixel failed";
     return { success: false, message: msg, error: msg };
   }
 }

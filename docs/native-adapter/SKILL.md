@@ -30,7 +30,7 @@ The path is the index of each node inside its parent, rooted at the top-level
 application. `id` is `"<app_name>::<path>"`. Passing a fake id like `"id":"x"`
 breaks resolution — always echo the whole handle returned by `native_locate`.
 
-## The six tools
+## The nine tools
 
 | Tool | Args | Returns |
 |---|---|---|
@@ -40,6 +40,9 @@ breaks resolution — always echo the whole handle returned by `native_locate`.
 | `native_tree` | `{handle?: NodeHandle}` | `{platform, tree: TreeNode}` |
 | `native_key` | `{key: string}` (char, keysym, or `"ctrl+shift+t"` combo) | `{key: string}` |
 | `native_focus` | `{handle: NodeHandle}` | `{focused: boolean}` |
+| `native_screen_grab` | `{}` | `{pngBase64, width, height}` — via xdg-portal Screenshot |
+| `native_focus_window` | `{app_id: string}` (e.g. `"org.telegram.desktop"`) | `{dispatched: boolean, log: string}` |
+| `native_click_pixel` | `{x: number, y: number, button?: "left"\|"right"\|"middle"}` | `{}` — absolute-coord click via RemoteDesktop+ScreenCast |
 
 - `limit` defaults to 10; raise it when enumerating (e.g. listing all buttons).
 - Match on `name` and `role` is substring + case-insensitive; `app` is matched
@@ -55,6 +58,22 @@ breaks resolution — always echo the whole handle returned by `native_locate`.
 - `native_focus` calls AT-SPI `grabFocus`. Qt widgets respect it; **GTK4
   widgets consistently fail with `atspi_error`** (known toolkit bug). Use
   `native_click` on a focusable sibling instead when focus fails.
+- `native_screen_grab` hits `org.freedesktop.portal.Screenshot` through the
+  Electron main process. First call shows the user a permission dialog;
+  subsequent calls are silent. Returns a base64 PNG — do not re-encode it on
+  the way back to the LLM (the executor already excludes it from glyph wrap).
+- `native_focus_window` raises an app by desktop `app_id` using an
+  `xdg_activation_v1` token minted via a tiny GDK helper (`scripts/wl-activate.py`
+  spawned from Electron main). Works reliably on GNOME Mutter and KWin; ignored
+  silently by compositors without `xdg_activation_v1`. Use it before
+  `native_key` / `native_type` to guarantee the target window has focus.
+- `native_click_pixel` is the Wayland-compatible mouse. It uses the
+  RemoteDesktop portal plus a ScreenCast stream to resolve absolute desktop
+  coordinates, so it bypasses the broken AT-SPI mouse fallback and the
+  window-local extents problem. Coordinates are **desktop pixels** (matching
+  `native_screen_grab`'s PNG). Lazy-inits on first call — expect a one-time
+  screen-share permission dialog. Never shown again after the user checks
+  "remember".
 
 ## Workflow — the locate → act loop
 
@@ -259,25 +278,44 @@ Agent-GO / in-app caller
 app/api/tools/bridge/route.ts   ← BRIDGE_TOOLS whitelist
    │
    ▼  dispatch by tool name
-lib/tools/executor.ts           ← executeNative{Locate,Click,Type,Tree,Key,Focus}
-   │
+lib/tools/executor.ts           ← executeNative{Locate,Click,Type,Tree,Key,Focus,
+   │                                              ScreenGrab,FocusWindow,ClickPixel}
    ▼  getNativeAdapter()
 lib/tools/native/index.ts       ← platform router (linux / darwin / win32)
    │
    ▼ linux
-lib/tools/native/linux-atspi.ts ← spawns python3 helper per call
+lib/tools/native/linux-atspi.ts
    │
-   ▼  JSON stdin/stdout
-scripts/atspi-helper.py         ← pyatspi → AT-SPI bus → running apps
+   ├──(locate/click/type/tree/key/focus)──► spawn python3 scripts/atspi-helper.py
+   │                                         ← pyatspi → AT-SPI bus → running apps
+   │
+   └──(screen_grab / focus_window / click_pixel)──► HTTP POST $CONTROL_DECK_PORTAL_URL
+                                                     (auto-set by electron/main.ts)
+                                                    ▼
+                                             electron/main.ts portal bridge
+                                                    ▼
+                           ┌──────────────────────┬─────────────────────────────────┐
+                           ▼                      ▼                                 ▼
+              screenshot-portal.ts       wl-activator.ts                remote-desktop.ts
+              (org.freedesktop.          (spawns python3                (RemoteDesktop +
+               portal.Screenshot         scripts/wl-activate.py         ScreenCast combined
+               → one-shot PNG)           → xdg_activation_v1 token      session, absolute
+                                         → DBus Activate)               pointer notify)
 ```
 
-The script path is resolved in this order so it works from both dev and the
-packaged AppImage:
+Helper script paths (`atspi-helper.py`, `wl-activate.py`) are resolved in this
+order so they work from both dev and the packaged AppImage:
 
-1. `$CONTROL_DECK_SCRIPTS_DIR/atspi-helper.py` (set by `electron/main.ts`)
-2. `$PWD/scripts/atspi-helper.py` (dev)
-3. `$PWD/../scripts/atspi-helper.py` (Next standalone cwd)
-4. `$PWD/../../scripts/atspi-helper.py`
+1. `$CONTROL_DECK_SCRIPTS_DIR/<helper>.py` (set by `electron/main.ts`)
+2. `$PWD/scripts/<helper>.py` (dev)
+3. `$PWD/../scripts/<helper>.py` (Next standalone cwd)
+4. `$PWD/../../scripts/<helper>.py`
+
+The portal bridge URL is `$CONTROL_DECK_PORTAL_URL` (set by `electron/main.ts`
+on window boot). Calls outside Electron that need `screen_grab` / `focus_window`
+/ `click_pixel` must set it explicitly and provide `$CONTROL_DECK_PORTAL_SECRET`.
+The three locate/click/type/tree/key/focus tools do not need Electron — they run
+fine against any AT-SPI-enabled session.
 
 macOS (`macos-ax.ts`) and Windows (`windows-uia.ts`) are stubs — they throw a
 clear error describing what they'd do.

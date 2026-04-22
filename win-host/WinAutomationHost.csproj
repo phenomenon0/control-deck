@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>ControlDeck.WinHost</RootNamespace>
+    <AssemblyName>WinAutomationHost</AssemblyName>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Single-file self-contained publish: ships the .NET runtime inside
+         the exe so end users need nothing installed. ~20 MB binary. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- Per-monitor-v2 DPI awareness via manifest so BoundingRectangle
+         values come back in real screen pixels on mixed-DPI setups. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!-- Avoid AOT for now — FlaUI's COM interop uses dynamic dispatch that
+         AOT trims incorrectly. JIT single-file still gives fast startup. -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlaUI.Core" Version="5.0.0" />
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>

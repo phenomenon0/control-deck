@@ -15,9 +15,10 @@ const ITEMS = [
   { href: "/deck/audio", label: "Audio", icon: Icon.Waveform, kbd: "4" },
   { href: "/deck/models", label: "Models", icon: Icon.Cpu, kbd: "5" },
   { href: "/deck/control", label: "Control", icon: Icon.Layers, kbd: "6" },
-  { href: "/deck/capabilities", label: "Capabilities", icon: Icon.Wrench, kbd: "7" },
-  { href: "/deck/hardware", label: "Hardware", icon: Icon.Cpu, kbd: "8" },
-  { href: "/deck/settings", label: "Settings", icon: Icon.Settings, kbd: "9" },
+  { href: "/deck/workspace", label: "Workspace", icon: Icon.Grid, kbd: "7" },
+  { href: "/deck/capabilities", label: "Capabilities", icon: Icon.Wrench, kbd: "8" },
+  { href: "/deck/hardware", label: "Hardware", icon: Icon.Cpu, kbd: "9" },
+  { href: "/deck/settings", label: "Settings", icon: Icon.Settings, kbd: "0" },
 ] as const;
 
 interface SidebarProps {

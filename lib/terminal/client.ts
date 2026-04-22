@@ -34,14 +34,26 @@ function resolveWsBase(): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${resolveHttpBase()}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  const url = `${resolveHttpBase()}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch (err) {
+    // Browser `fetch` surfaces network failures (connection refused,
+    // DNS, CORS) as an opaque "Failed to fetch". Replace with an
+    // actionable message pointing at the real cause.
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Terminal service unreachable at ${resolveHttpBase()} (${reason}). Starts automatically with Electron; if running web-only, run \`bun run terminal-service\`.`,
+    );
+  }
 
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;

@@ -36,6 +36,7 @@ import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers"
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
 import { useCommands } from "@/lib/hooks/useCommands";
+import { subscribeChatPrefill } from "@/lib/messages/chatPrefill";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
 
@@ -334,39 +335,18 @@ export default function ChatSurface() {
     }, delay);
   }, []);
 
-  // Listen for cross-surface prefill requests (currently: the BrowserPane
-  // "Send to chat" button). Uses BroadcastChannel so other open tabs/windows
-  // can hand content to whichever chat surface is mounted.
+  // Pick up cross-surface prefill requests (e.g. the BrowserPane
+  // "Send to chat" button). The helper handles BroadcastChannel + the
+  // localStorage fallback so this file only cares about what to do
+  // with an incoming payload.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const CHANNEL = "control-deck:chat-prefill";
-    const apply = (msg: { text?: string; url?: string; title?: string }) => {
+    return subscribeChatPrefill((msg) => {
       const snippet =
         msg.text ?? (msg.url ? `${msg.title ? `${msg.title}\n` : ""}${msg.url}` : "");
       if (!snippet) return;
       setInputValue((prev) => (prev ? `${prev.trimEnd()}\n\n${snippet}` : snippet));
       queueComposerFocus(0);
-    };
-    let bc: BroadcastChannel | null = null;
-    try {
-      bc = new BroadcastChannel(CHANNEL);
-      bc.onmessage = (e) => apply(e.data ?? {});
-    } catch {
-      // older browsers / SSR — storage-event path still works
-    }
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== CHANNEL || !e.newValue) return;
-      try {
-        apply(JSON.parse(e.newValue));
-      } catch {
-        // malformed payload, ignore
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => {
-      bc?.close();
-      window.removeEventListener("storage", onStorage);
-    };
+    });
   }, [queueComposerFocus]);
 
   // ---------------------------------------------------------------------------

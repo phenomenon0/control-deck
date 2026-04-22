@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Search } from "lucide-react";
 import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
 import { useRouter, usePathname } from "next/navigation";
@@ -118,29 +118,34 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       category: "Shortcuts",
     }));
 
-  // Pane-contributed commands. When the caller scoped a command to a route
-  // prefix, and that prefix matches the current pathname, bubble it to the
-  // top under "In this pane" so it wins over unrelated Navigation entries.
-  const inPane: Command[] = dynamicCommands
-    .filter((c) => c.scope && pathname && pathname.startsWith(c.scope))
-    .map((c) => ({
-      id: `dyn:${c.id}`,
-      label: c.label,
-      shortcut: c.shortcut,
-      action: () => { void c.action(); },
-      category: "In this pane",
-    }));
-  const otherDynamic: Command[] = dynamicCommands
-    .filter((c) => !c.scope || !pathname || !pathname.startsWith(c.scope))
-    .map((c) => ({
-      id: `dyn:${c.id}`,
-      label: c.label,
-      shortcut: c.shortcut,
-      action: () => { void c.action(); },
-      category: c.category,
-    }));
+  // Memoize the filter+map over the registry so keystrokes in the search
+  // box don't re-run it. The hardcoded `commands` and `shortcutCommands`
+  // arrays are re-allocated each render (pre-existing), but the array
+  // spread below is O(n) and cheap — it's the per-entry wrapping that
+  // was expensive.
+  const wrappedDynamic = useMemo(() => {
+    const inPane: Command[] = [];
+    const other: Command[] = [];
+    for (const c of dynamicCommands) {
+      const isInPane = !!(c.scope && pathname && pathname.startsWith(c.scope));
+      const wrapped: Command = {
+        id: `dyn:${c.id}`,
+        label: c.label,
+        shortcut: c.shortcut,
+        action: () => { void c.action(); },
+        category: isInPane ? "In this pane" : c.category,
+      };
+      (isInPane ? inPane : other).push(wrapped);
+    }
+    return { inPane, other };
+  }, [dynamicCommands, pathname]);
 
-  const allCommands = [...inPane, ...commands, ...otherDynamic, ...shortcutCommands];
+  const allCommands = [
+    ...wrappedDynamic.inPane,
+    ...commands,
+    ...wrappedDynamic.other,
+    ...shortcutCommands,
+  ];
 
   const filteredCommands = query
     ? allCommands.filter((cmd) => fuzzyMatch(cmd.label, query))

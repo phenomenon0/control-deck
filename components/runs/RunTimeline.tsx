@@ -138,11 +138,19 @@ function buildSteps(events: RunEvent[]): Step[] {
     }
   }
 
-  return steps.sort((a, b) => {
-    const at = "at" in a ? a.at : a.startedAt;
-    const bt = "at" in b ? b.at : b.startedAt;
-    return at - bt;
-  });
+  // Array.prototype.sort has been stable since ES2019, but ties between
+  // completed steps (pushed during forEach) and incomplete ones (appended
+  // after) would still surface "incomplete last" even when their startedAt
+  // was earlier. Tiebreak on insertion index to keep chronological-by-
+  // insertion feel.
+  return steps
+    .map((step, index) => ({ step, index }))
+    .sort((a, b) => {
+      const at = "at" in a.step ? a.step.at : a.step.startedAt;
+      const bt = "at" in b.step ? b.step.at : b.step.startedAt;
+      return at - bt || a.index - b.index;
+    })
+    .map((x) => x.step);
 }
 
 export function RunTimeline({ events }: { events: RunEvent[] }) {

@@ -52,12 +52,19 @@ export function VramEstimator({ modelName, modelBytes, onClose }: VramEstimatorP
   }, []);
 
   const estimatedGb = estimateVramGb(modelBytes);
-  const freeMib = gpu ? gpu.memoryTotal - gpu.memoryUsed : 0;
+  const hasTotal = !!gpu && gpu.memoryTotal > 0;
+  const freeMib = hasTotal ? gpu!.memoryTotal - gpu!.memoryUsed : 0;
   const freeGb = +(freeMib / 1024).toFixed(2);
-  const totalGb = gpu ? +(gpu.memoryTotal / 1024).toFixed(2) : 0;
-  const fits = gpu ? estimatedGb <= freeGb : null;
-  const loadPercent = gpu ? Math.min(100, Math.round((estimatedGb * 1024 / gpu.memoryTotal) * 100)) : 0;
-  const usedPercent = gpu ? gpu.memoryPercent : 0;
+  const totalGb = hasTotal ? +(gpu!.memoryTotal / 1024).toFixed(2) : 0;
+  const fits = hasTotal ? estimatedGb <= freeGb : null;
+  const usedPercent = hasTotal ? gpu!.memoryPercent : 0;
+  // Cap the load bar to the remaining headroom so used + load can never
+  // visually exceed 100%. The fits/insufficient label still reflects the
+  // true estimate vs available.
+  const rawLoadPercent = hasTotal
+    ? Math.round(((estimatedGb * 1024) / gpu!.memoryTotal) * 100)
+    : 0;
+  const loadPercent = Math.max(0, Math.min(100 - usedPercent, rawLoadPercent));
 
   return (
     <div
@@ -88,7 +95,7 @@ export function VramEstimator({ modelName, modelBytes, onClose }: VramEstimatorP
         <div className="p-4 space-y-4">
           {loading ? (
             <div className="text-sm text-[var(--text-muted)]">Reading GPU stats...</div>
-          ) : !gpu ? (
+          ) : !hasTotal ? (
             <div className="rounded-[6px] border border-[var(--border)] p-3 text-sm">
               <div className="text-[var(--text-primary)]">No GPU detected</div>
               <div className="text-xs text-[var(--text-muted)] mt-1">

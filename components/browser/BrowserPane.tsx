@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { MessageSquarePlus, Copy } from "lucide-react";
 import { BrowserHeader } from "@/components/browser/BrowserHeader";
+import { publishChatPrefill } from "@/lib/messages/chatPrefill";
 
 interface BrowserState {
   url: string;
@@ -10,38 +11,6 @@ interface BrowserState {
   canGoBack: boolean;
   canGoForward: boolean;
   loading: boolean;
-}
-
-const CHAT_PREFILL_CHANNEL = "control-deck:chat-prefill";
-
-/**
- * Ship a prefill request to any open ChatSurface via BroadcastChannel.
- * Falls back to localStorage so a newly-opened tab can still pick it up.
- * The payload stays small and human-readable — the ChatSurface decides
- * how to render it (plain text append, attachment chip, etc).
- */
-export function sendToChatPrefill(payload: {
-  source: string;
-  url?: string;
-  title?: string;
-  selection?: string;
-  text?: string;
-}): void {
-  try {
-    const bc = new BroadcastChannel(CHAT_PREFILL_CHANNEL);
-    bc.postMessage({ ...payload, ts: Date.now() });
-    bc.close();
-  } catch {
-    // older browsers / SSR
-  }
-  try {
-    window.localStorage?.setItem(
-      CHAT_PREFILL_CHANNEL,
-      JSON.stringify({ ...payload, ts: Date.now() })
-    );
-  } catch {
-    // private mode
-  }
 }
 
 export function BrowserPane() {
@@ -63,7 +32,7 @@ export function BrowserPane() {
 
   const sendLink = () => {
     if (!hasPage) return;
-    sendToChatPrefill({
+    publishChatPrefill({
       source: "browser",
       url: state.url,
       title: state.title,

@@ -379,8 +379,12 @@ async function executeGenerateImage(
 }
 
 /**
- * Analyze image using vision model
- * This doesn't use ComfyUI - it calls Ollama vision model directly
+ * Analyze image using the currently-bound vision provider.
+ *
+ * Routes through the unified inference slot system rather than hardcoding
+ * Ollama — any provider registered for the `vision` modality (ollama,
+ * anthropic, openai, google, openrouter) can answer based on the user's
+ * VISION_PROVIDER env var and available API keys.
  */
 async function executeAnalyzeImage(
   args: AnalyzeImageArgs,
@@ -395,32 +399,37 @@ async function executeAnalyzeImage(
     };
   }
 
-  const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-  const VISION_MODEL = process.env.VISION_MODEL ?? "llama3.2-vision:11b";
+  const { ensureBootstrap, getSlot } = await import("@/lib/inference/bootstrap");
+  const { invokeVision } = await import("@/lib/inference/vision/invoke");
+  ensureBootstrap();
+
+  const bound = getSlot("vision", "primary");
+  const providerId = bound?.providerId ?? "ollama";
+  const config = bound?.config ?? {
+    providerId: "ollama",
+    baseURL: process.env.OLLAMA_BASE_URL,
+    model: process.env.VISION_MODEL,
+  };
   const question = args.question ?? "Describe this image in detail.";
 
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: VISION_MODEL,
-        prompt: question,
-        images: [upload.data], // base64 without data: prefix
-        stream: false,
-      }),
+    const result = await invokeVision(providerId, config, {
+      image: {
+        base64: upload.data,
+        mimeType: upload.mime_type,
+      },
+      prompt: question,
     });
 
-    if (!response.ok) {
-      throw new Error(`Ollama returned ${response.status}`);
-    }
-
-    const data = await response.json();
-    
     return {
       success: true,
-      message: data.response ?? "Image analyzed",
-      data: { analysis: data.response },
+      message: result.text || "Image analyzed",
+      data: {
+        analysis: result.text,
+        provider: result.providerId,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+      },
     };
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Vision analysis failed";

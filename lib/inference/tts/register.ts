@@ -44,10 +44,10 @@ const PROVIDERS: InferenceProvider[] = [
     requiresApiKey: true,
     defaultBaseURL: "https://api.elevenlabs.io/v1",
     defaultModels: {
-      // Keep lean — the live catalog (either /models endpoint or listTtsVoices)
-      // supersedes these at runtime; these only surface if the API is
-      // unreachable at registration time.
-      tts: ["eleven_turbo_v2_5"],
+      // Keep lean — live voice listing from /v1/voices supersedes these at
+      // runtime; listed here only as a fallback if the API is unreachable
+      // at registration time. eleven_v3 = higher quality; turbo_v2_5 = fastest.
+      tts: ["eleven_v3", "eleven_turbo_v2_5"],
     },
     listModels: async (_m, config) => {
       const voices = await listTtsVoices("elevenlabs", config);
@@ -77,7 +77,8 @@ const PROVIDERS: InferenceProvider[] = [
     requiresApiKey: true,
     defaultBaseURL: "https://api.cartesia.ai",
     defaultModels: {
-      tts: ["sonic-2"],
+      // sonic-3 is the 2026 default; sonic-turbo is the sub-50ms variant.
+      tts: ["sonic-3", "sonic-turbo", "sonic-2"],
     },
     listModels: async (_m, config) => {
       const voices = await listTtsVoices("cartesia", config);

@@ -140,7 +140,7 @@ async function invokeCartesia(
   if (!apiKey) throw new Error("cartesia: CARTESIA_API_KEY not set");
   const voiceId = args.voice ?? (config.extras?.defaultVoiceId as string | undefined);
   if (!voiceId) throw new Error("cartesia: voice id required (args.voice or config.extras.defaultVoiceId)");
-  const model = args.model ?? config.model ?? "sonic-2";
+  const model = args.model ?? config.model ?? "sonic-3";
   const res = await fetch(`${CARTESIA_BASE}/tts/bytes`, {
     method: "POST",
     headers: {

@@ -170,6 +170,10 @@ function initKoffi(): KoffiBindings {
 const K: KoffiBindings = (globalScope[KOFFI_KEY] as KoffiBindings | undefined)
   ?? ((globalScope[KOFFI_KEY] = initKoffi()) as KoffiBindings);
 
+// Narrow EnumWindowsProc for koffi.pointer (typed as `unknown` in the
+// shared bindings interface since koffi's internal type isn't exported).
+type KoffiTypeSpec = NonNullable<Parameters<typeof koffi.pointer>[0]>;
+
 const {
   INPUT,
   SendInput,
@@ -430,7 +434,7 @@ function findWindowByApp(appId: string, log: string[]): Buffer | null {
       }
       return 1;
     },
-    koffi.pointer(EnumWindowsProc),
+    koffi.pointer(EnumWindowsProc as KoffiTypeSpec),
   );
 
   EnumWindows(callback, 0);

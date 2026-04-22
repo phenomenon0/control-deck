@@ -29,6 +29,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const TMP = "C:\\Users\\jethr\\tmp";
 fs.mkdirSync(TMP, { recursive: true });
@@ -287,6 +288,17 @@ export const tasks = [
 ];
 
 // ── runner CLI ────────────────────────────────────────────────────
+// Only run the CLI when this file is executed directly (not imported
+// by tests or by an agent runner). Bun and Node expose `import.meta.main`;
+// fall back to an argv[1] check for older runtimes.
+const isDirect = typeof import.meta.main === "boolean"
+  ? import.meta.main
+  : (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]));
+
+if (!isDirect) {
+  // Imported as a module — expose `tasks` and return.
+  // (Nothing else needs to happen at import time.)
+} else {
 
 const mode = process.argv[2];
 const id = process.argv[3];
@@ -368,3 +380,5 @@ switch (mode) {
     console.log(`usage: bench.mjs <list | prompt <id> | setup <id> | verify <id> [agentReport] | score>`);
     process.exit(1);
 }
+
+} // end isDirect

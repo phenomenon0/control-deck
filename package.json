@@ -12,6 +12,7 @@
     "start": "next start -p 3333",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "bun test",
     "terminal-service": "tsx scripts/terminal-service.ts",
     "electron:compile": "tsc -p electron/tsconfig.json && node scripts/postbuild-electron.cjs",
     "electron:macos-helper": "bash scripts/build-macos-helper.sh",

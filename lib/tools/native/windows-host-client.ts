@@ -133,27 +133,10 @@ class WindowsHostClient {
   }
 
   private onStdout(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
+    const { frames, remainder } = parseFrames(Buffer.concat([this.buffer, chunk]));
+    this.buffer = Buffer.from(remainder);
 
-    while (true) {
-      const sep = this.buffer.indexOf("\r\n\r\n");
-      if (sep < 0) return;
-
-      const headerText = this.buffer.slice(0, sep).toString("ascii");
-      const match = /Content-Length:\s*(\d+)/i.exec(headerText);
-      if (!match) {
-        // Corrupt frame — skip past this header and keep going.
-        this.buffer = this.buffer.slice(sep + 4);
-        continue;
-      }
-      const bodyLen = parseInt(match[1], 10);
-      const bodyStart = sep + 4;
-      const bodyEnd = bodyStart + bodyLen;
-      if (this.buffer.length < bodyEnd) return;
-
-      const body = this.buffer.slice(bodyStart, bodyEnd).toString("utf8");
-      this.buffer = this.buffer.slice(bodyEnd);
-
+    for (const body of frames) {
       try {
         const msg = JSON.parse(body);
         this.dispatchResponse(msg);
@@ -235,4 +218,45 @@ let singleton: WindowsHostClient | null = null;
 export function getWindowsHostClient(): WindowsHostClient {
   if (!singleton) singleton = new WindowsHostClient();
   return singleton;
+}
+
+/**
+ * Pure frame-parser for LSP-style Content-Length framed JSON messages
+ * on the stdout of a host process. Returns decoded UTF-8 bodies in the
+ * order they were received plus any unconsumed tail bytes.
+ *
+ * Exported for unit tests — the live stream calls this from onStdout.
+ * Behavior:
+ *   - Missing or incomplete headers: return no frames, full buffer as
+ *     remainder (caller accumulates more).
+ *   - Partial body (header but not all bytes): same (wait for more).
+ *   - Corrupt header (no Content-Length): skip past it and keep parsing.
+ */
+export function parseFrames(
+  buffer: Buffer,
+): { frames: string[]; remainder: Buffer<ArrayBufferLike> } {
+  const frames: string[] = [];
+  let cursor: Buffer<ArrayBufferLike> = buffer;
+
+  while (true) {
+    const sep = cursor.indexOf("\r\n\r\n");
+    if (sep < 0) break;
+
+    const headerText = cursor.slice(0, sep).toString("ascii");
+    const match = /Content-Length:\s*(\d+)/i.exec(headerText);
+    if (!match) {
+      // Corrupt frame — skip past this header and keep going.
+      cursor = cursor.slice(sep + 4);
+      continue;
+    }
+    const bodyLen = parseInt(match[1], 10);
+    const bodyStart = sep + 4;
+    const bodyEnd = bodyStart + bodyLen;
+    if (cursor.length < bodyEnd) break; // wait for more bytes
+
+    frames.push(cursor.slice(bodyStart, bodyEnd).toString("utf8"));
+    cursor = cursor.slice(bodyEnd);
+  }
+
+  return { frames, remainder: cursor };
 }

@@ -35,6 +35,8 @@ import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
+import { useCommands } from "@/lib/hooks/useCommands";
+import { subscribeChatPrefill } from "@/lib/messages/chatPrefill";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
 
@@ -332,6 +334,20 @@ export default function ChatSurface() {
       }
     }, delay);
   }, []);
+
+  // Pick up cross-surface prefill requests (e.g. the BrowserPane
+  // "Send to chat" button). The helper handles BroadcastChannel + the
+  // localStorage fallback so this file only cares about what to do
+  // with an incoming payload.
+  useEffect(() => {
+    return subscribeChatPrefill((msg) => {
+      const snippet =
+        msg.text ?? (msg.url ? `${msg.title ? `${msg.title}\n` : ""}${msg.url}` : "");
+      if (!snippet) return;
+      setInputValue((prev) => (prev ? `${prev.trimEnd()}\n\n${snippet}` : snippet));
+      queueComposerFocus(0);
+    });
+  }, [queueComposerFocus]);
 
   // ---------------------------------------------------------------------------
   // Agent Run — unified SSE consumer (replaces useSendMessage + useSSE)
@@ -860,6 +876,31 @@ export default function ChatSurface() {
     queueComposerFocus(0);
   }, [messages, queueComposerFocus]);
 
+  // Contribute chat-specific commands to the palette while mounted.
+  useCommands([
+    {
+      id: "chat.retry",
+      label: "Retry last message",
+      category: "Chat",
+      scope: "/deck/chat",
+      action: handleRetry,
+    },
+    {
+      id: "chat.edit-last",
+      label: "Edit last message",
+      category: "Chat",
+      scope: "/deck/chat",
+      action: handleEditLastMessage,
+    },
+    {
+      id: "chat.stop-speaking",
+      label: "Stop TTS playback",
+      category: "Chat",
+      scope: "/deck/chat",
+      action: () => voiceChat.stopSpeaking(),
+    },
+  ]);
+
   const handleMicClick = () => {
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
     if (prefs.voice.mode === "vad") {
@@ -932,6 +973,10 @@ export default function ChatSurface() {
       segments={segments}
       isStreaming={isStreaming}
       onRetry={handleRetry}
+      onSpeak={(text) => {
+        if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
+        void voiceChat.speak(text);
+      }}
       emptyState={
         <div className="cs-empty">
           <p className="cs-empty-primary">

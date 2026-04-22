@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Search } from "lucide-react";
 import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useDeckSettings, type ChatSurface } from "./settings/DeckSettingsProvider";
 import { useWarp, type Theme } from "@/components/warp/WarpProvider";
 import { openCanvas, toggleCanvas, closeCanvas } from "@/lib/canvas";
+import { useRegisteredCommands } from "@/lib/hooks/useCommands";
 
 interface Command {
   id: string;
@@ -47,12 +48,14 @@ function fuzzyMatch(label: string, query: string): boolean {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { setSettingsOpen, setRailOpen, updatePrefs, prefs } = useDeckSettings();
   const { setTweak } = useWarp();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dynamicCommands = useRegisteredCommands();
 
   const commands: Command[] = [
     // Navigation — top-level surfaces
@@ -115,7 +118,34 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       category: "Shortcuts",
     }));
 
-  const allCommands = [...commands, ...shortcutCommands];
+  // Memoize the filter+map over the registry so keystrokes in the search
+  // box don't re-run it. The hardcoded `commands` and `shortcutCommands`
+  // arrays are re-allocated each render (pre-existing), but the array
+  // spread below is O(n) and cheap — it's the per-entry wrapping that
+  // was expensive.
+  const wrappedDynamic = useMemo(() => {
+    const inPane: Command[] = [];
+    const other: Command[] = [];
+    for (const c of dynamicCommands) {
+      const isInPane = !!(c.scope && pathname && pathname.startsWith(c.scope));
+      const wrapped: Command = {
+        id: `dyn:${c.id}`,
+        label: c.label,
+        shortcut: c.shortcut,
+        action: () => { void c.action(); },
+        category: isInPane ? "In this pane" : c.category,
+      };
+      (isInPane ? inPane : other).push(wrapped);
+    }
+    return { inPane, other };
+  }, [dynamicCommands, pathname]);
+
+  const allCommands = [
+    ...wrappedDynamic.inPane,
+    ...commands,
+    ...wrappedDynamic.other,
+    ...shortcutCommands,
+  ];
 
   const filteredCommands = query
     ? allCommands.filter((cmd) => fuzzyMatch(cmd.label, query))

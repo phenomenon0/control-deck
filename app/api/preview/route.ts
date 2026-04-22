@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
 interface PreviewData {
+  url: string;
   title: string;
   description: string;
   image: string | null;
   favicon: string | null;
   siteName: string | null;
+  /**
+   * Best-effort CSP hint. When a page sends X-Frame-Options: DENY / SAMEORIGIN
+   * or a CSP frame-ancestors that excludes our origin, the inline iframe
+   * won't render; the SourcePreview UI falls back to the OG card only.
+   */
+  embeddable: boolean;
 }
 
 // In-memory cache (TTL: 1 hour)
@@ -97,7 +104,16 @@ async function fetchPreview(url: string): Promise<PreviewData> {
     }
 
     const html = await response.text();
-    
+
+    // Detect embeddability from response headers so the UI can decide
+    // between compact-card and full-iframe modes.
+    const xFrameOptions = (response.headers.get("x-frame-options") ?? "").toLowerCase();
+    const csp = (response.headers.get("content-security-policy") ?? "").toLowerCase();
+    const blockedByXFO = xFrameOptions.includes("deny") || xFrameOptions.includes("sameorigin");
+    const blockedByCsp = csp.includes("frame-ancestors 'none'") ||
+      (/frame-ancestors\s+[^;]*/.test(csp) && !csp.includes("frame-ancestors *"));
+    const embeddable = !blockedByXFO && !blockedByCsp;
+
     // Extract Open Graph and meta tags
     const ogTitle = extractMeta(html, 'property="og:title"') || 
                     extractMeta(html, "property='og:title'") ||
@@ -126,21 +142,25 @@ async function fetchPreview(url: string): Promise<PreviewData> {
     }
 
     return {
+      url,
       title: decodeHtmlEntities(title),
       description: decodeHtmlEntities(ogDescription || ""),
       image: image || null,
       favicon: getFaviconUrl(url),
       siteName: ogSiteName || extractDomain(url),
+      embeddable,
     };
   } catch (error) {
     clearTimeout(timeout);
     // Return basic fallback data
     return {
+      url,
       title: extractDomain(url),
       description: "",
       image: null,
       favicon: getFaviconUrl(url),
       siteName: extractDomain(url),
+      embeddable: false,
     };
   }
 }

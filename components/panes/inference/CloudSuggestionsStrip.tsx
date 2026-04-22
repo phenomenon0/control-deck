@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useSourcePreview } from "./SourcePreviewContext";
+
 type ModalityId =
   | "text"
   | "vision"
@@ -89,6 +91,7 @@ export function CloudSuggestionsStrip({
   limit?: number;
   title?: string;
 }) {
+  const { open: openPreview } = useSourcePreview();
   const [entries, setEntries] = useState<BenchmarkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState("—");
@@ -164,14 +167,13 @@ export function CloudSuggestionsStrip({
               {e.note && <p className="local-card-reason">{e.note}</p>}
               <footer className="inference-leader-source">
                 {e.sourceUrl ? (
-                  <a
-                    href={e.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
                     className="inference-leader-source-link"
+                    onClick={() => openPreview({ url: e.sourceUrl!, label: e.source })}
                   >
-                    {e.source} ↗
-                  </a>
+                    {e.source} ⤵
+                  </button>
                 ) : (
                   <span className="inference-leader-source-text">{e.source}</span>
                 )}

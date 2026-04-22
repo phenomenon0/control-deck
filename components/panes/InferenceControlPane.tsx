@@ -16,6 +16,8 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { OverviewTab } from "./inference/OverviewTab";
 import { ModalityTab } from "./inference/ModalityTab";
 import { SystemTab } from "./inference/SystemTab";
+import { SourcePreviewProvider } from "./inference/SourcePreviewContext";
+import { SourcePreview } from "./inference/SourcePreview";
 
 type ModalityId =
   | "text"
@@ -183,10 +185,13 @@ function InferenceControlPaneInner() {
 
 export function InferenceControlPane() {
   return (
-    <Suspense
-      fallback={<div className="p-6 text-sm text-[var(--text-muted)]">Loading…</div>}
-    >
-      <InferenceControlPaneInner />
-    </Suspense>
+    <SourcePreviewProvider>
+      <Suspense
+        fallback={<div className="p-6 text-sm text-[var(--text-muted)]">Loading…</div>}
+      >
+        <InferenceControlPaneInner />
+      </Suspense>
+      <SourcePreview />
+    </SourcePreviewProvider>
   );
 }

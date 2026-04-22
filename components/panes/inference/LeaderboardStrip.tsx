@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useSourcePreview } from "./SourcePreviewContext";
+
 type ModalityId =
   | "text"
   | "vision"
@@ -73,6 +75,7 @@ export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
   const [entries, setEntries] = useState<BenchmarkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState<string>("—");
+  const { open: openPreview } = useSourcePreview();
 
   useEffect(() => {
     let alive = true;
@@ -140,14 +143,13 @@ export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
               {entry.note && <p className="inference-leader-note">{entry.note}</p>}
               <footer className="inference-leader-source">
                 {entry.sourceUrl ? (
-                  <a
-                    href={entry.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
                     className="inference-leader-source-link"
+                    onClick={() => openPreview({ url: entry.sourceUrl!, label: entry.source })}
                   >
-                    {entry.source} ↗
-                  </a>
+                    {entry.source} ⤵
+                  </button>
                 ) : (
                   <span className="inference-leader-source-text">{entry.source}</span>
                 )}

@@ -16,6 +16,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useSourcePreview } from "./SourcePreviewContext";
+
 type ModalityId =
   | "text"
   | "vision"
@@ -314,6 +316,8 @@ interface Props {
 }
 
 export function ProviderCompareTable({ modality, onDetails, refreshToken }: Props) {
+  const { open: openPreview } = useSourcePreview();
+
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [benchmarks, setBenchmarks] = useState<BenchmarkEntry[]>([]);
   const [bindings, setBindings] = useState<BindingsResponse | null>(null);
@@ -483,14 +487,14 @@ export function ProviderCompareTable({ modality, onDetails, refreshToken }: Prop
                   ))}
                   <td className="inference-compare-source">
                     {bench?.sourceUrl ? (
-                      <a
-                        href={bench.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => openPreview({ url: bench.sourceUrl!, label: bench.source })}
                         title={bench.source}
+                        className="inference-compare-source-btn"
                       >
-                        {shortSource(bench.source)} ↗
-                      </a>
+                        {shortSource(bench.source)} ⤵
+                      </button>
                     ) : bench?.source ? (
                       <span title={bench.source}>{shortSource(bench.source)}</span>
                     ) : (

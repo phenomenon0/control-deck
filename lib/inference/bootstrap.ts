@@ -20,6 +20,7 @@ import { registerEmbeddingProviders } from "./embedding/register";
 import { registerRerankProviders } from "./rerank/register";
 import { register3dGenProviders } from "./3d-gen/register";
 import { registerVideoGenProviders } from "./video-gen/register";
+import { applyPersistedBindings } from "./persistence";
 
 let bootstrapped = false;
 
@@ -36,6 +37,8 @@ export function ensureBootstrap(): void {
   registerRerankProviders();
   register3dGenProviders();
   registerVideoGenProviders();
+  // Run LAST so persisted UI-set bindings override env-var defaults.
+  applyPersistedBindings();
 }
 
 // Re-exports so callers have a single import surface.

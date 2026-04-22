@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Terminal, useTerminal } from "@wterm/react";
 import { Icon } from "@/components/warp/Icons";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
@@ -38,7 +38,29 @@ const KBD_NEW_SHELL = "⌥N";
 const KBD_CLOSE = "⌥W";
 const KBD_RESTART = "⌥⇧R";
 
-export function TerminalPane() {
+/**
+ * Imperative handle exposed to parents via forwardRef. Kept small on
+ * purpose — the workspace adapter (and the agent surface through it)
+ * consumes exactly these two methods plus the onOutput callback, and
+ * we don't want TerminalPane leaking its internal state model.
+ */
+export interface TerminalPaneHandle {
+  /** Send keystrokes directly to the active session's stdin. */
+  sendKeys: (keys: string) => { delivered: boolean; reason?: string };
+  /** Return the last `chars` bytes of stdout/stderr (capped at the ring buffer). */
+  readLastOutput: (chars?: number) => string;
+}
+
+export interface TerminalPaneProps {
+  /** Fires once per output chunk arriving from the terminal service WS. */
+  onOutput?: (data: string) => void;
+}
+
+/** Ring buffer max in chars — enough for a reasonable recent window. */
+const OUTPUT_BUFFER_MAX = 64_000;
+
+export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
+  function TerminalPane(props, handleRef) {
   const {
     sessions,
     health,
@@ -55,6 +77,26 @@ export function TerminalPane() {
   const socketRef = useRef<WebSocket | null>(null);
   const terminalReadyRef = useRef(false);
   const pendingOutputRef = useRef<string[]>([]);
+  const outputBufferRef = useRef<string>("");
+
+  // onOutput needs the latest prop value without re-subscribing the
+  // message listener on every render.
+  const onOutputRef = useRef(props.onOutput);
+  useEffect(() => { onOutputRef.current = props.onOutput; }, [props.onOutput]);
+
+  useImperativeHandle(handleRef, () => ({
+    sendKeys: (keys: string) => {
+      const sock = socketRef.current;
+      if (!sock || sock.readyState !== WebSocket.OPEN) {
+        return { delivered: false, reason: "no active terminal session" };
+      }
+      sock.send(JSON.stringify({ type: "input", data: keys }));
+      return { delivered: true };
+    },
+    readLastOutput: (chars = 4000) => {
+      return outputBufferRef.current.slice(-Math.min(chars, OUTPUT_BUFFER_MAX));
+    },
+  }), []);
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -163,6 +205,13 @@ export function TerminalPane() {
         return;
       }
       if (message.type === "output") {
+        // Ring-buffer the bytes for readLastOutput() + workspace topic.
+        const next = outputBufferRef.current + message.data;
+        outputBufferRef.current = next.length > OUTPUT_BUFFER_MAX
+          ? next.slice(-OUTPUT_BUFFER_MAX)
+          : next;
+        onOutputRef.current?.(message.data);
+
         if (terminalReadyRef.current) write(message.data);
         else pendingOutputRef.current.push(message.data);
         return;
@@ -696,7 +745,7 @@ export function TerminalPane() {
       </div>
     </section>
   );
-}
+});
 
 // ──────────────────────────────────────────────────────────────────────
 function OverviewCard({

@@ -42,8 +42,24 @@ import type {
   NativeScreenGrabArgs,
   NativeFocusWindowArgs,
   NativeClickPixelArgs,
+  NativeInvokeArgs,
+  NativeWaitForArgs,
+  NativeElementFromPointArgs,
+  NativeReadTextArgs,
+  NativeWithCacheArgs,
+  NativeWatchInstallArgs,
+  NativeWatchDrainArgs,
+  NativeWatchRemoveArgs,
+  NativeBaselineCaptureArgs,
+  NativeBaselineRestoreArgs,
+  WorkspaceOpenPaneArgs,
+  WorkspaceClosePaneArgs,
+  WorkspaceFocusPaneArgs,
+  WorkspacePaneCallArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
+import { captureFailureEnvelope } from "./native/failure-envelope";
+import { publishCommand, publishQuery } from "@/lib/workspace/command-relay";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
@@ -121,6 +137,36 @@ export async function executeTool(
 ): Promise<ToolExecutionResult> {
   console.log(`[Executor] Running tool: ${tool.name}`, tool.args);
 
+  const result = await dispatchTool(tool, ctx);
+
+  // Attach a failure envelope (screenshot + desktop tree summary) to
+  // failed native_* tool results when CONTROL_DECK_FAILURE_ENVELOPES=1.
+  // Gives the agent post-mortem context ("the dialog is off-screen",
+  // "a new window stole focus"). Off by default — envelopes are big.
+  if (!result.success && tool.name.startsWith("native_")) {
+    try {
+      const adapter = await getNativeAdapter();
+      const envelope = await captureFailureEnvelope(adapter);
+      if (envelope) {
+        result.data = {
+          ...(typeof result.data === "object" && result.data !== null
+            ? (result.data as Record<string, unknown>)
+            : {}),
+          envelope,
+        };
+      }
+    } catch {
+      // Envelope capture must not mask the original error.
+    }
+  }
+
+  return result;
+}
+
+async function dispatchTool(
+  tool: ToolCall,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
   try {
     switch (tool.name) {
       case "edit_image":
@@ -177,6 +223,38 @@ export async function executeTool(
         return await executeNativeFocusWindow(tool.args);
       case "native_click_pixel":
         return await executeNativeClickPixel(tool.args);
+      case "native_invoke":
+        return await executeNativeInvoke(tool.args);
+      case "native_wait_for":
+        return await executeNativeWaitFor(tool.args);
+      case "native_element_from_point":
+        return await executeNativeElementFromPoint(tool.args);
+      case "native_read_text":
+        return await executeNativeReadText(tool.args);
+      case "native_with_cache":
+        return await executeNativeWithCache(tool.args);
+      case "native_watch_install":
+        return await executeNativeWatchInstall(tool.args);
+      case "native_watch_drain":
+        return await executeNativeWatchDrain(tool.args);
+      case "native_watch_remove":
+        return await executeNativeWatchRemove(tool.args);
+      case "native_baseline_capture":
+        return await executeNativeBaselineCapture(tool.args);
+      case "native_baseline_restore":
+        return await executeNativeBaselineRestore(tool.args);
+      case "workspace_open_pane":
+        return executeWorkspaceOpenPane(tool.args);
+      case "workspace_close_pane":
+        return executeWorkspaceClosePane(tool.args);
+      case "workspace_focus_pane":
+        return executeWorkspaceFocusPane(tool.args);
+      case "workspace_reset":
+        return executeWorkspaceReset();
+      case "workspace_list_panes":
+        return await executeWorkspaceListPanes();
+      case "workspace_pane_call":
+        return await executeWorkspacePaneCall(tool.args);
       default:
         return {
           success: false,
@@ -1633,6 +1711,289 @@ async function executeNativeClickPixel(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "native_click_pixel failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+// Windows-only extras. Each checks for the optional method on the
+// current adapter and returns a graceful error envelope if it's absent
+// (Linux/macOS), so the agent gets a clear signal rather than a crash.
+
+function unsupported(tool: string, platform: string): ToolExecutionResult {
+  return {
+    success: false,
+    message: `${tool} is Windows-only (current platform: ${platform})`,
+    error: "unsupported_platform",
+  };
+}
+
+async function executeNativeInvoke(args: NativeInvokeArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.invoke) return unsupported("native_invoke", adapter.platform);
+    const result = await adapter.invoke({
+      handle: args.handle,
+      pattern: args.pattern,
+      action: args.action,
+      params: args.params,
+    });
+    return {
+      success: result.ok,
+      message: result.ok ? `Invoked ${args.pattern}.${args.action}` : `Invoke failed`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_invoke failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeWaitFor(args: NativeWaitForArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.waitFor) return unsupported("native_wait_for", adapter.platform);
+    const result = await adapter.waitFor({
+      event: args.event,
+      handle: args.handle,
+      match: args.match,
+      timeoutMs: args.timeoutMs,
+    });
+    return {
+      success: true,
+      message: result.matched ? `Event matched: ${args.event}` : `Timed out waiting for ${args.event}`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_wait_for failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeElementFromPoint(
+  args: NativeElementFromPointArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.elementFromPoint) return unsupported("native_element_from_point", adapter.platform);
+    const handle = await adapter.elementFromPoint({ x: args.x, y: args.y });
+    return {
+      success: true,
+      message: handle
+        ? `Element at (${args.x}, ${args.y}): ${handle.role ?? "?"}/${handle.name ?? "?"}`
+        : `No element at (${args.x}, ${args.y})`,
+      data: { platform: adapter.platform, handle },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_element_from_point failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeReadText(args: NativeReadTextArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.readText) return unsupported("native_read_text", adapter.platform);
+    const result = await adapter.readText({ handle: args.handle, range: args.range });
+    return {
+      success: true,
+      message: `Read ${result.text.length} chars`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_read_text failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeWithCache(args: NativeWithCacheArgs): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.withCache) return unsupported("native_with_cache", adapter.platform);
+    const result = await adapter.withCache({
+      handle: args.handle,
+      depth: args.depth,
+      ops: args.ops,
+    });
+    return {
+      success: true,
+      message: `Cache-ran ${args.ops.length} op${args.ops.length === 1 ? "" : "s"}`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_with_cache failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeWatchInstall(
+  args: NativeWatchInstallArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.watchInstall) return unsupported("native_watch_install", adapter.platform);
+    const result = await adapter.watchInstall(args);
+    return {
+      success: true,
+      message: `Watcher installed: ${result.watchId}`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_watch_install failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeWatchDrain(
+  args: NativeWatchDrainArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.watchDrain) return unsupported("native_watch_drain", adapter.platform);
+    const result = await adapter.watchDrain(args);
+    return {
+      success: true,
+      message: `Drained ${result.events.length} event${result.events.length === 1 ? "" : "s"} (${result.activeWatchers} active watcher${result.activeWatchers === 1 ? "" : "s"})`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_watch_drain failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeWatchRemove(
+  args: NativeWatchRemoveArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.watchRemove) return unsupported("native_watch_remove", adapter.platform);
+    const result = await adapter.watchRemove(args);
+    return {
+      success: true,
+      message: result.removed ? `Watcher ${args.watchId} removed` : `Watcher ${args.watchId} not found`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_watch_remove failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeBaselineCapture(
+  args: NativeBaselineCaptureArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.baselineCapture) return unsupported("native_baseline_capture", adapter.platform);
+    const result = await adapter.baselineCapture(args);
+    return {
+      success: true,
+      message: `Baseline ${result.baselineId} captured (${result.windows.length} windows, modalDepth=${result.modalDepth})`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_baseline_capture failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeNativeBaselineRestore(
+  args: NativeBaselineRestoreArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    const adapter = await getNativeAdapter();
+    if (!adapter.baselineRestore) return unsupported("native_baseline_restore", adapter.platform);
+    const result = await adapter.baselineRestore(args);
+    return {
+      success: true,
+      message: `Baseline restored: closed ${result.closed}, focused=${result.focused}, ${result.residual.length} residual`,
+      data: { platform: adapter.platform, ...result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "native_baseline_restore failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+// ── Workspace tools (relayed to client via SSE) ────────────────────
+
+function executeWorkspaceOpenPane(args: WorkspaceOpenPaneArgs): ToolExecutionResult {
+  const cmd = publishCommand({
+    command: "open_pane",
+    args: args as unknown as Record<string, unknown>,
+  });
+  return {
+    success: true,
+    message: `Queued open_pane(${args.type}) — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+function executeWorkspaceClosePane(args: WorkspaceClosePaneArgs): ToolExecutionResult {
+  const cmd = publishCommand({
+    command: "close_pane",
+    args: args as unknown as Record<string, unknown>,
+  });
+  return {
+    success: true,
+    message: `Queued close_pane(${args.paneId}) — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+function executeWorkspaceFocusPane(args: WorkspaceFocusPaneArgs): ToolExecutionResult {
+  const cmd = publishCommand({
+    command: "focus_pane",
+    args: args as unknown as Record<string, unknown>,
+  });
+  return {
+    success: true,
+    message: `Queued focus_pane(${args.paneId}) — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+function executeWorkspaceReset(): ToolExecutionResult {
+  const cmd = publishCommand({ command: "reset", args: {} });
+  return {
+    success: true,
+    message: `Queued workspace reset — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+async function executeWorkspaceListPanes(): Promise<ToolExecutionResult> {
+  try {
+    const snapshot = await publishQuery<unknown[]>("query:list_panes", {}, 5_000);
+    return {
+      success: true,
+      message: `Workspace has ${Array.isArray(snapshot) ? snapshot.length : 0} registered pane(s)`,
+      data: { panes: snapshot },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "workspace_list_panes failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeWorkspacePaneCall(args: WorkspacePaneCallArgs): Promise<ToolExecutionResult> {
+  try {
+    const result = await publishQuery<unknown>(
+      "query:pane_call",
+      {
+        target: args.target,
+        capability: args.capability,
+        args: args.args ?? {},
+      },
+      5_000,
+    );
+    return {
+      success: true,
+      message: `${args.target}.${args.capability} → ok`,
+      data: { result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "workspace_pane_call failed";
     return { success: false, message: msg, error: msg };
   }
 }

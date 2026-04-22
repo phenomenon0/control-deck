@@ -16,8 +16,9 @@
     "terminal-service": "tsx scripts/terminal-service.ts",
     "electron:compile": "tsc -p electron/tsconfig.json && node scripts/postbuild-electron.cjs",
     "electron:macos-helper": "bash scripts/build-macos-helper.sh",
-    "electron:dev": "bun run electron:macos-helper && bun run electron:compile && electron .electron-dist/main.js",
-    "electron:build": "next build && node scripts/copy-native-binaries.cjs && bun run electron:compile",
+    "electron:win-host": "node scripts/build-win-host.cjs",
+    "electron:dev": "bun run electron:macos-helper && bun run electron:win-host && bun run electron:compile && electron .electron-dist/main.js",
+    "electron:build": "next build && node scripts/copy-native-binaries.cjs && bun run electron:win-host && bun run electron:compile",
     "electron:pack": "bun run electron:build && electron-builder --config electron-builder.yml",
     "electron:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty"
   },
@@ -39,11 +40,15 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dbus-next": "^0.10.2",
+    "dockview-react": "^5.2.0",
     "duck-duck-scrape": "^2.2.7",
+    "koffi": "^2.12.0",
     "lucide-react": "^0.561.0",
+    "marked": "^18.0.2",
     "monaco-editor": "^0.55.1",
     "next": "^16.0.10",
     "node-pty": "^1.1.0",
+    "node-screenshots": "^0.2.1",
     "onnxruntime-node": "^1.23.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
@@ -58,6 +63,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
+    "@stryker-mutator/core": "^9.6.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/better-sqlite3": "^7.6.13",
     "@types/bun": "^1.3.4",
@@ -68,9 +74,14 @@
     "electron-builder": "^26.8.1",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.0.10",
+    "fast-check": "^4.7.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "trustedDependencies": [
+    "koffi",
+    "onnxruntime-node"
+  ]
 }

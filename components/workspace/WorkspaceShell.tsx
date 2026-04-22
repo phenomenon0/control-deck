@@ -10,6 +10,8 @@ import {
 import "dockview-react/dist/styles/dockview.css";
 import { DEFAULT_WORKSPACE_LAYOUT, WORKSPACE_LAYOUT_KEY } from "./defaults";
 import { PlaceholderPane } from "./panes/PlaceholderPane";
+import { ChatPanelAdapter } from "./panes/ChatPanelAdapter";
+import { TerminalPanelAdapter } from "./panes/TerminalPanelAdapter";
 
 /**
  * WorkspaceShell — the Dockview-backed tiled layout container.
@@ -21,16 +23,16 @@ import { PlaceholderPane } from "./panes/PlaceholderPane";
  * and is responsible for calling `registerPane()` on mount.
  */
 
-// Central registry of pane types available to the workspace. Phase 2
-// ships the placeholder for every slot so the Dockview plumbing is
-// exercisable end-to-end; Phase 3 replaces these with the real adapters.
+// Central registry of pane types available to the workspace. Add a
+// new entry + a matching params shape in the default layout / agent
+// API to surface a new pane type.
 //
 // Dockview expects concrete param types; we cast through `unknown` at
 // the registration boundary because the map's heterogeneous per-component
 // param shapes can't be narrowed without a generic map type.
 const COMPONENTS = {
-  chat: PlaceholderPane,
-  terminal: PlaceholderPane,
+  chat: ChatPanelAdapter,
+  terminal: TerminalPanelAdapter,
   placeholder: PlaceholderPane,
 } as unknown as Record<string, React.FC<IDockviewPanelProps>>;
 
@@ -57,17 +59,49 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     }
   }, [props.initialLayout]);
 
+  const seedDefaultLayout = (api: DockviewApi) => {
+    // Seed programmatically — api.addPanel with a referencePanel +
+    // direction is Dockview's documented, version-stable path. Writing
+    // the layout JSON by hand is fragile across v5 minor versions.
+    const chat = api.addPanel({
+      id: "chat",
+      component: "chat",
+      title: "Chat",
+      params: { paneType: "chat", instanceId: "chat-default" },
+    });
+    api.addPanel({
+      id: "terminal",
+      component: "terminal",
+      title: "Terminal",
+      params: { paneType: "terminal", instanceId: "terminal-default" },
+      position: { referencePanel: chat.id, direction: "right" },
+    });
+    api.addPanel({
+      id: "scratch",
+      component: "placeholder",
+      title: "Scratch",
+      params: { paneType: "scratch", instanceId: "scratch-default" },
+      position: { referencePanel: "terminal", direction: "below" },
+    });
+  };
+
   const onReady = (event: DockviewReadyEvent) => {
     const api = event.api;
     apiRef.current = api;
 
     const saved = loadLayout();
-    try {
-      api.fromJSON(saved as Parameters<typeof api.fromJSON>[0]);
-    } catch (err) {
-      console.warn("[workspace] fromJSON failed, falling back to default", err);
-      try { api.fromJSON(DEFAULT_WORKSPACE_LAYOUT as Parameters<typeof api.fromJSON>[0]); }
-      catch { /* default is valid by construction — if this throws, Dockview changed API */ }
+    let restored = false;
+    if (saved && saved !== DEFAULT_WORKSPACE_LAYOUT) {
+      try {
+        api.fromJSON(saved as Parameters<typeof api.fromJSON>[0]);
+        restored = api.panels.length > 0;
+      } catch (err) {
+        console.warn("[workspace] fromJSON failed, seeding default", err);
+      }
+    }
+    if (!restored) {
+      try { seedDefaultLayout(api); }
+      catch (err) { console.error("[workspace] default seed failed", err); }
     }
 
     const persist = () => {
@@ -96,9 +130,11 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(WORKSPACE_LAYOUT_KEY);
     }
-    apiRef.current?.fromJSON(
-      DEFAULT_WORKSPACE_LAYOUT as Parameters<NonNullable<typeof apiRef.current>["fromJSON"]>[0],
-    );
+    const api = apiRef.current;
+    if (!api) return;
+    // Clear all panels then re-seed.
+    for (const p of api.panels) p.api.close();
+    seedDefaultLayout(api);
   };
 
   return (

@@ -35,11 +35,20 @@ export function PlaceholderPane(props: IDockviewPanelProps<PlaceholderParams>) {
       capabilities: {
         echo: {
           description: "Echo a string back, prefixed with paneId",
-          handler: (args: unknown) => `${paneId} echoed: ${(args as { text: string }).text}`,
+          handler: (args: unknown) => {
+            const text = (args as { text: string }).text;
+            // Log on the TARGET side too — so users can see the call
+            // crossed panes, not just the initiator's response line.
+            append(`◂ echo invoked: ${text}`);
+            return `${paneId} echoed: ${text}`;
+          },
         },
         read_tick: {
           description: "Read the current tick counter",
-          handler: () => tickRef.current,
+          handler: () => {
+            append(`◂ read_tick invoked → ${tickRef.current}`);
+            return tickRef.current;
+          },
         },
       },
       topics: {

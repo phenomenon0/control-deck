@@ -14,6 +14,7 @@ const ITEMS = [
   { href: "/deck/visual", label: "Visual", icon: Icon.Image, kbd: "3" },
   { href: "/deck/audio", label: "Audio", icon: Icon.Waveform, kbd: "4" },
   { href: "/deck/control", label: "Control", icon: Icon.Grid, kbd: "5" },
+  { href: "/deck/workspace", label: "Workspace", icon: Icon.Grid, kbd: "6" },
 ] as const;
 
 interface SidebarProps {

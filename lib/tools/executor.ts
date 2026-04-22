@@ -315,14 +315,39 @@ async function executeImageTo3D(
 }
 
 /**
- * Generate image - routes to ComfyUI (power mode) or Lite pipeline (lite mode)
+ * Generate image — routes to:
+ *   1. A cloud provider if the `image-gen` slot is bound (IMAGE_GEN_PROVIDER set)
+ *   2. Lite ONNX pipeline in "lite" system mode
+ *   3. ComfyUI (SDXL Turbo workflow) in "power" mode — the original default
  */
 async function executeGenerateImage(
   args: GenerateImageArgs,
   ctx: ExecutorContext
 ): Promise<ToolExecutionResult> {
+  // Cloud slot opt-in: only when the user explicitly binds a provider via
+  // IMAGE_GEN_PROVIDER env. Default (no binding) preserves the Lite/ComfyUI
+  // routing below.
+  const { ensureBootstrap, getSlot } = await import("@/lib/inference/bootstrap");
+  ensureBootstrap();
+  const cloudSlot = getSlot("image-gen", "primary");
+  if (cloudSlot) {
+    const { invokeImageGen } = await import("@/lib/inference/image-gen/invoke");
+    try {
+      const cloudResult = await invokeImageGen(cloudSlot.providerId, cloudSlot.config, {
+        prompt: args.prompt,
+        width: args.width,
+        height: args.height,
+        seed: args.seed,
+      });
+      return await cloudImageToExecutorResult(cloudResult, args.prompt, ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "image-gen failed";
+      return { success: false, message: `Cloud image-gen failed: ${msg}`, error: msg };
+    }
+  }
+
   const backend = getImageBackend();
-  
+
   // Route to lite pipeline in lite mode
   if (backend === "lite") {
     console.log("[Executor] Using lite image backend");
@@ -1185,6 +1210,78 @@ function formatPayloadForLLM(payload: DeckPayload): string {
     return payload.text;
   }
   return "[Binary data]";
+}
+
+/**
+ * Fetch cloud-image bytes (from URL or inline base64), persist to the
+ * artifact directory, emit an ArtifactCreated event, and format an
+ * ExecutorResult that matches the ComfyUI path's shape.
+ */
+async function cloudImageToExecutorResult(
+  result: { imageUrl?: string; imageBytes?: ArrayBuffer; mime: string; providerId: string; revisedPrompt?: string },
+  prompt: string,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
+  let bytes: Buffer;
+  if (result.imageBytes) {
+    bytes = Buffer.from(result.imageBytes);
+  } else if (result.imageUrl) {
+    const res = await fetch(result.imageUrl);
+    if (!res.ok) throw new Error(`fetch generated image: ${res.status}`);
+    bytes = Buffer.from(await res.arrayBuffer());
+  } else {
+    throw new Error("cloud image result carried neither bytes nor url");
+  }
+
+  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
+  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  await fs.mkdir(destDir, { recursive: true });
+
+  const ext = result.mime.includes("jpeg") ? "jpg" : result.mime.includes("webp") ? "webp" : "png";
+  const artifactId = crypto.randomUUID();
+  const filename = `img_${result.providerId}_${Date.now()}.${ext}`;
+  const filePath = path.join(destDir, filename);
+  await fs.writeFile(filePath, bytes);
+
+  const artifact = {
+    id: artifactId,
+    runId: ctx.runId,
+    threadId: ctx.threadId,
+    toolCallId: ctx.toolCallId,
+    mimeType: result.mime,
+    name: `Image: ${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}`,
+    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    localPath: filePath,
+    originalPath: filePath,
+    meta: {
+      provider: result.providerId,
+      revisedPrompt: result.revisedPrompt,
+      sourceUrl: result.imageUrl,
+    },
+  };
+  createArtifact(artifact);
+
+  const evt = createEvent<ArtifactCreated>("ArtifactCreated", ctx.threadId, {
+    runId: ctx.runId,
+    toolCallId: ctx.toolCallId,
+    artifactId,
+    mimeType: artifact.mimeType,
+    url: artifact.url,
+    name: artifact.name,
+    originalPath: artifact.originalPath,
+  });
+  saveEvent(evt);
+  hub.publish(ctx.threadId, evt);
+
+  return {
+    success: true,
+    message: `Generated image via ${result.providerId}: "${prompt}"`,
+    artifacts: [artifact],
+    data: {
+      provider: result.providerId,
+      revisedPrompt: result.revisedPrompt,
+    },
+  };
 }
 
 /**

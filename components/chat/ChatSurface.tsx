@@ -35,6 +35,7 @@ import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
+import { useCommands } from "@/lib/hooks/useCommands";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
 
@@ -332,6 +333,41 @@ export default function ChatSurface() {
       }
     }, delay);
   }, []);
+
+  // Listen for cross-surface prefill requests (currently: the BrowserPane
+  // "Send to chat" button). Uses BroadcastChannel so other open tabs/windows
+  // can hand content to whichever chat surface is mounted.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const CHANNEL = "control-deck:chat-prefill";
+    const apply = (msg: { text?: string; url?: string; title?: string }) => {
+      const snippet =
+        msg.text ?? (msg.url ? `${msg.title ? `${msg.title}\n` : ""}${msg.url}` : "");
+      if (!snippet) return;
+      setInputValue((prev) => (prev ? `${prev.trimEnd()}\n\n${snippet}` : snippet));
+      queueComposerFocus(0);
+    };
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel(CHANNEL);
+      bc.onmessage = (e) => apply(e.data ?? {});
+    } catch {
+      // older browsers / SSR — storage-event path still works
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== CHANNEL || !e.newValue) return;
+      try {
+        apply(JSON.parse(e.newValue));
+      } catch {
+        // malformed payload, ignore
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      bc?.close();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [queueComposerFocus]);
 
   // ---------------------------------------------------------------------------
   // Agent Run — unified SSE consumer (replaces useSendMessage + useSSE)
@@ -860,6 +896,31 @@ export default function ChatSurface() {
     queueComposerFocus(0);
   }, [messages, queueComposerFocus]);
 
+  // Contribute chat-specific commands to the palette while mounted.
+  useCommands([
+    {
+      id: "chat.retry",
+      label: "Retry last message",
+      category: "Chat",
+      scope: "/deck/chat",
+      action: handleRetry,
+    },
+    {
+      id: "chat.edit-last",
+      label: "Edit last message",
+      category: "Chat",
+      scope: "/deck/chat",
+      action: handleEditLastMessage,
+    },
+    {
+      id: "chat.stop-speaking",
+      label: "Stop TTS playback",
+      category: "Chat",
+      scope: "/deck/chat",
+      action: () => voiceChat.stopSpeaking(),
+    },
+  ]);
+
   const handleMicClick = () => {
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
     if (prefs.voice.mode === "vad") {
@@ -932,6 +993,10 @@ export default function ChatSurface() {
       segments={segments}
       isStreaming={isStreaming}
       onRetry={handleRetry}
+      onSpeak={(text) => {
+        if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
+        void voiceChat.speak(text);
+      }}
       emptyState={
         <div className="cs-empty">
           <p className="cs-empty-primary">

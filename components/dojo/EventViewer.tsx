@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import type { DojoEvent } from "@/lib/agui/dojo";
+import type { DojoEvent } from "@/lib/agui/experimental";
 
 interface EventViewerProps {
   events: DojoEvent[];

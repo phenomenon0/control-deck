@@ -10,18 +10,20 @@ import { TOOL_DEFINITIONS } from "../tools/definitions";
 import { renderToolCatalogGlyph } from "../tools/render-glyph-catalog";
 import { isLiteMode, getSystemProfile } from "../system";
 import { getBackendConfig, checkBackendHealth, listBackendModels } from "../llm";
+import { glyphInstruction } from "../codec";
 
 /**
  * Environment variables for GLYPH control:
- * - GLYPH_LLM_VIEW=1: Master switch for GLYPH in LLM context
  * - GLYPH_TOOL_CATALOG=0: Disable GLYPH format for tool docs (enabled by default)
- * 
- * GLYPH is now enabled by default since it's tested and working with qwen3:8b.
- * Set GLYPH_TOOL_CATALOG=0 to fall back to legacy verbose markdown format.
+ * - USE_GLYPH_RESULTS=false: Disable GLYPH encoding of tool results (enabled by default)
+ *
+ * GLYPH is enabled by default since it's tested and working with qwen3:8b.
  */
 const GLYPH_CONFIG = {
   /** Use GLYPH format for tool catalog in system prompt (enabled by default) */
   toolCatalog: process.env.GLYPH_TOOL_CATALOG !== "0",
+  /** GLYPH-encode large tool results before they hit LLM context (enabled by default) */
+  toolResults: process.env.USE_GLYPH_RESULTS !== "false",
 };
 
 interface GPUStatus {
@@ -189,6 +191,13 @@ export async function buildSystemPrompt(
   let prompt = mobyBase
     .replace("{ENVIRONMENT}", env)
     .replace("{TOOLS}", useNativeTools ? "(Tools provided via native API)" : getToolDocs());
+
+  // Teach the model how to read GLYPH fences before it encounters them in tool
+  // results or in the catalog. Without this, the LLM wastes tokens
+  // reverse-engineering the syntax from examples.
+  if (GLYPH_CONFIG.toolCatalog || GLYPH_CONFIG.toolResults) {
+    prompt += `\n\n${glyphInstruction()}`;
+  }
   
   // For native tool models, strip the detailed tool format instructions
   // since Ollama handles tool calling natively

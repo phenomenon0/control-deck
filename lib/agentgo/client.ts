@@ -7,6 +7,99 @@
 
 const AGENTGO_URL = process.env.AGENTGO_URL || "http://localhost:4243";
 
+/**
+ * Retry configuration for Agent-GO fetches.
+ *
+ * `attempts` counts the TOTAL tries (initial + retries). With defaults you
+ * get 1 initial + 2 retries at ~1s and ~2s backoff. `baseDelayMs` is the
+ * first retry delay; each subsequent retry doubles it. `maxDelayMs` caps
+ * the final delay so we don't sit idle for minutes on a long backoff.
+ */
+export interface RetryOptions {
+  attempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  signal?: AbortSignal;
+}
+
+const DEFAULT_RETRY: Required<Omit<RetryOptions, "signal">> = {
+  attempts: Number(process.env.AGENTGO_RETRY_ATTEMPTS ?? "3"),
+  baseDelayMs: Number(process.env.AGENTGO_RETRY_BASE_MS ?? "1000"),
+  maxDelayMs: Number(process.env.AGENTGO_RETRY_MAX_MS ?? "8000"),
+};
+
+export class AgentGoUnavailableError extends Error {
+  readonly lastStatus?: number;
+  readonly attempts: number;
+  constructor(message: string, attempts: number, lastStatus?: number) {
+    super(message);
+    this.name = "AgentGoUnavailableError";
+    this.attempts = attempts;
+    this.lastStatus = lastStatus;
+  }
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+
+/**
+ * fetch() wrapper with exponential backoff for transient failures.
+ *
+ * Retries on:
+ *   - network errors (TypeError from fetch)
+ *   - HTTP 5xx responses
+ *
+ * Does NOT retry on 4xx — those are caller errors and retrying would mask
+ * them. Honours AbortSignal at every awaited step.
+ */
+export async function retryingFetch(
+  url: string,
+  init?: RequestInit,
+  opts: RetryOptions = {}
+): Promise<Response> {
+  const cfg = { ...DEFAULT_RETRY, ...opts };
+  const signal = opts.signal ?? init?.signal ?? undefined;
+  let lastStatus: number | undefined;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= cfg.attempts; attempt++) {
+    try {
+      const res = await fetch(url, { ...init, signal });
+      if (res.ok || (res.status >= 400 && res.status < 500)) {
+        return res; // success, or non-retryable client error
+      }
+      lastStatus = res.status;
+      lastError = new Error(`${res.status} ${res.statusText}`);
+      // drain body so the connection can be reused
+      res.body?.cancel().catch(() => {});
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") throw err;
+      lastError = err;
+    }
+
+    if (attempt < cfg.attempts) {
+      const delay = Math.min(cfg.baseDelayMs * 2 ** (attempt - 1), cfg.maxDelayMs);
+      console.warn(
+        `[agentgo] fetch ${url} failed (attempt ${attempt}/${cfg.attempts}, status=${lastStatus ?? "net"}); retrying in ${delay}ms`
+      );
+      await sleep(delay, signal);
+    }
+  }
+
+  throw new AgentGoUnavailableError(
+    `Agent-GO unreachable after ${cfg.attempts} attempts: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    cfg.attempts,
+    lastStatus
+  );
+}
+
 export interface StartRunRequest {
   query: string;
   workspace_root?: string;

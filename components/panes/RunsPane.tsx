@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { X, ChevronRight, Wrench, Layers, Bot, Cpu } from "lucide-react";
 import { PayloadViewer } from "@/components/inspector/PayloadViewer";
+import { RunTimeline } from "@/components/runs/RunTimeline";
 import type { DeckPayload } from "@/lib/agui/payload";
 
 type ViewMode = "list" | "glyph";
@@ -544,43 +545,11 @@ export function RunsPane() {
                   </div>
                 )}
 
-                {/* Raw Events — timeline */}
-                <details className="group">
-                  <summary className="section-title cursor-pointer hover:text-[var(--text-primary)] transition-colors">
-                    Raw Events ({runEvents.length})
-                  </summary>
-                  <div className="mt-3 event-timeline space-y-3">
-                    {runEvents.map((evt, i) => (
-                      <div key={i} className="relative">
-                        <div className={`event-timeline-dot ${
-                          evt.type.includes("Error") ? "bg-[var(--error)]"
-                          : evt.type.includes("Start") ? "bg-[var(--accent)]"
-                          : evt.type.includes("Result") ? "bg-[var(--success)]"
-                          : "bg-[var(--text-muted)]"
-                        }`} />
-                        <div className="text-xs font-mono p-3 rounded-[6px] bg-[rgba(255,255,255,0.02)] border border-[var(--border)]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="badge badge-neutral text-[10px]">
-                              {evt.type}
-                            </span>
-                            <span className="text-[var(--text-muted)]">
-                              {new Date(evt.timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          {evt.type === "ToolCallArgs" && evt.args && (
-                            <PayloadViewer payload={evt.args} label="Args" maxPreviewLines={3} />
-                          )}
-                          {evt.type === "ToolCallResult" && evt.result && (
-                            <PayloadViewer payload={evt.result} label="Result" maxPreviewLines={5} />
-                          )}
-                          {evt.type === "RunError" && evt.error && (
-                            <div className="text-[var(--error)] mt-1">{evt.error.message}</div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </details>
+                {/* Execution Timeline — interleaved tool calls + assistant messages */}
+                <div>
+                  <h4 className="section-title mb-3">Timeline ({runEvents.length} events)</h4>
+                  <RunTimeline events={runEvents} />
+                </div>
               </div>
             )}
           </div>

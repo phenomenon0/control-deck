@@ -43,6 +43,7 @@ import {
 import { getDefaultModel, getProviderConfig } from "@/lib/llm";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
+import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
 
 // Agent-GO server configuration
 const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
@@ -430,11 +431,14 @@ export async function POST(req: Request) {
       await safeWriteSSE(runStarted);
       await safeWriteSSE(msgStart);
 
-      // Start run on Agent-GO
-      const startResponse = await fetch(`${AGENTGO_URL}/runs`, {
+      // Start run on Agent-GO. retryingFetch handles network errors + 5xx
+      // with exponential backoff so a brief Agent-GO hiccup doesn't break
+      // the chat turn; 4xx still fails fast.
+      const startResponse = await retryingFetch(`${AGENTGO_URL}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(agentRequest),
+        signal: req.signal,
       });
 
       if (!startResponse.ok) {
@@ -447,11 +451,16 @@ export async function POST(req: Request) {
       console.log(`[Chat] Agent-GO run started: ${agentRunId}`);
       if (agentRunId) setAgentRunId(runId, agentRunId);
 
-      // Stream events from Agent-GO
-      const eventsResponse = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/events`, {
-        headers: { Accept: "text/event-stream" },
-        signal: req.signal,
-      });
+      // Stream events from Agent-GO. Retry the initial connect; mid-stream
+      // reconnect would need server seq coordination, so we accept that a
+      // dropped SSE connection ends the run.
+      const eventsResponse = await retryingFetch(
+        `${AGENTGO_URL}/runs/${agentRunId}/events`,
+        {
+          headers: { Accept: "text/event-stream" },
+          signal: req.signal,
+        }
+      );
 
       if (!eventsResponse.ok) {
         throw new Error(`Agent-GO events returned ${eventsResponse.status}`);
@@ -536,12 +545,17 @@ export async function POST(req: Request) {
       if (isAborted) {
         console.log("[Chat] Request aborted during Agent-GO proxy");
       } else {
-        const errMsg = error instanceof Error ? error.message : "Unknown error";
+        const unavailable = error instanceof AgentGoUnavailableError;
+        const errMsg = unavailable
+          ? `Agent-GO at ${AGENTGO_URL} is unreachable (tried ${error.attempts}×). Start it with ./start-full-stack.sh or set AGENTGO_URL.`
+          : error instanceof Error
+            ? error.message
+            : "Unknown error";
         console.error("[Chat] Agent-GO proxy error:", error);
 
         const runError = createEvent<RunError>("RunError", thread, {
           runId,
-          error: { message: errMsg },
+          error: { message: errMsg, code: unavailable ? "AGENTGO_UNAVAILABLE" : undefined },
         });
         errorRun(runId, errMsg);
         saveEvent(runError);

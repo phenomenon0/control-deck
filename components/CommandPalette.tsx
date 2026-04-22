@@ -3,10 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Search } from "lucide-react";
 import { useShortcut, getRegisteredShortcuts } from "@/lib/hooks/useShortcuts";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useDeckSettings, type ChatSurface } from "./settings/DeckSettingsProvider";
 import { useWarp, type Theme } from "@/components/warp/WarpProvider";
 import { openCanvas, toggleCanvas, closeCanvas } from "@/lib/canvas";
+import { useRegisteredCommands } from "@/lib/hooks/useCommands";
 
 interface Command {
   id: string;
@@ -47,12 +48,14 @@ function fuzzyMatch(label: string, query: string): boolean {
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { setSettingsOpen, setRailOpen, updatePrefs, prefs } = useDeckSettings();
   const { setTweak } = useWarp();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dynamicCommands = useRegisteredCommands();
 
   const commands: Command[] = [
     // Navigation — top-level surfaces
@@ -115,7 +118,29 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       category: "Shortcuts",
     }));
 
-  const allCommands = [...commands, ...shortcutCommands];
+  // Pane-contributed commands. When the caller scoped a command to a route
+  // prefix, and that prefix matches the current pathname, bubble it to the
+  // top under "In this pane" so it wins over unrelated Navigation entries.
+  const inPane: Command[] = dynamicCommands
+    .filter((c) => c.scope && pathname && pathname.startsWith(c.scope))
+    .map((c) => ({
+      id: `dyn:${c.id}`,
+      label: c.label,
+      shortcut: c.shortcut,
+      action: () => { void c.action(); },
+      category: "In this pane",
+    }));
+  const otherDynamic: Command[] = dynamicCommands
+    .filter((c) => !c.scope || !pathname || !pathname.startsWith(c.scope))
+    .map((c) => ({
+      id: `dyn:${c.id}`,
+      label: c.label,
+      shortcut: c.shortcut,
+      action: () => { void c.action(); },
+      category: c.category,
+    }));
+
+  const allCommands = [...inPane, ...commands, ...otherDynamic, ...shortcutCommands];
 
   const filteredCommands = query
     ? allCommands.filter((cmd) => fuzzyMatch(cmd.label, query))

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import type { DemoInfo } from "./DemoCard";
-import type { DojoEvent } from "@/lib/agui/dojo";
+import type { DojoEvent } from "@/lib/agui/experimental";
 
 interface DemoRunnerProps {
   demo: DemoInfo;

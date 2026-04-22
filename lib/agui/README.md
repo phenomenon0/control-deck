@@ -12,7 +12,7 @@ streaming agent activity should import from here.
 | `payload.ts` | `DeckPayload` envelope — unifies JSON and GLYPH-compressed payloads behind a single shape. |
 | `hub.ts` | Per-thread pub/sub distribution + SSE plumbing. |
 | `db.ts` | SQLite persistence for threads, runs, events, messages. |
-| `dojo/` | **Reference implementation** — a self-contained AG-UI dojo (activity, reasoning, interrupts, tools, meta, generative-ui). Not wired into the main deck surface yet; kept in-tree to mine when those features mature. Do not import from production paths. |
+| `experimental/` | **Staging area** for AG-UI features not yet wired into the canonical surface (activity, reasoning, interrupts, tools, meta, generative-ui). Previously named `dojo/`. Only demo routes and `components/dojo/` may import from here — app/, electron/, lib/prompts/, and lib/agentgo/ must not. |
 
 ## Why AG-UI
 

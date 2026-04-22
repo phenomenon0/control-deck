@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 
-import { useSourcePreview } from "./SourcePreviewContext";
+import { openInThemedBrowser } from "@/lib/open-in-browser";
 
 type ModalityId =
   | "text"
@@ -91,7 +91,6 @@ export function CloudSuggestionsStrip({
   limit?: number;
   title?: string;
 }) {
-  const { open: openPreview } = useSourcePreview();
   const [entries, setEntries] = useState<BenchmarkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState("—");
@@ -170,7 +169,7 @@ export function CloudSuggestionsStrip({
                   <button
                     type="button"
                     className="inference-leader-source-link"
-                    onClick={() => openPreview({ url: e.sourceUrl!, label: e.source })}
+                    onClick={() => openInThemedBrowser(e.sourceUrl!)}
                   >
                     {e.source} ⤵
                   </button>

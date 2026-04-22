@@ -12,7 +12,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { ModelsPane } from "@/components/panes/ModelsPane";
-import { useSourcePreview } from "./SourcePreviewContext";
+import { openInThemedBrowser } from "@/lib/open-in-browser";
 
 type ModalityId =
   | "text"
@@ -87,7 +87,6 @@ export function ProviderInspector({
   const [benchmarks, setBenchmarks] = useState<BenchmarkEntry[]>([]);
   const [metrics, setMetrics] = useState<MetricsSummary | null>(null);
   const [loading, setLoading] = useState(false);
-  const { open: openPreview } = useSourcePreview();
 
   const open = providerId !== null;
 
@@ -189,7 +188,7 @@ export function ProviderInspector({
                         <button
                           type="button"
                           className="inference-inspector-bench-source"
-                          onClick={() => openPreview({ url: b.sourceUrl!, label: b.source })}
+                          onClick={() => openInThemedBrowser(b.sourceUrl!)}
                         >
                           {b.source} ⤵
                         </button>

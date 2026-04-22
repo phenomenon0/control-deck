@@ -26,20 +26,21 @@ const makeLocalStorage = () => {
   };
 };
 
-type GlobalScope = typeof globalThis & {
+interface GlobalScope {
   window?: { localStorage: ReturnType<typeof makeLocalStorage> };
   localStorage?: ReturnType<typeof makeLocalStorage>;
-};
+  [k: string]: unknown;
+}
 
 beforeEach(() => {
-  const g = globalThis as GlobalScope;
+  const g = globalThis as unknown as GlobalScope;
   const ls = makeLocalStorage();
   g.window = { localStorage: ls };
   g.localStorage = ls;
 });
 
 afterEach(() => {
-  const g = globalThis as GlobalScope;
+  const g = globalThis as unknown as GlobalScope;
   delete g.window;
   delete g.localStorage;
 });
@@ -61,7 +62,7 @@ describe("thread storage round-trip", () => {
   });
 
   test("corrupt localStorage entry returns [] (no throw)", () => {
-    (globalThis as GlobalScope).localStorage!.setItem(THREADS_KEY, "{not json}");
+    (globalThis as unknown as GlobalScope).localStorage!.setItem(THREADS_KEY, "{not json}");
     expect(getStoredThreads()).toEqual([]);
   });
 
@@ -74,7 +75,7 @@ describe("thread storage round-trip", () => {
     setStoredActiveThread("thread-1");
     setStoredActiveThread(null);
     expect(getStoredActiveThread()).toBeNull();
-    expect((globalThis as GlobalScope).localStorage!.getItem(ACTIVE_THREAD_KEY)).toBeNull();
+    expect((globalThis as unknown as GlobalScope).localStorage!.getItem(ACTIVE_THREAD_KEY)).toBeNull();
   });
 });
 

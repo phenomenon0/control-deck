@@ -10,11 +10,12 @@ import {
 
 type StorageEntry = { key: string; newValue: string | null };
 
-type GS = typeof globalThis & {
+interface GS {
   window?: unknown;
   BroadcastChannel?: unknown;
   localStorage?: ReturnType<typeof makeLS>;
-};
+  [k: string]: unknown;
+}
 
 function makeLS() {
   const map = new Map<string, string>();
@@ -49,7 +50,7 @@ type StorageListener = (e: StorageEntry) => void;
 let storageListeners: StorageListener[] = [];
 
 beforeEach(() => {
-  const g = globalThis as GS;
+  const g = globalThis as unknown as GS;
   const ls = makeLS();
   g.localStorage = ls;
   g.BroadcastChannel = FakeBroadcastChannel;
@@ -67,7 +68,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  const g = globalThis as GS;
+  const g = globalThis as unknown as GS;
   delete g.window;
   delete g.BroadcastChannel;
   delete g.localStorage;
@@ -78,7 +79,7 @@ afterEach(() => {
 describe("publishChatPrefill", () => {
   test("stamps ts if missing", () => {
     publishChatPrefill({ source: "test", text: "hi" });
-    const g = globalThis as GS;
+    const g = globalThis as unknown as GS;
     const stored = JSON.parse(g.localStorage!.getItem(CHAT_PREFILL_CHANNEL)!) as ChatPrefillPayload;
     expect(stored.source).toBe("test");
     expect(stored.text).toBe("hi");
@@ -88,7 +89,7 @@ describe("publishChatPrefill", () => {
 
   test("respects an explicit ts", () => {
     publishChatPrefill({ source: "test", ts: 12345 });
-    const g = globalThis as GS;
+    const g = globalThis as unknown as GS;
     const stored = JSON.parse(g.localStorage!.getItem(CHAT_PREFILL_CHANNEL)!) as ChatPrefillPayload;
     expect(stored.ts).toBe(12345);
   });
@@ -105,7 +106,7 @@ describe("publishChatPrefill", () => {
   });
 
   test("localStorage fallback fires when BroadcastChannel unavailable", () => {
-    const g = globalThis as GS;
+    const g = globalThis as unknown as GS;
     delete g.BroadcastChannel;
     publishChatPrefill({ source: "test", text: "fallback" });
     const stored = JSON.parse(g.localStorage!.getItem(CHAT_PREFILL_CHANNEL)!) as ChatPrefillPayload;
@@ -131,7 +132,9 @@ describe("subscribeChatPrefill", () => {
     for (const l of storageListeners) {
       l({ key: CHAT_PREFILL_CHANNEL, newValue: JSON.stringify(payload) });
     }
-    expect(got).toEqual(payload);
+    // Narrow through unknown because `got` flows from a callback and
+    // TS infers `null` from initialization.
+    expect(got as unknown as ChatPrefillPayload | null).toEqual(payload);
     unsub();
   });
 
@@ -166,7 +169,7 @@ describe("subscribeChatPrefill", () => {
   });
 
   test("subscribe outside window (SSR) returns no-op unsubscribe", () => {
-    const g = globalThis as GS;
+    const g = globalThis as unknown as GS;
     delete g.window;
     const unsub = subscribeChatPrefill(() => {});
     expect(typeof unsub).toBe("function");

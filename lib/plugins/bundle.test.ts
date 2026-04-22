@@ -63,7 +63,7 @@ describe("parseBundle — happy path", () => {
   });
 
   test("warns when description is missing", () => {
-    const bundle = validBundle();
+    const bundle = validBundle() as { manifest: { description?: string } };
     delete bundle.manifest.description;
     const result = parseBundle(bundle);
     expect(result.valid).toBe(true);

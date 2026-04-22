@@ -15,10 +15,10 @@
  *   CARTESIA_API_KEY      required for cartesia
  */
 
-import { registerProvider } from "../registry";
+import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
 import { listTtsVoices } from "./invoke";
-import type { InferenceProvider } from "../types";
+import type { InferenceProvider, Modality } from "../types";
 
 const PROVIDERS: InferenceProvider[] = [
   {
@@ -93,12 +93,15 @@ export function registerTtsProviders(): void {
   registered = true;
 
   for (const p of PROVIDERS) {
-    // OpenAI was also registered by the text path with modalities=["text"].
-    // Last-write-wins in the registry would drop the text claim — merge
-    // modalities instead so both text and tts surfaces see the same provider.
-    const existing = (globalThis as { __reg?: unknown }).__reg; // sentinel; no-op
-    void existing;
-    registerProvider(mergeWithExisting(p));
+    // Preserve any modality claim an earlier pass made (text-register runs
+    // first and claims OpenAI for text; we want the merged list here).
+    const prior = getProvider(p.id);
+    const modalities = mergeModalities(prior?.modalities, p.modalities);
+    registerProvider({
+      ...p,
+      modalities,
+      defaultModels: { ...(prior?.defaultModels ?? {}), ...p.defaultModels },
+    });
   }
 
   // Bind the default TTS slot from env so the route has something to fall
@@ -122,16 +125,11 @@ export function registerTtsProviders(): void {
   }
 }
 
-function mergeWithExisting(p: InferenceProvider): InferenceProvider {
-  // The text-register pass already registered openai / huggingface etc. with
-  // modalities=["text"]. Preserve both modality claims when we register
-  // again for tts.
-  const next = { ...p };
-  const seen = new Set(next.modalities);
-  // Re-add text to known dual-modality providers so listProvidersForModality("text")
-  // still finds them after we overwrite.
-  const KEEPS_TEXT = new Set(["openai"]);
-  if (KEEPS_TEXT.has(next.id)) seen.add("text");
-  next.modalities = [...seen];
-  return next;
+function mergeModalities(
+  prior: Modality[] | undefined,
+  incoming: Modality[],
+): Modality[] {
+  const set = new Set<Modality>(prior ?? []);
+  for (const m of incoming) set.add(m);
+  return [...set];
 }

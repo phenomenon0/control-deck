@@ -13,6 +13,8 @@ describe("formatSystemProfile", () => {
     cpuModel: "Intel i7-9700K",
     isIntel: true,
     platform: "win32",
+    backend: "cpu",
+    storage: null,
     recommended: {
       textModel: "qwen2",
       imageBackend: "lite",

@@ -1504,6 +1504,29 @@ body {
   background: var(--success);
   color: #0b0b0b;
 }
+
+/* LIVE / CURATED provenance badges */
+.local-source-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.local-source-badge--live {
+  background: rgba(106, 163, 255, 0.16);
+  color: #6aa3ff;
+}
+.local-source-badge--curated {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+}
+.local-card-downloads {
+  color: var(--text-secondary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+}
 .local-fit--perfect {
   background: rgba(62, 207, 113, 0.14);
   color: var(--success);

@@ -11,6 +11,11 @@ export async function GET(req: Request) {
   const modalityParam = url.searchParams.get("modality");
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "8", 10);
 
+  if (url.searchParams.get("refresh") === "1") {
+    const { __clearLiveCache } = await import("@/lib/inference/live-candidates");
+    __clearLiveCache();
+  }
+
   if (modalityParam) {
     if (!(modalityParam in MODALITIES)) {
       return NextResponse.json({ error: `unknown modality: ${modalityParam}` }, { status: 400 });
@@ -18,7 +23,7 @@ export async function GET(req: Request) {
     const modality = modalityParam as Modality;
     const profile = getSystemProfile();
     const installed = await getInstalledOllamaModels();
-    const suggestions = suggestForModality(profile, installed, modality, limit);
+    const suggestions = await suggestForModality(profile, installed, modality, limit);
     return NextResponse.json({ modality, suggestions, profile });
   }
 
@@ -26,9 +31,11 @@ export async function GET(req: Request) {
   // the "System" tab's cross-modality overview.
   const profile = getSystemProfile();
   const installed = await getInstalledOllamaModels();
-  const byModality: Record<string, ReturnType<typeof suggestForModality>> = {};
-  for (const meta of Object.values(MODALITIES)) {
-    byModality[meta.id] = suggestForModality(profile, installed, meta.id, 3);
-  }
+  const entries = await Promise.all(
+    Object.values(MODALITIES).map(async (meta) =>
+      [meta.id, await suggestForModality(profile, installed, meta.id, 3)] as const,
+    ),
+  );
+  const byModality = Object.fromEntries(entries);
   return NextResponse.json({ suggestions: byModality, profile });
 }

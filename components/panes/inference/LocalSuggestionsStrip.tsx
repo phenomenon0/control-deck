@@ -40,6 +40,11 @@ interface LocalCandidate {
   summary: string;
   family: string;
   license: string;
+  source?: "huggingface-live" | "curated-fallback" | "user-installed";
+  downloads?: number;
+  likes?: number;
+  leaderboardScore?: number;
+  buzzScore?: number;
 }
 
 interface LocalSuggestion {
@@ -133,11 +138,18 @@ export function LocalSuggestionsStrip({
               <FitBadge fit={s.fit} installed={s.installed} />
             </div>
             <div className="local-card-meta">
+              <SourceBadge source={s.candidate.source} />
               <span className="inference-mono">{formatMB(s.candidate.vramRequiredMB)}</span>
               <span className="local-card-dot">·</span>
               <span className="inference-mono">{s.candidate.quantization}</span>
               <span className="local-card-dot">·</span>
               <span className="local-card-family">{s.candidate.family}</span>
+              {s.candidate.downloads !== undefined && s.candidate.downloads > 0 && (
+                <>
+                  <span className="local-card-dot">·</span>
+                  <span className="local-card-downloads">{formatDownloads(s.candidate.downloads)} dl</span>
+                </>
+              )}
             </div>
             <div className="local-card-fill">
               <div
@@ -188,4 +200,28 @@ function FitBadge({
 function formatMB(mb: number): string {
   if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
   return `${mb} MB`;
+}
+
+function formatDownloads(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return `${n}`;
+}
+
+function SourceBadge({ source }: { source: LocalCandidate["source"] }) {
+  if (source === "huggingface-live") {
+    return (
+      <span className="local-source-badge local-source-badge--live" title="Live from HuggingFace Hub trending">
+        LIVE
+      </span>
+    );
+  }
+  if (source === "curated-fallback") {
+    return (
+      <span className="local-source-badge local-source-badge--curated" title="Curated fallback entry">
+        CURATED
+      </span>
+    );
+  }
+  return null;
 }

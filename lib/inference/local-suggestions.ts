@@ -22,6 +22,8 @@ import type { SystemProfile, InferenceBackend } from "@/lib/system/detect";
 
 export type FitScore = "perfect" | "tight" | "overhead-risk" | "too-big";
 
+export type CandidateSource = "huggingface-live" | "curated-fallback" | "user-installed";
+
 export interface LocalCandidate {
   /** Stable id used for sort stability + telemetry. */
   id: string;
@@ -64,6 +66,19 @@ export interface LocalCandidate {
   family: string;
   /** Licence label — "open", "commercial-ok", "research-only", "non-commercial", etc. */
   license: "apache-2.0" | "mit" | "llama-3" | "llama-4" | "gemma" | "qwen" | "research" | "commercial" | "other";
+  /** Where this entry came from. UI shows a small source badge. */
+  source?: CandidateSource;
+  /** HF Hub weekly downloads (live entries only). Used for ranking + UI display. */
+  downloads?: number;
+  /** HF Hub likes count. */
+  likes?: number;
+  /** Leaderboard score (Open LLM Leaderboard normalised 0-100). */
+  leaderboardScore?: number;
+  /**
+   * Community buzz score — derived from recent r/LocalLLaMA post mentions.
+   * Normalised 0-100 so we can add it into the ranking weight.
+   */
+  buzzScore?: number;
 }
 
 export interface LocalSuggestion {
@@ -86,124 +101,188 @@ export interface LocalSuggestion {
  * Curated CANDIDATES — 2026-Q2 snapshot
  * ========================================================================== */
 
-// -- Text ------------------------------------------------------------------
+// -- Text (refreshed 2026-04) ---------------------------------------------
 
 const TEXT_CANDIDATES: LocalCandidate[] = [
+  // Tier 0 — sub-2 GB, runs on literally anything
+  c("qwen3:0.6b", "Qwen 3 0.6B", "text", "ollama", {
+    ollamaTag: "qwen3:0.6b", vramRequiredMB: 500, diskMB: 500,
+    quantization: "Q4_K_M", contextWindow: 32000, cpuFriendly: true,
+    backends: ["metal", "cuda", "rocm", "cpu"], family: "qwen", license: "qwen",
+    summary: "Router / draft model. 600M params, fits anywhere, fast on CPU.",
+  }),
+  c("deepseek-r1:1.5b", "DeepSeek R1 1.5B Distill", "text", "ollama", {
+    ollamaTag: "deepseek-r1:1.5b", vramRequiredMB: 1100, diskMB: 1100,
+    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: true,
+    backends: ["metal", "cuda", "rocm", "cpu"], family: "deepseek", license: "mit",
+    summary: "R1 reasoning distilled into Qwen 1.5B. Chain-of-thought on a laptop.",
+  }),
   c("llama3.2:1b", "Llama 3.2 1B", "text", "ollama", {
     ollamaTag: "llama3.2:1b", vramRequiredMB: 1300, diskMB: 1300,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: true,
     backends: ["metal", "cuda", "rocm", "cpu"], family: "llama",
     license: "llama-3",
-    summary: "Tiny draft / routing model. Runs on any machine with 2 GB free.",
+    summary: "Still a good tiny tool-call / routing model in 2026.",
   }),
+
+  // Tier 1 — 2-5 GB, strong laptop tier
   c("llama3.2:3b", "Llama 3.2 3B", "text", "ollama", {
     ollamaTag: "llama3.2:3b", vramRequiredMB: 2000, diskMB: 2000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: true,
-    backends: ["metal", "cuda", "rocm", "cpu"], family: "llama",
-    license: "llama-3",
+    backends: ["metal", "cuda", "rocm", "cpu"], family: "llama", license: "llama-3",
     summary: "Laptop-friendly general chat. Usable on CPU, snappy on GPU.",
   }),
   c("gemma3:4b", "Gemma 3 4B", "text", "ollama", {
     ollamaTag: "gemma3:4b", vramRequiredMB: 2500, diskMB: 2500,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: true,
     backends: ["metal", "cuda", "cpu"], family: "gemma", license: "gemma",
-    summary: "Google Gemma 3 tier. Strong multilingual for its size.",
+    summary: "Gemma 3 4B — multimodal-capable, strong multilingual for its size.",
   }),
-  c("qwen2.5:7b", "Qwen 2.5 7B", "text", "ollama", {
-    ollamaTag: "qwen2.5:7b", vramRequiredMB: 4700, diskMB: 4700,
+  c("qwen3:4b", "Qwen 3 4B", "text", "ollama", {
+    ollamaTag: "qwen3:4b", vramRequiredMB: 2700, diskMB: 2700,
+    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: true,
+    backends: ["metal", "cuda", "cpu"], family: "qwen", license: "qwen",
+    summary: "Qwen 3 4B — major jump over 2.5 series; strong multilingual.",
+  }),
+  c("deepseek-r1:7b", "DeepSeek R1 7B Distill", "text", "ollama", {
+    ollamaTag: "deepseek-r1:7b", vramRequiredMB: 4700, diskMB: 4700,
+    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
+    backends: ["metal", "cuda", "rocm"], family: "deepseek", license: "mit",
+    summary: "R1-distilled Qwen 7B. Reasoning quality-for-size champion.",
+  }),
+  c("qwen3:8b", "Qwen 3 8B", "text", "ollama", {
+    ollamaTag: "qwen3:8b", vramRequiredMB: 5100, diskMB: 5100,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["metal", "cuda", "rocm"], family: "qwen", license: "qwen",
-    summary: "Reliable 7B workhorse. Good balance of quality vs speed.",
+    summary: "Qwen 3 8B — 2026 workhorse. Tool-use, long-context, multilingual.",
   }),
-  c("qwen2.5-coder:7b", "Qwen 2.5 Coder 7B", "text", "ollama", {
-    ollamaTag: "qwen2.5-coder:7b", vramRequiredMB: 4700, diskMB: 4700,
-    quantization: "Q4_K_M", contextWindow: 32000, cpuFriendly: false,
+  c("granite3.3:8b", "IBM Granite 3.3 8B", "text", "ollama", {
+    ollamaTag: "granite3.3:8b", vramRequiredMB: 4900, diskMB: 4900,
+    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
+    backends: ["metal", "cuda", "rocm"], family: "granite", license: "apache-2.0",
+    summary: "IBM's enterprise-tuned 8B. Apache-2.0, strong code + RAG.",
+  }),
+  c("qwen3-coder:7b", "Qwen 3 Coder 7B", "text", "ollama", {
+    ollamaTag: "qwen3-coder:7b", vramRequiredMB: 4700, diskMB: 4700,
+    quantization: "Q4_K_M", contextWindow: 64000, cpuFriendly: false,
     backends: ["metal", "cuda", "rocm"], family: "qwen", license: "qwen",
-    summary: "Code-specialised 7B. Best local model for inline code edits.",
+    summary: "Qwen 3 Coder 7B — best local model for inline code edits.",
   }),
-  c("llama3.1:8b", "Llama 3.1 8B", "text", "ollama", {
-    ollamaTag: "llama3.1:8b", vramRequiredMB: 5200, diskMB: 5200,
+
+  // Tier 2 — 6-12 GB, single mid-range GPU
+  c("deepseek-r1:14b", "DeepSeek R1 14B Distill", "text", "ollama", {
+    ollamaTag: "deepseek-r1:14b", vramRequiredMB: 9000, diskMB: 9000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
-    backends: ["metal", "cuda", "rocm"], family: "llama", license: "llama-3",
-    summary: "Meta's 8B. Robust general-purpose; widely supported tooling.",
-  }),
-  c("mistral-nemo:12b", "Mistral Nemo 12B", "text", "ollama", {
-    ollamaTag: "mistral-nemo:12b", vramRequiredMB: 7100, diskMB: 7100,
-    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
-    backends: ["metal", "cuda", "rocm"], family: "mistral", license: "apache-2.0",
-    summary: "Nemo 12B — Mistral's workhorse. Wide tool support, apache licence.",
+    backends: ["metal", "cuda"], family: "deepseek", license: "mit",
+    summary: "R1-distilled Qwen 14B. Best reasoning that still fits 12 GB VRAM.",
   }),
   c("gemma3:12b", "Gemma 3 12B", "text", "ollama", {
     ollamaTag: "gemma3:12b", vramRequiredMB: 7200, diskMB: 7200,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "gemma", license: "gemma",
-    summary: "Gemma 3 at 12B. Strong multilingual + vision capable at 27B tier.",
+    summary: "Gemma 3 12B — multimodal; strong quality ceiling at this size.",
   }),
   c("phi-4:14b", "Phi 4 14B", "text", "ollama", {
     ollamaTag: "phi-4:14b", vramRequiredMB: 9000, diskMB: 9000,
     quantization: "Q4_K_M", contextWindow: 16000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "phi", license: "mit",
-    summary: "Microsoft Phi 4. Excellent reasoning for 14B; MIT licensed.",
+    summary: "Microsoft Phi 4 14B — outsize reasoning-per-parameter; MIT.",
   }),
-  c("qwen2.5:14b", "Qwen 2.5 14B", "text", "ollama", {
-    ollamaTag: "qwen2.5:14b", vramRequiredMB: 9000, diskMB: 9000,
+  c("qwen3:14b", "Qwen 3 14B", "text", "ollama", {
+    ollamaTag: "qwen3:14b", vramRequiredMB: 9000, diskMB: 9000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "qwen", license: "qwen",
-    summary: "Qwen 14B — smart generalist, 128k context.",
+    summary: "Qwen 3 14B — quality/size sweet spot for 16 GB machines.",
   }),
-  c("llama4:16b", "Llama 4 16B", "text", "ollama", {
-    ollamaTag: "llama4:16b", vramRequiredMB: 10500, diskMB: 10500,
-    quantization: "Q4_K_M", contextWindow: 1048576, cpuFriendly: false,
-    backends: ["metal", "cuda"], family: "llama", license: "llama-4",
-    summary: "Llama 4 16B — 1M-token context, 2026 release.",
-  }),
-  c("mistral-small:24b", "Mistral Small 24B", "text", "ollama", {
-    ollamaTag: "mistral-small:24b", vramRequiredMB: 14000, diskMB: 14000,
+
+  // Tier 3 — 14-30 GB, high-end single GPU
+  c("mistral-small3.2:24b", "Mistral Small 3.2 24B", "text", "ollama", {
+    ollamaTag: "mistral-small3.2:24b", vramRequiredMB: 14000, diskMB: 14000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "mistral", license: "apache-2.0",
-    summary: "Mistral Small 24B. Hits GPT-4o-mini quality on benchmarks.",
+    summary: "Mistral Small 3.2 — hits GPT-4o-mini quality; apache licensed.",
   }),
   c("gemma3:27b", "Gemma 3 27B", "text", "ollama", {
     ollamaTag: "gemma3:27b", vramRequiredMB: 16000, diskMB: 16000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "gemma", license: "gemma",
-    summary: "Gemma 3 flagship. Single-GPU-friendly quality ceiling.",
+    summary: "Gemma 3 flagship. 27B dense; multimodal-capable.",
   }),
   c("qwq:32b", "QwQ 32B", "text", "ollama", {
     ollamaTag: "qwq:32b", vramRequiredMB: 20000, diskMB: 20000,
     quantization: "Q4_K_M", contextWindow: 32000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "qwen", license: "qwen",
-    summary: "Qwen reasoning model. Chain-of-thought open alternative to o-series.",
+    summary: "Qwen reasoning model. Open CoT alternative to closed o-series.",
   }),
-  c("qwen2.5:32b", "Qwen 2.5 32B", "text", "ollama", {
-    ollamaTag: "qwen2.5:32b", vramRequiredMB: 20000, diskMB: 20000,
+  c("deepseek-r1:32b", "DeepSeek R1 32B Distill", "text", "ollama", {
+    ollamaTag: "deepseek-r1:32b", vramRequiredMB: 20000, diskMB: 20000,
+    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
+    backends: ["metal", "cuda"], family: "deepseek", license: "mit",
+    summary: "R1-distilled Qwen 32B. Best open reasoning under 32 GB VRAM.",
+  }),
+  c("qwen3:32b", "Qwen 3 32B", "text", "ollama", {
+    ollamaTag: "qwen3:32b", vramRequiredMB: 20000, diskMB: 20000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["metal", "cuda"], family: "qwen", license: "qwen",
-    summary: "Qwen 32B — strong all-rounder when you have 24 GB VRAM.",
+    summary: "Qwen 3 32B — 2026 dense flagship. Multilingual leader.",
   }),
-  c("mixtral:8x7b", "Mixtral 8x7B MoE", "text", "ollama", {
-    ollamaTag: "mixtral:8x7b", vramRequiredMB: 26000, diskMB: 26000,
-    quantization: "Q4_K_M", contextWindow: 32000, cpuFriendly: false,
-    backends: ["metal", "cuda"], family: "mistral", license: "apache-2.0",
-    summary: "Sparse MoE — 13B active, 47B total. Fast inference for the size.",
+  c("qwen3-coder:30b-a3b", "Qwen 3 Coder 30B MoE", "text", "ollama", {
+    ollamaTag: "qwen3-coder:30b-a3b", vramRequiredMB: 18000, diskMB: 18000,
+    quantization: "Q4_K_M", contextWindow: 256000, cpuFriendly: false,
+    backends: ["metal", "cuda"], family: "qwen", license: "qwen",
+    summary: "MoE code model. 3B active at inference → fast for 30B-tier quality.",
+  }),
+  c("llama4:16b", "Llama 4 Scout 16B", "text", "ollama", {
+    ollamaTag: "llama4:16b", vramRequiredMB: 10500, diskMB: 10500,
+    quantization: "Q4_K_M", contextWindow: 1048576, cpuFriendly: false,
+    backends: ["metal", "cuda"], family: "llama", license: "llama-4",
+    summary: "Llama 4 Scout — 1M-token context at 16B.",
+  }),
+
+  // Tier 4 — 30-50 GB, multi-GPU or 48 GB rigs
+  c("llama4:30b-a3b", "Llama 4 Maverick 30B MoE", "text", "ollama", {
+    ollamaTag: "llama4:30b-a3b", vramRequiredMB: 20000, diskMB: 20000,
+    quantization: "Q4_K_M", contextWindow: 1048576, cpuFriendly: false,
+    backends: ["metal", "cuda"], family: "llama", license: "llama-4",
+    summary: "Llama 4 Maverick MoE — 30B total, 3B active. Cheap inference, big quality.",
   }),
   c("llama3.3:70b", "Llama 3.3 70B", "text", "ollama", {
     ollamaTag: "llama3.3:70b", vramRequiredMB: 40000, diskMB: 40000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["cuda"], family: "llama", license: "llama-3",
-    summary: "Meta's 70B tier. Needs 48 GB+ VRAM realistically.",
+    summary: "Llama 3.3 70B — still a reference open model. Needs 48 GB+ VRAM.",
   }),
   c("llama4:70b", "Llama 4 70B", "text", "ollama", {
     ollamaTag: "llama4:70b", vramRequiredMB: 40000, diskMB: 40000,
     quantization: "Q4_K_M", contextWindow: 1048576, cpuFriendly: false,
     backends: ["cuda"], family: "llama", license: "llama-4",
-    summary: "Llama 4 flagship. 1M context at 70B tier.",
+    summary: "Llama 4 dense 70B — 1M context flagship.",
   }),
-  c("qwen2.5:72b", "Qwen 2.5 72B", "text", "ollama", {
-    ollamaTag: "qwen2.5:72b", vramRequiredMB: 47000, diskMB: 47000,
+  c("deepseek-r1:70b", "DeepSeek R1 70B Distill", "text", "ollama", {
+    ollamaTag: "deepseek-r1:70b", vramRequiredMB: 40000, diskMB: 40000,
+    quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
+    backends: ["cuda"], family: "deepseek", license: "mit",
+    summary: "R1-distilled Llama 70B. Top open reasoning model.",
+  }),
+  c("qwen3:72b", "Qwen 3 72B", "text", "ollama", {
+    ollamaTag: "qwen3:72b", vramRequiredMB: 47000, diskMB: 47000,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
     backends: ["cuda"], family: "qwen", license: "qwen",
-    summary: "Qwen 72B — multilingual 70B-tier competitor.",
+    summary: "Qwen 3 72B dense. Multilingual leader at 70B tier.",
+  }),
+
+  // Tier 5 — exotic MoE, mostly HF-direct
+  c("qwen3-moe:235b-a22b", "Qwen 3 MoE 235B (22B active)", "text", "vllm", {
+    hfRepo: "Qwen/Qwen3-235B-A22B", vramRequiredMB: 140000, diskMB: 140000,
+    quantization: "fp16", contextWindow: 128000, cpuFriendly: false,
+    backends: ["cuda"], family: "qwen", license: "qwen",
+    summary: "Qwen 3 235B MoE. 22B active. Multi-H100 or A100 80 GB cluster.",
+  }),
+  c("deepseek-v3.2", "DeepSeek V3.2", "text", "vllm", {
+    hfRepo: "deepseek-ai/DeepSeek-V3.2", vramRequiredMB: 350000, diskMB: 350000,
+    quantization: "fp8", contextWindow: 128000, cpuFriendly: false,
+    backends: ["cuda"], family: "deepseek", license: "mit",
+    summary: "671B MoE (37B active). Open weights; cluster-only.",
   }),
 ];
 
@@ -407,7 +486,7 @@ const CANDIDATES: LocalCandidate[] = [
   ...TTS_CANDIDATES,
   ...EMBEDDING_CANDIDATES,
   ...IMAGE_GEN_CANDIDATES,
-];
+].map((c) => ({ ...c, source: "curated-fallback" as CandidateSource }));
 
 /* ============================================================================
  * Fit scoring
@@ -512,14 +591,35 @@ function installCommandFor(candidate: LocalCandidate): string | undefined {
   return undefined;
 }
 
-export function suggestForModality(
+/**
+ * Rank suggestions for a modality. Live HF Hub source is primary; the
+ * curated candidate table is the fallback when live is unavailable.
+ *
+ * Merge rule: when both sources have the same `hfRepo`, the live entry
+ * wins (fresh download counts + community signal). Live-only repos and
+ * curated-only entries both survive.
+ */
+export async function suggestForModality(
   profile: SystemProfile,
   installed: Array<{ name: string }>,
   modality: Modality,
   limit = 8,
-): LocalSuggestion[] {
-  const bucket = CANDIDATES.filter((c) => c.modality === modality);
-  const scored = bucket.map((candidate) => {
+): Promise<LocalSuggestion[]> {
+  // Lazy-import the live fetcher so nothing that reaches this module
+  // eagerly pulls the HF client code.
+  const { getLiveCandidates } = await import("./live-candidates");
+  const live = await getLiveCandidates(modality);
+  const curated = CANDIDATES.filter((c) => c.modality === modality);
+
+  const liveRepoIds = new Set(
+    live.map((c) => c.hfRepo).filter(Boolean) as string[],
+  );
+  const merged: LocalCandidate[] = [
+    ...live,
+    ...curated.filter((c) => !(c.hfRepo && liveRepoIds.has(c.hfRepo))),
+  ];
+
+  const scored = merged.map((candidate) => {
     const { fit, fillRatio } = scoreFit(profile, candidate);
     const isIn = isInstalled(candidate, installed);
     return {
@@ -532,8 +632,6 @@ export function suggestForModality(
     } satisfies LocalSuggestion;
   });
 
-  // Filter out too-big entries. Sort: installed first, then fit quality,
-  // then highest VRAM within fit bucket (= best quality that still fits).
   const fitOrder: Record<FitScore, number> = {
     perfect: 0,
     tight: 1,
@@ -545,10 +643,24 @@ export function suggestForModality(
     .sort((a, b) => {
       if (a.installed !== b.installed) return a.installed ? -1 : 1;
       if (a.fit !== b.fit) return fitOrder[a.fit] - fitOrder[b.fit];
-      // Within the same bucket, prefer larger models (= higher quality).
+      // Within the same fit bucket: live entries with real download counts
+      // rank above curated (which have none) — fresh signal wins.
+      const aScore = signalScore(a.candidate);
+      const bScore = signalScore(b.candidate);
+      if (aScore !== bScore) return bScore - aScore;
+      // Final tiebreaker: larger model = better quality at equal fit.
       return b.candidate.vramRequiredMB - a.candidate.vramRequiredMB;
     })
     .slice(0, limit);
+}
+
+/** Combine HF downloads + likes + leaderboard + buzz into a single rank score. */
+function signalScore(c: LocalCandidate): number {
+  const downloads = Math.log10((c.downloads ?? 0) + 1) * 10;
+  const likes = (c.likes ?? 0) * 0.1;
+  const leaderboard = (c.leaderboardScore ?? 0) * 0.5;
+  const buzz = (c.buzzScore ?? 0) * 0.3;
+  return downloads + likes + leaderboard + buzz;
 }
 
 /** All candidates — for debugging / full-matrix rendering. */

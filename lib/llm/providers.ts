@@ -480,9 +480,27 @@ export async function listProviderModels(config: ProviderConfig): Promise<string
 
   try {
     switch (provider) {
-      case "anthropic":
-        // Anthropic doesn't have a public models endpoint
-        return info.defaultModels;
+      case "anthropic": {
+        // Anthropic's `/v1/models` endpoint was added in late 2024 and is
+        // now the authoritative source. Fall back to defaultModels only if
+        // the fetch fails (missing API key, rate limit, network hiccup).
+        try {
+          const res = await fetch("https://api.anthropic.com/v1/models", {
+            headers: {
+              "x-api-key": apiKey || "",
+              "anthropic-version": "2023-06-01",
+            },
+            cache: "no-store",
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!res.ok) return info.defaultModels;
+          const data = (await res.json()) as { data?: Array<{ id: string }> };
+          const ids = (data.data || []).map((m) => m.id);
+          return ids.length > 0 ? ids : info.defaultModels;
+        } catch {
+          return info.defaultModels;
+        }
+      }
 
       case "google": {
         const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;

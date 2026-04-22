@@ -58,6 +58,7 @@ import type {
   WorkspacePaneCallArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
+import { captureFailureEnvelope } from "./native/failure-envelope";
 import { publishCommand, publishQuery } from "@/lib/workspace/command-relay";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
@@ -136,6 +137,36 @@ export async function executeTool(
 ): Promise<ToolExecutionResult> {
   console.log(`[Executor] Running tool: ${tool.name}`, tool.args);
 
+  const result = await dispatchTool(tool, ctx);
+
+  // Attach a failure envelope (screenshot + desktop tree summary) to
+  // failed native_* tool results when CONTROL_DECK_FAILURE_ENVELOPES=1.
+  // Gives the agent post-mortem context ("the dialog is off-screen",
+  // "a new window stole focus"). Off by default — envelopes are big.
+  if (!result.success && tool.name.startsWith("native_")) {
+    try {
+      const adapter = await getNativeAdapter();
+      const envelope = await captureFailureEnvelope(adapter);
+      if (envelope) {
+        result.data = {
+          ...(typeof result.data === "object" && result.data !== null
+            ? (result.data as Record<string, unknown>)
+            : {}),
+          envelope,
+        };
+      }
+    } catch {
+      // Envelope capture must not mask the original error.
+    }
+  }
+
+  return result;
+}
+
+async function dispatchTool(
+  tool: ToolCall,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
   try {
     switch (tool.name) {
       case "edit_image":

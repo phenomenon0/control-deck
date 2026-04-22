@@ -14,13 +14,19 @@ import {
   BaseWindow,
   WebContentsView,
   ipcMain,
+  screen,
   shell,
   type IpcMainInvokeEvent,
 } from "electron";
 
 const HEADER_HEIGHT = 40;
-const DEFAULT_WIDTH = 1180;
-const DEFAULT_HEIGHT = 780;
+const DEFAULT_WIDTH = 920;
+const DEFAULT_HEIGHT = 640;
+// Distance from the display edge when we anchor to top-right.
+const EDGE_MARGIN = 32;
+// How far each successive window slides down+left so rapid clicks don't
+// stack identically on one pixel.
+const CASCADE_STEP = 28;
 
 export interface OpenBrowserOpts {
   width?: number;
@@ -54,6 +60,38 @@ export function registerThemedBrowser(config: {
   const windows = new Map<number, ThemedWindow>();
   const headerToWindow = new Map<number, number>();
   let nextId = 1;
+  // Cascade counter — resets when it drifts off-screen so we wrap cleanly.
+  let cascadeOffset = 0;
+
+  function computeAnchoredBounds(
+    width: number,
+    height: number,
+  ): { x: number; y: number; width: number; height: number } {
+    const cursor = screen.getCursorScreenPoint();
+    const { workArea } = screen.getDisplayNearestPoint(cursor);
+    const w = Math.min(width, workArea.width - EDGE_MARGIN * 2);
+    const h = Math.min(height, workArea.height - EDGE_MARGIN * 2);
+
+    // Anchor: top-right of the current display, with a margin so the title
+    // bar and drag handle stay fully on-screen. Cascade each subsequent
+    // window down+left so the user can see all of them at once.
+    const anchorX = workArea.x + workArea.width - w - EDGE_MARGIN;
+    const anchorY = workArea.y + EDGE_MARGIN;
+
+    let x = anchorX - cascadeOffset;
+    let y = anchorY + cascadeOffset;
+
+    const outOfBoundsLeft = x < workArea.x + EDGE_MARGIN;
+    const outOfBoundsBottom = y + h > workArea.y + workArea.height - EDGE_MARGIN;
+    if (outOfBoundsLeft || outOfBoundsBottom) {
+      cascadeOffset = 0;
+      x = anchorX;
+      y = anchorY;
+    }
+    cascadeOffset += CASCADE_STEP;
+
+    return { x, y, width: w, height: h };
+  }
 
   function resolveByHeaderSender(senderId: number): ThemedWindow | undefined {
     const wid = headerToWindow.get(senderId);
@@ -102,11 +140,18 @@ export function registerThemedBrowser(config: {
 
     const id = nextId++;
 
+    const bounds = computeAnchoredBounds(
+      opts.width ?? DEFAULT_WIDTH,
+      opts.height ?? DEFAULT_HEIGHT,
+    );
+
     const base = new BaseWindow({
-      width: opts.width ?? DEFAULT_WIDTH,
-      height: opts.height ?? DEFAULT_HEIGHT,
-      minWidth: 640,
-      minHeight: 400,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      minWidth: 520,
+      minHeight: 360,
       backgroundColor: "#0A0A0B",
       autoHideMenuBar: true,
       title: "Control Deck Browser",

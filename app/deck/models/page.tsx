@@ -1,6 +1,10 @@
-import { redirect } from "next/navigation";
+import { InferenceControlPane } from "@/components/panes/InferenceControlPane";
 
-/** Legacy route. Models is now a tab inside the Control plane. */
-export default function ModelsLegacyPage() {
-  redirect("/deck/control?tab=models");
+/**
+ * /deck/models — first-class Models surface. Replaces the earlier
+ * redirect-into-ControlPane approach. The old Ollama-specific ModelsPane
+ * is now reachable from inside InferenceControlPane's provider inspector.
+ */
+export default function ModelsPage() {
+  return <InferenceControlPane />;
 }

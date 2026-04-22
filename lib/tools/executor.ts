@@ -336,12 +336,31 @@ async function executeEditImage(
 }
 
 /**
- * Generate audio using Stable Audio
+ * Generate audio — cloud slot (AUDIO_GEN_PROVIDER) first, else ComfyUI
+ * Stable Audio / ACE Step workflows.
  */
 async function executeGenerateAudio(
   args: GenerateAudioArgs,
   ctx: ExecutorContext
 ): Promise<ToolExecutionResult> {
+  const { ensureBootstrap, getSlot } = await import("@/lib/inference/bootstrap");
+  ensureBootstrap();
+  const cloudSlot = getSlot("audio-gen", "primary");
+  if (cloudSlot) {
+    const { invokeAudioGen } = await import("@/lib/inference/audio-gen/invoke");
+    try {
+      const cloudResult = await invokeAudioGen(cloudSlot.providerId, cloudSlot.config, {
+        prompt: args.prompt,
+        duration: args.duration ?? 10,
+        seed: args.seed,
+      });
+      return await cloudAudioToExecutorResult(cloudResult, args.prompt, ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "audio-gen failed";
+      return { success: false, message: `Cloud audio-gen failed: ${msg}`, error: msg };
+    }
+  }
+
   const workflow = loadWorkflow("stable-audio", {
     prompt: args.prompt,
     duration: args.duration ?? 10,
@@ -359,7 +378,8 @@ async function executeGenerateAudio(
 }
 
 /**
- * Convert image to 3D using Hunyuan 3D
+ * Convert image to 3D — cloud slot (THREE_D_GEN_PROVIDER) first, else
+ * ComfyUI Hunyuan 3D v2.1 workflow.
  */
 async function executeImageTo3D(
   args: ImageTo3DArgs,
@@ -372,6 +392,23 @@ async function executeImageTo3D(
       message: `Image not found: ${args.image_id}`,
       error: "Image not found",
     };
+  }
+
+  const { ensureBootstrap, getSlot } = await import("@/lib/inference/bootstrap");
+  ensureBootstrap();
+  const cloudSlot = getSlot("3d-gen", "primary");
+  if (cloudSlot) {
+    const { invoke3dGen } = await import("@/lib/inference/3d-gen/invoke");
+    try {
+      const cloudResult = await invoke3dGen(cloudSlot.providerId, cloudSlot.config, {
+        image: { base64: upload.data, mimeType: upload.mime_type },
+        seed: args.seed,
+      });
+      return await cloudMeshToExecutorResult(cloudResult, "image-to-3d", ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "3d-gen failed";
+      return { success: false, message: `Cloud 3d-gen failed: ${msg}`, error: msg };
+    }
   }
 
   // Save image to ComfyUI input folder
@@ -393,14 +430,39 @@ async function executeImageTo3D(
 }
 
 /**
- * Generate image - routes to ComfyUI (power mode) or Lite pipeline (lite mode)
+ * Generate image — routes to:
+ *   1. A cloud provider if the `image-gen` slot is bound (IMAGE_GEN_PROVIDER set)
+ *   2. Lite ONNX pipeline in "lite" system mode
+ *   3. ComfyUI (SDXL Turbo workflow) in "power" mode — the original default
  */
 async function executeGenerateImage(
   args: GenerateImageArgs,
   ctx: ExecutorContext
 ): Promise<ToolExecutionResult> {
+  // Cloud slot opt-in: only when the user explicitly binds a provider via
+  // IMAGE_GEN_PROVIDER env. Default (no binding) preserves the Lite/ComfyUI
+  // routing below.
+  const { ensureBootstrap, getSlot } = await import("@/lib/inference/bootstrap");
+  ensureBootstrap();
+  const cloudSlot = getSlot("image-gen", "primary");
+  if (cloudSlot) {
+    const { invokeImageGen } = await import("@/lib/inference/image-gen/invoke");
+    try {
+      const cloudResult = await invokeImageGen(cloudSlot.providerId, cloudSlot.config, {
+        prompt: args.prompt,
+        width: args.width,
+        height: args.height,
+        seed: args.seed,
+      });
+      return await cloudImageToExecutorResult(cloudResult, args.prompt, ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "image-gen failed";
+      return { success: false, message: `Cloud image-gen failed: ${msg}`, error: msg };
+    }
+  }
+
   const backend = getImageBackend();
-  
+
   // Route to lite pipeline in lite mode
   if (backend === "lite") {
     console.log("[Executor] Using lite image backend");
@@ -457,8 +519,12 @@ async function executeGenerateImage(
 }
 
 /**
- * Analyze image using vision model
- * This doesn't use ComfyUI - it calls Ollama vision model directly
+ * Analyze image using the currently-bound vision provider.
+ *
+ * Routes through the unified inference slot system rather than hardcoding
+ * Ollama — any provider registered for the `vision` modality (ollama,
+ * anthropic, openai, google, openrouter) can answer based on the user's
+ * VISION_PROVIDER env var and available API keys.
  */
 async function executeAnalyzeImage(
   args: AnalyzeImageArgs,
@@ -473,32 +539,37 @@ async function executeAnalyzeImage(
     };
   }
 
-  const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-  const VISION_MODEL = process.env.VISION_MODEL ?? "llama3.2-vision:11b";
+  const { ensureBootstrap, getSlot } = await import("@/lib/inference/bootstrap");
+  const { invokeVision } = await import("@/lib/inference/vision/invoke");
+  ensureBootstrap();
+
+  const bound = getSlot("vision", "primary");
+  const providerId = bound?.providerId ?? "ollama";
+  const config = bound?.config ?? {
+    providerId: "ollama",
+    baseURL: process.env.OLLAMA_BASE_URL,
+    model: process.env.VISION_MODEL,
+  };
   const question = args.question ?? "Describe this image in detail.";
 
   try {
-    const response = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: VISION_MODEL,
-        prompt: question,
-        images: [upload.data], // base64 without data: prefix
-        stream: false,
-      }),
+    const result = await invokeVision(providerId, config, {
+      image: {
+        base64: upload.data,
+        mimeType: upload.mime_type,
+      },
+      prompt: question,
     });
 
-    if (!response.ok) {
-      throw new Error(`Ollama returned ${response.status}`);
-    }
-
-    const data = await response.json();
-    
     return {
       success: true,
-      message: data.response ?? "Image analyzed",
-      data: { analysis: data.response },
+      message: result.text || "Image analyzed",
+      data: {
+        analysis: result.text,
+        provider: result.providerId,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+      },
     };
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Vision analysis failed";
@@ -1254,6 +1325,212 @@ function formatPayloadForLLM(payload: DeckPayload): string {
     return payload.text;
   }
   return "[Binary data]";
+}
+
+/**
+ * Fetch cloud-image bytes (from URL or inline base64), persist to the
+ * artifact directory, emit an ArtifactCreated event, and format an
+ * ExecutorResult that matches the ComfyUI path's shape.
+ */
+async function cloudImageToExecutorResult(
+  result: { imageUrl?: string; imageBytes?: ArrayBuffer; mime: string; providerId: string; revisedPrompt?: string },
+  prompt: string,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
+  let bytes: Buffer;
+  if (result.imageBytes) {
+    bytes = Buffer.from(result.imageBytes);
+  } else if (result.imageUrl) {
+    const res = await fetch(result.imageUrl);
+    if (!res.ok) throw new Error(`fetch generated image: ${res.status}`);
+    bytes = Buffer.from(await res.arrayBuffer());
+  } else {
+    throw new Error("cloud image result carried neither bytes nor url");
+  }
+
+  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
+  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  await fs.mkdir(destDir, { recursive: true });
+
+  const ext = result.mime.includes("jpeg") ? "jpg" : result.mime.includes("webp") ? "webp" : "png";
+  const artifactId = crypto.randomUUID();
+  const filename = `img_${result.providerId}_${Date.now()}.${ext}`;
+  const filePath = path.join(destDir, filename);
+  await fs.writeFile(filePath, bytes);
+
+  const artifact = {
+    id: artifactId,
+    runId: ctx.runId,
+    threadId: ctx.threadId,
+    toolCallId: ctx.toolCallId,
+    mimeType: result.mime,
+    name: `Image: ${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}`,
+    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    localPath: filePath,
+    originalPath: filePath,
+    meta: {
+      provider: result.providerId,
+      revisedPrompt: result.revisedPrompt,
+      sourceUrl: result.imageUrl,
+    },
+  };
+  createArtifact(artifact);
+
+  const evt = createEvent<ArtifactCreated>("ArtifactCreated", ctx.threadId, {
+    runId: ctx.runId,
+    toolCallId: ctx.toolCallId,
+    artifactId,
+    mimeType: artifact.mimeType,
+    url: artifact.url,
+    name: artifact.name,
+    originalPath: artifact.originalPath,
+  });
+  saveEvent(evt);
+  hub.publish(ctx.threadId, evt);
+
+  return {
+    success: true,
+    message: `Generated image via ${result.providerId}: "${prompt}"`,
+    artifacts: [artifact],
+    data: {
+      provider: result.providerId,
+      revisedPrompt: result.revisedPrompt,
+    },
+  };
+}
+
+/**
+ * Fetch cloud-audio bytes (from URL or inline base64), persist to the
+ * artifact directory, emit ArtifactCreated, return ToolExecutionResult.
+ * Mirror of cloudImageToExecutorResult for the audio-gen modality.
+ */
+async function cloudAudioToExecutorResult(
+  result: { audioUrl?: string; audioBytes?: ArrayBuffer; mime: string; providerId: string },
+  prompt: string,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
+  let bytes: Buffer;
+  if (result.audioBytes) {
+    bytes = Buffer.from(result.audioBytes);
+  } else if (result.audioUrl) {
+    const res = await fetch(result.audioUrl);
+    if (!res.ok) throw new Error(`fetch generated audio: ${res.status}`);
+    bytes = Buffer.from(await res.arrayBuffer());
+  } else {
+    throw new Error("cloud audio result carried neither bytes nor url");
+  }
+
+  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
+  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  await fs.mkdir(destDir, { recursive: true });
+
+  const ext =
+    result.mime.includes("mpeg") || result.mime.includes("mp3") ? "mp3"
+    : result.mime.includes("wav") ? "wav"
+    : result.mime.includes("ogg") ? "ogg"
+    : "audio";
+  const artifactId = crypto.randomUUID();
+  const filename = `audio_${result.providerId}_${Date.now()}.${ext}`;
+  const filePath = path.join(destDir, filename);
+  await fs.writeFile(filePath, bytes);
+
+  const artifact = {
+    id: artifactId,
+    runId: ctx.runId,
+    threadId: ctx.threadId,
+    toolCallId: ctx.toolCallId,
+    mimeType: result.mime,
+    name: `Audio: ${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}`,
+    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    localPath: filePath,
+    originalPath: filePath,
+    meta: { provider: result.providerId, sourceUrl: result.audioUrl },
+  };
+  createArtifact(artifact);
+  const evt = createEvent<ArtifactCreated>("ArtifactCreated", ctx.threadId, {
+    runId: ctx.runId,
+    toolCallId: ctx.toolCallId,
+    artifactId,
+    mimeType: artifact.mimeType,
+    url: artifact.url,
+    name: artifact.name,
+    originalPath: artifact.originalPath,
+  });
+  saveEvent(evt);
+  hub.publish(ctx.threadId, evt);
+
+  return {
+    success: true,
+    message: `Generated audio via ${result.providerId}: "${prompt}"`,
+    artifacts: [artifact],
+    data: { provider: result.providerId },
+  };
+}
+
+/**
+ * Same pattern for 3D meshes — GLB/GLTF bytes persisted as artifacts.
+ */
+async function cloudMeshToExecutorResult(
+  result: { meshUrl?: string; meshBytes?: ArrayBuffer; mime: string; providerId: string; previewUrl?: string },
+  label: string,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
+  let bytes: Buffer;
+  if (result.meshBytes) {
+    bytes = Buffer.from(result.meshBytes);
+  } else if (result.meshUrl) {
+    const res = await fetch(result.meshUrl);
+    if (!res.ok) throw new Error(`fetch generated mesh: ${res.status}`);
+    bytes = Buffer.from(await res.arrayBuffer());
+  } else {
+    throw new Error("cloud mesh result carried neither bytes nor url");
+  }
+
+  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
+  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  await fs.mkdir(destDir, { recursive: true });
+
+  const ext = result.mime.includes("gltf-binary") || result.mime.includes("glb") ? "glb" : "gltf";
+  const artifactId = crypto.randomUUID();
+  const filename = `mesh_${result.providerId}_${Date.now()}.${ext}`;
+  const filePath = path.join(destDir, filename);
+  await fs.writeFile(filePath, bytes);
+
+  const artifact = {
+    id: artifactId,
+    runId: ctx.runId,
+    threadId: ctx.threadId,
+    toolCallId: ctx.toolCallId,
+    mimeType: result.mime,
+    name: `3D mesh: ${label}`,
+    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    localPath: filePath,
+    originalPath: filePath,
+    meta: {
+      provider: result.providerId,
+      sourceUrl: result.meshUrl,
+      previewUrl: result.previewUrl,
+    },
+  };
+  createArtifact(artifact);
+  const evt = createEvent<ArtifactCreated>("ArtifactCreated", ctx.threadId, {
+    runId: ctx.runId,
+    toolCallId: ctx.toolCallId,
+    artifactId,
+    mimeType: artifact.mimeType,
+    url: artifact.url,
+    name: artifact.name,
+    originalPath: artifact.originalPath,
+  });
+  saveEvent(evt);
+  hub.publish(ctx.threadId, evt);
+
+  return {
+    success: true,
+    message: `Generated 3D mesh via ${result.providerId}`,
+    artifacts: [artifact],
+    data: { provider: result.providerId, previewUrl: result.previewUrl },
+  };
 }
 
 /**

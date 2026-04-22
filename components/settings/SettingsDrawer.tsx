@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { X } from "lucide-react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
+import { ModalitiesPanel } from "./ModalitiesPanel";
 import {
   useDeckSettings,
   type TTSEngine,
@@ -456,6 +457,12 @@ export function SettingsDrawer() {
                 />
               </SettingRow>
             </div>
+          </section>
+
+          {/* ─── MODALITIES (text/vision/image/audio/tts/stt/embed/rerank/3d/video) ─── */}
+          <section>
+            <SectionHeader>Modalities</SectionHeader>
+            <ModalitiesPanel />
           </section>
         </div>
       </div>

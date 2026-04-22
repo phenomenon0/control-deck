@@ -1527,6 +1527,34 @@ body {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
 }
+
+/* Storage warning chip on LocalSuggestion cards */
+.storage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.storage-chip-icon {
+  font-size: 11px;
+}
+.storage-chip--tight {
+  background: rgba(229, 166, 62, 0.12);
+  color: var(--warning);
+  border: 1px solid rgba(229, 166, 62, 0.25);
+}
+.storage-chip--needs-cleanup {
+  background: rgba(229, 83, 75, 0.12);
+  color: var(--error);
+  border: 1px solid rgba(229, 83, 75, 0.25);
+}
+.storage-chip--needs-cleanup strong {
+  color: var(--error);
+  font-weight: 700;
+}
 .local-fit--perfect {
   background: rgba(62, 207, 113, 0.14);
   color: var(--success);

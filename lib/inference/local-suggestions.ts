@@ -81,6 +81,24 @@ export interface LocalCandidate {
   buzzScore?: number;
 }
 
+/**
+ * Storage assessment independent of VRAM fit. Split out so that disk-
+ * limited suggestions still surface — the UX is "warn + pull-blocked"
+ * rather than "silently disappear." Only genuinely-uninstallable models
+ * (status="impossible", currently > 100 GB) get filtered out entirely.
+ */
+export type StorageFit =
+  /** Free disk comfortably exceeds the pull size. */
+  | { status: "ample" }
+  /** Would fit but leaves very little headroom (< 2 GB after install). */
+  | { status: "tight"; freeAfterGb: number }
+  /** Can't install with current free space; user would need to clean up. */
+  | { status: "needs-cleanup"; shortfallGb: number }
+  /** So large we don't ever suggest it on this class of machine (filtered). */
+  | { status: "impossible"; requiredGb: number }
+  /** Storage info unavailable — skip check. */
+  | { status: "unknown" };
+
 export interface LocalSuggestion {
   candidate: LocalCandidate;
   fit: FitScore;
@@ -95,7 +113,14 @@ export interface LocalSuggestion {
   reasoning: string;
   /** Ready-to-copy install command when applicable. */
   installCommand?: string;
+  /** Disk-space verdict — UI shows badges + disables Pull when blocked. */
+  storage: StorageFit;
 }
+
+/** Above this, a candidate is treated as impossible-to-install and filtered. */
+const IMPOSSIBLE_DISK_GB = 100;
+/** How much headroom beyond the candidate's size counts as "ample" storage. */
+const AMPLE_HEADROOM_GB = 5;
 
 /* ============================================================================
  * Curated CANDIDATES — 2026-Q2 snapshot
@@ -522,10 +547,9 @@ export function scoreFit(
     return { fit: "too-big", fillRatio: Number.POSITIVE_INFINITY };
   }
 
-  // Storage filter — if we know free disk and the candidate would exceed it.
-  if (profile.storage && candidate.diskMB > profile.storage.freeGb * 1024 - 2048) {
-    return { fit: "too-big", fillRatio: Number.POSITIVE_INFINITY };
-  }
+  // NOTE: storage is NOT a VRAM-fit filter anymore. A 70B Q4 model on a
+  // disk-constrained laptop should still show up — we just warn the user
+  // to free space. See assessStorage() for the separate verdict.
 
   const capacity = capacityMb(profile);
   // Add a context-scratch overhead (~15%) so "perfect" means "runs with room
@@ -537,6 +561,37 @@ export function scoreFit(
   if (ratio <= 0.9) return { fit: "tight", fillRatio: ratio };
   if (ratio <= 1.0) return { fit: "overhead-risk", fillRatio: ratio };
   return { fit: "too-big", fillRatio: ratio };
+}
+
+/**
+ * Disk-space verdict for a candidate. Returns "impossible" only for
+ * genuinely-huge pulls (> IMPOSSIBLE_DISK_GB); everything else returns a
+ * status that the UI turns into a warning chip.
+ */
+export function assessStorage(
+  profile: SystemProfile,
+  candidate: LocalCandidate,
+): StorageFit {
+  const diskGb = candidate.diskMB / 1024;
+
+  // Super-large filter — even with cleanup, a 200 GB model isn't a
+  // realistic suggestion on a laptop. Filter these out so the list
+  // doesn't get flooded with datacentre-tier entries.
+  if (diskGb > IMPOSSIBLE_DISK_GB) {
+    return { status: "impossible", requiredGb: Math.round(diskGb) };
+  }
+
+  if (!profile.storage) return { status: "unknown" };
+
+  const free = profile.storage.freeGb;
+  const freeAfter = free - diskGb;
+
+  if (freeAfter >= AMPLE_HEADROOM_GB) return { status: "ample" };
+  if (freeAfter >= 0) return { status: "tight", freeAfterGb: Math.round(freeAfter) };
+  return {
+    status: "needs-cleanup",
+    shortfallGb: Math.max(1, Math.round(Math.abs(freeAfter) + 2)), // +2 GB safety margin
+  };
 }
 
 /**
@@ -570,7 +625,7 @@ function reasoningFor(
   installed: boolean,
 ): string {
   if (installed) return "Already installed — pick it immediately.";
-  if (fit === "too-big") return "Exceeds this machine's capacity.";
+  if (fit === "too-big") return "Exceeds this machine's VRAM capacity.";
   const capacity = capacityMb(profile);
   const used = Math.round(candidate.vramRequiredMB * 1.15);
   const headroom = capacity - used;
@@ -621,6 +676,7 @@ export async function suggestForModality(
 
   const scored = merged.map((candidate) => {
     const { fit, fillRatio } = scoreFit(profile, candidate);
+    const storage = assessStorage(profile, candidate);
     const isIn = isInstalled(candidate, installed);
     return {
       candidate,
@@ -629,6 +685,7 @@ export async function suggestForModality(
       installed: isIn,
       reasoning: reasoningFor(profile, candidate, fit, fillRatio, isIn),
       installCommand: installCommandFor(candidate),
+      storage,
     } satisfies LocalSuggestion;
   });
 
@@ -638,16 +695,31 @@ export async function suggestForModality(
     "overhead-risk": 2,
     "too-big": 3,
   };
+  // Storage-status ranking: ample/unknown sort equal and above tight, which
+  // is above needs-cleanup. Never completely demotes below fit rank though.
+  const storageOrder: Record<StorageFit["status"], number> = {
+    ample: 0,
+    unknown: 0,
+    tight: 1,
+    "needs-cleanup": 2,
+    impossible: 3,
+  };
   return scored
     .filter((s) => s.fit !== "too-big")
+    .filter((s) => s.storage.status !== "impossible")
     .sort((a, b) => {
       if (a.installed !== b.installed) return a.installed ? -1 : 1;
       if (a.fit !== b.fit) return fitOrder[a.fit] - fitOrder[b.fit];
-      // Within the same fit bucket: live entries with real download counts
-      // rank above curated (which have none) — fresh signal wins.
+      // Community signal wins next — fresh trending models rank above
+      // curated fallbacks with no downloads data.
       const aScore = signalScore(a.candidate);
       const bScore = signalScore(b.candidate);
       if (aScore !== bScore) return bScore - aScore;
+      // Then storage status — ample is preferred, but needs-cleanup still
+      // appears in the result set, just lower.
+      const aStor = storageOrder[a.storage.status];
+      const bStor = storageOrder[b.storage.status];
+      if (aStor !== bStor) return aStor - bStor;
       // Final tiebreaker: larger model = better quality at equal fit.
       return b.candidate.vramRequiredMB - a.candidate.vramRequiredMB;
     })

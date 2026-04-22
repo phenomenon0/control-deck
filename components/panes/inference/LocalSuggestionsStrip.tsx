@@ -47,6 +47,13 @@ interface LocalCandidate {
   buzzScore?: number;
 }
 
+type StorageFit =
+  | { status: "ample" }
+  | { status: "tight"; freeAfterGb: number }
+  | { status: "needs-cleanup"; shortfallGb: number }
+  | { status: "impossible"; requiredGb: number }
+  | { status: "unknown" };
+
 interface LocalSuggestion {
   candidate: LocalCandidate;
   fit: "perfect" | "tight" | "overhead-risk" | "too-big";
@@ -54,6 +61,7 @@ interface LocalSuggestion {
   fillRatio: number;
   reasoning: string;
   installCommand?: string;
+  storage: StorageFit;
 }
 
 export function LocalSuggestionsStrip({
@@ -159,6 +167,7 @@ export function LocalSuggestionsStrip({
               />
             </div>
             <p className="local-card-reason">{s.reasoning}</p>
+            <StorageChip storage={s.storage} />
             <div className="local-card-actions">
               {s.installed ? (
                 <span className="local-card-installed-badge">Installed</span>
@@ -166,11 +175,22 @@ export function LocalSuggestionsStrip({
                 <button
                   type="button"
                   className="inference-action-btn"
-                  disabled={pulling === s.candidate.ollamaTag}
+                  disabled={
+                    pulling === s.candidate.ollamaTag ||
+                    s.storage.status === "needs-cleanup"
+                  }
                   onClick={() => void pullModel(s.candidate.ollamaTag!)}
-                  title={`ollama pull ${s.candidate.ollamaTag}`}
+                  title={
+                    s.storage.status === "needs-cleanup"
+                      ? `Free ${s.storage.shortfallGb} GB before pulling`
+                      : `ollama pull ${s.candidate.ollamaTag}`
+                  }
                 >
-                  {pulling === s.candidate.ollamaTag ? "Pulling…" : "Pull"}
+                  {pulling === s.candidate.ollamaTag
+                    ? "Pulling…"
+                    : s.storage.status === "needs-cleanup"
+                      ? "Free space first"
+                      : "Pull"}
                 </button>
               ) : s.installCommand ? (
                 <code className="local-card-cmd" title="Copy & run in a terminal">
@@ -206,6 +226,33 @@ function formatDownloads(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
   return `${n}`;
+}
+
+function StorageChip({ storage }: { storage: StorageFit }) {
+  if (storage.status === "ample" || storage.status === "unknown") return null;
+  if (storage.status === "tight") {
+    return (
+      <div
+        className="storage-chip storage-chip--tight"
+        title="Leaves very little free disk after install"
+      >
+        <span className="storage-chip-icon">⚠</span>
+        <span>Tight — {storage.freeAfterGb} GB left after pull</span>
+      </div>
+    );
+  }
+  if (storage.status === "needs-cleanup") {
+    return (
+      <div
+        className="storage-chip storage-chip--needs-cleanup"
+        title="You need to free disk space before this can be installed"
+      >
+        <span className="storage-chip-icon">⚠</span>
+        <span>Free <strong>{storage.shortfallGb} GB</strong> to install</span>
+      </div>
+    );
+  }
+  return null;
 }
 
 function SourceBadge({ source }: { source: LocalCandidate["source"] }) {

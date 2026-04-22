@@ -69,11 +69,18 @@ export function LocalSuggestionsStrip({
   limit = 3,
   title = "For your hardware",
   refreshToken,
+  showAll = false,
 }: {
   modality: ModalityId;
   limit?: number;
   title?: string;
   refreshToken?: number;
+  /**
+   * When true, fetch with filter=local-sota so the strip shows candidates
+   * that exceed the user's VRAM alongside the ones that fit — marked with
+   * a "needs N GB VRAM" badge. Useful for the "Local SOTA" System-tab pill.
+   */
+  showAll?: boolean;
 }) {
   const [suggestions, setSuggestions] = useState<LocalSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,17 +90,21 @@ export function LocalSuggestionsStrip({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/inference/suggestions?modality=${modality}&limit=${limit}`,
-        { cache: "no-store" },
-      );
+      const qs = new URLSearchParams({
+        modality,
+        limit: String(limit),
+      });
+      if (showAll) qs.set("filter", "local-sota");
+      const res = await fetch(`/api/inference/suggestions?${qs.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) return;
       const data = (await res.json()) as { suggestions?: LocalSuggestion[] };
       setSuggestions(data.suggestions ?? []);
     } finally {
       setLoading(false);
     }
-  }, [modality, limit]);
+  }, [modality, limit, showAll]);
 
   useEffect(() => {
     void load();
@@ -139,7 +150,7 @@ export function LocalSuggestionsStrip({
         {suggestions.map((s) => (
           <article
             key={s.candidate.id}
-            className={`local-card local-card--${s.fit}${s.installed ? " local-card--installed" : ""}`}
+            className={`local-card local-card--${s.fit}${s.installed ? " local-card--installed" : ""}${s.fit === "too-big" ? " local-card--oversized" : ""}`}
           >
             <div className="local-card-head">
               <span className="local-card-name">{s.candidate.displayName}</span>
@@ -167,6 +178,17 @@ export function LocalSuggestionsStrip({
               />
             </div>
             <p className="local-card-reason">{s.reasoning}</p>
+            {s.fit === "too-big" && (
+              <div
+                className="storage-chip storage-chip--needs-cleanup"
+                title="This model's weights exceed your GPU / unified memory budget"
+              >
+                <span className="storage-chip-icon">⚠</span>
+                <span>
+                  Needs <strong>{formatMB(s.candidate.vramRequiredMB)}</strong> VRAM
+                </span>
+              </div>
+            )}
             <StorageChip storage={s.storage} />
             <div className="local-card-actions">
               {s.installed ? (
@@ -177,20 +199,25 @@ export function LocalSuggestionsStrip({
                   className="inference-action-btn"
                   disabled={
                     pulling === s.candidate.ollamaTag ||
-                    s.storage.status === "needs-cleanup"
+                    s.storage.status === "needs-cleanup" ||
+                    s.fit === "too-big"
                   }
                   onClick={() => void pullModel(s.candidate.ollamaTag!)}
                   title={
-                    s.storage.status === "needs-cleanup"
-                      ? `Free ${s.storage.shortfallGb} GB before pulling`
-                      : `ollama pull ${s.candidate.ollamaTag}`
+                    s.fit === "too-big"
+                      ? `Exceeds your VRAM budget — won't run on this machine`
+                      : s.storage.status === "needs-cleanup"
+                        ? `Free ${s.storage.shortfallGb} GB before pulling`
+                        : `ollama pull ${s.candidate.ollamaTag}`
                   }
                 >
                   {pulling === s.candidate.ollamaTag
                     ? "Pulling…"
-                    : s.storage.status === "needs-cleanup"
-                      ? "Free space first"
-                      : "Pull"}
+                    : s.fit === "too-big"
+                      ? "Beyond this PC"
+                      : s.storage.status === "needs-cleanup"
+                        ? "Free space first"
+                        : "Pull"}
                 </button>
               ) : s.installCommand ? (
                 <code className="local-card-cmd" title="Copy & run in a terminal">
@@ -213,7 +240,14 @@ function FitBadge({
   installed: boolean;
 }) {
   if (installed) return <span className="local-fit local-fit--installed">READY</span>;
-  const label = fit === "perfect" ? "Fits" : fit === "tight" ? "Tight" : "Risk";
+  const label =
+    fit === "perfect"
+      ? "Fits"
+      : fit === "tight"
+        ? "Tight"
+        : fit === "overhead-risk"
+          ? "Risk"
+          : "Beyond";
   return <span className={`local-fit local-fit--${fit}`}>{label}</span>;
 }
 

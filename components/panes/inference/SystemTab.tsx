@@ -2,15 +2,17 @@
 
 /**
  * SystemTab — the first tab in the Models pane. Shows the hardware profile
- * and renders a LocalSuggestionsStrip for every modality that has a local
- * path, so users get a single-screen overview of what their PC can actually
- * run across the whole control plane.
+ * and a pill switcher between three cross-modality views:
+ *   - Runnable:   local candidates that fit this machine right now
+ *   - Local SOTA: best open-weight candidates overall (oversized marked)
+ *   - Cloud SOTA: leaderboard-ranked cloud providers per modality
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SystemProfileCard } from "./SystemProfileCard";
 import { LocalSuggestionsStrip } from "./LocalSuggestionsStrip";
+import { CloudSuggestionsStrip } from "./CloudSuggestionsStrip";
 import { MODALITY_LABELS } from "./modality-meta";
 import type { SystemProfile } from "@/lib/system/detect";
 
@@ -23,6 +25,35 @@ const LOCAL_CAPABLE_MODALITIES = [
   "image-gen",
 ] as const;
 
+const CLOUD_MODALITIES = [
+  "text",
+  "vision",
+  "tts",
+  "stt",
+  "image-gen",
+  "audio-gen",
+  "embedding",
+  "rerank",
+  "3d-gen",
+  "video-gen",
+] as const;
+
+type ViewMode = "runnable" | "local-sota" | "cloud-sota";
+
+const VIEW_LABELS: Record<ViewMode, string> = {
+  runnable: "Runnable",
+  "local-sota": "Local SOTA",
+  "cloud-sota": "Cloud SOTA",
+};
+
+const VIEW_DESCRIPTIONS: Record<ViewMode, string> = {
+  runnable: "Local models that fit this machine's hardware right now.",
+  "local-sota":
+    "Best open-weight models overall — includes entries too big for this PC, marked with warnings.",
+  "cloud-sota":
+    "Leaderboard-ranked cloud providers per modality (no hardware requirement).",
+};
+
 interface InstalledModel {
   name: string;
   sizeBytes: number;
@@ -34,6 +65,7 @@ export function SystemTab({ refreshToken }: { refreshToken: number }) {
   const [profile, setProfile] = useState<SystemProfile | null>(null);
   const [installed, setInstalled] = useState<InstalledModel[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<ViewMode>("runnable");
 
   useEffect(() => {
     let alive = true;
@@ -56,6 +88,10 @@ export function SystemTab({ refreshToken }: { refreshToken: number }) {
       alive = false;
     };
   }, [refreshToken]);
+
+  const modalitiesToRender = useMemo(() => {
+    return view === "cloud-sota" ? CLOUD_MODALITIES : LOCAL_CAPABLE_MODALITIES;
+  }, [view]);
 
   if (loading && !profile) {
     return <div className="inference-empty">Probing hardware…</div>;
@@ -83,16 +119,38 @@ export function SystemTab({ refreshToken }: { refreshToken: number }) {
       )}
 
       <section className="system-suggestions">
-        <div className="label">Recommended for your hardware · per modality</div>
-        {LOCAL_CAPABLE_MODALITIES.map((m) => (
-          <div key={m} className="system-suggestions-block">
+        <div className="system-view-switcher">
+          <div className="pill-group" role="tablist" aria-label="Suggestion view">
+            {(Object.keys(VIEW_LABELS) as ViewMode[]).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`pill${view === v ? " pill--active" : ""}`}
+              >
+                {VIEW_LABELS[v]}
+              </button>
+            ))}
+          </div>
+          <p className="system-view-desc">{VIEW_DESCRIPTIONS[view]}</p>
+        </div>
+
+        {modalitiesToRender.map((m) => (
+          <div key={`${view}-${m}`} className="system-suggestions-block">
             <h3 className="system-suggestions-title">{MODALITY_LABELS[m]}</h3>
-            <LocalSuggestionsStrip
-              modality={m}
-              limit={3}
-              title=""
-              refreshToken={refreshToken}
-            />
+            {view === "cloud-sota" ? (
+              <CloudSuggestionsStrip modality={m} limit={3} title="" />
+            ) : (
+              <LocalSuggestionsStrip
+                modality={m}
+                limit={view === "local-sota" ? 5 : 3}
+                title=""
+                refreshToken={refreshToken}
+                showAll={view === "local-sota"}
+              />
+            )}
           </div>
         ))}
       </section>

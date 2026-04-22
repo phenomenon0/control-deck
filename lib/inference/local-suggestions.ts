@@ -646,6 +646,16 @@ function installCommandFor(candidate: LocalCandidate): string | undefined {
   return undefined;
 }
 
+export interface SuggestOptions {
+  /**
+   * When true, candidates whose VRAM exceeds the machine's capacity are
+   * returned anyway (marked fit="too-big"). Lets the System tab's
+   * "Local SOTA" pill show e.g. Llama 4 70B to a 16 GB laptop user with
+   * a clear "needs 40 GB VRAM" warning — rather than hiding it.
+   */
+  includeOversized?: boolean;
+}
+
 /**
  * Rank suggestions for a modality. Live HF Hub source is primary; the
  * curated candidate table is the fallback when live is unavailable.
@@ -659,6 +669,7 @@ export async function suggestForModality(
   installed: Array<{ name: string }>,
   modality: Modality,
   limit = 8,
+  options: SuggestOptions = {},
 ): Promise<LocalSuggestion[]> {
   // Lazy-import the live fetcher so nothing that reaches this module
   // eagerly pulls the HF client code.
@@ -704,9 +715,29 @@ export async function suggestForModality(
     "needs-cleanup": 2,
     impossible: 3,
   };
-  return scored
-    .filter((s) => s.fit !== "too-big")
-    .filter((s) => s.storage.status !== "impossible")
+  const baseFiltered = scored
+    .filter((s) => options.includeOversized || s.fit !== "too-big")
+    .filter((s) => s.storage.status !== "impossible");
+
+  // Local SOTA mode: rank by community signal + size, NOT by fit. The
+  // whole point is to show the open-weight ceiling regardless of whether
+  // it fits this specific machine; the UI decorates non-fitting cards
+  // with a "Needs N GB VRAM" warning. In Runnable mode we keep fit-first
+  // ranking so the top recommendations are actually installable.
+  if (options.includeOversized) {
+    return baseFiltered
+      .sort((a, b) => {
+        if (a.installed !== b.installed) return a.installed ? -1 : 1;
+        const aScore = signalScore(a.candidate);
+        const bScore = signalScore(b.candidate);
+        if (aScore !== bScore) return bScore - aScore;
+        // Size desc as the tiebreaker — shows off the ceiling.
+        return b.candidate.vramRequiredMB - a.candidate.vramRequiredMB;
+      })
+      .slice(0, limit);
+  }
+
+  return baseFiltered
     .sort((a, b) => {
       if (a.installed !== b.installed) return a.installed ? -1 : 1;
       if (a.fit !== b.fit) return fitOrder[a.fit] - fitOrder[b.fit];

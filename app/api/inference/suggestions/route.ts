@@ -10,6 +10,8 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const modalityParam = url.searchParams.get("modality");
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "8", 10);
+  const filter = url.searchParams.get("filter") ?? "runnable";
+  const includeOversized = filter === "all" || filter === "local-sota";
 
   if (url.searchParams.get("refresh") === "1") {
     const { __clearLiveCache } = await import("@/lib/inference/live-candidates");
@@ -23,7 +25,9 @@ export async function GET(req: Request) {
     const modality = modalityParam as Modality;
     const profile = getSystemProfile();
     const installed = await getInstalledOllamaModels();
-    const suggestions = await suggestForModality(profile, installed, modality, limit);
+    const suggestions = await suggestForModality(profile, installed, modality, limit, {
+      includeOversized,
+    });
     return NextResponse.json({ modality, suggestions, profile });
   }
 
@@ -33,7 +37,10 @@ export async function GET(req: Request) {
   const installed = await getInstalledOllamaModels();
   const entries = await Promise.all(
     Object.values(MODALITIES).map(async (meta) =>
-      [meta.id, await suggestForModality(profile, installed, meta.id, 3)] as const,
+      [
+        meta.id,
+        await suggestForModality(profile, installed, meta.id, 3, { includeOversized }),
+      ] as const,
     ),
   );
   const byModality = Object.fromEntries(entries);

@@ -456,6 +456,50 @@ export const NativeBaselineRestoreSchema = z.object({
   }),
 });
 
+// ── Workspace tools ─────────────────────────────────────────────────
+// Relayed through /api/workspace/commands SSE — fire-and-forget so the
+// agent can rearrange the pane layout without synchronous responses.
+
+const WORKSPACE_PANE_TYPES = [
+  "chat", "terminal", "canvas", "browser", "notes",
+  "agentgo", "audio", "comfy", "control", "models", "runs", "tools", "voice",
+] as const;
+
+export const WorkspaceOpenPaneSchema = z.object({
+  name: z.literal("workspace_open_pane"),
+  args: z.object({
+    type: z.enum(WORKSPACE_PANE_TYPES).describe("Pane component key"),
+    title: z.string().optional().describe("Tab title; defaults to the type name"),
+    position: z
+      .enum(["left", "right", "above", "below"])
+      .optional()
+      .describe("Split direction relative to current active pane; omit to add as tab"),
+    referencePane: z
+      .string()
+      .optional()
+      .describe("Pane id to position relative to; omit to use the focused group"),
+  }),
+});
+
+export const WorkspaceClosePaneSchema = z.object({
+  name: z.literal("workspace_close_pane"),
+  args: z.object({
+    paneId: z.string().describe("Pane handle id — format '<type>:<instanceId>', or the Dockview panel id"),
+  }),
+});
+
+export const WorkspaceFocusPaneSchema = z.object({
+  name: z.literal("workspace_focus_pane"),
+  args: z.object({
+    paneId: z.string().describe("Pane id to focus"),
+  }),
+});
+
+export const WorkspaceResetSchema = z.object({
+  name: z.literal("workspace_reset"),
+  args: z.object({}).describe("Reset the workspace to the default layout"),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -494,6 +538,10 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   NativeWatchRemoveSchema,
   NativeBaselineCaptureSchema,
   NativeBaselineRestoreSchema,
+  WorkspaceOpenPaneSchema,
+  WorkspaceClosePaneSchema,
+  WorkspaceFocusPaneSchema,
+  WorkspaceResetSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -537,6 +585,10 @@ export type NativeWatchDrainArgs = z.infer<typeof NativeWatchDrainSchema>["args"
 export type NativeWatchRemoveArgs = z.infer<typeof NativeWatchRemoveSchema>["args"];
 export type NativeBaselineCaptureArgs = z.infer<typeof NativeBaselineCaptureSchema>["args"];
 export type NativeBaselineRestoreArgs = z.infer<typeof NativeBaselineRestoreSchema>["args"];
+export type WorkspaceOpenPaneArgs = z.infer<typeof WorkspaceOpenPaneSchema>["args"];
+export type WorkspaceClosePaneArgs = z.infer<typeof WorkspaceClosePaneSchema>["args"];
+export type WorkspaceFocusPaneArgs = z.infer<typeof WorkspaceFocusPaneSchema>["args"];
+export type WorkspaceResetArgs = z.infer<typeof WorkspaceResetSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -874,6 +926,35 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "baselineId", type: "string", required: true, description: "Id from native_baseline_capture" },
       { name: "strategy", type: "string", required: false, description: "'close_modals' | 'close_modals_then_focus'", default: "close_modals" },
     ],
+  },
+  {
+    name: "workspace_open_pane",
+    description: "Open a new pane in the user's workspace (must be on /deck/workspace). Fire-and-forget: the command relays to any connected WorkspaceShell which adds the panel via Dockview. Types: chat, terminal, canvas, browser, notes, agentgo, audio, comfy, control, models, runs, tools, voice.",
+    parameters: [
+      { name: "type", type: "string", required: true, description: "Pane component key" },
+      { name: "title", type: "string", required: false, description: "Tab title; defaults to the type name" },
+      { name: "position", type: "string", required: false, description: "'left' | 'right' | 'above' | 'below' — split direction; omit to add as tab" },
+      { name: "referencePane", type: "string", required: false, description: "Pane id to position relative to; omit to use the focused group" },
+    ],
+  },
+  {
+    name: "workspace_close_pane",
+    description: "Close a workspace pane by its handle id. Fire-and-forget.",
+    parameters: [
+      { name: "paneId", type: "string", required: true, description: "Pane handle id (<type>:<instanceId>) or Dockview panel id" },
+    ],
+  },
+  {
+    name: "workspace_focus_pane",
+    description: "Bring a workspace pane into focus.",
+    parameters: [
+      { name: "paneId", type: "string", required: true, description: "Pane id to focus" },
+    ],
+  },
+  {
+    name: "workspace_reset",
+    description: "Reset the user's workspace to the default layout (chat | terminal | notes). Fire-and-forget.",
+    parameters: [],
   },
 ];
 

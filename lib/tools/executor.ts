@@ -52,8 +52,12 @@ import type {
   NativeWatchRemoveArgs,
   NativeBaselineCaptureArgs,
   NativeBaselineRestoreArgs,
+  WorkspaceOpenPaneArgs,
+  WorkspaceClosePaneArgs,
+  WorkspaceFocusPaneArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
+import { publishCommand } from "@/lib/workspace/command-relay";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
@@ -207,6 +211,14 @@ export async function executeTool(
         return await executeNativeBaselineCapture(tool.args);
       case "native_baseline_restore":
         return await executeNativeBaselineRestore(tool.args);
+      case "workspace_open_pane":
+        return executeWorkspaceOpenPane(tool.args);
+      case "workspace_close_pane":
+        return executeWorkspaceClosePane(tool.args);
+      case "workspace_focus_pane":
+        return executeWorkspaceFocusPane(tool.args);
+      case "workspace_reset":
+        return executeWorkspaceReset();
       default:
         return {
           success: false,
@@ -1588,4 +1600,51 @@ async function executeNativeBaselineRestore(
     const msg = err instanceof Error ? err.message : "native_baseline_restore failed";
     return { success: false, message: msg, error: msg };
   }
+}
+
+// ── Workspace tools (relayed to client via SSE) ────────────────────
+
+function executeWorkspaceOpenPane(args: WorkspaceOpenPaneArgs): ToolExecutionResult {
+  const cmd = publishCommand({
+    command: "open_pane",
+    args: args as unknown as Record<string, unknown>,
+  });
+  return {
+    success: true,
+    message: `Queued open_pane(${args.type}) — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+function executeWorkspaceClosePane(args: WorkspaceClosePaneArgs): ToolExecutionResult {
+  const cmd = publishCommand({
+    command: "close_pane",
+    args: args as unknown as Record<string, unknown>,
+  });
+  return {
+    success: true,
+    message: `Queued close_pane(${args.paneId}) — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+function executeWorkspaceFocusPane(args: WorkspaceFocusPaneArgs): ToolExecutionResult {
+  const cmd = publishCommand({
+    command: "focus_pane",
+    args: args as unknown as Record<string, unknown>,
+  });
+  return {
+    success: true,
+    message: `Queued focus_pane(${args.paneId}) — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
+}
+
+function executeWorkspaceReset(): ToolExecutionResult {
+  const cmd = publishCommand({ command: "reset", args: {} });
+  return {
+    success: true,
+    message: `Queued workspace reset — id ${cmd.id}`,
+    data: { commandId: cmd.id, relayed: true },
+  };
 }

@@ -62,6 +62,11 @@ const BRIDGE_TOOLS = new Set<string>([
   "native_watch_remove",
   "native_baseline_capture",
   "native_baseline_restore",
+  // Workspace control (relayed via SSE to any connected WorkspaceShell)
+  "workspace_open_pane",
+  "workspace_close_pane",
+  "workspace_focus_pane",
+  "workspace_reset",
 ]);
 
 interface BridgeRequest {

@@ -60,7 +60,11 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     when: "no-input",
     label: "Go to Audio",
   });
-  useShortcut("5", () => router.push("/deck/control"), {
+  useShortcut("5", () => router.push("/deck/models"), {
+    when: "no-input",
+    label: "Go to Models",
+  });
+  useShortcut("6", () => router.push("/deck/control"), {
     when: "no-input",
     label: "Go to Control",
   });

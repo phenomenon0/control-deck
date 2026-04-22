@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { X } from "lucide-react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
-import { ModalitiesPanel } from "./ModalitiesPanel";
 import {
   useDeckSettings,
   type TTSEngine,
@@ -459,11 +458,11 @@ export function SettingsDrawer() {
             </div>
           </section>
 
-          {/* ─── MODALITIES (text/vision/image/audio/tts/stt/embed/rerank/3d/video) ─── */}
-          <section>
-            <SectionHeader>Modalities</SectionHeader>
-            <ModalitiesPanel />
-          </section>
+          {/*
+            Modalities moved to the first-class Models pane at /deck/models
+            (sidebar icon → kbd 5). ModalitiesPanel.tsx remains as a
+            reusable primitive the compare/inspector views may reuse later.
+          */}
         </div>
       </div>
     </div>

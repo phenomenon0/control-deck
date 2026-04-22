@@ -617,7 +617,8 @@ body {
 .dojo-stage,
 .comfy-stage,
 .voice-stage,
-.models-stage {
+.models-stage,
+.inference-stage {
   flex: 1;
   overflow-y: auto;
   padding: 36px 48px 120px;
@@ -631,7 +632,8 @@ body {
 .dojo-head,
 .comfy-head,
 .voice-head,
-.models-head {
+.models-head,
+.inference-head {
   padding-bottom: 26px;
   border-bottom: 1px solid var(--mist);
   margin-bottom: 26px;
@@ -642,7 +644,8 @@ body {
 .dojo-head h1,
 .comfy-head h1,
 .voice-head h1,
-.models-head h1 {
+.models-head h1,
+.inference-head h1 {
   font-family: var(--font-display);
   font-size: 42px;
   line-height: 1.05;
@@ -658,11 +661,577 @@ body {
 .dojo-head p,
 .comfy-head p,
 .voice-head p,
-.models-head p {
+.models-head p,
+.inference-head p {
   color: var(--fg-muted);
   font-size: 15.5px;
   line-height: 1.55;
   max-width: 680px;
+}
+
+/* ==========================================================================
+   InferenceControlPane — first-class Models surface at /deck/models.
+   Composes with the shared .*-stage / .*-head rules above plus the
+   reusable .control-tabbar tabstrip.
+   ========================================================================== */
+
+.inference-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.inference-action-btn {
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background-color 150ms cubic-bezier(0, 0, 0.2, 1),
+    border-color 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+.inference-action-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-bright);
+}
+
+.inference-body {
+  padding-top: 20px;
+}
+
+.inference-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.inference-empty--error {
+  color: var(--error);
+}
+
+/* Overview table — grid-based so all rows align regardless of content. */
+.inference-overview {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+}
+.inference-overview-row {
+  display: grid;
+  grid-template-columns: 2fr 1.4fr 1.3fr 0.8fr 0.9fr 0.7fr;
+  gap: 16px;
+  padding: 14px 18px;
+  align-items: center;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 150ms cubic-bezier(0, 0, 0.2, 1);
+  font-family: inherit;
+}
+.inference-overview-row:last-child { border-bottom: none; }
+.inference-overview-row:hover:not(.inference-overview-row--head) {
+  background: rgba(255, 255, 255, 0.03);
+}
+.inference-overview-row--head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  cursor: default;
+  background: rgba(255, 255, 255, 0.02);
+}
+.inference-col-right {
+  text-align: right;
+}
+.inference-mono {
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.inference-modality-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.inference-modality-name > span:first-child {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.inference-modality-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.inference-binding {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.inference-binding--unbound {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.inference-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.inference-dot--ok { background: var(--success); }
+.inference-dot--warn { background: var(--warning); }
+.inference-dot--err { background: var(--error); }
+
+.inference-text-muted { color: var(--text-muted); }
+.inference-text-err { color: var(--error); }
+
+/* ── ModalityTab ─────────────────────────────────────────────────── */
+
+.inference-modality-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.inference-modality-heading h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--fg);
+  margin: 0 0 4px 0;
+  letter-spacing: -0.01em;
+}
+
+/* ── LeaderboardStrip ────────────────────────────────────────────── */
+
+.inference-leaderboard {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  padding: 18px 20px;
+}
+.inference-leaderboard-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.inference-leaderboard-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.inference-leaderboard-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.inference-leaderboard-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.inference-leader-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+.inference-leader-rank {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+.inference-leader-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.inference-leader-metric {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+.inference-leader-metric-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.inference-leader-model {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.inference-leader-provider {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.inference-leader-note {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 6px 0 0 0;
+}
+.inference-leader-source {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+.inference-leader-source-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 150ms;
+}
+.inference-leader-source-link:hover { color: var(--accent); }
+.inference-leader-source-text { color: var(--text-muted); }
+
+/* ── ProviderCompareTable ────────────────────────────────────────── */
+
+.inference-compare {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  overflow: hidden;
+}
+.inference-compare-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.inference-compare-msg {
+  font-size: 11px;
+  color: var(--accent);
+}
+.inference-compare-table-wrap { overflow-x: auto; }
+.inference-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.inference-compare-th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  white-space: nowrap;
+}
+.inference-compare-th--sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.inference-compare-th--sortable:hover { color: var(--text-primary); }
+.inference-compare-th--actions { text-align: right; }
+
+.inference-compare-row td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.inference-compare-row:last-child td { border-bottom: none; }
+.inference-compare-row:hover td { background: rgba(255, 255, 255, 0.03); }
+.inference-compare-row--bound td {
+  background: rgba(212, 165, 116, 0.04);
+}
+
+.inference-compare-provider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.inference-compare-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.inference-compare-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  max-width: 260px;
+  line-height: 1.4;
+}
+.inference-compare-source { font-size: 11px; }
+.inference-compare-source a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.inference-compare-source a:hover { color: var(--accent); }
+.inference-compare-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.inference-compare-actions .inference-action-btn + .inference-action-btn {
+  margin-left: 6px;
+}
+
+.inference-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.inference-badge--local {
+  background: rgba(62, 207, 113, 0.12);
+  color: var(--success);
+}
+.inference-badge--cloud {
+  background: rgba(212, 165, 116, 0.12);
+  color: var(--accent);
+}
+.inference-badge--bound {
+  background: var(--accent);
+  color: #0b0b0b;
+}
+
+.inference-action-btn--ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+.inference-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── MetricsStrip ────────────────────────────────────────────────── */
+
+.inference-metrics {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  padding: 16px 20px;
+}
+.inference-metrics-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.inference-metrics-summary-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.inference-metrics-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.inference-metrics-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.inference-metrics-bucket {
+  flex: 1 1 200px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.inference-metrics-bucket-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.inference-metrics-bucket-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.inference-metrics-recent {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.inference-metrics-recent-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--separator);
+}
+.inference-metrics-recent-row:last-child { border-bottom: none; }
+.inference-metrics-recent-time {
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.inference-metrics-recent-err {
+  color: var(--error);
+  font-size: 11px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* ── ProviderInspector ───────────────────────────────────────────── */
+
+.inference-inspector-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  z-index: 80;
+  animation: inference-fade-in 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+.inference-inspector {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 90vw);
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  box-shadow: -20px 0 40px rgba(0, 0, 0, 0.4);
+  z-index: 81;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: inference-slide-in 180ms cubic-bezier(0, 0, 0.2, 1);
+}
+.inference-inspector-head {
+  padding: 24px 24px 18px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.inference-inspector-head h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--fg);
+  margin: 6px 0 6px 0;
+  letter-spacing: -0.01em;
+}
+.inference-inspector-head p {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 380px;
+}
+.inference-inspector-section {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.inference-inspector-section:last-child { border-bottom: none; }
+
+.inference-inspector-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.inference-inspector-kv-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10.5px;
+}
+.inference-inspector-kv-value {
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-all;
+}
+
+.inference-inspector-bench {
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.inference-inspector-bench-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.inference-inspector-bench-source {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.inference-inspector-bench-source:hover { color: var(--accent); }
+.inference-inspector-bench-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 6px;
+}
+.inference-inspector-bench-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+.inference-inspector-bench-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 8px 0 0 0;
+}
+.inference-inspector-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.inference-inspector-models-wrap {
+  margin: 8px -24px -18px -24px;
+}
+
+@keyframes inference-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes inference-slide-in {
+  from { transform: translateX(12px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 .runs-meters {

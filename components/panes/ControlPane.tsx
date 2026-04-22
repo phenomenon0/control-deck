@@ -12,11 +12,10 @@ import { Suspense, useCallback, type ComponentType } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { RunsPane } from "@/components/panes/RunsPane";
 import { ToolsPane } from "@/components/panes/ToolsPane";
-import { ModelsPane } from "@/components/panes/ModelsPane";
 import { DojoPane } from "@/components/dojo";
 import { AgentGoPane } from "@/components/panes/AgentGoPane";
 
-type TabId = "runs" | "tools" | "studio" | "agentgo" | "models";
+type TabId = "runs" | "tools" | "studio" | "agentgo";
 
 interface TabDef {
   id: TabId;
@@ -24,12 +23,14 @@ interface TabDef {
   Component: ComponentType;
 }
 
+// Models moved to its own first-class surface at /deck/models (see
+// InferenceControlPane). The Ollama-specific ModelsPane is now reachable
+// from inside the Models pane's provider inspector.
 const TABS: readonly TabDef[] = [
   { id: "runs", label: "Runs", Component: RunsPane },
   { id: "tools", label: "Tools", Component: ToolsPane },
   { id: "studio", label: "UI Studio", Component: DojoPane },
   { id: "agentgo", label: "Agent-GO", Component: AgentGoPane },
-  { id: "models", label: "Models", Component: ModelsPane },
 ];
 
 function ControlPaneInner() {

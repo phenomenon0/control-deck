@@ -81,85 +81,112 @@ const KEYSYM_TO_VK: Record<number, number> = {
 };
 
 // ---------------------------------------------------------------------
-//  koffi bindings
+//  koffi bindings — memoized across Next.js HMR reloads
 // ---------------------------------------------------------------------
+//
+// Module-level `koffi.struct()` calls fail with "Duplicate type name"
+// on Next.js hot-reload because the types live in a global koffi
+// registry that survives module re-evaluation. Cache the whole
+// bindings object on globalThis so re-imports reuse the existing
+// registration.
 
-// INPUT is a tagged union. 40 bytes on x64 (4-byte type + 4-byte pad +
-// 32-byte union payload). We declare one struct big enough for the
-// largest variant (MOUSEINPUT is 32 bytes after alignment) and overlay
-// both variants manually when filling.
+interface KoffiBindings {
+  INPUT: unknown;
+  SendInput: (...args: unknown[]) => number;
+  GetSystemMetrics: (idx: number) => number;
+  GetForegroundWindow: () => Buffer;
+  SetForegroundWindow: (hwnd: Buffer) => number;
+  ShowWindow: (hwnd: Buffer, cmd: number) => number;
+  IsIconic: (hwnd: Buffer) => number;
+  GetWindowThreadProcessId: (hwnd: Buffer, pid: number[]) => number[];
+  AttachThreadInput: (a: number, b: number, attach: number) => number;
+  GetCurrentThreadId: () => number;
+  EnumWindowsProc: unknown;
+  EnumWindows: (cb: unknown, lp: number) => number;
+  IsWindowVisible: (hwnd: Buffer) => number;
+  GetWindowTextW: (hwnd: Buffer, buf: Buffer, n: number) => number;
+  INPUT_SIZE: number;
+}
 
-const ULONG_PTR = "uintptr";
+const KOFFI_KEY = "__controlDeckWindowsKoffi";
+const globalScope = globalThis as Record<string, unknown>;
 
-const MOUSEINPUT = koffi.struct("MOUSEINPUT", {
-  dx: "int32",
-  dy: "int32",
-  mouseData: "uint32",
-  dwFlags: "uint32",
-  time: "uint32",
-  dwExtraInfo: ULONG_PTR,
-});
+function initKoffi(): KoffiBindings {
+  const ULONG_PTR = "uintptr";
 
-const KEYBDINPUT = koffi.struct("KEYBDINPUT", {
-  wVk: "uint16",
-  wScan: "uint16",
-  dwFlags: "uint32",
-  time: "uint32",
-  dwExtraInfo: ULONG_PTR,
-});
+  const MOUSEINPUT = koffi.struct("MOUSEINPUT", {
+    dx: "int32",
+    dy: "int32",
+    mouseData: "uint32",
+    dwFlags: "uint32",
+    time: "uint32",
+    dwExtraInfo: ULONG_PTR,
+  });
+  const KEYBDINPUT = koffi.struct("KEYBDINPUT", {
+    wVk: "uint16",
+    wScan: "uint16",
+    dwFlags: "uint32",
+    time: "uint32",
+    dwExtraInfo: ULONG_PTR,
+  });
+  const INPUT_UNION = koffi.union("INPUT_UNION", {
+    mi: MOUSEINPUT,
+    ki: KEYBDINPUT,
+  });
+  const INPUT = koffi.struct("INPUT", {
+    type: "uint32",
+    _pad: "uint32",
+    u: INPUT_UNION,
+  });
 
-// Tagged union payload — we emit one or the other; size must match
-// MOUSEINPUT so the stride is correct for SendInput's array form.
-const INPUT_UNION = koffi.union("INPUT_UNION", {
-  mi: MOUSEINPUT,
-  ki: KEYBDINPUT,
-});
+  const user32 = koffi.load("user32.dll");
+  const kernel32 = koffi.load("kernel32.dll");
+  const EnumWindowsProc = koffi.proto("__stdcall", "EnumWindowsProc", "int32", ["void*", "intptr"]);
 
-const INPUT = koffi.struct("INPUT", {
-  type: "uint32",
-  _pad: "uint32",
-  u: INPUT_UNION,
-});
+  return {
+    INPUT,
+    SendInput: user32.func("__stdcall", "SendInput", "uint32",
+      ["uint32", koffi.pointer(INPUT), "int32"]) as (...a: unknown[]) => number,
+    GetSystemMetrics: user32.func("__stdcall", "GetSystemMetrics", "int32", ["int32"]) as (i: number) => number,
+    GetForegroundWindow: user32.func("__stdcall", "GetForegroundWindow", "void*", []) as () => Buffer,
+    SetForegroundWindow: user32.func("__stdcall", "SetForegroundWindow", "int32", ["void*"]) as (h: Buffer) => number,
+    ShowWindow: user32.func("__stdcall", "ShowWindow", "int32", ["void*", "int32"]) as (h: Buffer, c: number) => number,
+    IsIconic: user32.func("__stdcall", "IsIconic", "int32", ["void*"]) as (h: Buffer) => number,
+    GetWindowThreadProcessId: user32.func("__stdcall", "GetWindowThreadProcessId", "uint32",
+      ["void*", koffi.out(koffi.pointer("uint32"))]) as (h: Buffer, p: number[]) => number[],
+    AttachThreadInput: user32.func("__stdcall", "AttachThreadInput", "int32",
+      ["uint32", "uint32", "int32"]) as (a: number, b: number, c: number) => number,
+    GetCurrentThreadId: kernel32.func("__stdcall", "GetCurrentThreadId", "uint32", []) as () => number,
+    EnumWindowsProc,
+    EnumWindows: user32.func("__stdcall", "EnumWindows", "int32",
+      [koffi.pointer(EnumWindowsProc), "intptr"]) as (cb: unknown, lp: number) => number,
+    IsWindowVisible: user32.func("__stdcall", "IsWindowVisible", "int32", ["void*"]) as (h: Buffer) => number,
+    GetWindowTextW: user32.func("__stdcall", "GetWindowTextW", "int32",
+      ["void*", koffi.out(koffi.pointer("uint16")), "int32"]) as (h: Buffer, b: Buffer, n: number) => number,
+    INPUT_SIZE: koffi.sizeof(INPUT),
+  };
+}
 
-const user32 = koffi.load("user32.dll");
-const kernel32 = koffi.load("kernel32.dll");
+const K: KoffiBindings = (globalScope[KOFFI_KEY] as KoffiBindings | undefined)
+  ?? ((globalScope[KOFFI_KEY] = initKoffi()) as KoffiBindings);
 
-const SendInput = user32.func("__stdcall", "SendInput", "uint32", [
-  "uint32",
-  koffi.pointer(INPUT),
-  "int32",
-]);
-
-const GetSystemMetrics = user32.func("__stdcall", "GetSystemMetrics", "int32", ["int32"]);
-
-const GetForegroundWindow = user32.func("__stdcall", "GetForegroundWindow", "void*", []);
-const SetForegroundWindow = user32.func("__stdcall", "SetForegroundWindow", "int32", ["void*"]);
-const ShowWindow = user32.func("__stdcall", "ShowWindow", "int32", ["void*", "int32"]);
-const IsIconic = user32.func("__stdcall", "IsIconic", "int32", ["void*"]);
-const GetWindowThreadProcessId = user32.func(
-  "__stdcall",
-  "GetWindowThreadProcessId",
-  "uint32",
-  ["void*", koffi.out(koffi.pointer("uint32"))],
-);
-const AttachThreadInput = user32.func("__stdcall", "AttachThreadInput", "int32", [
-  "uint32",
-  "uint32",
-  "int32",
-]);
-const GetCurrentThreadId = kernel32.func("__stdcall", "GetCurrentThreadId", "uint32", []);
-
-const EnumWindowsProc = koffi.proto(
-  "__stdcall",
-  "EnumWindowsProc",
-  "int32",
-  ["void*", "intptr"],
-);
-const EnumWindows = user32.func("__stdcall", "EnumWindows", "int32", [
-  koffi.pointer(EnumWindowsProc),
-  "intptr",
-]);
-const IsWindowVisible = user32.func("__stdcall", "IsWindowVisible", "int32", ["void*"]);
+const {
+  INPUT,
+  SendInput,
+  GetSystemMetrics,
+  GetForegroundWindow,
+  SetForegroundWindow,
+  ShowWindow,
+  IsIconic,
+  GetWindowThreadProcessId,
+  AttachThreadInput,
+  GetCurrentThreadId,
+  EnumWindowsProc,
+  EnumWindows,
+  IsWindowVisible,
+  GetWindowTextW,
+  INPUT_SIZE,
+} = K;
 
 // ---------------------------------------------------------------------
 //  key injection
@@ -324,7 +351,7 @@ function makeMouseInput(opts: {
 
 function send(inputs: Record<string, unknown>[]): void {
   if (!inputs.length) return;
-  const written = SendInput(inputs.length, inputs as unknown as Buffer, koffi.sizeof(INPUT));
+  const written = SendInput(inputs.length, inputs as unknown as Buffer, INPUT_SIZE);
   if (written !== inputs.length) {
     throw new Error(`SendInput wrote ${written}/${inputs.length} events`);
   }
@@ -417,12 +444,7 @@ function findWindowByApp(appId: string, log: string[]): Buffer | null {
   return matched;
 }
 
-// Tiny GetWindowTextW wrapper to substring-match titles.
-const GetWindowTextW = user32.func("__stdcall", "GetWindowTextW", "int32", [
-  "void*",
-  koffi.out(koffi.pointer("uint16")),
-  "int32",
-]);
+// GetWindowTextW comes from the memoized bindings above.
 
 function windowTitleIncludes(hwnd: Buffer, needle: string): boolean {
   const bufLen = 512;

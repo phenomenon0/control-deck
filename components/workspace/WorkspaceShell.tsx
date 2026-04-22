@@ -16,6 +16,15 @@ import { TerminalPanelAdapter } from "./panes/TerminalPanelAdapter";
 import { CanvasPanelAdapter } from "./panes/CanvasPanelAdapter";
 import { BrowserPanelAdapter } from "./panes/BrowserPanelAdapter";
 import { NotesPaneAdapter } from "./panes/NotesPaneAdapter";
+import { makePaneAdapter } from "./panes/GenericPaneAdapter";
+import { AgentGoPane } from "@/components/panes/AgentGoPane";
+import { AudioPane } from "@/components/panes/AudioPane";
+import { ComfyPane } from "@/components/panes/ComfyPane";
+import { ControlPane } from "@/components/panes/ControlPane";
+import { ModelsPane } from "@/components/panes/ModelsPane";
+import { RunsPane } from "@/components/panes/RunsPane";
+import { ToolsPane } from "@/components/panes/ToolsPane";
+import { VoicePane } from "@/components/panes/VoicePane";
 
 /**
  * WorkspaceShell — the Dockview-backed tiled layout container.
@@ -40,6 +49,14 @@ const COMPONENTS = {
   canvas: CanvasPanelAdapter,
   browser: BrowserPanelAdapter,
   notes: NotesPaneAdapter,
+  agentgo: makePaneAdapter("agentgo", AgentGoPane),
+  audio: makePaneAdapter("audio", AudioPane),
+  comfy: makePaneAdapter("comfy", ComfyPane),
+  control: makePaneAdapter("control", ControlPane),
+  models: makePaneAdapter("models", ModelsPane),
+  runs: makePaneAdapter("runs", RunsPane),
+  tools: makePaneAdapter("tools", ToolsPane),
+  voice: makePaneAdapter("voice", VoicePane),
 } as unknown as Record<string, React.FC<IDockviewPanelProps>>;
 
 interface WorkspaceShellProps {

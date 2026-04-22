@@ -8,10 +8,14 @@ import {
   type IDockviewPanelProps,
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
+import "./workspace.css";
 import { DEFAULT_WORKSPACE_LAYOUT, WORKSPACE_LAYOUT_KEY } from "./defaults";
-import { PlaceholderPane } from "./panes/PlaceholderPane";
+import { PANE_CATALOG } from "./paneCatalog";
 import { ChatPanelAdapter } from "./panes/ChatPanelAdapter";
 import { TerminalPanelAdapter } from "./panes/TerminalPanelAdapter";
+import { CanvasPanelAdapter } from "./panes/CanvasPanelAdapter";
+import { BrowserPanelAdapter } from "./panes/BrowserPanelAdapter";
+import { NotesPaneAdapter } from "./panes/NotesPaneAdapter";
 
 /**
  * WorkspaceShell — the Dockview-backed tiled layout container.
@@ -33,7 +37,9 @@ import { TerminalPanelAdapter } from "./panes/TerminalPanelAdapter";
 const COMPONENTS = {
   chat: ChatPanelAdapter,
   terminal: TerminalPanelAdapter,
-  placeholder: PlaceholderPane,
+  canvas: CanvasPanelAdapter,
+  browser: BrowserPanelAdapter,
+  notes: NotesPaneAdapter,
 } as unknown as Record<string, React.FC<IDockviewPanelProps>>;
 
 interface WorkspaceShellProps {
@@ -77,10 +83,10 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
       position: { referencePanel: chat.id, direction: "right" },
     });
     api.addPanel({
-      id: "scratch",
-      component: "placeholder",
-      title: "Scratch",
-      params: { paneType: "scratch", instanceId: "scratch-default" },
+      id: "notes",
+      component: "notes",
+      title: "Notes",
+      params: { paneType: "notes", instanceId: "notes-default" },
       position: { referencePanel: "terminal", direction: "below" },
     });
   };
@@ -137,6 +143,22 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     seedDefaultLayout(api);
   };
 
+  const spawnPane = (component: string, label: string) => {
+    const api = apiRef.current;
+    if (!api) return;
+    const instanceId = `${component}-${Date.now().toString(36)}`;
+    const id = `${component}-${instanceId}`;
+    api.addPanel({
+      id,
+      component,
+      title: label,
+      params: { paneType: component, instanceId },
+    });
+    setSpawnOpen(false);
+  };
+
+  const [spawnOpen, setSpawnOpen] = useState(false);
+
   return (
     <div
       data-ready={ready}
@@ -144,26 +166,77 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
       className="dockview-theme-abyss"
     >
       <DockviewReact components={COMPONENTS} onReady={onReady} />
-      <button
-        onClick={reset}
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          zIndex: 10,
-          padding: "4px 10px",
-          fontSize: 11,
-          fontFamily: "ui-monospace, SFMono-Regular, monospace",
-          background: "rgba(0,0,0,0.5)",
-          color: "#ddd",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 3,
-          cursor: "pointer",
-        }}
-        title="Reset workspace to default layout"
-      >
-        reset
-      </button>
+
+      <div style={{
+        position: "absolute",
+        top: 8,
+        right: 8,
+        zIndex: 10,
+        display: "flex",
+        gap: 6,
+      }}>
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setSpawnOpen((v) => !v)}
+            style={toolbarBtn}
+            title="Open a new pane"
+          >
+            + pane
+          </button>
+          {spawnOpen && (
+            <div style={{
+              position: "absolute",
+              top: "100%",
+              right: 0,
+              marginTop: 4,
+              minWidth: 180,
+              background: "rgba(20,20,24,0.95)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 4,
+              overflow: "hidden",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            }}>
+              {PANE_CATALOG.map((entry) => (
+                <button
+                  key={entry.component}
+                  onClick={() => spawnPane(entry.component, entry.defaultTitle)}
+                  style={spawnMenuItem}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button onClick={reset} style={toolbarBtn} title="Reset workspace to default layout">
+          reset
+        </button>
+      </div>
     </div>
   );
 }
+
+const toolbarBtn: React.CSSProperties = {
+  padding: "4px 10px",
+  fontSize: 11,
+  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+  background: "rgba(0,0,0,0.5)",
+  color: "#ddd",
+  border: "1px solid rgba(255,255,255,0.12)",
+  borderRadius: 3,
+  cursor: "pointer",
+};
+
+const spawnMenuItem: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "6px 12px",
+  textAlign: "left",
+  fontSize: 12,
+  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+  background: "transparent",
+  color: "#ddd",
+  border: "none",
+  borderBottom: "1px solid rgba(255,255,255,0.05)",
+  cursor: "pointer",
+};

@@ -1,0 +1,120 @@
+/**
+ * Workspace CSS overrides — make Dockview's drag affordances visible.
+ * Defaults are fine for developers who know the library; for first-time
+ * users of control-deck's workspace, gutters + drop zones need to pop.
+ */
+
+/* Visible gutter between split panels */
+.dv-splitview-container .dv-view-container > .dv-sash {
+  background: rgba(255, 255, 255, 0.05);
+  transition: background 120ms ease;
+}
+.dv-splitview-container .dv-view-container > .dv-sash:hover,
+.dv-splitview-container .dv-view-container > .dv-sash.dv-sash-dragging {
+  background: rgba(100, 180, 255, 0.6);
+}
+
+/* Wider, more visible horizontal sash */
+.dv-splitview-container.dv-horizontal > .dv-view-container > .dv-sash {
+  width: 4px;
+  cursor: ew-resize;
+}
+.dv-splitview-container.dv-vertical > .dv-view-container > .dv-sash {
+  height: 4px;
+  cursor: ns-resize;
+}
+
+/* Drop zone overlay (shown while dragging a tab) */
+.dv-drop-target-anchor {
+  background: rgba(100, 180, 255, 0.25) !important;
+  border: 2px solid rgba(100, 180, 255, 0.9) !important;
+  transition: all 100ms ease;
+}
+
+/* Make the tab strip more obvious as a drag handle */
+.dv-tabs-container {
+  min-height: 30px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.dv-tab {
+  cursor: grab;
+}
+.dv-tab.dv-active-tab {
+  cursor: pointer;
+}
+.dv-tab:active {
+  cursor: grabbing;
+}
+
+/* Subtle hint banner in an empty workspace */
+.workspace-shell[data-ready="true"]::before {
+  content: "";
+}
+
+/* ── Notes pane preview typography ─────────────────────────────── */
+.notes-preview { color: #d8d8e0; }
+.notes-preview h1, .notes-preview h2, .notes-preview h3,
+.notes-preview h4, .notes-preview h5, .notes-preview h6 {
+  margin: 1.6em 0 0.5em;
+  color: #fafafa;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.notes-preview h1 { font-size: 1.8em; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: .3em; }
+.notes-preview h2 { font-size: 1.4em; }
+.notes-preview h3 { font-size: 1.15em; }
+.notes-preview p, .notes-preview ul, .notes-preview ol { margin: 0.7em 0; }
+.notes-preview ul, .notes-preview ol { padding-left: 1.5em; }
+.notes-preview li { margin: 0.2em 0; }
+.notes-preview a { color: #7ab8ff; text-decoration: none; border-bottom: 1px solid rgba(122,184,255,0.3); }
+.notes-preview a:hover { border-bottom-color: #7ab8ff; }
+.notes-preview code {
+  background: rgba(255,255,255,0.06);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.92em;
+  color: #f5d890;
+}
+.notes-preview pre {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 1em 0;
+}
+.notes-preview pre code {
+  background: transparent;
+  padding: 0;
+  color: #d8d8e0;
+}
+.notes-preview blockquote {
+  margin: 1em 0;
+  padding: 2px 14px;
+  border-left: 3px solid rgba(100,180,255,0.5);
+  color: rgba(216,216,224,0.8);
+  background: rgba(100,180,255,0.04);
+}
+.notes-preview hr {
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  margin: 2em 0;
+}
+.notes-preview strong { color: #fafafa; }
+.notes-preview em { color: rgba(216,216,224,0.9); }
+.notes-preview table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.92em;
+}
+.notes-preview th, .notes-preview td {
+  padding: 6px 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  text-align: left;
+}
+.notes-preview th { background: rgba(255,255,255,0.04); }
+.notes-preview img { max-width: 100%; border-radius: 3px; }
+.notes-preview ul li input[type="checkbox"] { margin-right: 6px; }

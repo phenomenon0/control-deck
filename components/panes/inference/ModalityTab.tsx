@@ -12,10 +12,20 @@
 import { useState } from "react";
 
 import { LeaderboardStrip } from "./LeaderboardStrip";
+import { LocalSuggestionsStrip } from "./LocalSuggestionsStrip";
 import { ProviderCompareTable } from "./ProviderCompareTable";
 import { MetricsStrip } from "./MetricsStrip";
 import { ProviderInspector } from "./ProviderInspector";
 import { MODALITY_LABELS } from "./modality-meta";
+
+const LOCAL_CAPABLE = new Set<ModalityId>([
+  "text",
+  "vision",
+  "stt",
+  "tts",
+  "embedding",
+  "image-gen",
+]);
 
 type ModalityId =
   | "text"
@@ -43,6 +53,10 @@ export function ModalityTab({
       <div className="inference-modality-heading">
         <h2>{MODALITY_LABELS[modality]}</h2>
       </div>
+
+      {LOCAL_CAPABLE.has(modality) && (
+        <LocalSuggestionsStrip modality={modality} limit={3} refreshToken={refreshToken} />
+      )}
 
       <LeaderboardStrip modality={modality} />
 

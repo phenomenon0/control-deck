@@ -15,6 +15,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 import { OverviewTab } from "./inference/OverviewTab";
 import { ModalityTab } from "./inference/ModalityTab";
+import { SystemTab } from "./inference/SystemTab";
 
 type ModalityId =
   | "text"
@@ -29,11 +30,12 @@ type ModalityId =
   | "video-gen";
 
 interface TabDef {
-  id: "overview" | ModalityId;
+  id: "system" | "overview" | ModalityId;
   label: string;
 }
 
 const TABS: readonly TabDef[] = [
+  { id: "system", label: "System" },
   { id: "overview", label: "Overview" },
   { id: "text", label: "Text" },
   { id: "vision", label: "Vision" },
@@ -64,12 +66,12 @@ function InferenceControlPaneInner() {
 
   const rawTab = params.get("tab");
   const active: TabDef["id"] =
-    (TABS.find((t) => t.id === rawTab)?.id as TabDef["id"]) ?? "overview";
+    (TABS.find((t) => t.id === rawTab)?.id as TabDef["id"]) ?? "system";
 
   const setTab = useCallback(
     (id: TabDef["id"]) => {
       const sp = new URLSearchParams(params.toString());
-      if (id === "overview") {
+      if (id === "system") {
         sp.delete("tab");
       } else {
         sp.set("tab", id);
@@ -167,7 +169,9 @@ function InferenceControlPaneInner() {
       </div>
 
       <div className="inference-body">
-        {active === "overview" ? (
+        {active === "system" ? (
+          <SystemTab refreshToken={refreshToken} />
+        ) : active === "overview" ? (
           <OverviewTab refreshToken={refreshToken} onNavigate={setTab} />
         ) : (
           <ModalityTab modality={active} refreshToken={refreshToken} />

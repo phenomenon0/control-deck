@@ -1234,6 +1234,289 @@ body {
   to { transform: translateX(0); opacity: 1; }
 }
 
+/* ==========================================================================
+   SystemTab — hardware profile + per-modality local suggestions.
+   ========================================================================== */
+
+.system-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.system-profile {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  padding: 22px 24px;
+}
+.system-profile-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.system-profile-head h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--fg);
+  margin: 6px 0 4px;
+  letter-spacing: -0.01em;
+}
+.system-profile-head p {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+.system-backend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.system-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.system-stat {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.system-stat-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.system-stat-primary {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.system-stat-primary--warn { color: var(--warning); }
+.system-stat-secondary {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.system-stat-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+.system-stat-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 250ms ease;
+}
+.system-stat-bar-fill--warn { background: var(--warning); }
+
+/* Installed chips */
+.system-installed {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.system-installed-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.system-installed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(62, 207, 113, 0.06);
+  font-size: 12px;
+}
+.system-installed-size {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* Per-modality suggestion blocks inside SystemTab */
+.system-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.system-suggestions-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  padding: 14px 18px;
+}
+.system-suggestions-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px 0;
+  color: var(--fg);
+  letter-spacing: -0.005em;
+}
+
+/* ==========================================================================
+   LocalSuggestionsStrip — shared cards used on System + per-modality tabs.
+   ========================================================================== */
+
+.local-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.local-strip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.local-strip-msg {
+  font-size: 11px;
+  color: var(--accent);
+}
+.local-strip-loading {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.local-strip-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.local-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+.local-card--installed {
+  border-color: rgba(62, 207, 113, 0.35);
+  background: rgba(62, 207, 113, 0.04);
+}
+.local-card--perfect { }
+.local-card--tight { border-color: rgba(229, 166, 62, 0.25); }
+.local-card--overhead-risk { border-color: rgba(229, 83, 75, 0.22); }
+
+.local-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.local-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.local-card-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.local-card-dot { color: var(--text-muted); opacity: 0.6; }
+.local-card-family { color: var(--text-secondary); }
+.local-card-fill {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.local-card-fill-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 200ms ease;
+}
+.local-card-fill-bar--perfect { background: var(--success); }
+.local-card-fill-bar--tight { background: var(--warning); }
+.local-card-fill-bar--overhead-risk { background: var(--error); }
+.local-card-reason {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+.local-card-actions {
+  display: flex;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.local-card-installed-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--success);
+}
+.local-card-cmd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.local-fit {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.local-fit--installed {
+  background: var(--success);
+  color: #0b0b0b;
+}
+.local-fit--perfect {
+  background: rgba(62, 207, 113, 0.14);
+  color: var(--success);
+}
+.local-fit--tight {
+  background: rgba(229, 166, 62, 0.14);
+  color: var(--warning);
+}
+.local-fit--overhead-risk {
+  background: rgba(229, 83, 75, 0.14);
+  color: var(--error);
+}
+
 .runs-meters {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

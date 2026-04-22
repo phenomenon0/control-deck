@@ -2,6 +2,8 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import os from "os";
 import path from "path";
+// rebuild-trigger
+
 import type { AGUIEvent } from "./events";
 import { AGUI_SCHEMA_VERSION, normalizeEvent } from "./events";
 
@@ -134,6 +136,48 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_plugin_cache_expires ON plugin_cache(expires_at);
+
+    -- Server-persisted deck settings. Row-per-section; value is JSON.
+    -- Sections are validated by Zod at lib/settings/schema.ts before write.
+    CREATE TABLE IF NOT EXISTS settings (
+      section TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Approval queue for gated tool dispatches. Runtime polls this or
+    -- subscribes via the AGUI hub to get a decision before proceeding.
+    CREATE TABLE IF NOT EXISTS approvals (
+      id TEXT PRIMARY KEY,
+      run_id TEXT,
+      thread_id TEXT,
+      tool_name TEXT NOT NULL,
+      tool_args TEXT NOT NULL,
+      estimated_cost_usd REAL,
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      decision_by TEXT,
+      decision_note TEXT,
+      created_at TEXT NOT NULL,
+      decided_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+    CREATE INDEX IF NOT EXISTS idx_approvals_run ON approvals(run_id);
+
+    -- Invocation log for tool + skill calls. Powers Capabilities usage stats.
+    CREATE TABLE IF NOT EXISTS invocations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_type TEXT NOT NULL,   -- 'tool' | 'skill'
+      target_id TEXT NOT NULL,
+      run_id TEXT,
+      thread_id TEXT,
+      started_at TEXT NOT NULL,
+      duration_ms INTEGER,
+      status TEXT NOT NULL,        -- 'ok' | 'error'
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_invocations_target ON invocations(target_type, target_id);
+    CREATE INDEX IF NOT EXISTS idx_invocations_started ON invocations(started_at);
   `);
   
   // Migration: Add run_id column to messages if it doesn't exist
@@ -767,4 +811,193 @@ export function cleanupExpiredCache(): number {
   const now = new Date().toISOString();
   const result = db.prepare(`DELETE FROM plugin_cache WHERE expires_at < ?`).run(now);
   return result.changes;
+}
+
+// ─── Settings ──────────────────────────────────────────────────────────────
+
+export interface SettingsRow {
+  section: string;
+  value: string;
+  updated_at: string;
+}
+
+export function getSetting(section: string): Record<string, unknown> | undefined {
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT value FROM settings WHERE section = ?`)
+    .get(section) as { value: string } | undefined;
+  if (!row) return undefined;
+  try {
+    return JSON.parse(row.value);
+  } catch {
+    return undefined;
+  }
+}
+
+export function getAllSettings(): Record<string, Record<string, unknown>> {
+  const db = getDb();
+  const rows = db.prepare(`SELECT section, value FROM settings`).all() as SettingsRow[];
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const r of rows) {
+    try {
+      out[r.section] = JSON.parse(r.value);
+    } catch {
+      // Skip corrupt rows; the resolver logs a warning and falls back to defaults.
+    }
+  }
+  return out;
+}
+
+export function setSetting(section: string, value: Record<string, unknown>): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO settings (section, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(section) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(section, JSON.stringify(value), new Date().toISOString());
+}
+
+// ─── Approvals ─────────────────────────────────────────────────────────────
+
+export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
+
+export interface ApprovalRow {
+  id: string;
+  run_id: string | null;
+  thread_id: string | null;
+  tool_name: string;
+  tool_args: string;
+  estimated_cost_usd: number | null;
+  reason: string | null;
+  status: ApprovalStatus;
+  decision_by: string | null;
+  decision_note: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface CreateApprovalInput {
+  id: string;
+  runId?: string;
+  threadId?: string;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  estimatedCostUsd?: number;
+  reason?: string;
+}
+
+export function createApproval(input: CreateApprovalInput): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO approvals (id, run_id, thread_id, tool_name, tool_args, estimated_cost_usd, reason, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+  ).run(
+    input.id,
+    input.runId ?? null,
+    input.threadId ?? null,
+    input.toolName,
+    JSON.stringify(input.toolArgs),
+    input.estimatedCostUsd ?? null,
+    input.reason ?? null,
+    new Date().toISOString(),
+  );
+}
+
+export function decideApproval(
+  id: string,
+  decision: "approved" | "denied",
+  note?: string,
+  decisionBy?: string,
+): void {
+  const db = getDb();
+  db.prepare(
+    `UPDATE approvals SET status = ?, decision_note = ?, decision_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'`,
+  ).run(decision, note ?? null, decisionBy ?? null, new Date().toISOString(), id);
+}
+
+export function getApproval(id: string): ApprovalRow | undefined {
+  const db = getDb();
+  return db.prepare(`SELECT * FROM approvals WHERE id = ?`).get(id) as ApprovalRow | undefined;
+}
+
+export function getApprovals(status?: ApprovalStatus, limit = 100): ApprovalRow[] {
+  const db = getDb();
+  if (status) {
+    return db
+      .prepare(`SELECT * FROM approvals WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
+      .all(status, limit) as ApprovalRow[];
+  }
+  return db
+    .prepare(`SELECT * FROM approvals ORDER BY created_at DESC LIMIT ?`)
+    .all(limit) as ApprovalRow[];
+}
+
+// ─── Invocations ───────────────────────────────────────────────────────────
+
+export type InvocationTargetType = "tool" | "skill";
+export type InvocationStatus = "ok" | "error";
+
+export interface InvocationRow {
+  id: number;
+  target_type: InvocationTargetType;
+  target_id: string;
+  run_id: string | null;
+  thread_id: string | null;
+  started_at: string;
+  duration_ms: number | null;
+  status: InvocationStatus;
+  error: string | null;
+}
+
+export interface CreateInvocationInput {
+  targetType: InvocationTargetType;
+  targetId: string;
+  runId?: string;
+  threadId?: string;
+  startedAt?: string;
+  durationMs?: number;
+  status: InvocationStatus;
+  error?: string;
+}
+
+export function recordInvocation(input: CreateInvocationInput): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO invocations (target_type, target_id, run_id, thread_id, started_at, duration_ms, status, error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.targetType,
+    input.targetId,
+    input.runId ?? null,
+    input.threadId ?? null,
+    input.startedAt ?? new Date().toISOString(),
+    input.durationMs ?? null,
+    input.status,
+    input.error ?? null,
+  );
+}
+
+export interface InvocationStats {
+  targetId: string;
+  count: number;
+  errors: number;
+  lastInvokedAt: string | null;
+  avgDurationMs: number | null;
+}
+
+export function getInvocationStats(
+  targetType: InvocationTargetType,
+): InvocationStats[] {
+  const db = getDb();
+  return db
+    .prepare(
+      `SELECT target_id as targetId,
+              COUNT(*) as count,
+              SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors,
+              MAX(started_at) as lastInvokedAt,
+              AVG(duration_ms) as avgDurationMs
+         FROM invocations
+         WHERE target_type = ?
+         GROUP BY target_id`,
+    )
+    .all(targetType) as InvocationStats[];
 }

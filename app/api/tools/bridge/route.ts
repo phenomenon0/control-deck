@@ -130,6 +130,24 @@ export async function POST(req: Request): Promise<Response> {
   };
 
   try {
+    // Gate the dispatch through the approval policy. If the user has
+    // configured ask-on-all (or this tool falls under a side-effect or
+    // cost-threshold rule), we'll block here until the Approvals queue in
+    // /deck/control?tab=runs&view=approvals resolves it.
+    const { gateToolCall } = await import("@/lib/approvals/gate");
+    const verdict = await gateToolCall({
+      toolName: tool,
+      toolArgs: (args ?? {}) as Record<string, unknown>,
+      runId: ctx.run_id,
+      threadId: ctx.thread_id,
+    });
+    if (verdict.decision === "denied") {
+      return Response.json(
+        { success: false, error: `tool call denied: ${verdict.reason}` } as BridgeResponse,
+        { status: 403 },
+      );
+    }
+
     // Execute tool - cast to the expected union type
     // The executor will validate and handle unknown tools
     const toolCall = {

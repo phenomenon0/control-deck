@@ -1,8 +1,39 @@
 import { getRuns, getEvents, getTotalCost, clearRuns } from "@/lib/agui/db";
+import {
+  costOverTime,
+  errorRateOverTime,
+  latencyByTool,
+  toolUsage,
+  type Window,
+} from "@/lib/agui/metrics";
 import { NextResponse } from "next/server";
+
+function parseWindow(raw: string | null): Window {
+  if (raw === "24h" || raw === "7d" || raw === "30d" || raw === "all") return raw;
+  return "7d";
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const aggregate = url.searchParams.get("aggregate");
+  const windowParam = parseWindow(url.searchParams.get("window"));
+
+  // Aggregation mode — Runs telemetry dashboard.
+  if (aggregate) {
+    switch (aggregate) {
+      case "cost":
+        return NextResponse.json({ window: windowParam, series: costOverTime(windowParam) });
+      case "latency":
+        return NextResponse.json({ window: windowParam, series: latencyByTool(windowParam) });
+      case "tools":
+        return NextResponse.json({ window: windowParam, series: toolUsage(windowParam) });
+      case "errors":
+        return NextResponse.json({ window: windowParam, series: errorRateOverTime(windowParam) });
+      default:
+        return NextResponse.json({ error: `unknown aggregate: ${aggregate}` }, { status: 400 });
+    }
+  }
+
   const threadId = url.searchParams.get("threadId") ?? undefined;
   const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
 

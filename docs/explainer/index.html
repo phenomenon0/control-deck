@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en" data-warmth="warm" data-type="editorial" data-accent="amber">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Control Deck — the cockpit for the AI homelab</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- =========================================================
+     TOP BAR
+     ========================================================= -->
+<header class="topbar">
+  <a class="brand" href="#top">
+    <span class="mark" aria-hidden="true">◆</span>
+    <span class="word">Control Deck</span>
+  </a>
+  <nav class="jump">
+    <a href="#stance">Stance</a>
+    <a href="#synergy">Synergy</a>
+    <a href="#modalities">Modalities</a>
+    <a href="#hardware">Hardware</a>
+    <a href="#peers">Vs. the field</a>
+    <a href="#ease">Ease</a>
+    <a href="#start">Start</a>
+  </nav>
+</header>
+
+<!-- =========================================================
+     HERO — editorial
+     ========================================================= -->
+<section class="hero" id="top">
+  <div class="inner">
+    <p class="kicker">The homelab AI cockpit · Local · Open · One surface</p>
+    <h1>
+      Every&nbsp;modality.<br>
+      One&nbsp;surface.<br>
+      <em>Your&nbsp;hardware.</em>
+    </h1>
+    <p class="lede">
+      Control Deck is the connective tissue for your entire local AI stack.
+      Text, voice, vision, code, 3D, image, audio, browser, terminal, and your
+      native OS — not as plugins or tabs, but as a single composed surface where
+      every modality sees every other.
+    </p>
+
+    <div class="hero-grid">
+      <div class="stat">
+        <span class="n">10</span>
+        <span class="t">first-class modalities on one timeline</span>
+      </div>
+      <div class="stat">
+        <span class="n">6</span>
+        <span class="t">local services aggregated · one token · one SQLite</span>
+      </div>
+      <div class="stat">
+        <span class="n">3</span>
+        <span class="t">native OS adapters · Linux · macOS · Windows*</span>
+      </div>
+      <div class="stat">
+        <span class="n">10</span>
+        <span class="t">LLM providers, slot-routed (primary · fast · vision · embed)</span>
+      </div>
+    </div>
+
+    <p class="fine">
+      *Windows UIA adapter is stubbed with a clear error — Linux AT-SPI and macOS AX are live.
+    </p>
+  </div>
+</section>
+
+<!-- =========================================================
+     STANCE — what it stands for
+     ========================================================= -->
+<section id="stance" class="band">
+  <div class="inner">
+    <p class="sect-kicker">What it stands for</p>
+    <h2 class="sect-head">Six pillars, one cockpit.</h2>
+    <p class="sect-lede">
+      Not a feature list — a stance. Every screen, event, and shortcut in Control Deck
+      serves one of these. If it doesn't, it isn't in the deck.
+    </p>
+
+    <div class="pillars">
+
+      <article class="pillar">
+        <span class="p-num">01</span>
+        <h3>Aggregate</h3>
+        <p>
+          Ollama, ComfyUI, SearxNG, Qdrant, the voice sidecar, Agent-GO — six local
+          services become one cockpit, one bearer token, one SQLite file you can back
+          up with <code>cp</code>. This isn't an app launcher. It's a single composed
+          surface where the services know about each other.
+        </p>
+      </article>
+
+      <article class="pillar">
+        <span class="p-num">02</span>
+        <h3>Control</h3>
+        <p>
+          Reads your VRAM. Watches your services. Drives native apps via AT-SPI / AX /
+          UIA. Attaches to Chromium via CDP. The deck sees your hardware and can move
+          your cursor — not just your API tokens.
+        </p>
+      </article>
+
+      <article class="pillar">
+        <span class="p-num">03</span>
+        <h3>Connect</h3>
+        <p>
+          Every modality shares one timeline, one artifact store, one run history. Voice
+          asks; vision answers; code executes; 3D renders — in the same conversation,
+          stored in the same database, addressable by the same agent.
+        </p>
+      </article>
+
+      <article class="pillar">
+        <span class="p-num">04</span>
+        <h3>Synergize</h3>
+        <p>
+          Ten surfaces, zero context loss. The dashboard knows what the chat is doing.
+          The browser knows what the agent clicked. The voice engine knows which model
+          is loaded. Meta-state is ambient, not a setting you go find.
+        </p>
+      </article>
+
+      <article class="pillar">
+        <span class="p-num">05</span>
+        <h3>Multi-modal</h3>
+        <p>
+          Text, voice, vision, image-gen, 3D, audio, video, code, web, native OS —
+          all first-class citizens. Not "supports X via plugin" — rendered in the
+          same timeline, stored as the same artifact kind, invoked by the same agent.
+        </p>
+      </article>
+
+      <article class="pillar">
+        <span class="p-num">06</span>
+        <h3>Ease</h3>
+        <p>
+          One AppImage. One <code>Cmd+K</code>. One bearer token. One SQLite you back
+          up with <code>cp</code>. The cockpit is harder to lose than to set up.
+        </p>
+      </article>
+
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     SYNERGY — the real differentiator shown in scenarios
+     ========================================================= -->
+<section id="synergy" class="band alt">
+  <div class="inner">
+    <p class="sect-kicker">Synergy · the compound unlock</p>
+    <h2 class="sect-head">The cockpit isn't the sum of its surfaces. It's the product.</h2>
+    <p class="sect-lede">
+      Aggregation is table stakes. Synergy is the payoff. When every modality shares
+      one timeline, every service reads one SQLite, and every surface listens to one
+      event bus, the number of flows you can run compounds — not adds. Ten capabilities
+      bolted onto one cockpit yields far more than ten capabilities in ten tabs.
+    </p>
+
+    <!-- ================ THREE AXES ================ -->
+    <div class="axes">
+      <div class="axis">
+        <span class="axis-n">Axis A</span>
+        <h4>Modality × Modality</h4>
+        <p>Voice asks · vision answers · image renders · audio speaks — in a single conversation turn.</p>
+      </div>
+      <div class="axis">
+        <span class="axis-n">Axis B</span>
+        <h4>Surface × Hardware</h4>
+        <p>The dashboard reads your VRAM · the agent uses that reading · the timeline records the reasoning.</p>
+      </div>
+      <div class="axis">
+        <span class="axis-n">Axis C</span>
+        <h4>Memory × Time</h4>
+        <p>Every artifact is queryable · every run is replayable · every browse is a clip you can revisit.</p>
+      </div>
+    </div>
+
+    <!-- ================ SIX FLOWS ================ -->
+    <div class="flows">
+
+      <!-- ——— Axis A ——— -->
+      <article class="flow">
+        <header>
+          <span class="f-tag">Flow 01 · Axis A</span>
+          <h3>Research → Summary → Cite</h3>
+        </header>
+        <ol class="steps">
+          <li><span class="s-ico">🎙</span> <strong>Voice</strong> — push-to-talk: "find the latest on WebGPU compute shaders."</li>
+          <li><span class="s-ico">🔍</span> <strong>SearxNG</strong> — agent searches your local metasearch, not a cloud API.</li>
+          <li><span class="s-ico">🌐</span> <strong>Themed Chromium</strong> — top 3 results open as in-deck browser windows.</li>
+          <li><span class="s-ico">📝</span> <strong>Canvas</strong> — Monaco opens with a generated markdown digest, cited.</li>
+          <li><span class="s-ico">🧠</span> <strong>Qdrant</strong> — digest embedded into your vector DB for next time.</li>
+        </ol>
+        <p class="f-foot">Nothing left the deck. Nothing left your machine.</p>
+      </article>
+
+      <article class="flow">
+        <header>
+          <span class="f-tag">Flow 02 · Axis A</span>
+          <h3>Prompt → Image → 3D → Voice</h3>
+        </header>
+        <ol class="steps">
+          <li><span class="s-ico">✍</span> <strong>Chat</strong> — "sketch a lantern, make it rotate, narrate the design."</li>
+          <li><span class="s-ico">🎨</span> <strong>ComfyUI</strong> — your workflow runs on local VRAM.</li>
+          <li><span class="s-ico">🎲</span> <strong>image-to-3D</strong> — a built-in tool lifts it to a GLB.</li>
+          <li><span class="s-ico">🔊</span> <strong>Voice sidecar</strong> — piper / xtts / chatterbox narrates.</li>
+          <li><span class="s-ico">🧩</span> <strong>One artifact card</strong> — image + 3D + audio, all siblings.</li>
+        </ol>
+        <p class="f-foot">Four modalities, one conversation turn, one place to find it again.</p>
+      </article>
+
+      <!-- ——— Axis B ——— -->
+      <article class="flow">
+        <header>
+          <span class="f-tag">Flow 03 · Axis B</span>
+          <h3>Screenshot → Understand → Act</h3>
+        </header>
+        <ol class="steps">
+          <li><span class="s-ico">🖼</span> <strong>Native</strong> — AX adapter screenshots whatever native app you're in.</li>
+          <li><span class="s-ico">👁</span> <strong>Vision slot</strong> — your chosen vision model extracts structured state.</li>
+          <li><span class="s-ico">🧭</span> <strong>Agent-GO</strong> — plans a three-step correction based on the state.</li>
+          <li><span class="s-ico">🖱</span> <strong>AT-SPI / AX / CDP</strong> — clicks, types, and navigates to apply it.</li>
+          <li><span class="s-ico">✅</span> <strong>Timeline</strong> — every click is a replayable <code>ToolCallResult</code>.</li>
+        </ol>
+        <p class="f-foot">Computer-use without a cloud round-trip, with an audit trail.</p>
+      </article>
+
+      <article class="flow">
+        <header>
+          <span class="f-tag">Flow 04 · Axis B</span>
+          <h3>Observe → Adapt</h3>
+        </header>
+        <ol class="steps">
+          <li><span class="s-ico">📈</span> <strong>VRAM widget</strong> — flags GPU 0 at 98%, sustained.</li>
+          <li><span class="s-ico">🧭</span> <strong>Agent-GO</strong> — proactively suggests: swap FAST slot to qwen2.5-7b.</li>
+          <li><span class="s-ico">⚙</span> <strong>Provider runtime</strong> — <code>setRuntimeProvider()</code> hot-swaps, no restart.</li>
+          <li><span class="s-ico">📟</span> <strong>StatusStrip</strong> — shows "FAST: llama3.1 → qwen2.5:7b".</li>
+          <li><span class="s-ico">▶</span> <strong>Run continues</strong> — mid-turn, no data loss, no fresh thread.</li>
+        </ol>
+        <p class="f-foot">The cockpit reads its own gauges and acts on them.</p>
+      </article>
+
+      <!-- ——— Axis C ——— -->
+      <article class="flow">
+        <header>
+          <span class="f-tag">Flow 05 · Axis C</span>
+          <h3>Recall → Synthesize</h3>
+        </header>
+        <ol class="steps">
+          <li><span class="s-ico">⌘</span> <strong>Cmd+K</strong> — "what have I made about WebGPU?"</li>
+          <li><span class="s-ico">🔎</span> <strong>Qdrant</strong> — vector search across chats, artifacts, run events.</li>
+          <li><span class="s-ico">📚</span> <strong>Agent</strong> — receives top-k bundles, each tagged with source runId.</li>
+          <li><span class="s-ico">🖋</span> <strong>Canvas</strong> — synthesizes a brief; every citation is a live link.</li>
+          <li><span class="s-ico">⏱</span> <strong>Click a citation</strong> — the original timeline reopens at that exact turn.</li>
+        </ol>
+        <p class="f-foot">Long-term memory that shows its work.</p>
+      </article>
+
+      <article class="flow">
+        <header>
+          <span class="f-tag">Flow 06 · Axis C</span>
+          <h3>Clip → Reason → Replay</h3>
+        </header>
+        <ol class="steps">
+          <li><span class="s-ico">🖱</span> <strong>Themed Chromium</strong> — right-click on any page → "Send to thread."</li>
+          <li><span class="s-ico">📎</span> <strong>UploadTray</strong> — URL + extracted text arrive as an attachment.</li>
+          <li><span class="s-ico">🧠</span> <strong>Agent</strong> — reasons over it, cites paragraphs, flags what it doubts.</li>
+          <li><span class="s-ico">💾</span> <strong>SQLite</strong> — the whole exchange is one run, one row.</li>
+          <li><span class="s-ico">🔁</span> <strong>/deck/runs</strong> — next week, replay it with a different model.</li>
+        </ol>
+        <p class="f-foot">Anything you see becomes context. Any context becomes a replay.</p>
+      </article>
+
+    </div>
+
+    <!-- ================ SUBSTRATE — the how behind the wow ================ -->
+    <div class="substrate">
+      <p class="sub-kicker">Why synergies are cheap here</p>
+      <p class="sub-head">
+        In the deck, <em>N × N</em> interactions cost <em>N + N</em> to build.
+      </p>
+      <p class="sub-body">
+        Most stacks wire each integration by hand — chat ↔ voice, voice ↔ search,
+        search ↔ vector, vector ↔ canvas. That's quadratic work. Control Deck makes
+        every modality an event on one AG-UI bus, every artifact a row in one table,
+        every surface a consumer of one React context. Add a new modality and it
+        inherits every existing synergy on the same day. This is why the flows above
+        compose — and why the next one you imagine probably already works.
+      </p>
+      <ul class="sub-list">
+        <li><span class="sub-k">One</span> event protocol — AG-UI over SSE</li>
+        <li><span class="sub-k">One</span> artifact store — UUID-named, mime-tagged, DB-indexed</li>
+        <li><span class="sub-k">One</span> timeline — discriminated-union segments render anything</li>
+        <li><span class="sub-k">One</span> provider abstraction — the slot knows which model answers</li>
+        <li><span class="sub-k">One</span> run history — every synergy is a replayable trace</li>
+        <li><span class="sub-k">One</span> shortcut — <code>Cmd+K</code> finds any of the above</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     MODALITIES
+     ========================================================= -->
+<section id="modalities" class="band">
+  <div class="inner">
+    <p class="sect-kicker">The modalities</p>
+    <h2 class="sect-head">Every kind of output, same timeline.</h2>
+    <p class="sect-lede">
+      Every modality is a first-class event, a row in <code>artifacts</code>, and a
+      renderable card. Not "supports voice" — <em>voice is a timeline segment</em>.
+    </p>
+
+    <div class="mods">
+      <div class="mod"><span class="g">✍</span><span class="n">Text</span><span class="k">streaming markdown</span></div>
+      <div class="mod"><span class="g">🎙</span><span class="n">Voice</span><span class="k">piper · xtts · chatterbox · VAD · PTT</span></div>
+      <div class="mod"><span class="g">👁</span><span class="n">Vision</span><span class="k">slot-routed vision model</span></div>
+      <div class="mod"><span class="g">🎨</span><span class="n">Image-gen</span><span class="k">ComfyUI workflows, local VRAM</span></div>
+      <div class="mod"><span class="g">🎲</span><span class="n">3D</span><span class="k">GLB via model-viewer</span></div>
+      <div class="mod"><span class="g">🔊</span><span class="n">Audio</span><span class="k">waveform player, generated or uploaded</span></div>
+      <div class="mod"><span class="g">🎞</span><span class="n">Video</span><span class="k">inline player</span></div>
+      <div class="mod"><span class="g">⌨</span><span class="n">Code</span><span class="k">Monaco + sandboxed Python / JS</span></div>
+      <div class="mod"><span class="g">🌐</span><span class="n">Web</span><span class="k">themed Chromium + CDP</span></div>
+      <div class="mod"><span class="g">🖱</span><span class="n">Native OS</span><span class="k">AT-SPI · AX · UIA*</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     HARDWARE REACH
+     ========================================================= -->
+<section id="hardware" class="band alt">
+  <div class="inner">
+    <p class="sect-kicker">Hardware reach</p>
+    <h2 class="sect-head">The only cockpit that talks to your box, not just your APIs.</h2>
+    <p class="sect-lede">
+      Most cockpits peek at cloud credit. Control Deck reads VRAM, watches services,
+      and drives the OS. Ambient situational awareness — the things a real flight
+      deck shows you before you ask.
+    </p>
+
+    <div class="two">
+      <div class="block">
+        <h3>Always-on dashboard</h3>
+        <p class="small">Drag-and-drop widgets, polling <code>/api/system/stats</code> every 10s.</p>
+        <div class="widgets">
+          <div class="w"><span class="wi">🖥️</span><span class="wn">System</span><span class="ws">CPU · RAM · disk</span></div>
+          <div class="w"><span class="wi">🎮</span><span class="wn">VRAM</span><span class="ws">per-GPU monitor</span></div>
+          <div class="w"><span class="wi">🔌</span><span class="wn">Services</span><span class="ws">GO · Ollama · Searx · voice</span></div>
+          <div class="w"><span class="wi">🧠</span><span class="wn">Model fleet</span><span class="ws">what's loaded where</span></div>
+          <div class="w"><span class="wi">📊</span><span class="wn">Stats</span><span class="ws">tokens · USD cost</span></div>
+          <div class="w"><span class="wi">📜</span><span class="wn">Runs</span><span class="ws">last N agent runs</span></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h3>OS &amp; browser reach</h3>
+        <p class="small">Where the cockpit leaves the app sandbox and enters your machine.</p>
+        <ul class="reach">
+          <li>
+            <span class="r-tag">Linux</span>
+            <span class="r-body">AT-SPI accessibility tree via <code>atspi-helper.py</code>; portal key/type/click_pixel via <code>remote-desktop.py</code> daemon.</span>
+          </li>
+          <li>
+            <span class="r-tag">macOS</span>
+            <span class="r-body">AXUIElement + CGEvent via compiled <code>macos-ax-helper.bin</code>.</span>
+          </li>
+          <li>
+            <span class="r-tag">Windows*</span>
+            <span class="r-body">UIA stubbed with a clear error — waiting on a contributor.</span>
+          </li>
+          <li>
+            <span class="r-tag">Chromium</span>
+            <span class="r-body">Every themed browser window is a first-class CDP target. <code>browser-harness</code> attaches over the opt-in DevTools port.</span>
+          </li>
+          <li>
+            <span class="r-tag">Terminal</span>
+            <span class="r-body">PTY-backed terminal surface via standalone <code>terminal-service</code>.</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     PEERS — where it stands
+     ========================================================= -->
+<section id="peers" class="band">
+  <div class="inner">
+    <p class="sect-kicker">Where it stands · 2026 landscape</p>
+    <h2 class="sect-head">Nobody else covers all four quadrants.</h2>
+    <p class="sect-lede">
+      Open WebUI dominates the browser-tab aggregator slot. Msty owns the
+      multi-provider chat slot. AnythingLLM has beta computer-use but needs a cloud
+      round-trip. n8n rules visual automation. <strong>None of them occupy the
+      cockpit position</strong> — aggregate + control + connect + multi-modal in one
+      local artifact.
+    </p>
+
+    <div class="peer-wrap">
+      <table class="peers">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>What it is</th>
+            <th>Modalities</th>
+            <th>Aggregation</th>
+            <th>OS reach</th>
+            <th>State (Apr&nbsp;2026)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="self">
+            <td><strong>Control Deck</strong></td>
+            <td>Local AI cockpit: aggregate + control + multi-modal</td>
+            <td><span class="rank r5">5 / 5</span></td>
+            <td><span class="rank r5">5 / 5</span></td>
+            <td><span class="yes">AT-SPI · AX · CDP</span></td>
+            <td><span class="ok">Active · open</span></td>
+          </tr>
+          <tr>
+            <td>Open WebUI</td>
+            <td>Browser-based AI hub over Ollama + OpenAI-compatible</td>
+            <td><span class="rank r3">3 / 5</span></td>
+            <td><span class="rank r3">3 / 5</span></td>
+            <td><span class="no">None</span></td>
+            <td>Active · 80k★ · v0.8 Feb '26</td>
+          </tr>
+          <tr>
+            <td>LM Studio</td>
+            <td>Desktop model manager + inference SDK</td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="no">None</span></td>
+            <td>Active · acquired Locally AI</td>
+          </tr>
+          <tr>
+            <td>AnythingLLM</td>
+            <td>RAG workspace, beta computer-use</td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="rank r3">3 / 5</span></td>
+            <td><span class="partial">Screenshot-via-cloud</span></td>
+            <td>Active · OS agent in beta</td>
+          </tr>
+          <tr>
+            <td>Jan.ai</td>
+            <td>Offline chat + browser MCP</td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="partial">Browser MCP</span></td>
+            <td>Active · v0.7.6</td>
+          </tr>
+          <tr>
+            <td>Msty</td>
+            <td>Multi-provider desktop studio</td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="rank r4">4 / 5</span></td>
+            <td><span class="no">None</span></td>
+            <td>Active · agent mode coming</td>
+          </tr>
+          <tr>
+            <td>n8n</td>
+            <td>Visual workflow automation</td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="rank r5">5 / 5</span></td>
+            <td><span class="no">Shell nodes only</span></td>
+            <td>Active · 100k★ · enterprise</td>
+          </tr>
+          <tr>
+            <td>NVIDIA NemoClaw</td>
+            <td>Always-on local agent, kernel-sandboxed</td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="rank r2">2 / 5</span></td>
+            <td><span class="partial">Filesystem · net</span></td>
+            <td>Preview · GPU-locked · Mar '26</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="whitespace">
+      <h3>The whitespace</h3>
+      <p>
+        No current peer combines service aggregation (Ollama · ComfyUI · SearxNG · Qdrant · voice)
+        with genuine multi-platform OS widget control (AT-SPI / AX / UIA) and Chromium automation
+        (CDP) in a single local artifact. Open WebUI is the dominant homelab aggregator but
+        lives entirely in a browser tab. AnythingLLM gestures at OS reach but its
+        computer-use is screenshot-based via a cloud API — no structured accessibility tree,
+        no offline mode. NVIDIA NemoClaw is the only other project aiming at "always-on local
+        agent" — GPU-vendor-locked, server-focused, no GUI.
+      </p>
+      <p class="key">
+        Control Deck occupies a category without an incumbent:
+        <strong>a local-first, hardware-agnostic cockpit where the AI can talk to your screen,
+        your browser, your image generator, and your voice pipeline simultaneously.</strong>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     EASE — the shell
+     ========================================================= -->
+<section id="ease" class="band alt">
+  <div class="inner">
+    <p class="sect-kicker">The ease</p>
+    <h2 class="sect-head">One shell, one shortcut, one file.</h2>
+    <p class="sect-lede">
+      The deck puts ten capabilities behind one keyboard. <code>Cmd+K</code> opens the
+      palette. <code>Cmd+.</code> collapses the rail. <code>Cmd+Shift+C</code> opens the
+      canvas. Everything else fades.
+    </p>
+
+    <div class="shell-diagram">
+      <svg viewBox="0 0 940 420" role="img" aria-label="DeckShell layout">
+        <style>
+          .frame { fill: var(--bg); stroke: var(--border); }
+          .pane  { fill: var(--bg-card); stroke: var(--border); }
+          .pane.hot { fill: #1c1b17; stroke: var(--accent); stroke-opacity: .5; }
+          .sh-title { fill: var(--fg); font-family: var(--font-display); font-size: 13px; font-weight: 600; }
+          .sh-sub   { fill: var(--fg-dim); font-family: var(--font-sans); font-size: 11px; }
+          .sh-kbd   { fill: var(--accent); font-family: var(--font-mono); font-size: 11px; }
+          .sh-li    { fill: var(--fg-muted); font-family: var(--font-sans); font-size: 11px; }
+        </style>
+        <rect class="frame" x="20" y="20" width="900" height="380" rx="14"/>
+
+        <rect class="pane" x="30"  y="30" width="140" height="360" rx="8"/>
+        <text class="sh-title" x="50" y="58">Sidebar</text>
+        <text class="sh-sub"   x="50" y="74">200 · 48 collapsed</text>
+        <text class="sh-li"    x="50" y="108">Deck</text>
+        <text class="sh-li"    x="50" y="124">Chat</text>
+        <text class="sh-li"    x="50" y="140">Runs</text>
+        <text class="sh-li"    x="50" y="156">Models</text>
+        <text class="sh-li"    x="50" y="172">Dojo</text>
+        <text class="sh-li"    x="50" y="188">Tools</text>
+        <text class="sh-li"    x="50" y="204">Comfy</text>
+        <text class="sh-li"    x="50" y="220">Voice</text>
+        <text class="sh-li"    x="50" y="236">Terminal</text>
+        <text class="sh-kbd"   x="50" y="370">Cmd+.</text>
+
+        <rect class="pane" x="180" y="30" width="140" height="360" rx="8"/>
+        <text class="sh-title" x="200" y="58">Threads</text>
+        <text class="sh-sub"   x="200" y="74">date-grouped</text>
+        <text class="sh-li"    x="200" y="108">Today</text>
+        <text class="sh-li"    x="200" y="124">  thread…</text>
+        <text class="sh-li"    x="200" y="140">  thread…</text>
+        <text class="sh-li"    x="200" y="160">Yesterday</text>
+        <text class="sh-li"    x="200" y="176">  thread…</text>
+
+        <rect class="pane" x="330" y="30" width="580" height="40" rx="8"/>
+        <text class="sh-title" x="350" y="55">TopBar · breadcrumb + status</text>
+        <text class="sh-kbd"   x="820" y="55">Cmd+K</text>
+        <text class="sh-kbd"   x="880" y="55">Cmd+I</text>
+
+        <rect class="pane hot" x="330" y="80" width="400" height="310" rx="8"/>
+        <text class="sh-title" x="350" y="110">Body · timeline + composer</text>
+        <text class="sh-sub"   x="350" y="126">ChatSurface · Dashboard · Runs · Models · Voice · Comfy</text>
+
+        <rect class="pane" x="740" y="80" width="170" height="310" rx="8"/>
+        <text class="sh-title" x="760" y="110">Canvas</text>
+        <text class="sh-sub"   x="760" y="126">Monaco + preview</text>
+        <text class="sh-kbd"   x="760" y="370">Cmd+Shift+C</text>
+      </svg>
+    </div>
+
+    <div class="ease-list">
+      <div class="e"><span class="e-k">One</span><span class="e-v">AppImage — <code>bun run electron:pack</code></span></div>
+      <div class="e"><span class="e-k">One</span><span class="e-v">bearer token — <code>DECK_TOKEN</code> gates every <code>/api/*</code></span></div>
+      <div class="e"><span class="e-k">One</span><span class="e-v">SQLite file — threads, runs, events, artifacts, messages, uploads</span></div>
+      <div class="e"><span class="e-k">One</span><span class="e-v">artifact directory — every file the agent ever made</span></div>
+      <div class="e"><span class="e-k">One</span><span class="e-v">provider abstraction — swap Ollama for Anthropic mid-run</span></div>
+      <div class="e"><span class="e-k">One</span><span class="e-v">event protocol (AG-UI) — SSE everywhere</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================================================
+     CTA
+     ========================================================= -->
+<section id="start" class="band final">
+  <div class="inner">
+    <p class="sect-kicker">Start</p>
+    <h2 class="sect-head">Run the cockpit in five commands.</h2>
+
+    <pre class="codeblock"><code># clone and install
+git clone &lt;control-deck&gt; &amp;&amp; cd control-deck
+bun install
+
+# configure — provider keys, DECK_TOKEN, Ollama URL
+cp .env.example .env.local
+
+# bring up the full local stack (Agent-GO, Ollama, ComfyUI, Searx, voice)
+./start-full-stack.sh
+
+# dev
+bun run dev        # http://localhost:3333
+
+# or package as an AppImage
+bun run electron:pack</code></pre>
+
+    <div class="cta-grid">
+      <a class="cta" href="#stance">Read what it stands for</a>
+      <a class="cta" href="#synergy">See the synergy flows</a>
+      <a class="cta" href="#peers">Compare to the field</a>
+    </div>
+
+    <p class="footnote">
+      Sources: <code>llm.txt · README.md · SURFACE.md · DESIGN.md · BEHAVIOR.md · REBUILD_PLAN.md</code>.
+      Peers surveyed April 2026 — Open WebUI, LM Studio, AnythingLLM, Jan.ai, Msty, n8n, NVIDIA NemoClaw.
+      Fully offline — no external CDNs, no network calls. Theme tokens from
+      <code>UI/handoff/tokens.standalone.css</code>.
+    </p>
+  </div>
+</section>
+
+<footer class="tail">
+  <a href="#top">↑ back to top</a>
+  <span>Control Deck · the cockpit, not the chatroom.</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

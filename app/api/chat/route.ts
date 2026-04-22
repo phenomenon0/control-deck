@@ -618,6 +618,23 @@ export async function PUT(req: Request) {
   createRun(runId, thread, "tool:" + tool);
 
   try {
+    // Same approval gate as /api/tools/bridge — dynamic import to avoid
+    // pulling the approvals spine into the chat-route initial bundle.
+    const { gateToolCall } = await import("@/lib/approvals/gate");
+    const verdict = await gateToolCall({
+      toolName: tool,
+      toolArgs: (args ?? {}) as Record<string, unknown>,
+      runId,
+      threadId: thread,
+    });
+    if (verdict.decision === "denied") {
+      errorRun(runId, verdict.reason);
+      return Response.json(
+        { success: false, error: `tool call denied: ${verdict.reason}`, runId, threadId: thread },
+        { status: 403 },
+      );
+    }
+
     const toolCall = { name: tool, args: args ?? {} } as Parameters<typeof executeToolWithGlyph>[0];
     const result = await executeToolWithGlyph(toolCall, ctx);
 

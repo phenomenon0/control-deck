@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { ensureBootstrap, getProvider, getSlot } from "@/lib/inference/bootstrap";
 import { invokeTts, listTtsVoices } from "@/lib/inference/tts/invoke";
+import { withMetrics } from "@/lib/inference/metrics";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
 import type { TtsArgs } from "@/lib/inference/tts/types";
 
@@ -48,13 +49,16 @@ export async function POST(req: Request) {
       : config;
 
   try {
-    const result = await invokeTts(providerId, effectiveConfig, {
-      text: body.text,
-      voice: body.voice,
-      model: body.model,
-      speed: body.speed,
-      format: body.format,
-    });
+    const result = await withMetrics("tts", providerId, () =>
+      invokeTts(providerId, effectiveConfig, {
+        text: body.text!,
+        voice: body.voice,
+        model: body.model,
+        speed: body.speed,
+        format: body.format,
+      }),
+      { textLength: body.text.length },
+    );
 
     return new Response(result.audio, {
       headers: {

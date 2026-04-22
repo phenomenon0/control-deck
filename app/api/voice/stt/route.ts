@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { ensureBootstrap, getProvider, getSlot } from "@/lib/inference/bootstrap";
 import { invokeStt } from "@/lib/inference/stt/invoke";
+import { withMetrics } from "@/lib/inference/metrics";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
 
 function resolveSttBinding(): {
@@ -37,13 +38,16 @@ export async function POST(req: Request) {
   const effectiveLanguage = language ?? (config.extras?.language as string | undefined);
 
   try {
-    const result = await invokeStt(providerId, config, {
-      audio,
-      mimeType,
-      language: effectiveLanguage,
-      model,
-      timestamps,
-    });
+    const result = await withMetrics("stt", providerId, () =>
+      invokeStt(providerId, config, {
+        audio,
+        mimeType,
+        language: effectiveLanguage,
+        model,
+        timestamps,
+      }),
+      { audioBytes: audio.size },
+    );
     const info = getProvider(providerId);
     return NextResponse.json({
       text: result.text,

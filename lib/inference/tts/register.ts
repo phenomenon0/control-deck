@@ -1,20 +1,137 @@
 /**
  * Text-to-speech providers.
  *
- * Today: app/api/voice/tts/route.ts proxies to VOICE_API_URL (port 8000)
- * with three engine options: piper (default) / xtts / chatterbox. Engine
- * choice lives in components/settings/DeckSettingsProvider.tsx:14.
+ * Preserves the existing VOICE_API_URL path (Piper / xtts / chatterbox
+ * engines) as the default, and adds cloud providers for users who want
+ * higher-quality voices than the local sidecar offers.
  *
- * Planned registrations:
- *   voice-api   — wraps the existing VOICE_API_URL sidecar, engines remain
- *                 as config.extras.engine="piper"|"xtts"|"chatterbox"
- *   elevenlabs  — direct API; quality ceiling, per-voice models
- *   openai      — tts-1 / tts-1-hd, 6 canonical voices
- *   cartesia    — Sonic, low-latency streaming
- *   kokoro      — open-weight, self-hostable
- *   deepgram    — Aura voices
+ * Env vars:
+ *   TTS_PROVIDER          voice-api | elevenlabs | openai | cartesia
+ *                         (default: voice-api — preserves existing behaviour)
+ *   TTS_VOICE             default voice id for the selected provider
+ *   TTS_MODEL             default model id for the selected provider
+ *   ELEVENLABS_API_KEY    required for elevenlabs
+ *   OPENAI_API_KEY        reused from the text-LLM slot, required for openai
+ *   CARTESIA_API_KEY      required for cartesia
  */
 
+import { registerProvider } from "../registry";
+import { bindSlot } from "../runtime";
+import { listTtsVoices } from "./invoke";
+import type { InferenceProvider } from "../types";
+
+const PROVIDERS: InferenceProvider[] = [
+  {
+    id: "voice-api",
+    name: "Voice API (local sidecar)",
+    description: "Piper / xtts / chatterbox via the VOICE_API_URL process",
+    modalities: ["tts", "stt"],
+    requiresApiKey: false,
+    defaultBaseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
+    defaultModels: {
+      tts: ["piper", "xtts", "chatterbox"],
+    },
+    listModels: async (_m, config) => {
+      const voices = await listTtsVoices("voice-api", config);
+      return voices.map((v) => v.id);
+    },
+  },
+  {
+    id: "elevenlabs",
+    name: "ElevenLabs",
+    description: "Studio-quality voices, fast turbo models",
+    modalities: ["tts"],
+    requiresApiKey: true,
+    defaultBaseURL: "https://api.elevenlabs.io/v1",
+    defaultModels: {
+      // Keep lean — the live catalog (either /models endpoint or listTtsVoices)
+      // supersedes these at runtime; these only surface if the API is
+      // unreachable at registration time.
+      tts: ["eleven_turbo_v2_5"],
+    },
+    listModels: async (_m, config) => {
+      const voices = await listTtsVoices("elevenlabs", config);
+      return voices.map((v) => v.id);
+    },
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    description: "tts-1 / tts-1-hd / gpt-4o-mini-tts",
+    modalities: ["tts"],
+    requiresApiKey: true,
+    defaultBaseURL: "https://api.openai.com/v1",
+    defaultModels: {
+      tts: ["tts-1", "tts-1-hd", "gpt-4o-mini-tts"],
+    },
+    listModels: async (_m, config) => {
+      const voices = await listTtsVoices("openai", config);
+      return voices.map((v) => v.id);
+    },
+  },
+  {
+    id: "cartesia",
+    name: "Cartesia",
+    description: "Sonic — low-latency streaming, high expressiveness",
+    modalities: ["tts"],
+    requiresApiKey: true,
+    defaultBaseURL: "https://api.cartesia.ai",
+    defaultModels: {
+      tts: ["sonic-2"],
+    },
+    listModels: async (_m, config) => {
+      const voices = await listTtsVoices("cartesia", config);
+      return voices.map((v) => v.id);
+    },
+  },
+];
+
+let registered = false;
+
 export function registerTtsProviders(): void {
-  // no-op for step 1
+  if (registered) return;
+  registered = true;
+
+  for (const p of PROVIDERS) {
+    // OpenAI was also registered by the text path with modalities=["text"].
+    // Last-write-wins in the registry would drop the text claim — merge
+    // modalities instead so both text and tts surfaces see the same provider.
+    const existing = (globalThis as { __reg?: unknown }).__reg; // sentinel; no-op
+    void existing;
+    registerProvider(mergeWithExisting(p));
+  }
+
+  // Bind the default TTS slot from env so the route has something to fall
+  // back to even before the Settings UI touches it.
+  const providerEnv = (process.env.TTS_PROVIDER ?? "voice-api").toLowerCase();
+  if (PROVIDERS.some((p) => p.id === providerEnv)) {
+    bindSlot({
+      modality: "tts",
+      slotName: "primary",
+      providerId: providerEnv,
+      config: {
+        providerId: providerEnv,
+        model: process.env.TTS_MODEL,
+        extras: {
+          defaultVoiceId: process.env.TTS_VOICE,
+          // voice-api engine preserved for the current sidecar path
+          engine: process.env.TTS_ENGINE ?? "piper",
+        },
+      },
+    });
+  }
+}
+
+function mergeWithExisting(p: InferenceProvider): InferenceProvider {
+  // The text-register pass already registered openai / huggingface etc. with
+  // modalities=["text"]. Preserve both modality claims when we register
+  // again for tts.
+  const next = { ...p };
+  const seen = new Set(next.modalities);
+  // Re-add text to known dual-modality providers so listProvidersForModality("text")
+  // still finds them after we overwrite.
+  const KEEPS_TEXT = new Set(["openai"]);
+  if (KEEPS_TEXT.has(next.id)) seen.add("text");
+  next.modalities = [...seen];
+  return next;
 }

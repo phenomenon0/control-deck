@@ -17,13 +17,22 @@ const providers = new Map<string, InferenceProvider>();
 const byModality = new Map<Modality, Set<string>>();
 
 export function registerProvider(provider: InferenceProvider): void {
-  if (providers.has(provider.id)) {
-    // Last-write-wins so hot-reloading a provider during dev replaces the
-    // earlier registration instead of hitting a duplicate-id error.
-    providers.set(provider.id, provider);
-    return;
-  }
+  const prior = providers.get(provider.id);
   providers.set(provider.id, provider);
+
+  // If this is a re-registration (e.g. text-register ran first with
+  // modalities=[text], then tts-register runs with modalities=[tts, text]),
+  // drop the provider from any modality index it no longer claims.
+  if (prior) {
+    const nextSet = new Set(provider.modalities);
+    for (const oldModality of prior.modalities) {
+      if (!nextSet.has(oldModality)) {
+        byModality.get(oldModality)?.delete(provider.id);
+      }
+    }
+  }
+
+  // Add (or keep) the provider in every modality index it currently claims.
   for (const modality of provider.modalities) {
     let set = byModality.get(modality);
     if (!set) {

@@ -1,57 +1,87 @@
 import { NextResponse } from "next/server";
 
-const VOICE_API_URL = process.env.VOICE_API_URL ?? "http://localhost:8000";
+import { ensureBootstrap, getProvider, getSlot } from "@/lib/inference/bootstrap";
+import { invokeTts, listTtsVoices } from "@/lib/inference/tts/invoke";
+import type { InferenceProviderConfig } from "@/lib/inference/types";
+import type { TtsArgs } from "@/lib/inference/tts/types";
+
+function resolveTtsBinding(): {
+  providerId: string;
+  config: InferenceProviderConfig;
+} {
+  ensureBootstrap();
+  const bound = getSlot("tts", "primary");
+  if (bound) return { providerId: bound.providerId, config: bound.config };
+  // Default fallback — preserves pre-slot behaviour for deployments that
+  // don't set TTS_PROVIDER.
+  return {
+    providerId: "voice-api",
+    config: {
+      providerId: "voice-api",
+      baseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
+      extras: { engine: "piper" },
+    },
+  };
+}
 
 export async function POST(req: Request) {
-  const { text, engine, voice } = await req.json();
+  const body = (await req.json().catch(() => ({}))) as {
+    text?: string;
+    engine?: string;
+    voice?: string;
+    model?: string;
+    speed?: number;
+    format?: TtsArgs["format"];
+  };
 
-  if (!text) {
+  if (!body.text) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
   }
 
+  const { providerId, config } = resolveTtsBinding();
+
+  // Per-request engine override (voice-api only) — keeps the settings UI's
+  // Piper/xtts/chatterbox toggle working.
+  const effectiveConfig: InferenceProviderConfig =
+    body.engine && providerId === "voice-api"
+      ? { ...config, extras: { ...(config.extras ?? {}), engine: body.engine } }
+      : config;
+
   try {
-    const res = await fetch(`${VOICE_API_URL}/tts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        voice: voice ?? "jenny", // Default to Jenny voice (Piper)
-      }),
+    const result = await invokeTts(providerId, effectiveConfig, {
+      text: body.text,
+      voice: body.voice,
+      model: body.model,
+      speed: body.speed,
+      format: body.format,
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Voice API returned ${res.status}: ${errText}`);
-    }
-
-    const contentType = res.headers.get("content-type") ?? "audio/wav";
-    const buffer = await res.arrayBuffer();
-
-    return new Response(buffer, {
+    return new Response(result.audio, {
       headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": 'inline; filename="speech.wav"',
+        "Content-Type": result.contentType,
+        "Content-Disposition": 'inline; filename="speech.audio"',
+        "X-TTS-Provider": result.providerId,
       },
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: msg }, { status: 502 });
+    return NextResponse.json({ error: msg, providerId }, { status: 502 });
   }
 }
 
-// Get available voices
 export async function GET() {
+  const { providerId, config } = resolveTtsBinding();
+
   try {
-    const res = await fetch(`${VOICE_API_URL}/voices`, {
-      cache: "no-store",
+    const voices = await listTtsVoices(providerId, config);
+    const info = getProvider(providerId);
+    return NextResponse.json({
+      provider: {
+        id: providerId,
+        name: info?.name ?? providerId,
+      },
+      voices,
     });
-
-    if (!res.ok) {
-      throw new Error(`Voice API returned ${res.status}`);
-    }
-
-    const data = await res.json();
-    return NextResponse.json(data);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: msg, voices: [] }, { status: 502 });

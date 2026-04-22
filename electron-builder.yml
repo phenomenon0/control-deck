@@ -28,6 +28,17 @@ asarUnpack:
   - "**/node_modules/better-sqlite3/build/**"
   - "**/node_modules/onnxruntime-node/bin/**"
   - "**/node_modules/@img/**"
+  - "**/node_modules/koffi/build/**"
+  - "**/node_modules/node-screenshots/**"
+
+# Windows native-automation helper — staged by scripts/build-win-host.cjs
+# into electron/resources/win/ during electron:build. Ships alongside
+# the app so the UIA sidecar is available at runtime.
+extraResources:
+  - from: electron/resources/win
+    to: win
+    filter:
+      - "WinAutomationHost.exe"
 
 # Native deps used by the embedded Next server are pre-staged into .next/standalone
 # by scripts/copy-native-binaries.cjs; no need for electron-builder to re-rebuild
@@ -56,6 +67,10 @@ mac:
       is currently on display.
 
 win:
+  # Stable AppUserModelID so Windows identifies the app for notifications,
+  # task-switcher grouping, and jump-lists. Also what child processes like
+  # WinAutomationHost.exe inherit for taskbar identity.
+  appUserModelId: com.controldeck.app
   target:
     - nsis
   signAndEditExecutable: true

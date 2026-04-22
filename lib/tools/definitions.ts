@@ -295,6 +295,167 @@ export const NativeClickPixelSchema = z.object({
   }),
 });
 
+// Windows-only extras (return unsupported_platform elsewhere). Grouped
+// together so they're easy to spot during cross-platform work.
+
+const UiaPatternEnum = z.enum([
+  "Invoke",
+  "Toggle",
+  "ExpandCollapse",
+  "Scroll",
+  "ScrollItem",
+  "RangeValue",
+  "Value",
+  "Selection",
+  "SelectionItem",
+  "Window",
+]);
+
+export const NativeInvokeSchema = z.object({
+  name: z.literal("native_invoke"),
+  args: z.object({
+    handle: NodeHandleSchema.describe("Handle from native_locate"),
+    pattern: UiaPatternEnum.describe("UIA control pattern"),
+    action: z.string().min(1).describe("Pattern action (e.g. 'Invoke', 'SetValue', 'Expand')"),
+    params: z.record(z.string(), z.unknown()).optional().describe("Pattern-specific params (e.g. { value: 42 })"),
+  }),
+});
+
+export const NativeWaitForSchema = z.object({
+  name: z.literal("native_wait_for"),
+  args: z.object({
+    event: z
+      .enum(["structure_changed", "focus_changed", "property_changed"])
+      .describe("UIA event type to wait for"),
+    handle: NodeHandleSchema.optional().describe("Anchor handle; defaults to desktop root"),
+    match: z
+      .object({
+        name: z.string().optional(),
+        role: z.string().optional(),
+        automationId: z.string().optional(),
+        property: z.string().optional().describe("For property_changed: property name (Name, IsEnabled, ...)"),
+      })
+      .optional()
+      .describe("Predicate applied to the event's element"),
+    timeoutMs: z.number().int().min(100).max(60_000).optional().describe("Timeout in ms (default 30000)"),
+  }),
+});
+
+export const NativeElementFromPointSchema = z.object({
+  name: z.literal("native_element_from_point"),
+  args: z.object({
+    x: z.number().int().describe("Absolute desktop X pixel"),
+    y: z.number().int().describe("Absolute desktop Y pixel"),
+  }),
+});
+
+export const NativeReadTextSchema = z.object({
+  name: z.literal("native_read_text"),
+  args: z.object({
+    handle: NodeHandleSchema.describe("Handle of a TextPattern-supporting element"),
+    range: z
+      .object({
+        start: z.number().int().min(0),
+        end: z.number().int().min(0),
+      })
+      .optional()
+      .describe("Optional character offsets; omit for the full text"),
+  }),
+});
+
+export const NativeWithCacheSchema = z.object({
+  name: z.literal("native_with_cache"),
+  args: z.object({
+    handle: NodeHandleSchema.optional().describe("Subtree anchor; defaults to desktop"),
+    depth: z.number().int().min(1).max(50).optional().describe("Cache depth"),
+    ops: z
+      .array(
+        z.discriminatedUnion("op", [
+          z.object({
+            op: z.literal("locate"),
+            query: z.object({
+              name: z.string().optional(),
+              role: z.string().optional(),
+              app: z.string().optional(),
+              limit: z.number().int().min(1).max(50).optional(),
+            }),
+          }),
+          z.object({ op: z.literal("tree") }),
+          z.object({ op: z.literal("read_text"), handle: NodeHandleSchema }),
+        ]),
+      )
+      .min(1)
+      .describe("Sub-ops to run against the cached subtree"),
+  }),
+});
+
+// Robust-automation primitives — see docs/native-adapter/windows.md.
+
+export const NativeWatchInstallSchema = z.object({
+  name: z.literal("native_watch_install"),
+  args: z.object({
+    match: z
+      .object({
+        name: z.string().optional(),
+        role: z.string().optional(),
+        automationId: z.string().optional(),
+        app: z.string().optional(),
+      })
+      .describe("Predicate applied to every new window/dialog/popup"),
+    action: z
+      .enum(["notify", "dismiss_via_escape", "invoke_button"])
+      .default("notify")
+      .describe("What the host does when a match appears. 'notify' never auto-clicks; 'invoke_button' requires buttonName and should NOT be used for consent-critical prompts (UAC, save-changes, password)."),
+    buttonName: z
+      .string()
+      .optional()
+      .describe("Required for action=invoke_button. Substring matched against descendant button names."),
+    scope: z
+      .enum(["desktop", "app"])
+      .default("desktop")
+      .describe("'desktop' watches everywhere; 'app' limits to the foreground app subtree."),
+    ttlMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(1_800_000)
+      .optional()
+      .describe("TTL in ms. Default 300000 (5 min), cap 1800000 (30 min)."),
+  }),
+});
+
+export const NativeWatchDrainSchema = z.object({
+  name: z.literal("native_watch_drain"),
+  args: z.object({
+    watchId: z.string().optional().describe("Specific watcher to drain; omit for all."),
+  }),
+});
+
+export const NativeWatchRemoveSchema = z.object({
+  name: z.literal("native_watch_remove"),
+  args: z.object({
+    watchId: z.string().describe("Watcher id returned by native_watch_install"),
+  }),
+});
+
+export const NativeBaselineCaptureSchema = z.object({
+  name: z.literal("native_baseline_capture"),
+  args: z.object({
+    label: z.string().optional().describe("Optional human-readable label for debugging"),
+  }),
+});
+
+export const NativeBaselineRestoreSchema = z.object({
+  name: z.literal("native_baseline_restore"),
+  args: z.object({
+    baselineId: z.string().describe("Id from native_baseline_capture"),
+    strategy: z
+      .enum(["close_modals", "close_modals_then_focus"])
+      .default("close_modals")
+      .describe("'close_modals' closes all windows not in the baseline; 'close_modals_then_focus' also re-focuses the baseline's app."),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -323,6 +484,16 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   NativeScreenGrabSchema,
   NativeFocusWindowSchema,
   NativeClickPixelSchema,
+  NativeInvokeSchema,
+  NativeWaitForSchema,
+  NativeElementFromPointSchema,
+  NativeReadTextSchema,
+  NativeWithCacheSchema,
+  NativeWatchInstallSchema,
+  NativeWatchDrainSchema,
+  NativeWatchRemoveSchema,
+  NativeBaselineCaptureSchema,
+  NativeBaselineRestoreSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -356,6 +527,16 @@ export type NativeFocusArgs = z.infer<typeof NativeFocusSchema>["args"];
 export type NativeScreenGrabArgs = z.infer<typeof NativeScreenGrabSchema>["args"];
 export type NativeFocusWindowArgs = z.infer<typeof NativeFocusWindowSchema>["args"];
 export type NativeClickPixelArgs = z.infer<typeof NativeClickPixelSchema>["args"];
+export type NativeInvokeArgs = z.infer<typeof NativeInvokeSchema>["args"];
+export type NativeWaitForArgs = z.infer<typeof NativeWaitForSchema>["args"];
+export type NativeElementFromPointArgs = z.infer<typeof NativeElementFromPointSchema>["args"];
+export type NativeReadTextArgs = z.infer<typeof NativeReadTextSchema>["args"];
+export type NativeWithCacheArgs = z.infer<typeof NativeWithCacheSchema>["args"];
+export type NativeWatchInstallArgs = z.infer<typeof NativeWatchInstallSchema>["args"];
+export type NativeWatchDrainArgs = z.infer<typeof NativeWatchDrainSchema>["args"];
+export type NativeWatchRemoveArgs = z.infer<typeof NativeWatchRemoveSchema>["args"];
+export type NativeBaselineCaptureArgs = z.infer<typeof NativeBaselineCaptureSchema>["args"];
+export type NativeBaselineRestoreArgs = z.infer<typeof NativeBaselineRestoreSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -607,6 +788,91 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "x", type: "number", required: true, description: "Absolute desktop X pixel" },
       { name: "y", type: "number", required: true, description: "Absolute desktop Y pixel" },
       { name: "button", type: "string", required: false, description: "'left', 'right', or 'middle'", default: "left" },
+    ],
+  },
+  {
+    name: "native_invoke",
+    description: "Windows only — dispatch a UI Automation control pattern (Invoke, Toggle, ExpandCollapse, RangeValue.SetValue, Value.SetValue, SelectionItem.Select, Window.Close) directly against a handle. Bypasses synthetic input — far more reliable than native_click for complex controls (ribbon menus, treeviews, spinners). Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "handle", type: "object", required: true, description: "Handle object from native_locate" },
+      { name: "pattern", type: "string", required: true, description: "UIA pattern name (Invoke, Toggle, ExpandCollapse, RangeValue, Value, SelectionItem, Window)" },
+      { name: "action", type: "string", required: true, description: "Pattern-specific action (e.g. 'Invoke', 'Toggle', 'Expand', 'SetValue', 'Select', 'Close')" },
+      { name: "params", type: "object", required: false, description: "Action params (e.g. { value: 42 } for RangeValue.SetValue)" },
+    ],
+  },
+  {
+    name: "native_wait_for",
+    description: "Windows only — subscribe to a UIA automation event (structure_changed, focus_changed, property_changed) and resolve when a matching event arrives or the timeout elapses. Use instead of polling loops for 'wait until dialog opens' / 'wait until button enables'. Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "event", type: "string", required: true, description: "'structure_changed' | 'focus_changed' | 'property_changed'" },
+      { name: "handle", type: "object", required: false, description: "Anchor handle; defaults to desktop root" },
+      { name: "match", type: "object", required: false, description: "Predicate (name, role, automationId, property) applied to the event element" },
+      { name: "timeoutMs", type: "number", required: false, description: "Timeout in ms (default 30000, max 60000)" },
+    ],
+  },
+  {
+    name: "native_element_from_point",
+    description: "Windows only — resolve the UIA element at an absolute desktop pixel coord. Turns pointer coords into a semantic handle for 'what's under the cursor' workflows. Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "x", type: "number", required: true, description: "Absolute desktop X pixel" },
+      { name: "y", type: "number", required: true, description: "Absolute desktop Y pixel" },
+    ],
+  },
+  {
+    name: "native_read_text",
+    description: "Windows only — read structured text from a UIA TextPattern element (documents, rich-text edit controls). Returns the text plus current selection ranges. Reads rich text without OCR. Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "handle", type: "object", required: true, description: "Handle of a TextPattern-supporting element" },
+      { name: "range", type: "object", required: false, description: "Optional {start, end} character offsets; omit for the full text" },
+    ],
+  },
+  {
+    name: "native_with_cache",
+    description: "Windows only — run a batch of sub-ops (locate, tree, read_text) against a cached subtree in one round-trip. 10-100× faster than cold tree walks for large surfaces (Explorer, Outlook). Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "handle", type: "object", required: false, description: "Subtree anchor; defaults to desktop" },
+      { name: "depth", type: "number", required: false, description: "Cache depth (1-50)" },
+      { name: "ops", type: "array", required: true, description: "Sub-ops: [{op:'locate', query:{...}} | {op:'tree'} | {op:'read_text', handle:{...}}]" },
+    ],
+  },
+  {
+    name: "native_watch_install",
+    description: "Windows only — install a background watcher that fires when a matching window/dialog appears anywhere on the desktop. Agents should install watchers before any risky multi-step flow (dialogs steal focus silently otherwise). Default action 'notify' never auto-clicks — agent drains and decides. Never use action 'invoke_button' for consent-critical prompts (UAC, save-changes, password). Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "match", type: "object", required: true, description: "{name?, role?, automationId?, app?} — substring + case-insensitive" },
+      { name: "action", type: "string", required: false, description: "'notify' | 'dismiss_via_escape' | 'invoke_button'", default: "notify" },
+      { name: "buttonName", type: "string", required: false, description: "Required when action=invoke_button" },
+      { name: "scope", type: "string", required: false, description: "'desktop' | 'app'", default: "desktop" },
+      { name: "ttlMs", type: "number", required: false, description: "TTL in ms (1000-1800000, default 300000)" },
+    ],
+  },
+  {
+    name: "native_watch_drain",
+    description: "Windows only — read queued events from one or all active watchers. Drain between every risky action. Returns unsupported_platform on Linux/macOS.",
+    parameters: [
+      { name: "watchId", type: "string", required: false, description: "Specific watcher; omit for all" },
+    ],
+  },
+  {
+    name: "native_watch_remove",
+    description: "Windows only — remove an installed watcher.",
+    parameters: [
+      { name: "watchId", type: "string", required: true, description: "Watcher id from native_watch_install" },
+    ],
+  },
+  {
+    name: "native_baseline_capture",
+    description: "Windows only — capture a named 'known-good state' snapshot of the desktop (foreground window, top-level windows, modal depth). Pair with native_baseline_restore as an emergency parachute when the agent lands in an unexpected state.",
+    parameters: [
+      { name: "label", type: "string", required: false, description: "Optional label for debugging" },
+    ],
+  },
+  {
+    name: "native_baseline_restore",
+    description: "Windows only — close windows introduced since a baseline was captured. Hung windows ('Not Responding') are skipped and surfaced as residuals, never force-closed. Never affects UAC or secure-desktop dialogs (not reachable from non-elevated process).",
+    parameters: [
+      { name: "baselineId", type: "string", required: true, description: "Id from native_baseline_capture" },
+      { name: "strategy", type: "string", required: false, description: "'close_modals' | 'close_modals_then_focus'", default: "close_modals" },
     ],
   },
 ];

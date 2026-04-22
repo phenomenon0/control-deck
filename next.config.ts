@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import * as path from "node:path";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "koffi", "node-screenshots", "node-pty"],
   // Embedded-server mode for Electron packaging. Harmless on plain Node deploys.
   output: "standalone",
   // Pin the tracing root to the project so standalone/server.js lands at the

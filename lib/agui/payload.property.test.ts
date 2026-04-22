@@ -134,13 +134,16 @@ describe("DeckPayload invariants — legacy handling", () => {
       fc.property(jsonValueArb, (v) => {
         const stored = JSON.stringify(v);
         const restored = deserializePayload(stored);
-        // If the raw value IS a valid DeckPayload by shape, deserialize
-        // recognizes it as such and returns it directly; otherwise wrap.
+        // The invariant is *JSON-preserving* round-trip, not strict JS
+        // equality. `-0` round-trips to `0`, so compare both sides
+        // through the same JSON serialization to normalize those
+        // well-known JSON edge cases away.
+        const jsonNormalized = JSON.parse(JSON.stringify(v));
         if (isDeckPayload(v)) {
           expect(restored).toEqual(v as DeckPayload);
         } else {
           expect(restored.kind).toBe("json");
-          expect((restored as { data: unknown }).data).toEqual(v);
+          expect((restored as { data: unknown }).data).toEqual(jsonNormalized);
         }
       }),
       { numRuns: 100 },

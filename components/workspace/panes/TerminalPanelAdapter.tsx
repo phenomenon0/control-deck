@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import { TerminalPane, type TerminalPaneHandle } from "@/components/panes/TerminalPane";
 import { call, publish, registerPane } from "@/lib/workspace";
@@ -32,6 +32,7 @@ export function TerminalPanelAdapter(props: IDockviewPanelProps<TerminalParams>)
   const instanceId = props.params?.instanceId ?? props.api.id;
   const paneId = `terminal:${instanceId}`;
   const handleRef = useRef<TerminalPaneHandle>(null);
+  const [flash, setFlash] = useState<string | null>(null);
 
   const onOutput = useCallback(
     (data: string) => {
@@ -39,6 +40,26 @@ export function TerminalPanelAdapter(props: IDockviewPanelProps<TerminalParams>)
     },
     [paneId],
   );
+
+  const sendToCanvas = async () => {
+    const text = handleRef.current?.readLastOutput(8000) ?? "";
+    if (!text) {
+      setFlash("no output yet");
+      setTimeout(() => setFlash(null), 1200);
+      return;
+    }
+    try {
+      await call("canvas:canvas-default", "load_code", {
+        code: text,
+        language: "text",
+        title: `Terminal · ${new Date().toISOString().slice(11, 19)}`,
+      });
+      setFlash(`sent ${text.length} chars → canvas`);
+    } catch (err) {
+      setFlash(err instanceof Error ? err.message : "send failed");
+    }
+    setTimeout(() => setFlash(null), 1800);
+  };
 
   useEffect(() => {
     const off = registerPane({
@@ -85,8 +106,43 @@ export function TerminalPanelAdapter(props: IDockviewPanelProps<TerminalParams>)
   }, [paneId, props.api.title]);
 
   return (
-    <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" }}>
       <TerminalPane ref={handleRef} onOutput={onOutput} />
+      <div style={{
+        position: "absolute",
+        top: 6,
+        right: 6,
+        zIndex: 5,
+        display: "flex",
+        gap: 6,
+        alignItems: "center",
+      }}>
+        {flash && (
+          <span style={{
+            fontSize: 10,
+            fontFamily: "ui-monospace, SFMono-Regular, monospace",
+            color: "#7ab8ff",
+            background: "rgba(0,0,0,0.5)",
+            padding: "2px 8px",
+            borderRadius: 3,
+            opacity: 0.9,
+          }}>{flash}</span>
+        )}
+        <button
+          onClick={sendToCanvas}
+          style={{
+            padding: "3px 9px",
+            fontSize: 10,
+            fontFamily: "ui-monospace, SFMono-Regular, monospace",
+            background: "rgba(0,0,0,0.55)",
+            color: "#ccc",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 3,
+            cursor: "pointer",
+          }}
+          title="Send last 8000 bytes of output to the default canvas pane"
+        >→ canvas</button>
+      </div>
     </div>
   );
 }

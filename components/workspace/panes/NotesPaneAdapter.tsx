@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import { marked } from "marked";
-import { publish, registerPane } from "@/lib/workspace";
+import { call, publish, registerPane } from "@/lib/workspace";
 
 interface NotesParams {
   instanceId?: string;
@@ -42,6 +42,7 @@ export function NotesPaneAdapter(props: IDockviewPanelProps<NotesParams>) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
 
   // ── Autosave (debounce 500ms) + topic publish ─────────────────────
   useEffect(() => {
@@ -173,6 +174,35 @@ export function NotesPaneAdapter(props: IDockviewPanelProps<NotesParams>) {
         <span style={{ opacity: 0.4, fontSize: 10 }}>
           {savedAt ? `saved ${relativeTime(savedAt)}` : "not saved"} · {text.length} chars
         </span>
+        {flash && (
+          <span style={{ color: "#7ab8ff", fontSize: 10, opacity: 0.9 }}>{flash}</span>
+        )}
+        <button
+          onClick={async () => {
+            // Prefer selection; fall back to full text.
+            const ta = textareaRef.current;
+            const selected = ta ? text.slice(ta.selectionStart, ta.selectionEnd) : "";
+            const payload = selected || text;
+            if (!payload.trim()) {
+              setFlash("nothing to send");
+              setTimeout(() => setFlash(null), 1200);
+              return;
+            }
+            try {
+              await call("canvas:canvas-default", "load_code", {
+                code: payload,
+                language: "markdown",
+                title: selected ? "Notes · selection" : "Notes · full",
+              });
+              setFlash(`sent ${payload.length} chars → canvas`);
+            } catch (err) {
+              setFlash(err instanceof Error ? err.message : "send failed");
+            }
+            setTimeout(() => setFlash(null), 1800);
+          }}
+          style={toolBtn}
+          title="Send selection (or full note if nothing selected) to the default canvas pane"
+        >→ canvas</button>
         <button onClick={() => setShowPreview((v) => !v)} style={toolBtn} title="Toggle preview (Ctrl+P)">
           {showPreview ? "hide preview" : "show preview"}
         </button>

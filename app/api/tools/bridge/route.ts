@@ -67,6 +67,8 @@ const BRIDGE_TOOLS = new Set<string>([
   "workspace_close_pane",
   "workspace_focus_pane",
   "workspace_reset",
+  "workspace_list_panes",
+  "workspace_pane_call",
 ]);
 
 interface BridgeRequest {

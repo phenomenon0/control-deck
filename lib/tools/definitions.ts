@@ -500,6 +500,20 @@ export const WorkspaceResetSchema = z.object({
   args: z.object({}).describe("Reset the workspace to the default layout"),
 });
 
+export const WorkspaceListPanesSchema = z.object({
+  name: z.literal("workspace_list_panes"),
+  args: z.object({}).describe("Snapshot of every registered pane + its capabilities + topic rates"),
+});
+
+export const WorkspacePaneCallSchema = z.object({
+  name: z.literal("workspace_pane_call"),
+  args: z.object({
+    target: z.string().describe("Pane handle id, e.g. 'terminal:terminal-default'"),
+    capability: z.string().describe("Capability name to invoke (see workspace_list_panes output)"),
+    args: z.record(z.string(), z.unknown()).optional().describe("Payload passed to the capability handler"),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -542,6 +556,8 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   WorkspaceClosePaneSchema,
   WorkspaceFocusPaneSchema,
   WorkspaceResetSchema,
+  WorkspaceListPanesSchema,
+  WorkspacePaneCallSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -589,6 +605,8 @@ export type WorkspaceOpenPaneArgs = z.infer<typeof WorkspaceOpenPaneSchema>["arg
 export type WorkspaceClosePaneArgs = z.infer<typeof WorkspaceClosePaneSchema>["args"];
 export type WorkspaceFocusPaneArgs = z.infer<typeof WorkspaceFocusPaneSchema>["args"];
 export type WorkspaceResetArgs = z.infer<typeof WorkspaceResetSchema>["args"];
+export type WorkspaceListPanesArgs = z.infer<typeof WorkspaceListPanesSchema>["args"];
+export type WorkspacePaneCallArgs = z.infer<typeof WorkspacePaneCallSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -955,6 +973,20 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "workspace_reset",
     description: "Reset the user's workspace to the default layout (chat | terminal | notes). Fire-and-forget.",
     parameters: [],
+  },
+  {
+    name: "workspace_list_panes",
+    description: "Query the workspace for a snapshot of every registered pane — handle id, type, label, capabilities, declared topics + their current rate. Use this before workspace_pane_call to discover what's callable. Returns within 5s or errors if /deck/workspace isn't open.",
+    parameters: [],
+  },
+  {
+    name: "workspace_pane_call",
+    description: "Synchronously invoke a capability on a specific workspace pane. Pass target=pane-handle-id (see workspace_list_panes), capability=name of the capability, args=payload. Result is the capability's return value. 5s timeout. Use for rich operations like chat.append_text, terminal.send_keys, canvas.load_code, notes.replace_text, browser.navigate.",
+    parameters: [
+      { name: "target", type: "string", required: true, description: "Pane handle id" },
+      { name: "capability", type: "string", required: true, description: "Capability name" },
+      { name: "args", type: "object", required: false, description: "Payload for the capability handler" },
+    ],
   },
 ];
 

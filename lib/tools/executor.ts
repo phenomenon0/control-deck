@@ -55,9 +55,10 @@ import type {
   WorkspaceOpenPaneArgs,
   WorkspaceClosePaneArgs,
   WorkspaceFocusPaneArgs,
+  WorkspacePaneCallArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
-import { publishCommand } from "@/lib/workspace/command-relay";
+import { publishCommand, publishQuery } from "@/lib/workspace/command-relay";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
@@ -219,6 +220,10 @@ export async function executeTool(
         return executeWorkspaceFocusPane(tool.args);
       case "workspace_reset":
         return executeWorkspaceReset();
+      case "workspace_list_panes":
+        return await executeWorkspaceListPanes();
+      case "workspace_pane_call":
+        return await executeWorkspacePaneCall(tool.args);
       default:
         return {
           success: false,
@@ -1647,4 +1652,40 @@ function executeWorkspaceReset(): ToolExecutionResult {
     message: `Queued workspace reset — id ${cmd.id}`,
     data: { commandId: cmd.id, relayed: true },
   };
+}
+
+async function executeWorkspaceListPanes(): Promise<ToolExecutionResult> {
+  try {
+    const snapshot = await publishQuery<unknown[]>("query:list_panes", {}, 5_000);
+    return {
+      success: true,
+      message: `Workspace has ${Array.isArray(snapshot) ? snapshot.length : 0} registered pane(s)`,
+      data: { panes: snapshot },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "workspace_list_panes failed";
+    return { success: false, message: msg, error: msg };
+  }
+}
+
+async function executeWorkspacePaneCall(args: WorkspacePaneCallArgs): Promise<ToolExecutionResult> {
+  try {
+    const result = await publishQuery<unknown>(
+      "query:pane_call",
+      {
+        target: args.target,
+        capability: args.capability,
+        args: args.args ?? {},
+      },
+      5_000,
+    );
+    return {
+      success: true,
+      message: `${args.target}.${args.capability} → ok`,
+      data: { result },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "workspace_pane_call failed";
+    return { success: false, message: msg, error: msg };
+  }
 }

@@ -9,6 +9,7 @@ import {
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import "./workspace.css";
+import { call as workspaceCall, listPanes as workspaceListPanes } from "@/lib/workspace";
 import { DEFAULT_WORKSPACE_LAYOUT, WORKSPACE_LAYOUT_KEY } from "./defaults";
 import { PANE_CATALOG } from "./paneCatalog";
 import { ChatPanelAdapter } from "./panes/ChatPanelAdapter";
@@ -149,16 +150,128 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     };
   }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(WORKSPACE_LAYOUT_KEY);
     }
     const api = apiRef.current;
     if (!api) return;
-    // Clear all panels then re-seed.
     for (const p of api.panels) p.api.close();
-    seedDefaultLayout(api);
-  };
+    // Re-seed is defined below (hoisted-usage OK since this callback
+    // fires on user click, not at setup time). Keeping both here for
+    // locality with the SSE handler.
+    try {
+      const chat = api.addPanel({
+        id: "chat", component: "chat", title: "Chat",
+        params: { paneType: "chat", instanceId: "chat-default" },
+      });
+      api.addPanel({
+        id: "terminal", component: "terminal", title: "Terminal",
+        params: { paneType: "terminal", instanceId: "terminal-default" },
+        position: { referencePanel: chat.id, direction: "right" },
+      });
+      api.addPanel({
+        id: "notes", component: "notes", title: "Notes",
+        params: { paneType: "notes", instanceId: "notes-default" },
+        position: { referencePanel: "terminal", direction: "below" },
+      });
+    } catch (err) {
+      console.error("[workspace] reset seed failed", err);
+    }
+  }, []);
+
+  // ── Agent ↔ workspace relay subscription (commands + queries) ─────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const es = new EventSource("/api/workspace/commands");
+
+    const respond = async (id: string, data: unknown, error?: string) => {
+      try {
+        await fetch("/api/workspace/responses", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id, data, error }),
+        });
+      } catch (err) {
+        console.warn("[workspace.relay] POST /responses failed:", err);
+      }
+    };
+
+    es.addEventListener("workspace-command", async (ev: MessageEvent) => {
+      let cmd: { id: string; command: string; args: Record<string, unknown> };
+      try { cmd = JSON.parse(ev.data); }
+      catch { return; }
+
+      // Query commands execute against the local bus + respond with
+      // the correlation id so the server-side Promise resolves.
+      if (cmd.command === "query:list_panes") {
+        try { await respond(cmd.id, workspaceListPanes()); }
+        catch (err) { await respond(cmd.id, null, err instanceof Error ? err.message : String(err)); }
+        return;
+      }
+      if (cmd.command === "query:pane_call") {
+        const a = cmd.args as { target: string; capability: string; args?: unknown };
+        try {
+          const result = await workspaceCall(a.target, a.capability, a.args);
+          await respond(cmd.id, result);
+        } catch (err) {
+          await respond(cmd.id, null, err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+
+      // Fire-and-forget commands drive Dockview directly.
+      const api = apiRef.current;
+      if (!api) return;
+
+      switch (cmd.command) {
+        case "open_pane": {
+          const a = cmd.args as { type: string; title?: string; position?: string; referencePane?: string };
+          const instanceId = `${a.type}-${Date.now().toString(36)}`;
+          const panelId = `${a.type}-${instanceId}`;
+          type AddPanelArgs = Parameters<typeof api.addPanel>[0];
+          const panelArgs: AddPanelArgs = {
+            id: panelId,
+            component: a.type,
+            title: a.title ?? a.type,
+            params: { paneType: a.type, instanceId },
+          };
+          if (a.position && a.referencePane) {
+            // Dockview's position is a discriminated union; the relative
+            // form wants `referencePanel` + `direction`. Cast through
+            // unknown because the union disambiguation relies on fields
+            // we're setting here, not inferrable ahead of time.
+            (panelArgs as unknown as Record<string, unknown>).position = {
+              referencePanel: a.referencePane,
+              direction: a.position,
+            };
+          }
+          try { api.addPanel(panelArgs); }
+          catch (err) { console.warn("[workspace.relay] open_pane failed:", err); }
+          break;
+        }
+        case "close_pane": {
+          const a = cmd.args as { paneId: string };
+          const panel = api.getPanel(a.paneId) ?? api.panels.find((p) => p.id === a.paneId);
+          try { panel?.api.close(); }
+          catch (err) { console.warn("[workspace.relay] close_pane failed:", err); }
+          break;
+        }
+        case "focus_pane": {
+          const a = cmd.args as { paneId: string };
+          const panel = api.getPanel(a.paneId) ?? api.panels.find((p) => p.id === a.paneId);
+          try { panel?.api.setActive(); }
+          catch (err) { console.warn("[workspace.relay] focus_pane failed:", err); }
+          break;
+        }
+        case "reset":
+          reset();
+          break;
+      }
+    });
+
+    return () => es.close();
+  }, [reset]);
 
   const spawnPane = (component: string, label: string) => {
     const api = apiRef.current;

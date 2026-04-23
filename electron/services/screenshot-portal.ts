@@ -19,7 +19,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { runPythonJsonHelper } from "./python-json-helper";
 
 const CAPTURE_TIMEOUT_MS = 120_000; // generous: first call waits for user click
 const HELPER_PATH = path.resolve(__dirname, "..", "..", "scripts", "screenshot-capture.py");
@@ -28,28 +28,6 @@ export interface ScreenshotResult {
   pngPath: string;
   width: number;
   height: number;
-}
-
-export class ScreenshotPortal {
-  async init(): Promise<void> {
-    if (!fs.existsSync(HELPER_PATH)) {
-      throw new Error(`screenshot helper missing at ${HELPER_PATH}`);
-    }
-  }
-
-  async captureOne(): Promise<ScreenshotResult> {
-    await this.init();
-    const pngPath = path.join(
-      os.tmpdir(),
-      `control-deck-shot-${crypto.randomBytes(6).toString("hex")}.png`,
-    );
-    const result = await runHelper(pngPath);
-    if (!result.ok) throw new Error(result.error || "screenshot portal capture failed");
-    if (!fs.existsSync(result.path)) {
-      throw new Error(`helper reported success but no file at ${result.path}`);
-    }
-    return { pngPath: result.path, width: result.width, height: result.height };
-  }
 }
 
 interface HelperSuccess {
@@ -64,44 +42,27 @@ interface HelperFailure {
 }
 type HelperResult = HelperSuccess | HelperFailure;
 
-async function runHelper(pngPath: string): Promise<HelperResult> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("python3", [HELPER_PATH, pngPath], {
-      stdio: ["ignore", "pipe", "pipe"],
+export class ScreenshotPortal {
+  async init(): Promise<void> {
+    if (!fs.existsSync(HELPER_PATH)) {
+      throw new Error(`screenshot helper missing at ${HELPER_PATH}`);
+    }
+  }
+
+  async captureOne(): Promise<ScreenshotResult> {
+    await this.init();
+    const pngPath = path.join(
+      os.tmpdir(),
+      `control-deck-shot-${crypto.randomBytes(6).toString("hex")}.png`,
+    );
+    const result = await runPythonJsonHelper<HelperResult>(HELPER_PATH, [pngPath], {
+      timeoutMs: CAPTURE_TIMEOUT_MS,
+      label: "screenshot",
     });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
-    proc.stderr?.on("data", (c: Buffer) => (stderr += c.toString("utf8")));
-    const timer = setTimeout(() => {
-      proc.kill("SIGKILL");
-      reject(new Error("screenshot-capture.py timed out"));
-    }, CAPTURE_TIMEOUT_MS);
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      const firstLine = stdout.split(/\r?\n/).find((l) => l.trim().startsWith("{"));
-      if (!firstLine) {
-        reject(
-          new Error(
-            `screenshot helper produced no JSON (exit=${code}): ${stderr.trim()}`,
-          ),
-        );
-        return;
-      }
-      try {
-        const parsed = JSON.parse(firstLine) as HelperResult;
-        resolve(parsed);
-      } catch (err) {
-        reject(
-          new Error(
-            `screenshot helper returned invalid JSON: ${firstLine} / ${String(err)}`,
-          ),
-        );
-      }
-    });
-  });
+    if (!result.ok) throw new Error(result.error || "screenshot portal capture failed");
+    if (!fs.existsSync(result.path)) {
+      throw new Error(`helper reported success but no file at ${result.path}`);
+    }
+    return { pngPath: result.path, width: result.width, height: result.height };
+  }
 }

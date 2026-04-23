@@ -24,7 +24,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { runPythonJsonHelper } from "./python-json-helper";
 
 const CAPTURE_TIMEOUT_MS = 120_000; // generous: first call waits for user click
 const HELPER_PATH = path.resolve(__dirname, "..", "..", "scripts", "screencast-capture.py");
@@ -60,7 +60,11 @@ export class ScreenCastSession {
       `control-deck-grab-${crypto.randomBytes(6).toString("hex")}.png`,
     );
 
-    const result = await runHelper(pngPath, this.tokenPath);
+    const result = await runPythonJsonHelper<HelperResult>(
+      HELPER_PATH,
+      [pngPath, this.tokenPath],
+      { timeoutMs: CAPTURE_TIMEOUT_MS, label: "screencast" },
+    );
     if (!result.ok) throw new Error(result.error || "screencast capture failed");
     if (!fs.existsSync(result.path)) {
       throw new Error(`helper reported success but no file at ${result.path}`);
@@ -84,45 +88,3 @@ interface HelperFailure {
   error?: string;
 }
 type HelperResult = HelperSuccess | HelperFailure;
-
-async function runHelper(pngPath: string, tokenPath: string): Promise<HelperResult> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("python3", [HELPER_PATH, pngPath, tokenPath], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
-    proc.stderr?.on("data", (c: Buffer) => (stderr += c.toString("utf8")));
-    const timer = setTimeout(() => {
-      proc.kill("SIGKILL");
-      reject(new Error("screencast-capture.py timed out"));
-    }, CAPTURE_TIMEOUT_MS);
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      const firstLine = stdout.split(/\r?\n/).find((l) => l.trim().startsWith("{"));
-      if (!firstLine) {
-        reject(
-          new Error(
-            `screencast helper produced no JSON (exit=${code}): ${stderr.trim()}`,
-          ),
-        );
-        return;
-      }
-      try {
-        const parsed = JSON.parse(firstLine) as HelperResult;
-        resolve(parsed);
-      } catch (err) {
-        reject(
-          new Error(
-            `screencast helper returned invalid JSON: ${firstLine} / ${String(err)}`,
-          ),
-        );
-      }
-    });
-  });
-}

@@ -349,6 +349,33 @@ export async function POST(req: Request) {
   const runId = generateId();
   const messageId = generateId();
 
+  // Probe Agent-GO up front. If it's down (common during local dev without
+  // the Go binary), fall through to /api/chat/simple so chat still works.
+  // The probe is non-blocking at 400ms — Agent-GO's /health is an instant
+  // response when alive, so this adds essentially zero latency to the
+  // healthy path.
+  const agentgoAlive = await fetch(`${AGENTGO_URL}/health`, {
+    signal: AbortSignal.timeout(400),
+    cache: "no-store",
+  })
+    .then((r) => r.ok)
+    .catch(() => false);
+
+  if (!agentgoAlive) {
+    console.log(`[Chat] Agent-GO unreachable at ${AGENTGO_URL}; falling back to /api/chat/simple`);
+    // Invoke the simple route's handler directly instead of HTTP self-fetch.
+    // Next's dev server can buffer or serialize recursive same-origin fetches,
+    // which manifested as a hung SSE stream during testing.
+    const { POST: simplePost } = await import("./simple/route");
+    const fallbackReq = new Request(new URL("/api/chat/simple", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, model: selectedModel, threadId: thread }),
+      signal: req.signal,
+    });
+    return simplePost(fallbackReq);
+  }
+
   console.log(`[Chat] Starting run via Agent-GO: thread=${thread}, model=${selectedModel}`);
 
   // Emit local RunStarted (for immediate UI feedback)

@@ -60,7 +60,12 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
 };
 
 const DEFAULT_PREFS: DeckPrefs = {
-  model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "qwen2",
+  // Empty = resolve at runtime. The server-side fallback in
+  // /api/chat/simple + the ComposerModelPicker both handle empty-string
+  // model by picking the first installed Ollama model. A hardcoded
+  // "qwen2" default was baked in historically and has been the source of
+  // 404s ever since qwen3 replaced it in the curated model set.
+  model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
   reduceMotion: false,
   chatContextRail: false,
   chatSurface: "safe",
@@ -80,6 +85,14 @@ function safeParse<T>(value: string | null): T | null {
   }
 }
 
+// Stale model ids that were baked in as defaults and no longer exist on
+// most installs. If localStorage still has one of these, clear it so the
+// runtime resolver picks a real installed model instead.
+const STALE_MODEL_DEFAULTS: ReadonlySet<string> = new Set([
+  "qwen2",
+  "qwen2:latest",
+]);
+
 function migratePrefs(): DeckPrefs {
   const newPrefs = safeParse<(DeckPrefs & { theme?: string })>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
@@ -90,9 +103,15 @@ function migratePrefs(): DeckPrefs {
         : (newPrefs.chatSurface as string) === "tower"
           ? "radical"
           : (newPrefs.chatSurface ?? "safe");
+    // Wipe stale model defaults that were auto-written by earlier versions.
+    const migratedModel =
+      typeof rest.model === "string" && STALE_MODEL_DEFAULTS.has(rest.model)
+        ? ""
+        : (rest.model ?? "");
     return {
       ...DEFAULT_PREFS,
       ...rest,
+      model: migratedModel,
       chatSurface: migratedSurface as ChatSurface,
       voice: { ...DEFAULT_VOICE_PREFS, ...newPrefs.voice },
     };

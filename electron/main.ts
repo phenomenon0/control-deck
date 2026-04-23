@@ -55,9 +55,16 @@ if (DEVTOOLS_PORT_RAW) {
     );
   } else {
     app.commandLine.appendSwitch("remote-debugging-port", String(port));
-    app.commandLine.appendSwitch("remote-allow-origins", "http://127.0.0.1");
+    // Pin to the exact origin we serve on. Chromium matches the WS upgrade
+    // Origin header against this exact scheme+host+port; a bare
+    // "http://127.0.0.1" would accept any port and let a rogue local page
+    // drive CDP as long as it reached our port.
+    app.commandLine.appendSwitch(
+      "remote-allow-origins",
+      `http://127.0.0.1:${port}`,
+    );
     console.log(
-      `[electron] CDP enabled: http://127.0.0.1:${port}/json/version`,
+      `[electron] CDP enabled: http://127.0.0.1:${port}/json/version (any local UID-matched process can attach)`,
     );
   }
 }

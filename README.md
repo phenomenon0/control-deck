@@ -166,7 +166,10 @@ LM Studio `/v1`, OpenRouter, Groq, DeepSeek…) plug in through the
   `prlimit` resource limits on Linux; namespace isolation is planned but
   not yet enabled (see `lib/tools/code-exec/sandbox/linux.ts`).
 - CDP port is **opt-in** and never flipped on by default in packaged
-  builds. `remote-allow-origins=*` only applies when the port is up.
+  builds. When `CONTROL_DECK_DEVTOOLS_PORT` is set, the origin check is
+  pinned to the exact port (no wildcard). Even so, anything CDP-on is
+  effectively full browser control for any local process running as the
+  same UID — treat it as a dev-time knob, not a packaged-build default.
 
 ---
 

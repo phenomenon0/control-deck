@@ -359,12 +359,6 @@ MODIFIED FILES:
   app/api/chat/route.ts               <- SSE-only response stream
   app/globals.css                      <- new tokens, agent activity styles
 
-DELETED FILES (after migration):
-  components/panes/ChatPaneV2.tsx      <- replaced by ChatSurface
-  components/chat/ChatInput.tsx        <- replaced by ChatComposer
-  lib/hooks/useSendMessage.ts          <- merged into useAgentRun
-  lib/hooks/useSSE.ts                  <- merged into useAgentRun
-  lib/hooks/useRightRail.tsx           <- eliminated (direct context read)
 ```
 
 ---
@@ -409,42 +403,7 @@ React re-renders ChatSurface tree
 
 ---
 
-## 9. Migration Strategy
-
-This is not a big-bang rewrite. Phases:
-
-### Phase 1: Foundation (this redesign cycle)
-- Create design documents (DESIGN.md, BEHAVIOR.md, SURFACE.md) [DONE]
-- Add new CSS tokens to globals.css
-- Create `useAgentRun` hook with state machine
-- Create `ChatSurface` shell that renders existing components initially
-
-### Phase 2: Timeline
-- Create `ChatTimeline` and `TimelineSegment` components
-- Create `AgentActivityBlock` replacing inline tool rendering
-- Create `StatusStrip` replacing scattered indicators
-- Wire into `ChatSurface`
-
-### Phase 3: Composer
-- Create `ChatComposer` evolving from `ChatInput`
-- Add context row (model, attachments)
-- Add stop/retry behavior tied to `useAgentRun` state
-
-### Phase 4: Backend
-- Unify /api/chat to SSE-only response
-- Move search to server-side tool
-- Add threadTitle to RunFinished event
-- Remove stripFakeToolPatterns (fix at source)
-
-### Phase 5: Cleanup
-- Delete old files (ChatPaneV2, ChatInput, useSendMessage, useSSE)
-- Remove RightRailProvider
-- Remove thread management from chat pane
-- Audit and remove all hardcoded colors/inline styles
-
----
-
-## 10. What We're NOT Changing
+## 9. What We're NOT Changing
 
 Explicitly out of scope for this redesign:
 

@@ -26,7 +26,6 @@ asarUnpack:
   - "**/*.node"
   - "**/node_modules/node-pty/build/**"
   - "**/node_modules/better-sqlite3/build/**"
-  - "**/node_modules/onnxruntime-node/bin/**"
   - "**/node_modules/@img/**"
   - "**/node_modules/koffi/build/**"
   - "**/node_modules/node-screenshots/**"

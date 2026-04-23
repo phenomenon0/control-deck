@@ -38,7 +38,7 @@ export interface SystemProfile {
   storage: StorageInfo | null;
   recommended: {
     textModel: string;
-    imageBackend: "comfy" | "lite";
+    imageBackend: "comfy";
     imageResolution: number;
   };
 }
@@ -242,7 +242,7 @@ function getRecommendedSettings(
 
   return {
     textModel: process.env.LLM_MODEL ?? "qwen2",
-    imageBackend: "lite",
+    imageBackend: "comfy",
     imageResolution: 256,
   };
 }
@@ -321,14 +321,6 @@ export function isLiteMode(): boolean {
 export function getRecommendedTextModel(): string {
   const profile = detectSystem();
   return profile.recommended.textModel;
-}
-
-/**
- * Get the recommended image backend for current mode
- */
-export function getRecommendedImageBackend(): "comfy" | "lite" {
-  const profile = detectSystem();
-  return profile.recommended.imageBackend;
 }
 
 /**

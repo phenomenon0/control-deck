@@ -92,9 +92,9 @@ readiness, then loads the URL in a `BrowserWindow`. No dev/prod fork,
 no static export, no bundler surprises — the exact same code that ships
 to the web ships to the desktop.
 
-Native deps (`better-sqlite3`, `node-pty`, `onnxruntime-node`) are
-rebuilt against the Electron ABI via `@electron/rebuild` and copied into
-the standalone output by `scripts/copy-native-binaries.cjs`.
+Native deps (`better-sqlite3`, `node-pty`) are rebuilt against the
+Electron ABI via `@electron/rebuild` and copied into the standalone
+output by `scripts/copy-native-binaries.cjs`.
 
 ### Native OS adapters
 
@@ -147,8 +147,6 @@ LM Studio `/v1`, OpenRouter, Groq, DeepSeek…) plug in through the
 
 - **Next.js 16** + **React 19** (App Router, RSC, streaming) on **Bun**
 - **better-sqlite3** for threads, messages, runs, plugin state
-- **onnxruntime-node** for local embeddings (CPU default, CUDA/TensorRT
-  opt-in at package time via `INCLUDE_GPU_PROVIDERS=1`)
 - **node-pty** for real shells in the terminal pane
 - **Tone.js** for the live-music engine
 - **ComfyUI** bridge for image/video workflows

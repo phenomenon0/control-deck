@@ -62,13 +62,6 @@ export function getTextModel(): string {
 }
 
 /**
- * Get the recommended image backend
- */
-export function getImageBackend(): "comfy" | "lite" {
-  return getSystemProfile().recommended.imageBackend;
-}
-
-/**
  * Get the recommended image resolution
  */
 export function getImageResolution(): number {

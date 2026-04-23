@@ -17,7 +17,7 @@ describe("formatSystemProfile", () => {
     storage: null,
     recommended: {
       textModel: "qwen2",
-      imageBackend: "lite",
+      imageBackend: "comfy",
       imageResolution: 256,
     },
   };
@@ -42,7 +42,7 @@ describe("formatSystemProfile", () => {
   test("includes each recommended field on its own line", () => {
     const out = formatSystemProfile(base);
     expect(out).toContain("Recommended text model: qwen2");
-    expect(out).toContain("Recommended image backend: lite");
+    expect(out).toContain("Recommended image backend: comfy");
     expect(out).toContain("Recommended image resolution: 256px");
   });
 
@@ -120,12 +120,12 @@ describe("detectSystem — shape invariants", () => {
     expect(typeof p.platform).toBe("string");
     expect(p.recommended).toMatchObject({
       textModel: expect.any(String),
-      imageBackend: expect.stringMatching(/^(comfy|lite)$/),
+      imageBackend: "comfy",
       imageResolution: expect.any(Number),
     });
   });
 
-  test("power mode uses comfy + 768, lite uses lite + 256", () => {
+  test("power mode uses 768, lite uses 256; both route to comfy", () => {
     process.env.CONTROL_DECK_MODE = "power";
     const powerP = detectSystem();
     expect(powerP.recommended.imageBackend).toBe("comfy");
@@ -133,7 +133,7 @@ describe("detectSystem — shape invariants", () => {
 
     process.env.CONTROL_DECK_MODE = "lite";
     const liteP = detectSystem();
-    expect(liteP.recommended.imageBackend).toBe("lite");
+    expect(liteP.recommended.imageBackend).toBe("comfy");
     expect(liteP.recommended.imageResolution).toBe(256);
 
     delete process.env.CONTROL_DECK_MODE;

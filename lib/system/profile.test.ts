@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  getImageBackend,
   getImageResolution,
   getSystemProfile,
   getTextModel,
@@ -66,17 +65,15 @@ describe("recommended-getters", () => {
     refreshSystemProfile();
   });
 
-  test("lite mode → imageBackend=lite, resolution=256", () => {
+  test("lite mode → resolution=256", () => {
     process.env.CONTROL_DECK_MODE = "lite";
     refreshSystemProfile();
-    expect(getImageBackend()).toBe("lite");
     expect(getImageResolution()).toBe(256);
   });
 
-  test("power mode → imageBackend=comfy, resolution=768", () => {
+  test("power mode → resolution=768", () => {
     process.env.CONTROL_DECK_MODE = "power";
     refreshSystemProfile();
-    expect(getImageBackend()).toBe("comfy");
     expect(getImageResolution()).toBe(768);
   });
 

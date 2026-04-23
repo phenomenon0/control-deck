@@ -6,7 +6,6 @@ export {
   detectSystem,
   isLiteMode as detectLiteMode,
   getRecommendedTextModel,
-  getRecommendedImageBackend,
   formatSystemProfile,
   type SystemProfile,
   type DeckMode,
@@ -19,6 +18,5 @@ export {
   isLiteMode,
   isPowerMode,
   getTextModel,
-  getImageBackend,
   getImageResolution,
 } from "./profile";

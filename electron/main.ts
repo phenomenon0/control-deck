@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, shell, Menu, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, session, shell, Menu, dialog } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as path from "node:path";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
+import * as crypto from "node:crypto";
 import { RemoteDesktopClient } from "./services/remote-desktop-client";
 import { ScreenshotPortal } from "./services/screenshot-portal";
 import { ScreenCastSession } from "./services/screencast";
@@ -17,6 +18,23 @@ import { startTerminalService } from "./services/terminal-service";
 
 const IS_DEV = !app.isPackaged;
 const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
+
+/**
+ * DECK_TOKEN gates every /api/* call in middleware.ts. In packaged builds
+ * we auto-generate one per launch if the operator hasn't supplied one, so
+ * /api/* is never open by default. The renderer attaches it automatically
+ * via the webRequest hook in createWindow(); external code (browser-harness,
+ * curl) still needs to read the token from env or portal-handoff.
+ *
+ * Dev mode keeps the existing behavior: if DECK_TOKEN is unset, /api/* is
+ * open. That keeps `bun run dev` frictionless for developers poking at
+ * routes directly.
+ */
+if (!IS_DEV && !process.env.DECK_TOKEN) {
+  process.env.DECK_TOKEN = crypto.randomBytes(32).toString("hex");
+  console.log("[electron] generated ephemeral DECK_TOKEN for this launch");
+}
+const DECK_TOKEN = process.env.DECK_TOKEN ?? "";
 
 // Wayland: let Chromium pick the native platform instead of forcing X11.
 // Must be set before app.whenReady(). Harmless on X11-only systems.
@@ -361,9 +379,24 @@ async function superviseServerRestart(): Promise<void> {
   }
 }
 
+let deckTokenHookRegistered = false;
+function attachDeckTokenToRendererRequests(serverOrigin: string): void {
+  if (deckTokenHookRegistered || !DECK_TOKEN) return;
+  deckTokenHookRegistered = true;
+  // Scope the filter to our embedded server so external URLs loaded in
+  // themed-browser windows never leak the token. The onBeforeSendHeaders
+  // filter accepts URL patterns — we match the whole server origin + path.
+  const filter = { urls: [`${serverOrigin}/api/*`] };
+  session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, cb) => {
+    const next = { ...details.requestHeaders, "X-Deck-Token": DECK_TOKEN };
+    cb({ requestHeaders: next });
+  });
+}
+
 async function createWindow(): Promise<void> {
   const url = serverUrl ?? (await startEmbeddedServer());
   serverUrl = url;
+  attachDeckTokenToRendererRequests(url);
 
   const preload = path.join(__dirname, "preload.js");
 
@@ -403,7 +436,7 @@ async function createWindow(): Promise<void> {
 
 async function startPortalBridge(): Promise<void> {
   if (portalBridgePort) return;
-  portalBridgeSecret = require("node:crypto").randomBytes(16).toString("hex");
+  portalBridgeSecret = crypto.randomBytes(16).toString("hex");
 
   const server = http.createServer(async (req, res) => {
     const auth = req.headers["x-deck-portal-auth"];

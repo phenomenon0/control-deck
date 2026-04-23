@@ -406,12 +406,12 @@ export default function ChatSurface() {
     updateInspector({
       threadId: activeThreadId,
       model: resolvedModel ?? selectedModel,
-      route: prefs.freeMode ? "free" : "local",
+      route: prefs.routeMode,
       isLoading: isRunning,
       artifacts: messages.flatMap((m) => m.artifacts || []),
       toolCalls,
     });
-  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector, agentRun.state.resolvedModel, prefs.freeMode]);
+  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector, agentRun.state.resolvedModel, prefs.routeMode]);
 
   // ---------------------------------------------------------------------------
   // Canvas auto-open: open artifacts in canvas when created during a run
@@ -795,7 +795,7 @@ export default function ChatSurface() {
       threadId,
       model: selectedModel,
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
-      freeMode: prefs.freeMode,
+      routeMode: prefs.routeMode,
     });
 
     // Persist assistant message on completion

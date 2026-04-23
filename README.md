@@ -61,7 +61,7 @@ bun run electron:pack              # Linux AppImage (~180 MB)
 
 The desktop build adds the native-OS adapters, themed browser windows, and
 an opt-in CDP port for
-[browser-harness](../ai_tools/browser-harness).
+(see the browser-harness repo — companion tool in the same INIT workspace).
 
 ---
 
@@ -76,7 +76,8 @@ Every tool is a **Zod schema → executor switch → bridge registration**.
 `lib/tools/definitions.ts` is the single source of truth; `executor.ts`
 dispatches; `app/api/tools/bridge/route.ts` exposes an allowlist to the
 Agent-GO runtime. Adding a tool is a ~20-line change and the chat UI
-picks it up automatically — type-safe from model to click-through.
+picks it up automatically — type-safe for the LLM-visible manifest;
+input validation at the bridge is planned.
 
 Interrupts, approvals, and diffs are not bolted on. The same executor
 emits `pending → approved | rejected → running → done` events that the
@@ -162,7 +163,8 @@ LM Studio `/v1`, OpenRouter, Groq, DeepSeek…) plug in through the
 - Tool approval is centralized — not per-tool, not per-adapter. One gate
   means one audit surface.
 - Code exec runs through a sandbox (`lib/tools/code-exec/sandbox/`) with
-  a Linux-namespace path on Linux and a best-effort fallback elsewhere.
+  `prlimit` resource limits on Linux; namespace isolation is planned but
+  not yet enabled (see `lib/tools/code-exec/sandbox/linux.ts`).
 - CDP port is **opt-in** and never flipped on by default in packaged
   builds. `remote-allow-origins=*` only applies when the port is up.
 

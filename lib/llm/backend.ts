@@ -3,7 +3,8 @@
  * Supports: Ollama, llama-server, vLLM, OpenAI (all OpenAI-compatible)
  * 
  * Environment variables:
- *   LLM_BACKEND       - Backend type: ollama | llama_server | vllm | openai (default: ollama)
+ *   LLM_PROVIDER      - Backend type: ollama | llama_server | vllm | openai (default: ollama); alias for LLM_BACKEND
+ *   LLM_BACKEND       - Legacy alias for LLM_PROVIDER (LLM_PROVIDER takes precedence)
  *   LLM_BASE_URL      - Base URL with /v1 suffix (default: http://localhost:11434/v1)
  *   LLM_API_KEY       - API key (optional for local backends)
  *   LLM_DEFAULT_MODEL - Default model name
@@ -43,7 +44,7 @@ export function getBackendConfig(): BackendSlot {
   if (cachedConfig) return cachedConfig;
 
   const primary: BackendConfig = {
-    type: (process.env.LLM_BACKEND as BackendType) ?? "ollama",
+    type: ((process.env.LLM_PROVIDER ?? process.env.LLM_BACKEND ?? "ollama").toLowerCase() as BackendType),
     baseURL: normBaseURL(process.env.LLM_BASE_URL ?? "http://localhost:11434/v1"),
     apiKey: process.env.LLM_API_KEY,
     defaultModel: process.env.LLM_DEFAULT_MODEL,

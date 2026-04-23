@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+if (!process.env.DECK_TOKEN) {
+  console.warn("[deck] DECK_TOKEN unset — /api/* is unauthenticated (fine for localhost-only dev, unsafe otherwise)");
+}
+
 /**
  * Next.js middleware — gates all /api/* routes with DECK_TOKEN auth.
  * When DECK_TOKEN is unset, all requests pass through (auth disabled).

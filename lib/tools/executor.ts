@@ -395,7 +395,7 @@ async function executeAnalyzeImage(
     };
   }
 
-  const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+  const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434";
   const VISION_MODEL = process.env.VISION_MODEL ?? "llama3.2-vision:11b";
   const question = args.question ?? "Describe this image in detail.";
 

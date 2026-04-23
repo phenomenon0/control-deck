@@ -148,7 +148,7 @@ async function checkTerminalService(url: string): Promise<ServiceStatus> {
 }
 
 export async function GET() {
-  const OLLAMA_URL = process.env.OLLAMA_BASE_URL?.replace("/v1", "") ?? "http://localhost:11434";
+  const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434").replace("/v1", "");
   const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
   const VOICE_URL = process.env.VOICE_API_URL ?? "http://localhost:8000";
   const VECTORDB_URL = process.env.VECTORDB_URL ?? "http://localhost:4242";

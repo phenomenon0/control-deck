@@ -23,8 +23,9 @@ interface ChatRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: ChatRequest = await request.json();
-    const config = getProviderConfig().primary;
-    const defaultModel = getDefaultModel("primary") ?? "llama3.2";
+    const slots = getProviderConfig();
+    const config = slots.fast ?? slots.primary;
+    const defaultModel = getDefaultModel(slots.fast ? "fast" : "primary") ?? "llama3.2";
     
     const { 
       threadId, 

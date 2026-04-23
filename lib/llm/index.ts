@@ -27,16 +27,3 @@ export {
   getProviderType,
 } from "./providers";
 
-// Legacy exports for backwards compatibility
-export {
-  type BackendType,
-  type BackendConfig,
-  type BackendSlot,
-  getBackendConfig,
-  clearBackendConfigCache,
-  getClient as getLegacyClient,
-  getDefaultModel as getLegacyDefaultModel,
-  checkBackendHealth,
-  listBackendModels,
-  getRawBaseURL,
-} from "./backend";

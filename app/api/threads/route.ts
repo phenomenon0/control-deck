@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { generateText } from "ai";
+import { createProviderClient, getProviderConfig, getDefaultModel } from "@/lib/llm";
 import {
   getThreads,
   getThread,
@@ -12,40 +14,29 @@ import {
   type ArtifactRow,
 } from "@/lib/agui/db";
 
-// LLM API for title generation
-const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:8080/v1";
-const TITLE_MODEL = process.env.LLM_MODEL ?? "qwen2.5:1.5b";
-
 /**
- * Generate a concise chat title using LLM
+ * Generate a concise chat title using the fast slot (falls back to primary)
  */
 async function generateTitle(userMessage: string): Promise<string> {
   try {
-    const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: TITLE_MODEL,
-        messages: [{ role: "user", content: `Generate a very short title (2-5 words) for a chat that starts with this message. Return ONLY the title, nothing else. No quotes, no explanation.\n\nMessage: "${userMessage.slice(0, 200)}"` }],
-        stream: false,
-        temperature: 0.3,
-        max_tokens: 20,
-      }),
+    const slots = getProviderConfig();
+    const slot = slots.fast ?? slots.primary;
+    const client = createProviderClient(slot);
+    const model = slot.model ?? getDefaultModel(slots.fast ? "fast" : "primary") ?? "qwen2.5:1.5b";
+
+    const { text } = await generateText({
+      model: client(model) as Parameters<typeof generateText>[0]["model"],
+      prompt: `Generate a very short title (2-5 words) for a chat that starts with this message. Return ONLY the title, nothing else. No quotes, no explanation.\n\nMessage: "${userMessage.slice(0, 200)}"`,
+      temperature: 0.3,
+      maxOutputTokens: 20,
     });
 
-    if (!response.ok) {
-      throw new Error(`LLM returned ${response.status}`);
-    }
-
-    const data = await response.json();
-    let title = (data.choices?.[0]?.message?.content || "").trim();
-    
-    // Clean up the title
+    let title = text.trim();
     title = title.replace(/^["']|["']$/g, ""); // Remove quotes
-    title = title.replace(/^Title:\s*/i, ""); // Remove "Title:" prefix
-    title = title.split("\n")[0]; // Take first line only
-    title = title.slice(0, 50); // Max 50 chars
-    
+    title = title.replace(/^Title:\s*/i, "");  // Remove "Title:" prefix
+    title = title.split("\n")[0];              // Take first line only
+    title = title.slice(0, 50);               // Max 50 chars
+
     return title || userMessage.slice(0, 30) + "...";
   } catch (error) {
     console.error("[Threads] Title generation failed:", error);

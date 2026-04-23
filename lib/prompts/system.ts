@@ -9,7 +9,7 @@ import { execSync } from "child_process";
 import { TOOL_DEFINITIONS } from "../tools/definitions";
 import { renderToolCatalogGlyph } from "../tools/render-glyph-catalog";
 import { isLiteMode, getSystemProfile } from "../system";
-import { getBackendConfig, checkBackendHealth, listBackendModels } from "../llm";
+import { getProviderConfig, checkProviderHealth, listProviderModels } from "../llm";
 
 /**
  * Environment variables for GLYPH control:
@@ -59,13 +59,13 @@ export async function checkService(url: string): Promise<boolean> {
 
 async function getEnvironmentBlock(): Promise<string> {
   const profile = getSystemProfile();
-  const backendCfg = getBackendConfig();
-  
+  const providerCfg = getProviderConfig();
+
   const [gpu, backendOnline, comfy, models] = await Promise.all([
     getGPUStatus(),
-    checkBackendHealth(backendCfg.primary),
+    checkProviderHealth(providerCfg.primary),
     checkService("http://localhost:8188/system_stats"),
-    listBackendModels(backendCfg.primary),
+    listProviderModels(providerCfg.primary),
   ]);
 
   const lines = [
@@ -81,7 +81,7 @@ async function getEnvironmentBlock(): Promise<string> {
   }
 
   lines.push(`  RAM: ${profile.ram}GB`);
-  lines.push(`  LLM Backend: ${backendOnline ? "online" : "offline"} (${backendCfg.primary.type})`);
+  lines.push(`  LLM Backend: ${backendOnline ? "online" : "offline"} (${providerCfg.primary.provider})`);
   
   // Only show ComfyUI status in power mode
   if (profile.mode === "power") {
@@ -223,16 +223,16 @@ export interface ServiceStatus {
 }
 
 export async function getServiceStatus(): Promise<ServiceStatus> {
-  const backendCfg = getBackendConfig();
+  const providerCfg = getProviderConfig();
   const [llmBackend, comfy, gpu] = await Promise.all([
-    checkBackendHealth(backendCfg.primary),
+    checkProviderHealth(providerCfg.primary),
     checkService("http://localhost:8188/system_stats"),
     getGPUStatus(),
   ]);
 
   return {
     llmBackend,
-    backendType: backendCfg.primary.type,
+    backendType: providerCfg.primary.provider,
     comfy,
     gpu,
   };

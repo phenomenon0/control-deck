@@ -34,6 +34,22 @@ let lastHandoffPid: number | null = null;
 // Dev-mode fallback: Electron writes its ephemeral port + secret to a
 // per-user handoff file when the packaged env-propagation path isn't in use.
 // Must reload when Electron restarts (new PID → new port).
+//
+// Liveness check: we only trust the handoff if its `pid` is a live process
+// we own. A stale handoff from a crashed run — or a hostile file dropped
+// by another process running as the same user — is ignored so we don't
+// POST the portal secret to whatever address it advertises.
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    // ESRCH = no such process. EPERM = process exists but isn't ours —
+    // we refuse to trust that handoff either, so treat both as not-alive.
+    return false;
+  }
+}
+
 function loadPortalHandoff(): void {
   if (ENV_PORTAL_URL) return; // prod: env is authoritative
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
@@ -47,7 +63,11 @@ function loadPortalHandoff(): void {
       pid?: number;
     };
     const pid = typeof raw.pid === "number" ? raw.pid : null;
-    if (pid !== null && pid === lastHandoffPid && PORTAL_URL) return;
+    if (pid === null || !isPidAlive(pid)) {
+      // Stale or unowned handoff — refuse to adopt its url/secret.
+      return;
+    }
+    if (pid === lastHandoffPid && PORTAL_URL) return;
     if (raw.url) PORTAL_URL = raw.url;
     if (raw.secret) PORTAL_SECRET = raw.secret;
     lastHandoffPid = pid;

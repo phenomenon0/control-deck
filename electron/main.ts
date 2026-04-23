@@ -436,11 +436,18 @@ async function createWindow(): Promise<void> {
 
 async function startPortalBridge(): Promise<void> {
   if (portalBridgePort) return;
-  portalBridgeSecret = crypto.randomBytes(16).toString("hex");
+  portalBridgeSecret = crypto.randomBytes(32).toString("hex");
+  const expectedAuth = Buffer.from(portalBridgeSecret, "utf8");
 
   const server = http.createServer(async (req, res) => {
-    const auth = req.headers["x-deck-portal-auth"];
-    if (auth !== portalBridgeSecret) {
+    const authHeader = req.headers["x-deck-portal-auth"];
+    const auth = typeof authHeader === "string" ? authHeader : "";
+    const provided = Buffer.from(auth, "utf8");
+    // timingSafeEqual throws on length mismatch — gate explicitly.
+    if (
+      provided.length !== expectedAuth.length ||
+      !crypto.timingSafeEqual(provided, expectedAuth)
+    ) {
       res.statusCode = 403;
       res.end(JSON.stringify({ ok: false, error: "forbidden" }));
       return;

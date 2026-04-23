@@ -22,28 +22,28 @@ Phase A output (harden-and-stay) from the multi-agent Electron audit. No framewo
 
 ### Phase 2 — Process isolation (the real work)
 
-| # | Task | File(s) touched | New file? |
-|---|---|---|---|
-| 5 | `sandbox: true` + preload audit | `electron/main.ts`, `electron/preload.ts`, `electron/services/themed-browser.ts` | — |
-| 6 | node-pty → UtilityProcess (see §Phase 2 recipe below) | `electron/services/pty-host.ts` (new), `electron/services/terminal-service.ts`, `app/api/terminal/**`, `components/panes/terminal/**` | ✅ |
-| 7 | onnxruntime → UtilityProcess | `electron/services/inference-host.ts` (new), `lib/embeddings/**` | ✅ |
+| # | Task | File(s) touched | New file? | Status |
+|---|---|---|---|---|
+| 5 | `sandbox: true` + preload audit | `electron/main.ts`, `electron/preload.ts`, `electron/services/themed-browser.ts` | — | done (`b64a767`) |
+| 6 | node-pty → UtilityProcess (see §Phase 2 recipe below) | `electron/services/pty-host.ts` (new), `electron/services/terminal-service.ts`, `app/api/terminal/**`, `components/panes/terminal/**` | ✅ | pending (branch) |
+| 7 | onnxruntime → UtilityProcess | `electron/services/inference-host.ts` (new), `lib/embeddings/**` | ✅ | pending (branch) |
 
 ### Phase 2b — High-leverage fixes surfaced by the alternatives audit
 
-| # | Task | File(s) touched | New file? |
-|---|---|---|---|
-| 14 | Per-tab `session.fromPartition()` for themed-browser views + tighten DECK_TOKEN `webRequest` filter to `defaultSession` only | `electron/services/themed-browser.ts`, `electron/main.ts` | — |
-| 15 | Portal handoff: PID verification + secret rotation, or (preferred) replace file with `stdio: [..., 'ipc']` handshake | `electron/main.ts` | — |
-| 16 | macOS entitlements audit — remove `allow-unsigned-executable-memory` / `disable-library-validation` / `allow-dyld-environment-variables` to the minimum each native dep actually needs | `electron-builder.yml`, mac entitlements plist, `scripts/electron-after-pack.cjs` | — |
-| 17 | Pin `remote-allow-origins` to a specific browser-harness port + README note that CDP-on = full browser control to any local UID process | `electron/main.ts`, `README.md` | — |
+| # | Task | File(s) touched | New file? | Status |
+|---|---|---|---|---|
+| 14 | Per-tab `session.fromPartition()` for themed-browser views + tighten DECK_TOKEN `webRequest` filter to `defaultSession` only | `electron/services/themed-browser.ts`, `electron/main.ts` | — | done (`b81b995`) |
+| 15 | Portal handoff: PID verification + secret rotation, or (preferred) replace file with `stdio: [..., 'ipc']` handshake | `electron/main.ts`, `lib/tools/native/linux-atspi.ts` | — | done (`c0d7ed1`) — 32-byte secret, timing-safe auth, consumer-side PID liveness check. stdio-IPC deferred (would ripple through every native adapter). |
+| 16 | macOS entitlements audit — remove `allow-unsigned-executable-memory` / `disable-library-validation` / `allow-dyld-environment-variables` to the minimum each native dep actually needs | `electron-builder.yml`, mac entitlements plist, `scripts/electron-after-pack.cjs` | — | pending (needs macOS build target) |
+| 17 | Pin `remote-allow-origins` to a specific browser-harness port + README note that CDP-on = full browser control to any local UID process | `electron/main.ts`, `README.md` | — | done (`cf6a62e`) |
 
 ### Phase 3 — Perf & polish
 
-| # | Task | File(s) touched | New file? | Notes |
+| # | Task | File(s) touched | New file? | Status / Notes |
 |---|---|---|---|---|
 | 8 | V8 code cache | `electron/main.ts` | — | **DEFER — needs profiling first.** AppImage startup is squashfs+bundle-load bound, not V8-parse bound. VS Code benefits because it parses 1000s of extension files cold; we have one Next bundle. Don't ship until a profile shows parse on the critical path. |
-| 9 | Defer heavy imports | `lib/live/transport.ts`, `components/panes/audio/**`, `components/canvas/**`, `components/chat/ArtifactRenderer.tsx` | — | |
-| 10 | electron-hardener fuses | `electron-builder.yml`, `scripts/apply-fuses.cjs` (new) | ✅ | **SCOPED.** `RunAsNode` fuse CANNOT be flipped — the embedded Next server depends on `ELECTRON_RUN_AS_NODE=1` (same constraint as VS Code's extension host). Flip only: `NodeCliInspect=false`, `EnableCookieEncryption=true`, `OnlyLoadAppFromAsar=true` (macOS/Windows), `EmbeddedAsarIntegrityValidation=true` (macOS/Windows). AppImage gains nothing from ASAR fuses. |
+| 9 | Defer heavy imports | `lib/live/transport.ts`, `components/canvas/CanvasPanel.tsx` | — | done (`3c74cfc`, `c4ad457`) — Tone.js deferred behind `LiveTransport.init()`; MonacoEditor wrapped in `next/dynamic`. model-viewer was already lazy. |
+| 10 | electron-hardener fuses | `scripts/apply-fuses.cjs` (new), `scripts/electron-after-pack.cjs`, `package.json` | ✅ | done (`ec996bb`) — flipped `EnableCookieEncryption`, `EnableNodeOptionsEnvironmentVariable=off`, `EnableNodeCliInspectArguments=off`, `GrantFileProtocolExtraPrivileges=off`, `OnlyLoadAppFromAsar` (non-Linux only). RunAsNode deliberately not touched. |
 
 ---
 

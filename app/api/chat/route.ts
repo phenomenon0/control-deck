@@ -576,6 +576,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   // Dynamic import to avoid bundling executor in main chat route
   const { executeToolWithGlyph } = await import("@/lib/tools/executor");
+  const { BRIDGE_TOOLS } = await import("@/app/api/tools/bridge/route");
 
   let body: { tool?: string; args?: Record<string, unknown>; threadId?: string };
   try {
@@ -589,6 +590,11 @@ export async function PUT(req: Request) {
   // Validate tool name
   if (!tool || typeof tool !== "string") {
     return Response.json({ success: false, error: "tool name is required" }, { status: 400 });
+  }
+
+  // Allowlist check — only bridge-approved tools may be executed
+  if (!BRIDGE_TOOLS.has(tool)) {
+    return Response.json({ success: false, error: `tool '${tool}' not allowed` }, { status: 403 });
   }
 
   const thread = threadId ?? generateId();

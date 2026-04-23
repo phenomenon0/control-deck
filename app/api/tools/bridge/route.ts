@@ -23,7 +23,7 @@ import { createEvent, generateId, type ArtifactCreated } from "@/lib/agui/events
 import { saveEvent, createArtifact } from "@/lib/agui/db";
 
 // Tools that can be executed via bridge
-const BRIDGE_TOOLS = new Set<string>([
+export const BRIDGE_TOOLS = new Set<string>([
   "generate_image",
   "edit_image",
   "generate_audio",

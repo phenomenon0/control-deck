@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
   try {
     const body: ChatRequest = await request.json();
     const config = getProviderConfig().primary;
-    console.log("[Dojo Chat] Provider config:", JSON.stringify(config, null, 2));
     const defaultModel = getDefaultModel("primary") ?? "llama3.2";
     
     const { 

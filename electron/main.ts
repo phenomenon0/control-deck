@@ -36,7 +36,7 @@ if (DEVTOOLS_PORT_RAW) {
     );
   } else {
     app.commandLine.appendSwitch("remote-debugging-port", String(port));
-    app.commandLine.appendSwitch("remote-allow-origins", "*");
+    app.commandLine.appendSwitch("remote-allow-origins", "http://127.0.0.1");
     console.log(
       `[electron] CDP enabled: http://127.0.0.1:${port}/json/version`,
     );
@@ -380,6 +380,7 @@ async function startPortalBridge(): Promise<void> {
         if (body.op === "screen_grab") {
           const shot = await captureScreen();
           const data = fs.readFileSync(shot.pngPath).toString("base64");
+          try { fs.unlinkSync(shot.pngPath); } catch {}
           res.end(
             JSON.stringify({
               ok: true,
@@ -516,6 +517,7 @@ ipcMain.handle("portal:status", async () => {
 ipcMain.handle("portal:screen_grab", async () => {
   const shot = await captureScreen();
   const data = fs.readFileSync(shot.pngPath).toString("base64");
+  try { fs.unlinkSync(shot.pngPath); } catch {}
   return {
     ok: true,
     png_base64: data,

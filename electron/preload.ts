@@ -1,5 +1,18 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
+// Allowlist of channels that deck.invoke() is permitted to reach.
+// browser:* channels are intentionally excluded — they are already reachable
+// via the typed `browser` object below, so exposing a second untyped path
+// would be redundant and widens the attack surface unnecessarily.
+const ALLOWED_INVOKE_CHANNELS = new Set<string>([
+  "portal:key",
+  "portal:type",
+  "portal:status",
+  "portal:screen_grab",
+  "portal:focus_window",
+  "portal:click_pixel",
+]);
+
 interface BrowserState {
   url: string;
   title: string;
@@ -28,7 +41,11 @@ contextBridge.exposeInMainWorld("deck", {
   platform: process.platform,
   electronVersion: process.versions.electron,
   chromeVersion: process.versions.chrome,
-  invoke: (channel: string, ...args: unknown[]) =>
-    ipcRenderer.invoke(channel, ...args),
+  invoke: (channel: string, ...args: unknown[]) => {
+    if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
+      throw new Error(`deck.invoke: channel '${channel}' not allowed`);
+    }
+    return ipcRenderer.invoke(channel, ...args);
+  },
   browser,
 });

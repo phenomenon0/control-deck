@@ -502,6 +502,7 @@ export interface UseAgentRunReturn {
       threadId: string;
       model: string;
       uploadIds?: string[];
+      freeMode?: boolean;
     }
   ) => Promise<SendResult>;
   /** Stop the current run */

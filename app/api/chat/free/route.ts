@@ -30,7 +30,46 @@ import {
   saveEvent,
   updateRunPreview,
 } from "@/lib/agui/db";
-import { freeTierRouter, type Pick } from "@/lib/llm/freeTier";
+import { freeTierRouter, type Pick, type FreeTierModel } from "@/lib/llm/freeTier";
+
+interface ProviderCall {
+  url: string;
+  headers: Record<string, string>;
+}
+
+/**
+ * Map a free-tier model to the provider-specific endpoint + auth headers.
+ * OpenRouter and NVIDIA NIM are both OpenAI-compatible so the request body
+ * is identical across them.
+ */
+function providerCall(model: FreeTierModel): ProviderCall | { error: string; status: number } {
+  switch (model.provider) {
+    case "openrouter": {
+      const key = process.env.OPENROUTER_API_KEY;
+      if (!key) return { error: "OPENROUTER_API_KEY not set", status: 501 };
+      return {
+        url: "https://openrouter.ai/api/v1/chat/completions",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+          "HTTP-Referer": "http://localhost:3333",
+          "X-Title": "Control Deck",
+        },
+      };
+    }
+    case "nvidia": {
+      const key = process.env.NVIDIA_API_KEY;
+      if (!key) return { error: "NVIDIA_API_KEY not set", status: 501 };
+      return {
+        url: "https://integrate.api.nvidia.com/v1/chat/completions",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+      };
+    }
+  }
+}
 
 interface FreeChatBody {
   messages?: Array<{ role: string; content: string }>;
@@ -63,10 +102,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "messages array required" }, { status: 400 });
   }
 
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
+  // At least one provider must have its key set; otherwise there's
+  // nothing to route to.
+  if (!process.env.OPENROUTER_API_KEY && !process.env.NVIDIA_API_KEY) {
     return NextResponse.json(
-      { error: "OPENROUTER_API_KEY not set — free-tier routing requires an OpenRouter key even for :free models." },
+      { error: "No free-tier provider keys set — add OPENROUTER_API_KEY and/or NVIDIA_API_KEY." },
       { status: 501 },
     );
   }
@@ -102,6 +142,25 @@ export async function POST(req: Request) {
     }
   };
 
+  // Pre-flight: walk candidates to find one with a valid provider key.
+  // This avoids emitting RunStarted with a model that will be skipped in
+  // the loop, which would leave the UI showing the wrong active model.
+  const skippedForMissingKey = new Set<string>();
+  while (pick && "error" in providerCall(pick.model)) {
+    skippedForMissingKey.add(pick.model.id);
+    const next = freeTierRouter.pick({ needsMultimodal, excludeIds: skippedForMissingKey });
+    if (!next) {
+      return NextResponse.json(
+        { error: "No free-tier provider has a valid API key for the models in the catalog." },
+        { status: 501 },
+      );
+    }
+    pick = next;
+  }
+  if (!pick) {
+    return NextResponse.json({ error: "free-tier router ran out of candidates" }, { status: 500 });
+  }
+
   const runStarted = createEvent<RunStarted>("RunStarted", thread, {
     runId,
     model: pick.model.id,
@@ -132,17 +191,26 @@ export async function POST(req: Request) {
       while (true) {
         if (!pick) throw new Error("free-tier router ran out of candidates");
 
-        console.log(`[Free] attempt via ${pick.model.id}${pick.switched ? ` (switched from ${pick.previous})` : ""}`);
+        console.log(`[Free] attempt via ${pick.model.provider}:${pick.model.id}${pick.switched ? ` (switched from ${pick.previous})` : ""}`);
+
+        // Pre-flight already ensured the provider key exists for this
+        // model; narrow the return type via a non-null assertion shape.
+        const call = providerCall(pick.model);
+        if ("error" in call) {
+          // Defensive: can only happen if the catalog was refreshed mid-
+          // request. Skip and try next.
+          skippedForMissingKey.add(pick.model.id);
+          const next = freeTierRouter.pick({ needsMultimodal, excludeIds: skippedForMissingKey });
+          if (!next) throw new Error(`free-tier: ${call.error}`);
+          pick = next;
+          continue;
+        }
+
         freeTierRouter.record(pick.model.id);
 
-        const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        const res = await fetch(call.url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-            "HTTP-Referer": "http://localhost:3333",
-            "X-Title": "Control Deck",
-          },
+          headers: call.headers,
           body: JSON.stringify({
             model: pick.model.id,
             messages: messages.map((m) => ({ role: m.role, content: m.content })),

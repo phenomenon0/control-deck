@@ -7,17 +7,28 @@
  */
 
 import { NextResponse } from "next/server";
-import { freeTierRouter, FREE_TIER_CATALOG } from "@/lib/llm/freeTier";
+import { freeTierRouter, getCatalog } from "@/lib/llm/freeTier";
 
 export async function GET() {
+  // Side-effect: kick a lazy refresh if the catalog is stale. Doesn't
+  // block — next poll will see fresh models.
+  freeTierRouter.maybeRefresh();
+
   const active = freeTierRouter.currentPick();
   const status = freeTierRouter.status();
-  const hasKey = Boolean(process.env.OPENROUTER_API_KEY);
+  const providers = {
+    openrouter: Boolean(process.env.OPENROUTER_API_KEY),
+    nvidia: Boolean(process.env.NVIDIA_API_KEY),
+  };
+  const { at, result } = freeTierRouter.getLastRefresh();
 
   return NextResponse.json({
-    enabled: hasKey,
+    enabled: providers.openrouter || providers.nvidia,
+    providers,
     activeModelId: active ?? null,
-    catalog: FREE_TIER_CATALOG,
+    catalog: getCatalog(),
     status,
+    lastRefreshAt: at,
+    lastRefreshResult: result,
   });
 }

@@ -8344,3 +8344,36 @@ textarea.input:focus {
   text-transform: uppercase;
 }
 .composer-model-row.is-locked { opacity: 0.55; }
+.composer-free-actions { display: inline-flex; gap: 6px; }
+.composer-free-off:disabled { opacity: 0.5; cursor: wait; }
+.composer-free-off svg { margin-right: 4px; }
+@keyframes composer-free-spin { to { transform: rotate(360deg); } }
+.composer-free-spin { animation: composer-free-spin 1s linear infinite; }
+.composer-free-providers {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: -4px;
+}
+.composer-free-provider-chip {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--mist);
+  color: var(--fg-dim);
+}
+.composer-free-provider-chip.is-on {
+  border-color: color-mix(in oklch, #22aa55 60%, var(--mist));
+  color: #22aa55;
+}
+.composer-free-provider-group { display: flex; flex-direction: column; gap: 4px; }
+.composer-free-provider-head {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.composer-free-stale { color: #c08800; }

@@ -10,6 +10,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const applyFuses = require("./apply-fuses.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -129,4 +130,7 @@ module.exports = async function afterPack(context) {
     console.log(`[after-pack] ${t.from} -> ${t.to} (${copied} files)`);
   }
   console.log(`[after-pack] ${total} files staged into packaged resources.`);
+
+  // Apply scoped Electron fuses (after files are in place, before signing).
+  await applyFuses(context);
 };

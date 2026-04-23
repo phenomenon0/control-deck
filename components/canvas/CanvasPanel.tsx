@@ -27,8 +27,18 @@ import {
   Redo2 as RedoIcon,
   History as HistoryIcon,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCanvas, useActiveCanvasTab, type CanvasTab } from "@/lib/hooks/useCanvas";
-import { MonacoEditor } from "./MonacoEditor";
+
+// MonacoEditor pulls in @monaco-editor/react (~2 MB). Load it only when a
+// code tab is actually active, not on canvas mount.
+const MonacoEditor = dynamic(
+  () => import("./MonacoEditor").then((m) => m.MonacoEditor),
+  {
+    ssr: false,
+    loading: () => <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-sm">Loading editor…</div>,
+  },
+);
 
 function TabBar() {
   const { tabs, activeTabId, setActiveTab, removeTab, close } = useCanvas();

@@ -365,14 +365,28 @@ export async function POST(req: Request) {
   // route through OpenRouter's free-model roulette. User-visible privacy
   // tradeoff (free tiers may train on prompts) — enforced client-side by
   // the FreeModeToggle opt-in.
+  //
+  // Ordering note: this branch is intentionally evaluated BEFORE the
+  // Agent-GO probe. Free mode is an explicit user override, not a
+  // fallback. If free has no valid keys or all models are exhausted, the
+  // user sees a clean 501/429 in the stream rather than a surprise local
+  // cascade — that surprise would hide exactly the quota/key problem the
+  // user needs to fix.
   const freeMode = req.headers.get("x-deck-free-mode") === "1";
   if (freeMode) {
-    console.log(`[Chat] Free mode active — delegating to /api/chat/free`);
+    console.log(`[Chat] Free mode active — delegating to /api/chat/free (preferred=${model ?? "<none>"})`);
     const { POST: freePost } = await import("./free/route");
     const freeReq = new Request(new URL("/api/chat/free", req.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, threadId: thread, needsMultimodal: hasImages }),
+      body: JSON.stringify({
+        messages,
+        threadId: thread,
+        needsMultimodal: hasImages,
+        // Raw user intent, not the resolved selectedModel — we want the
+        // string the user actually clicked, not any server-side fallback.
+        preferredModel: model,
+      }),
       signal: req.signal,
     });
     return freePost(freeReq);

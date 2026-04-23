@@ -88,7 +88,7 @@ export type TimelineSegmentType = TimelineSegment["type"];
 
 export type RunAction =
   | { type: "SUBMIT"; content: string; uploads?: UserMessageSegment["uploads"] }
-  | { type: "RUN_STARTED"; runId: string; thinking?: boolean }
+  | { type: "RUN_STARTED"; runId: string; thinking?: boolean; model?: string }
   | { type: "RUN_FINISHED"; runId: string; threadTitle?: string }
   | { type: "RUN_ERROR"; runId: string; error: string }
   | { type: "REASONING_START" }
@@ -108,9 +108,17 @@ export interface AgentRunState {
   runState: RunState;
   segments: TimelineSegment[];
   threadTitle?: string;
+  /**
+   * Model id carried on `RunStarted` from the server. Source of truth
+   * for "what actually answered this turn" — the composer's requested
+   * model can differ (free-mode substitution, resolver snap, etc).
+   * Reset to null on SUBMIT.
+   */
+  resolvedModel: string | null;
 }
 
 export const INITIAL_AGENT_RUN_STATE: AgentRunState = {
   runState: { phase: "idle" },
   segments: [],
+  resolvedModel: null,
 };

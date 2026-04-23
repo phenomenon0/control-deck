@@ -111,18 +111,28 @@ export function ComposerModelPicker() {
     tags[0]?.name ||
     "no model";
 
+  // When free mode is on, the Ollama pick is preserved in prefs but the
+  // chat won't actually route through Ollama. Signal that visually so
+  // users don't think their selection is active.
+  const suspended = prefs.freeMode;
+
   return (
     <div className="composer-model-picker" ref={ref}>
       <button
         type="button"
-        className={`composer-tweaks-launch${open ? " is-open" : ""}`}
+        className={`composer-tweaks-launch${open ? " is-open" : ""}${suspended ? " is-suspended" : ""}`}
         onClick={() => setOpen((o) => !o)}
-        title={`Active model: ${current}${loadedNames.has(current) ? " (in VRAM)" : ""}`}
+        title={
+          suspended
+            ? `Free mode active — Ollama selection (${current}) suspended until turned off`
+            : `Active model: ${current}${loadedNames.has(current) ? " (in VRAM)" : ""}`
+        }
         aria-expanded={open}
       >
         <Cpu size={16} />
         <span className="composer-model-name">{current}</span>
-        {loadedNames.has(current) && <span className="composer-model-hot">HOT</span>}
+        {loadedNames.has(current) && !suspended && <span className="composer-model-hot">HOT</span>}
+        {suspended && <span className="composer-model-suspended">paused</span>}
       </button>
 
       {open && (

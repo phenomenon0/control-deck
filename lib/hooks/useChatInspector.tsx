@@ -14,9 +14,18 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import type { ToolCallData, Artifact } from "@/lib/types/chat";
 
+export type ChatRoute = "local" | "free" | "cloud";
+
 export interface ChatInspectorData {
   threadId: string | null;
   model: string;
+  /**
+   * Where the active turn was routed. "local" = Ollama / simple /
+   * Agent-GO (all local-ish paths from the user's perspective). "free"
+   * = free-tier roulette (OpenRouter/NVIDIA). "cloud" is reserved for
+   * Stage 2's explicit cloud-provider path and unused today.
+   */
+  route: ChatRoute;
   isLoading: boolean;
   toolCalls: ToolCallData[];
   artifacts: Artifact[];
@@ -25,6 +34,7 @@ export interface ChatInspectorData {
 const defaults: ChatInspectorData = {
   threadId: null,
   model: "",
+  route: "local",
   isLoading: false,
   toolCalls: [],
   artifacts: [],

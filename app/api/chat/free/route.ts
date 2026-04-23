@@ -75,6 +75,12 @@ interface FreeChatBody {
   messages?: Array<{ role: string; content: string }>;
   threadId?: string;
   needsMultimodal?: boolean;
+  /**
+   * User's remembered model choice (from prefs.model). Passed as a soft
+   * preference to the router's first pick only — on 429 we let the
+   * roulette walk naturally rather than re-pinning the failed choice.
+   */
+  preferredModel?: string;
 }
 
 interface OpenRouterChunk {
@@ -97,7 +103,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const { messages, threadId, needsMultimodal } = body;
+  const { messages, threadId, needsMultimodal, preferredModel } = body;
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages array required" }, { status: 400 });
   }
@@ -111,7 +117,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let pick: Pick | null = freeTierRouter.pick({ needsMultimodal });
+  let pick: Pick | null = freeTierRouter.pick({ needsMultimodal, preferredId: preferredModel });
   if (!pick) {
     return NextResponse.json(
       { error: "All free-tier models are currently rate-limited. Try again in a minute." },

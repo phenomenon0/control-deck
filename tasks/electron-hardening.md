@@ -6,16 +6,16 @@ Phase A output (harden-and-stay) from the multi-agent Electron audit. No framewo
 
 ## Files that will change (full list)
 
-### Phase 1 — Fragility fixes (safe, small, 1-2 days total)
+### Phase 1 — Fragility fixes (safe, small, 1-2 days total) — DONE ✅
 
-| # | Task | File(s) touched | New file? |
-|---|---|---|---|
-| 1 | Port-pick TOCTOU | `electron/main.ts` | — |
-| 2 | Next.js supervisor | `electron/main.ts` | — |
-| 3 | Terminal-service packaging | `package.json`, `scripts/postbuild-electron.cjs`, `electron-builder.yml`, `electron/services/terminal-service.ts` | — |
-| 4 | DECK_TOKEN fail-closed | `middleware.ts`, `electron/main.ts`, `electron/preload.ts`, `lib/deck/client.ts` (if exists) | — |
-| 11 | Code-exec sandbox fallback | `lib/tools/code-exec/sandbox/linux.ts` | — |
-| 12 | Stale portal secret cleanup | `electron/main.ts` | — |
+| # | Task | File(s) touched | New file? | Status |
+|---|---|---|---|---|
+| 1 | Port-pick TOCTOU | `electron/main.ts` | — | done (`0b0e0a1`) |
+| 2 | Next.js supervisor | `electron/main.ts` | — | done (`0b0e0a1`) |
+| 3 | Terminal-service packaging | `package.json`, `scripts/build-terminal-service.cjs` (new), `scripts/electron-after-pack.cjs`, `electron/services/terminal-service.ts`, `.gitignore` | ✅ | done (`629f7e9`) |
+| 4 | DECK_TOKEN fail-closed | `middleware.ts`, `electron/main.ts` | — | done (`0bff4d8`) |
+| 11 | Code-exec sandbox fallback | `lib/tools/code-exec/sandbox/linux.ts` | — | done (this commit) |
+| 12 | Stale portal secret cleanup | `electron/main.ts` | — | done (`0b0e0a1`) |
 
 ### Phase 2 — Process isolation (the real work)
 

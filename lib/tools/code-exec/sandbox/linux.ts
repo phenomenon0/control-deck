@@ -12,7 +12,7 @@
  * - Filesystem isolation (temp directory)
  */
 
-import { spawn, ChildProcess, SpawnOptions } from "child_process";
+import { spawn, spawnSync, ChildProcess, SpawnOptions } from "child_process";
 import { mkdir, rm, writeFile, readFile, readdir, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -25,6 +25,58 @@ const IS_LINUX = process.platform === "linux";
 
 // Emitted at most once per process lifetime when unshare is unavailable.
 let unshareWarningShown = false;
+
+/**
+ * Probes at module load time whether `unshare --net --map-root-user` works.
+ * Runs a harmless `/bin/true` inside the isolation and checks the exit code.
+ *
+ * Caching the result means every code-exec call doesn't re-pay the 20-40ms
+ * probe, AND we can fail fast with a clear error instead of a confusing
+ * per-call spawn failure when the host doesn't support unprivileged user
+ * namespaces (/proc/sys/kernel/unprivileged_userns_clone=0, hardened
+ * kernels, distroless containers, etc.).
+ */
+type SandboxCapabilities = {
+  unshareWorks: boolean;
+  unshareError: string | null;
+};
+let sandboxCapabilities: SandboxCapabilities | null = null;
+function probeSandboxCapabilities(): SandboxCapabilities {
+  if (sandboxCapabilities) return sandboxCapabilities;
+  if (!IS_LINUX) {
+    sandboxCapabilities = { unshareWorks: false, unshareError: "not on Linux" };
+    return sandboxCapabilities;
+  }
+  const res = spawnSync(
+    "unshare",
+    ["--net", "--map-root-user", "/bin/true"],
+    { timeout: 2_000, stdio: "ignore" },
+  );
+  if (res.error && (res.error as NodeJS.ErrnoException).code === "ENOENT") {
+    sandboxCapabilities = {
+      unshareWorks: false,
+      unshareError: "`unshare` binary not found (install util-linux)",
+    };
+  } else if (res.status === 0) {
+    sandboxCapabilities = { unshareWorks: true, unshareError: null };
+  } else {
+    sandboxCapabilities = {
+      unshareWorks: false,
+      unshareError:
+        `unshare --net --map-root-user exited ${res.status ?? "?"} ` +
+        "(likely: /proc/sys/kernel/unprivileged_userns_clone=0, or CAP_SYS_ADMIN required)",
+    };
+  }
+  if (!sandboxCapabilities.unshareWorks) {
+    console.warn(
+      `[sandbox] network isolation unavailable: ${sandboxCapabilities.unshareError}`,
+    );
+  }
+  return sandboxCapabilities;
+}
+// Fire the probe eagerly so the warning surfaces at startup, not on the
+// first code-exec call.
+if (IS_LINUX) probeSandboxCapabilities();
 
 /**
  * Create an isolated sandbox environment
@@ -138,22 +190,37 @@ export function buildSpawnOptions(
 }
 
 /**
- * Run a command with network isolation using unshare (Linux only, requires privileges)
- * Falls back to regular execution if unshare fails
+ * Run a command with network isolation using unshare (Linux only).
+ *
+ * Returns `{ available: false, reason }` when isolation was requested but the
+ * host can't provide it. Callers must treat that as a sandbox failure — running
+ * the code without isolation would silently break the security contract.
  */
 export function wrapWithNetworkIsolation(
   command: string,
   args: string[],
-  networkEnabled: boolean
-): { command: string; args: string[] } {
-  if (networkEnabled || !IS_LINUX) {
-    return { command, args };
+  networkEnabled: boolean,
+):
+  | { available: true; command: string; args: string[] }
+  | { available: false; reason: string } {
+  if (networkEnabled) {
+    return { available: true, command, args };
   }
-  
-  // Use unshare for network namespace isolation.
-  // Requires CAP_SYS_ADMIN or root — if unshare isn't available at runtime,
-  // the spawn itself will fail and runSandboxed handles that via proc.on("error").
+  if (!IS_LINUX) {
+    return {
+      available: false,
+      reason: `network isolation requires Linux user namespaces (platform=${process.platform})`,
+    };
+  }
+  const caps = probeSandboxCapabilities();
+  if (!caps.unshareWorks) {
+    return {
+      available: false,
+      reason: caps.unshareError ?? "unshare unavailable",
+    };
+  }
   return {
+    available: true,
     command: "unshare",
     args: ["--net", "--map-root-user", command, ...args],
   };
@@ -185,13 +252,31 @@ export async function runSandboxed(
   
   // Apply resource limits
   const limited = buildLimitedCommand(command, args, opts);
-  
-  // Apply network isolation (best effort)
+
+  // Apply network isolation. When the caller asked for isolation but the host
+  // can't provide it, fail loudly — silently running unsandboxed code would
+  // defeat the whole point of the sandbox.
   const isolated = wrapWithNetworkIsolation(limited.command, limited.args, opts.networkEnabled);
-  
+  if (!isolated.available) {
+    if (!unshareWarningShown) {
+      unshareWarningShown = true;
+      console.warn(
+        `[sandbox] refusing to run code-exec without requested network isolation: ${isolated.reason}`,
+      );
+    }
+    return {
+      exitCode: -1,
+      stdout: "",
+      stderr: `[Sandbox unavailable: ${isolated.reason}]`,
+      durationMs: 0,
+      timedOut: false,
+      killed: false,
+    };
+  }
+
   // Build spawn options
   const spawnOpts = buildSpawnOptions(workDir, options.env ?? {}, opts);
-  
+
   return new Promise((resolve) => {
     const startTime = Date.now();
     let stdout = "";
@@ -199,7 +284,7 @@ export async function runSandboxed(
     let timedOut = false;
     let killed = false;
     let finished = false;
-    
+
     const proc = spawn(isolated.command, isolated.args, spawnOpts);
     
     // Handle timeout
@@ -278,17 +363,6 @@ export async function runSandboxed(
     proc.on("error", (err) => {
       finished = true;
       clearTimeout(timeoutHandle);
-
-      // If the spawn failed because unshare wasn't available (ENOENT / EPERM),
-      // warn once so operators know isolation is not active.
-      if (isolated.command === "unshare" && !unshareWarningShown) {
-        unshareWarningShown = true;
-        console.warn(
-          "[sandbox] unshare unavailable — code exec running without network isolation. " +
-          "Install util-linux and grant CAP_SYS_ADMIN to enable."
-        );
-      }
-
       resolve({
         exitCode: -1,
         stdout,

@@ -15,6 +15,7 @@ import {
   WebContentsView,
   ipcMain,
   screen,
+  session,
   shell,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -157,6 +158,9 @@ export function registerThemedBrowser(config: {
       title: "Control Deck Browser",
     });
 
+    // Header loads our own `/browser` route from the embedded Next server —
+    // trusted code, stays on defaultSession so the DECK_TOKEN webRequest hook
+    // in main.ts can inject the token for its /api/* calls.
     const header = new WebContentsView({
       webPreferences: {
         preload: config.preload,
@@ -166,8 +170,17 @@ export function registerThemedBrowser(config: {
       },
     });
 
+    // Page view loads arbitrary third-party URLs. Give it its own ephemeral
+    // Electron session so cookies, localStorage, and IndexedDB can't bleed
+    // across tabs, and so the DECK_TOKEN webRequest filter (scoped to
+    // defaultSession) literally cannot attach to any third-party URL that
+    // happens to match /api/*. Partition name is unique per tab and
+    // non-`persist:` — Electron GCs the session once the WebContents is
+    // destroyed. Pattern from microsoft/vscode's BrowserSession.
+    const tabSession = session.fromPartition(`control-deck-tab-${id}`);
     const page = new WebContentsView({
       webPreferences: {
+        session: tabSession,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,

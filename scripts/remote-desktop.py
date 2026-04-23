@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import random
 import socket
@@ -49,6 +50,8 @@ import struct
 import sys
 import threading
 import time
+
+log = logging.getLogger("remote-desktop")
 
 import dbus
 import dbus.mainloop.glib
@@ -124,12 +127,12 @@ class _ResponseWaiter:
     def _cleanup(self):
         try:
             self._match.remove()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("removing D-Bus signal match: %s", exc)
         try:
             GLib.source_remove(self._timer)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("removing GLib timeout source: %s", exc)
         self.loop.quit()
 
     def wait(self):
@@ -245,17 +248,19 @@ class KeyboardSession:
         self.iface.NotifyKeyboardKeysym(self.handle, {}, dbus.Int32(keysym), dbus.UInt32(state))
 
     def send_key_combo(self, modifiers: list[int], primary: int) -> None:
+        pressed: list[int] = []
         for m in modifiers:
             self.notify_key(m, KEY_PRESSED)
+            pressed.append(m)
         try:
             self.notify_key(primary, KEY_PRESSED)
             self.notify_key(primary, KEY_RELEASED)
         finally:
-            for m in reversed(modifiers):
+            for m in reversed(pressed):
                 try:
                     self.notify_key(m, KEY_RELEASED)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("releasing modifier keysym 0x%x during combo teardown: %s", m, exc)
 
     def type_string(self, text: str) -> None:
         for ch in text:
@@ -276,8 +281,8 @@ class KeyboardSession:
         try:
             sess = dbus.Interface(self.bus.get_object(BUS_NAME, self.handle), SESSION_IFACE)
             sess.Close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("closing keyboard session %s: %s", self.handle, exc)
         self.handle = None
 
 
@@ -360,8 +365,8 @@ class PointerSession:
         try:
             sess = dbus.Interface(self.bus.get_object(BUS_NAME, self.handle), SESSION_IFACE)
             sess.Close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("closing pointer session %s: %s", self.handle, exc)
         self.handle = None
 
 
@@ -436,15 +441,15 @@ def _parent_watchdog(original_ppid: int, daemon: Daemon, server: socketserver.Un
     while True:
         time.sleep(2)
         if os.getppid() != original_ppid:
-            print("[remote-desktop] parent went away, shutting down", file=sys.stderr)
+            log.warning("parent went away, shutting down")
             try:
                 server.shutdown()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("shutting down socket server during watchdog exit: %s", exc)
             try:
                 daemon.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("closing daemon during watchdog exit: %s", exc)
             os._exit(0)
 
 

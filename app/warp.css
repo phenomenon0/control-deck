@@ -8377,3 +8377,19 @@ textarea.input:focus {
   margin-top: 8px;
 }
 .composer-free-stale { color: #c08800; }
+.composer-tweaks-launch.is-suspended {
+  opacity: 0.5;
+  text-decoration: line-through;
+  cursor: default;
+}
+.composer-tweaks-launch.is-suspended:hover { opacity: 0.7; }
+.composer-model-suspended {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--mist);
+  color: var(--text-muted);
+  margin-left: 4px;
+}

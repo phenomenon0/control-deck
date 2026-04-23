@@ -398,14 +398,20 @@ export default function ChatSurface() {
         durationMs: step.durationMs,
         startedAt: step.startedAt,
       }));
+    // Truth-tell: prefer the server-confirmed model from RunStarted over
+    // the composer's requested model. They match except when the server
+    // substituted (free-tier roulette, resolver snap) — in which case
+    // the rail should show what actually answered.
+    const resolvedModel = agentRun.state.resolvedModel;
     updateInspector({
       threadId: activeThreadId,
-      model: selectedModel,
+      model: resolvedModel ?? selectedModel,
+      route: prefs.freeMode ? "free" : "local",
       isLoading: isRunning,
       artifacts: messages.flatMap((m) => m.artifacts || []),
       toolCalls,
     });
-  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector]);
+  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector, agentRun.state.resolvedModel, prefs.freeMode]);
 
   // ---------------------------------------------------------------------------
   // Canvas auto-open: open artifacts in canvas when created during a run

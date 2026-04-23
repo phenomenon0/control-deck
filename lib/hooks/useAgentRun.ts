@@ -89,6 +89,9 @@ export function agentRunReducer(
         ...state,
         runState: { phase: "submitted", startedAt: now },
         segments: [...state.segments, userSeg],
+        // Clear resolvedModel so the rail/header fall back to the
+        // requested model until the server's RunStarted confirms.
+        resolvedModel: null,
       };
     }
 
@@ -102,6 +105,9 @@ export function agentRunReducer(
           startedAt: now,
           ...(action.thinking ? {} : { messageId: "" }),
         } as AgentRunState["runState"],
+        // Capture what the server actually picked. For free-mode runs
+        // this may differ from prefs.model.
+        resolvedModel: action.model ?? state.resolvedModel,
       };
     }
 
@@ -373,7 +379,12 @@ function dispatchSSEEvent(
 ): void {
   switch (event.type) {
     case "RunStarted":
-      dispatch({ type: "RUN_STARTED", runId: event.runId, thinking: event.thinking });
+      dispatch({
+        type: "RUN_STARTED",
+        runId: event.runId,
+        thinking: event.thinking,
+        model: typeof event.model === "string" ? event.model : undefined,
+      });
       break;
 
     case "TextMessageStart":

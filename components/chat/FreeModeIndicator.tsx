@@ -112,6 +112,14 @@ export function FreeModeIndicator() {
 
   const active = status?.status.find((s) => s.model.id === status.activeModelId);
   const noKey = prefs.freeMode && status && !status.enabled;
+  // Surface the "your pin was substituted" case: if prefs.model is set,
+  // non-empty, and differs from what the router actually used, tell the
+  // user so the hop isn't silent.
+  const substituted =
+    prefs.freeMode &&
+    prefs.model &&
+    status?.activeModelId &&
+    prefs.model !== status.activeModelId;
   const byProvider = status?.status.reduce<Record<Provider, StatusEntry[]>>(
     (acc, s) => {
       (acc[s.model.provider] ||= []).push(s);
@@ -191,6 +199,12 @@ export function FreeModeIndicator() {
               {status.lastRefreshResult?.ok === false && (
                 <span className="composer-free-stale"> · last refresh failed: {status.lastRefreshResult.error}</span>
               )}
+            </p>
+          )}
+          {substituted && (
+            <p className="composer-free-note">
+              <span className="composer-free-stale">preferred: {prefs.model}</span>
+              {" "}— currently substituted (rate-limited or unavailable).
             </p>
           )}
 

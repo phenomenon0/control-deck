@@ -34,7 +34,9 @@ function toolStatusLabel(tool: ToolCallData): string {
 }
 
 export function ContextRail() {
-  const { model, isLoading, toolCalls, artifacts } = useChatInspectorData();
+  const { model, route, isLoading, toolCalls, artifacts } = useChatInspectorData();
+  const routeLabel =
+    route === "free" ? "free-tier route" : route === "cloud" ? "cloud route" : "local route";
   const { activeThreadId, threads, messages } = useThreadManager();
   const { stats } = useSystemStats();
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
@@ -91,7 +93,7 @@ export function ContextRail() {
             <Icon.Cpu size={14} sw={1.2} />
             <div>
               <strong>{formatModelLabel(model)}</strong>
-              <span>local route</span>
+              <span>{routeLabel}</span>
             </div>
           </div>
           {gpu && (

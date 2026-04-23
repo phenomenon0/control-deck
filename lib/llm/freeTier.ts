@@ -258,6 +258,14 @@ export interface PickOptions {
   excludeReasoning?: boolean;
   /** IDs to skip for this pick only (e.g. models whose API key is missing). */
   excludeIds?: ReadonlySet<string>;
+  /**
+   * Try this model first. If present in the catalog, not excluded, and
+   * available (not rate-limited), returns it. Otherwise falls through to
+   * the normal roulette walk. Used when the user has a remembered
+   * preference but we don't want to fail the request if that model is
+   * currently locked.
+   */
+  preferredId?: string;
 }
 
 export interface Pick {
@@ -363,6 +371,20 @@ class FreeTierRouter {
       return true;
     });
 
+    // Preferred-id short-circuit: if the user has a remembered model and
+    // it's in the candidate set AND available, use it. Otherwise fall
+    // through so rate-limited preferences degrade into the normal
+    // roulette rather than failing the whole request.
+    if (options.preferredId) {
+      const preferred = candidates.find((m) => m.id === options.preferredId);
+      if (preferred && this.isAvailable(preferred).ok) {
+        const switched = this.lastPick !== undefined && this.lastPick !== preferred.id;
+        const previous = switched ? this.lastPick : undefined;
+        this.lastPick = preferred.id;
+        return { model: preferred, switched, previous };
+      }
+    }
+
     let reason: ExhaustionReason | undefined;
     for (const m of candidates) {
       const avail = this.isAvailable(m);
@@ -424,7 +446,7 @@ class FreeTierRouter {
 // The cache key carries a version suffix: bump it whenever the class
 // shape changes (new methods, renamed fields) so dev reloads pick up the
 // new instance instead of returning a stale one that's missing methods.
-const ROUTER_VERSION = 2;
+const ROUTER_VERSION = 3;
 const globalAny = globalThis as unknown as { [k: string]: FreeTierRouter | undefined };
 const key = `__deckFreeTierRouter_v${ROUTER_VERSION}`;
 export const freeTierRouter: FreeTierRouter =

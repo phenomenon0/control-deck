@@ -58,6 +58,10 @@ interface ChatRequestBody {
   uploadIds?: string[];
   /** User-editable system prompt. Augmented per-model in each route. */
   systemPrompt?: string;
+  /** Cloud mode: the provider id the user pinned (anthropic/openai/google). */
+  cloudProvider?: "anthropic" | "openai" | "google";
+  /** Cloud mode: the specific model id under the pinned provider. */
+  cloudModel?: string;
 }
 
 interface AgentGOMessage {
@@ -316,7 +320,15 @@ export async function POST(req: Request) {
     });
   }
 
-  const { messages, model, threadId, uploadIds, systemPrompt: clientPrompt } = body;
+  const {
+    messages,
+    model,
+    threadId,
+    uploadIds,
+    systemPrompt: clientPrompt,
+    cloudProvider,
+    cloudModel,
+  } = body;
 
   // Ensure the thread row exists before anything else reads from it.
   // INSERT OR IGNORE — no-op if already present. Closes a latent race
@@ -395,6 +407,34 @@ export async function POST(req: Request) {
   const routeModeHeader = req.headers.get("x-deck-route-mode");
   const legacyFreeHeader = req.headers.get("x-deck-free-mode") === "1";
   const freeMode = routeModeHeader === "free" || legacyFreeHeader;
+  const cloudMode = routeModeHeader === "cloud";
+
+  // Cloud mode: user pinned a specific paid provider+model.
+  // No fallback on failure — policy is predictable cost/quality > auto-degrade.
+  if (cloudMode) {
+    if (!cloudProvider || !cloudModel) {
+      return new Response(
+        JSON.stringify({ error: "cloud mode requires cloudProvider and cloudModel in body" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    console.log(`[Chat] Cloud mode — delegating to /api/chat/cloud (${cloudProvider}:${cloudModel})`);
+    const { POST: cloudPost } = await import("./cloud/route");
+    const cloudReq = new Request(new URL("/api/chat/cloud", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages,
+        threadId: thread,
+        provider: cloudProvider,
+        model: cloudModel,
+        systemPrompt,
+      }),
+      signal: req.signal,
+    });
+    return cloudPost(cloudReq);
+  }
+
   if (freeMode) {
     console.log(`[Chat] Free mode active — delegating to /api/chat/free (preferred=${model ?? "<none>"})`);
     const { POST: freePost } = await import("./free/route");

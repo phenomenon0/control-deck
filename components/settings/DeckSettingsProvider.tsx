@@ -16,7 +16,8 @@ export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 export type ChatSurface = "safe" | "brave" | "radical";
-export type RouteMode = "local" | "free";
+export type RouteMode = "local" | "free" | "cloud";
+export type CloudProviderId = "anthropic" | "openai" | "google";
 
 export interface VoicePrefs {
   enabled: boolean;
@@ -44,6 +45,10 @@ export interface DeckPrefs {
   localModel: string;
   /** Remembered free-tier pick. Populated when routeMode flips away from "free". */
   remoteModel: string;
+  /** Active cloud provider id; only meaningful when routeMode === "cloud". */
+  cloudProvider: CloudProviderId;
+  /** Pinned cloud model id for the active cloud provider. */
+  cloudModel: string;
   /**
    * User-editable system prompt, prepended to every chat turn (server-
    * side, after family-aware augmentation in lib/llm/systemPrompt.ts).
@@ -98,6 +103,8 @@ const DEFAULT_PREFS: DeckPrefs = {
   routeMode: "local",
   localModel: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
   remoteModel: "",
+  cloudProvider: "anthropic",
+  cloudModel: "claude-sonnet-4-6",
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reduceMotion: false,
   chatContextRail: false,
@@ -257,11 +264,14 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   const switchRouteMode = useCallback((target: RouteMode) => {
     setPrefs((p) => {
       if (p.routeMode === target) return p;
-      // Stash the current active model under the OLD mode, then restore
-      // the target mode's remembered model as the active one.
+      // Stash current active model under the OLD mode, then restore the
+      // target mode's remembered model as the active one. Cloud doesn't
+      // participate in the `model` slot (it has cloudProvider+cloudModel)
+      // so toggling to/from cloud preserves local/remote untouched.
       const localModel = p.routeMode === "local" ? p.model : p.localModel;
       const remoteModel = p.routeMode === "free" ? p.model : p.remoteModel;
-      const nextModel = target === "local" ? localModel : remoteModel;
+      const nextModel =
+        target === "local" ? localModel : target === "free" ? remoteModel : p.model;
       return { ...p, routeMode: target, localModel, remoteModel, model: nextModel };
     });
   }, []);

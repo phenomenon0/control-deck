@@ -797,6 +797,8 @@ export default function ChatSurface() {
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
       routeMode: prefs.routeMode,
       systemPrompt: prefs.systemPrompt,
+      cloudProvider: prefs.cloudProvider,
+      cloudModel: prefs.cloudModel,
     });
 
     // Persist assistant message on completion

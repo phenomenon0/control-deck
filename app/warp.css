@@ -8370,6 +8370,21 @@ textarea.input:focus {
   border-color: color-mix(in oklch, #22aa55 60%, var(--mist));
   color: #22aa55;
 }
+button.composer-free-provider-chip {
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+button.composer-free-provider-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+button.composer-free-provider-chip:not(.is-on):not(:disabled):hover {
+  color: var(--fg);
+  border-color: var(--mist-strong);
+}
 .composer-free-provider-group { display: flex; flex-direction: column; gap: 4px; }
 .composer-free-provider-head {
   font-size: 10px;

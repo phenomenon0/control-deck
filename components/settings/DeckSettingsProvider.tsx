@@ -31,6 +31,7 @@ export interface DeckPrefs {
   chatContextRail: boolean;
   chatSurface: ChatSurface;
   voice: VoicePrefs;
+  freeMode: boolean;
 }
 
 interface DeckSettingsContextValue {
@@ -70,6 +71,7 @@ const DEFAULT_PREFS: DeckPrefs = {
   chatContextRail: false,
   chatSurface: "safe",
   voice: DEFAULT_VOICE_PREFS,
+  freeMode: false,
 };
 
 const PREFS_KEY = "deck.prefs";

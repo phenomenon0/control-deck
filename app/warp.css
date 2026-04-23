@@ -8277,3 +8277,70 @@ textarea.input:focus {
   margin: 0 0 10px 0;
   padding-left: 2px;
 }
+
+/* --- Free-mode indicator pill ------------------------------------------ */
+.composer-free-pill {
+  position: relative;
+}
+.composer-tweaks-launch.has-warning {
+  color: #e0a000;
+  border-color: #c08800;
+}
+.composer-free-sep {
+  opacity: 0.5;
+  padding: 0 2px;
+}
+.composer-free-model {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.composer-free-quota {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  padding-left: 4px;
+}
+.composer-free-panel {
+  min-width: 340px;
+}
+.composer-free-off {
+  background: transparent;
+  border: 1px solid var(--mist);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+  font-size: 10px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+.composer-free-off:hover { color: var(--fg); border-color: var(--mist-strong); }
+.composer-free-warning {
+  margin: 0;
+  padding: 8px 10px;
+  background: color-mix(in oklch, #e0a000 18%, transparent);
+  border: 1px solid #c08800;
+  border-radius: var(--r-card);
+  font-size: 11px;
+  color: #c08800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer-free-note {
+  margin: 0;
+  padding: 6px 0 2px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.composer-free-locked {
+  background: color-mix(in oklch, var(--danger, #cc3333) 20%, transparent);
+  color: var(--danger, #cc3333);
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.composer-model-row.is-locked { opacity: 0.55; }

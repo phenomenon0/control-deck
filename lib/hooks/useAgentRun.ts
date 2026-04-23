@@ -548,6 +548,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         threadId: string;
         model: string;
         uploadIds?: string[];
+        freeMode?: boolean;
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
@@ -570,7 +571,10 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(opts.freeMode ? { "x-deck-free-mode": "1" } : {}),
+          },
           body: JSON.stringify({
             messages: opts.messages,
             model: opts.model,

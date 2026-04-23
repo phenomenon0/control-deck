@@ -361,6 +361,23 @@ export async function POST(req: Request) {
     .then((r) => r.ok)
     .catch(() => false);
 
+  // Free-tier mode: when the client opts in, skip Agent-GO entirely and
+  // route through OpenRouter's free-model roulette. User-visible privacy
+  // tradeoff (free tiers may train on prompts) — enforced client-side by
+  // the FreeModeToggle opt-in.
+  const freeMode = req.headers.get("x-deck-free-mode") === "1";
+  if (freeMode) {
+    console.log(`[Chat] Free mode active — delegating to /api/chat/free`);
+    const { POST: freePost } = await import("./free/route");
+    const freeReq = new Request(new URL("/api/chat/free", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, threadId: thread, needsMultimodal: hasImages }),
+      signal: req.signal,
+    });
+    return freePost(freeReq);
+  }
+
   if (!agentgoAlive) {
     console.log(`[Chat] Agent-GO unreachable at ${AGENTGO_URL}; falling back to /api/chat/simple`);
     // Invoke the simple route's handler directly instead of HTTP self-fetch.

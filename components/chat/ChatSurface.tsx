@@ -789,6 +789,7 @@ export default function ChatSurface() {
       threadId,
       model: selectedModel,
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
+      freeMode: prefs.freeMode,
     });
 
     // Persist assistant message on completion

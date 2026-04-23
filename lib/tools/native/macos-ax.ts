@@ -205,8 +205,6 @@ export const macosAxAdapter: NativeAdapter = {
   },
 
   async typeText(handle, text) {
-    const cmd: HelperCommand = { op: "type", text };
-    if (handle) cmd.handle = handle;
     const res = await runHelper({ op: "type", text, handle: handle ?? undefined });
     if (!res.ok) throw new Error(res.error ?? "type failed");
   },

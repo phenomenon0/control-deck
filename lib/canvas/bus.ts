@@ -26,8 +26,13 @@ const EV_ARTIFACT = "deck:canvas:artifact";
 const EV_TOGGLE = "deck:canvas:toggle";
 const EV_CLOSE = "deck:canvas:close";
 
+const listenerCounts = new Map<string, number>();
+
 function dispatch<T>(type: string, detail: T) {
   if (typeof window === "undefined") return;
+  if ((listenerCounts.get(type) ?? 0) === 0 && process.env.NODE_ENV !== "production") {
+    console.debug(`[canvas-bus] dropped event '${type}' — no CanvasProvider listener attached`);
+  }
   window.dispatchEvent(new CustomEvent<T>(type, { detail }));
 }
 
@@ -57,7 +62,11 @@ function listen<T>(type: string, fn: Listener<T>): () => void {
   if (typeof window === "undefined") return () => {};
   const handler = (e: Event) => fn((e as CustomEvent<T>).detail);
   window.addEventListener(type, handler);
-  return () => window.removeEventListener(type, handler);
+  listenerCounts.set(type, (listenerCounts.get(type) ?? 0) + 1);
+  return () => {
+    window.removeEventListener(type, handler);
+    listenerCounts.set(type, Math.max(0, (listenerCounts.get(type) ?? 1) - 1));
+  };
 }
 
 export const canvasBus = {

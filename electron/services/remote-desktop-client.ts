@@ -1,8 +1,8 @@
 /**
  * Node-side client for the long-lived `scripts/remote-desktop.py` daemon.
  *
- * Replaces the dbus-next usage in electron/services/remote-desktop.ts, which
- * hangs on Electron 41 / Node 24 (see docs/native-adapter/SKILL.md:82-105).
+ * Supersedes the old dbus-next RemoteDesktop path (retired 2026-04).
+ * The Python daemon avoids the dbus-next hang on Electron 41 / Node 24.
  * The Python daemon is spawned once per Electron launch and reached over a
  * Unix-domain socket with line-delimited JSON requests/responses.
  */

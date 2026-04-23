@@ -688,32 +688,32 @@ UI: TransportBar · PatternRack · Playlist · LaunchBar · Mixer  <span class="
 <section id="ch7">
 <h2><span class="ch">Chapter 07</span>Native Shell &mdash; the deepest room, with two gas leaks</h2>
 
-<p>The native layer is, surprisingly, the most thoroughly thought-through subsystem in the repository. Electron main starts Next.js as a subprocess, opens a single <code>BrowserWindow</code>, runs a random-port HTTP portal bridge, and owns an xdg-desktop-portal <code>RemoteDesktop</code> D-Bus session for Wayland key/pointer injection. A <code>themed-browser</code> service wraps <code>window.open</code> into a <code>BaseWindow</code> with a themed header strip. <code>wl-activate.py</code> performs the GNOME-specific focus-activation dance via GTK4 + <code>xdg_activation_v1</code>.</p>
+<p>The native layer is, surprisingly, the most thoroughly thought-through subsystem in the repository. Electron main starts Next.js as a subprocess, opens a single <code>BrowserWindow</code>, runs a random-port HTTP portal bridge, and proxies Wayland key/pointer injection through a long-lived Python daemon (<code>scripts/remote-desktop.py</code>) that owns an xdg-desktop-portal <code>RemoteDesktop</code> D-Bus session. A <code>themed-browser</code> service wraps <code>window.open</code> into a <code>BaseWindow</code> with a themed header strip. <code>wl-activate.py</code> performs the GNOME-specific focus-activation dance via GTK4 + <code>xdg_activation_v1</code>.</p>
 
 <div class="map">Electron main (process)
   <span class="e">├─►</span> BrowserWindow <span class="e">── Next.js at :3333 (dev) / embedded standalone (packaged)</span>
   <span class="e">├─►</span> preload <span class="e">── window.deck.invoke(channel, ...) and window.deck.browser</span>
   <span class="e">├─►</span> portal bridge HTTP (secret-auth, Linux only)
   <span class="e">│     ←──</span> Next.js server process <span class="e">(can't use IPC, uses HTTP)</span>
-  <span class="e">├─►</span> RemoteDesktopSession <span class="e">── org.freedesktop.portal.RemoteDesktop</span>
-  <span class="e">│     </span> sendKeyCombo · tapKeysym · typeString · clickPixel
+  <span class="e">├─►</span> RemoteDesktopClient <span class="e">── Python daemon (scripts/remote-desktop.py)</span>
+  <span class="e">│     </span> key · type · clickPixel · status
   <span class="e">├─►</span> themed-browser <span class="e">── BaseWindow(40px header + full page view), IPC wired</span>
   <span class="e">├─►</span> wl-activator <span class="e">── shells out to wl-activate.py per call</span>
   <span class="e">└─►</span> screencast session <span class="e">── screencast-capture.py / ScreenshotPortal fallback</span>
 </div>
 
-<p><strong>What ships.</strong> The app starts. The portal path for key injection is real: agent issues <code>native_key({key:"Ctrl+l"})</code> → <code>linuxAtspiAdapter</code> → portal HTTP <code>callPortal({op:"key"})</code> → <code>sendKeyCombo</code> → <code>NotifyKeyboardKeysym</code> press/release via D-Bus. User grants the portal session once; a restore token lives under <code>userData/portal-restore.token</code> for silent re-init. The themed-browser IPC round-trip is complete. <code>attach-harness.sh</code> probes the (opt-in) CDP port and execs <code>browser-harness</code> with the right env.</p>
+<p><strong>What ships.</strong> The app starts. The portal path for key injection is real: agent issues <code>native_key({key:"Ctrl+l"})</code> → <code>linuxAtspiAdapter</code> → portal HTTP <code>callPortal({op:"key"})</code> → <code>RemoteDesktopClient.key</code> → Python daemon → <code>NotifyKeyboardKeysym</code> press/release via D-Bus. User grants the portal session once; a restore token lives under <code>userData/portal-restore.token</code> for silent re-init. The themed-browser IPC round-trip is complete. <code>attach-harness.sh</code> probes the (opt-in) CDP port and execs <code>browser-harness</code> with the right env.</p>
 
 <p><strong>What is wired but mute.</strong> <code>ipcMain.handle("portal:status", ...)</code> at <code>main.ts:429</code> is registered. No renderer, no tool executor, no API route calls <code>window.deck.invoke("portal:status")</code>. It is a probe nothing probes. <code>lib/tools/native/input-common.ts</code> is a <code>@nut-tree/nut-js</code> shim with zero importers — the pre-portal fallback that wasn't removed. Darwin and Windows native adapters are explicit <code>unsupportedAdapter</code> stubs with "Phase D.2" in the comment.</p>
 
 <div class="insight">
 <div class="label">The typing bug that will bite you</div>
-<p><code>RemoteDesktopSession.typeString</code> decides shift per-character with <code>ch &gt;= "A" &amp;&amp; ch &lt;= "Z"</code>. That's the whole shift check. Any typed string containing <code>!</code>, <code>@</code>, <code>(</code>, <code>)</code>, <code>_</code>, <code>+</code>, <code>{</code>, <code>"</code>, <code>:</code>, <code>?</code> gets the un-shifted keysym injected — producing <code>1</code> instead of <code>!</code>, <code>9</code> instead of <code>(</code>, <code>-</code> instead of <code>_</code>. The ATSPI fallback uses <code>KEY_STRING</code> and sidesteps this. The portal path — which is preferred when <code>PORTAL_URL</code> is set — does not. Agents typing anything with punctuation will produce silently wrong output.</p>
+<p>The Python daemon's <code>type</code> op sends each character as a keysym press/release pair via <code>NotifyKeyboardKeysym</code>. It decides shift per-character with a US-layout table: ASCII printable characters outside <code>[a-zA-Z0-9]</code> that require Shift (e.g. <code>!</code>, <code>@</code>, <code>(</code>, <code>_</code>) are injected with a Shift modifier. The ATSPI fallback uses <code>KEY_STRING</code> and sidesteps keysym mapping entirely. The portal path — which is preferred when <code>PORTAL_URL</code> is set — uses the daemon's keysym table; verify punctuation on non-US layouts.</p>
 </div>
 
 <h3>Gaps</h3>
 <ol class="gap-list">
-  <li><span class="sev critical">Critical</span> <span class="title"><code>typeString</code> mis-shifts punctuation.</span><p>A shift-table for the US layout (at minimum) is the fix. Currently: <em>most typed strings with punctuation are silently wrong.</em></p></li>
+  <li><span class="sev medium">Medium</span> <span class="title">Daemon <code>type</code> op uses a US-layout keysym table.</span><p>Non-US layouts may produce wrong output for punctuation characters that map to different shifted keys. A locale-aware keysym lookup is the full fix.</p></li>
   <li><span class="sev medium">Medium</span> <span class="title">Portal bridge discovery is fragile + unobserved.</span><p>Handoff file re-read only on pid mismatch; <code>portal:status</code> IPC has no caller. Failures are invisible to the UI.</p></li>
   <li><span class="sev medium">Medium</span> <span class="title">ScreenCast has two layers of Python shell-out, no retry.</span><p>Transient <code>Start failed</code> drops the session; <code>ScreenshotPortal</code> fallback sets <code>interactive:true</code> which re-prompts the user on every capture for non-sandboxed processes.</p></li>
 </ol>

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Long-lived xdg-desktop-portal RemoteDesktop daemon.
 
-Replaces electron/services/remote-desktop.ts, which is broken on Electron 41
-/ Node 24 because dbus-next hangs at bus.getProxyObject() inside the main
-process. We reuse the dbus-python + GLib pattern already proven in
+The old dbus-next Electron service was retired (2026-04) because dbus-next
+hangs at bus.getProxyObject() inside the main process on Electron 41 / Node 24.
+This daemon uses dbus-python + GLib, the same pattern as
 scripts/screencast-capture.py.
 
 Lifecycle
@@ -78,7 +78,7 @@ BTN_RIGHT = 0x111
 BTN_MIDDLE = 0x112
 BUTTONS = {"left": BTN_LEFT, "right": BTN_RIGHT, "middle": BTN_MIDDLE}
 
-# X11 keysym for Shift_L, matching electron/services/remote-desktop.ts:465
+# X11 keysym for Shift_L (XK_Shift_L = 0xFFE1)
 KEYSYM_SHIFT = 0xFFE1
 
 START_TIMEOUT_SEC = 120
@@ -211,7 +211,16 @@ class KeyboardSession:
             {"session_handle_token": session_token},
         )
         if code != 0:
-            raise RuntimeError(f"CreateSession failed (code={code})")
+            msg = f"CreateSession failed (code={code})"
+            if code == 2:
+                msg += (
+                    ". On GNOME, check that GDK_BACKEND=wayland and"
+                    " xdg-desktop-portal-gnome is running. Fix:"
+                    " `systemctl --user set-environment GDK_BACKEND=wayland &&"
+                    " systemctl --user restart xdg-desktop-portal-gnome.service`"
+                    " (or unset GDK_BACKEND entirely)."
+                )
+            raise RuntimeError(msg)
         self.handle = str(results["session_handle"])
 
         select_opts = {
@@ -309,7 +318,16 @@ class PointerSession:
             {"session_handle_token": session_token},
         )
         if code != 0:
-            raise RuntimeError(f"CreateSession failed (code={code})")
+            msg = f"CreateSession failed (code={code})"
+            if code == 2:
+                msg += (
+                    ". On GNOME, check that GDK_BACKEND=wayland and"
+                    " xdg-desktop-portal-gnome is running. Fix:"
+                    " `systemctl --user set-environment GDK_BACKEND=wayland &&"
+                    " systemctl --user restart xdg-desktop-portal-gnome.service`"
+                    " (or unset GDK_BACKEND entirely)."
+                )
+            raise RuntimeError(msg)
         self.handle = str(results["session_handle"])
 
         code, _ = _run_request(

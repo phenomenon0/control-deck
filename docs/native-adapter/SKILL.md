@@ -99,12 +99,6 @@ Treat the matrices below as the source of truth — not the tool table above.
 | `native_screen_grab` | `scripts/screencast-capture.py` (ScreenCast portal + gst-launch) | Silent after first accept, ~250 ms per call. Requires `gst-launch-1.0 pipewiresrc pngenc` and `dbus-python`. |
 | `native_key`, `native_type`, `native_click_pixel` | `scripts/remote-desktop.py` (long-lived Python daemon, RemoteDesktop portal) | One-time permission prompt on first launch; silent thereafter. Key+type share one keyboard-only session (persists across restarts via `restore_token`). Pixel clicks use a combined RD+ScreenCast session that re-prompts per launch (GNOME rejects persist_mode on combined sessions). |
 
-**Pivot from the old `dbus-next` path (2026-04):** `electron/services/remote-desktop.ts`
-still exists as an emergency fallback, gated behind `CONTROL_DECK_USE_DBUS_NEXT=1`.
-The default is the Python daemon at `scripts/remote-desktop.py` +
-`electron/services/remote-desktop-client.ts`. This unblocks Electron 41 / Node 24
-deployments that would otherwise hang at `bus.getProxyObject(...)`.
-
 ### macOS — working
 
 | Tool | Surface | Notes |
@@ -381,11 +375,11 @@ lib/tools/native/linux-atspi.ts
                                                     ▼
                            ┌──────────────────────┬─────────────────────────────────┐
                            ▼                      ▼                                 ▼
-              screenshot-portal.ts       wl-activator.ts                remote-desktop.ts
-              (org.freedesktop.          (spawns python3                (RemoteDesktop +
-               portal.Screenshot         scripts/wl-activate.py         ScreenCast combined
-               → one-shot PNG)           → xdg_activation_v1 token      session, absolute
-                                         → DBus Activate)               pointer notify)
+              screenshot-portal.ts       wl-activator.ts           remote-desktop-client.ts
+              (org.freedesktop.          (spawns python3            (Python daemon proxy —
+               portal.Screenshot         scripts/wl-activate.py     scripts/remote-desktop.py
+               → one-shot PNG)           → xdg_activation_v1 token  RemoteDesktop portal,
+                                         → DBus Activate)           key/type/click_pixel)
 ```
 
 Helper script paths (`atspi-helper.py`, `wl-activate.py`) are resolved in this

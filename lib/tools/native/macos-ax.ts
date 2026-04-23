@@ -126,8 +126,7 @@ function screenCapturePath(): string {
 }
 
 function readPngDimensions(pngPath: string): { width: number; height: number } {
-  // Same two-field read trick used in electron/services/remote-desktop.ts:477-492
-  // — avoids pulling sharp just for IHDR parsing.
+  // Reads only the IHDR fields — avoids pulling sharp just for PNG dimension parsing.
   const fd = fs.openSync(pngPath, "r");
   try {
     const header = Buffer.alloc(24);

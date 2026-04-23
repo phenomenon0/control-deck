@@ -4,7 +4,6 @@ import * as path from "node:path";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
-import { RemoteDesktopSession } from "./services/remote-desktop";
 import { RemoteDesktopClient } from "./services/remote-desktop-client";
 import { ScreenshotPortal } from "./services/screenshot-portal";
 import { ScreenCastSession } from "./services/screencast";
@@ -45,10 +44,6 @@ if (DEVTOOLS_PORT_RAW) {
 
 let serverProc: ChildProcess | null = null;
 let serverUrl: string | null = null;
-let portalSession: RemoteDesktopSession | null = null;
-let portalInitPromise: Promise<RemoteDesktopSession> | null = null;
-let pixelSession: RemoteDesktopSession | null = null;
-let pixelInitPromise: Promise<RemoteDesktopSession> | null = null;
 let screenCastSession: ScreenCastSession | null = null;
 let screenCastInitPromise: Promise<ScreenCastSession> | null = null;
 let screenshotPortal: ScreenshotPortal | null = null;
@@ -56,11 +51,6 @@ let portalBridgePort: number | null = null;
 let portalBridgeSecret: string | null = null;
 let themedBrowser: ThemedBrowserRegistry | null = null;
 let remoteDesktopClient: RemoteDesktopClient | null = null;
-
-// Opt-out flag for the new Python daemon path, in case the pivot regresses
-// in production. Default is the Python daemon; set CONTROL_DECK_USE_DBUS_NEXT=1
-// to fall back to the old (broken-on-Electron-41) dbus-next client.
-const USE_DBUS_NEXT_FALLBACK = process.env.CONTROL_DECK_USE_DBUS_NEXT === "1";
 
 function resolveRemoteDesktopHelper(): string {
   const candidates = [
@@ -140,42 +130,6 @@ async function captureScreen(): Promise<CaptureResult> {
     const portal = getScreenshotPortal();
     const shot = await portal.captureOne();
     return { ...shot, source: "portal" };
-  }
-}
-
-async function getPortalSession(): Promise<RemoteDesktopSession> {
-  if (portalSession) return portalSession;
-  if (portalInitPromise) return portalInitPromise;
-  portalInitPromise = (async () => {
-    const sess = new RemoteDesktopSession(app.getPath("userData"));
-    await sess.init();
-    portalSession = sess;
-    return sess;
-  })();
-  try {
-    return await portalInitPromise;
-  } catch (err) {
-    portalInitPromise = null;
-    throw err;
-  }
-}
-
-async function getPixelSession(): Promise<RemoteDesktopSession> {
-  if (pixelSession) return pixelSession;
-  if (pixelInitPromise) return pixelInitPromise;
-  pixelInitPromise = (async () => {
-    const sess = new RemoteDesktopSession(app.getPath("userData"), {
-      includeScreenCast: true,
-    });
-    await sess.init();
-    pixelSession = sess;
-    return sess;
-  })();
-  try {
-    return await pixelInitPromise;
-  } catch (err) {
-    pixelInitPromise = null;
-    throw err;
   }
 }
 
@@ -362,13 +316,8 @@ async function startPortalBridge(): Promise<void> {
           typeof body.x === "number" &&
           typeof body.y === "number"
         ) {
-          if (USE_DBUS_NEXT_FALLBACK) {
-            const sess = await getPixelSession();
-            await sess.clickPixel(body.x, body.y, body.button ?? "left");
-          } else {
-            const client = await getRemoteDesktopClient();
-            await client.clickPixel({ x: body.x, y: body.y, button: body.button ?? "left" });
-          }
+          const client = await getRemoteDesktopClient();
+          await client.clickPixel({ x: body.x, y: body.y, button: body.button ?? "left" });
           res.end(JSON.stringify({ ok: true, x: body.x, y: body.y }));
           return;
         }
@@ -394,24 +343,14 @@ async function startPortalBridge(): Promise<void> {
           return;
         }
         if (body.op === "key" && typeof body.keysym === "number") {
-          if (USE_DBUS_NEXT_FALLBACK) {
-            const sess = await getPortalSession();
-            await sess.sendKeyCombo(body.modifiers ?? [], body.keysym);
-          } else {
-            const client = await getRemoteDesktopClient();
-            await client.key({ modifiers: body.modifiers, keysym: body.keysym });
-          }
+          const client = await getRemoteDesktopClient();
+          await client.key({ modifiers: body.modifiers, keysym: body.keysym });
           res.end(JSON.stringify({ ok: true }));
           return;
         }
         if (body.op === "type" && typeof body.text === "string") {
-          if (USE_DBUS_NEXT_FALLBACK) {
-            const sess = await getPortalSession();
-            await sess.typeString(body.text);
-          } else {
-            const client = await getRemoteDesktopClient();
-            await client.type(body.text);
-          }
+          const client = await getRemoteDesktopClient();
+          await client.type(body.text);
           res.end(JSON.stringify({ ok: true, len: body.text.length }));
           return;
         }
@@ -468,36 +407,19 @@ function portalHandoffPath(): string | null {
 ipcMain.handle(
   "portal:key",
   async (_evt, payload: { modifiers?: number[]; keysym: number }) => {
-    if (USE_DBUS_NEXT_FALLBACK) {
-      const sess = await getPortalSession();
-      await sess.sendKeyCombo(payload.modifiers ?? [], payload.keysym);
-    } else {
-      const client = await getRemoteDesktopClient();
-      await client.key({ modifiers: payload.modifiers, keysym: payload.keysym });
-    }
+    const client = await getRemoteDesktopClient();
+    await client.key({ modifiers: payload.modifiers, keysym: payload.keysym });
     return { ok: true };
   },
 );
 
 ipcMain.handle("portal:type", async (_evt, payload: { text: string }) => {
-  if (USE_DBUS_NEXT_FALLBACK) {
-    const sess = await getPortalSession();
-    await sess.typeString(payload.text);
-  } else {
-    const client = await getRemoteDesktopClient();
-    await client.type(payload.text);
-  }
+  const client = await getRemoteDesktopClient();
+  await client.type(payload.text);
   return { ok: true, len: payload.text.length };
 });
 
 ipcMain.handle("portal:status", async () => {
-  if (USE_DBUS_NEXT_FALLBACK) {
-    return {
-      available: process.platform === "linux",
-      initialised: portalSession !== null,
-      backend: "dbus-next",
-    };
-  }
   const status = remoteDesktopClient
     ? await remoteDesktopClient.status().catch(() => ({
         alive: false,
@@ -542,13 +464,8 @@ ipcMain.handle(
     _evt,
     payload: { x: number; y: number; button?: "left" | "right" | "middle" },
   ) => {
-    if (USE_DBUS_NEXT_FALLBACK) {
-      const sess = await getPixelSession();
-      await sess.clickPixel(payload.x, payload.y, payload.button ?? "left");
-    } else {
-      const client = await getRemoteDesktopClient();
-      await client.clickPixel({ x: payload.x, y: payload.y, button: payload.button ?? "left" });
-    }
+    const client = await getRemoteDesktopClient();
+    await client.clickPixel({ x: payload.x, y: payload.y, button: payload.button ?? "left" });
     return { ok: true, x: payload.x, y: payload.y };
   },
 );
@@ -597,14 +514,6 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   if (serverProc && !serverProc.killed) {
     serverProc.kill("SIGTERM");
-  }
-  if (portalSession) {
-    portalSession.close().catch(() => {});
-    portalSession = null;
-  }
-  if (pixelSession) {
-    pixelSession.close().catch(() => {});
-    pixelSession = null;
   }
   if (screenCastSession) {
     screenCastSession.close().catch(() => {});

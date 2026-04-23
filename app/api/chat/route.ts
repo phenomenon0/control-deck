@@ -28,9 +28,10 @@ import {
   type AGUIEvent,
 } from "@/lib/agui/events";
 import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
-import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
+import { prepareForModel } from "@/lib/llm/systemPrompt";
 import {
   createRun,
+  createThread,
   finishRun,
   errorRun,
   updateRunPreview,
@@ -57,6 +58,10 @@ interface ChatRequestBody {
   uploadIds?: string[];
   /** User-editable system prompt. Augmented per-model in each route. */
   systemPrompt?: string;
+  /** Cloud mode: the provider id the user pinned (anthropic/openai/google). */
+  cloudProvider?: "anthropic" | "openai" | "google";
+  /** Cloud mode: the specific model id under the pinned provider. */
+  cloudModel?: string;
 }
 
 interface AgentGOMessage {
@@ -315,7 +320,28 @@ export async function POST(req: Request) {
     });
   }
 
-  const { messages, model, threadId, uploadIds, systemPrompt } = body;
+  const {
+    messages,
+    model,
+    threadId,
+    uploadIds,
+    systemPrompt: clientPrompt,
+    cloudProvider,
+    cloudModel,
+  } = body;
+
+  // Ensure the thread row exists before anything else reads from it.
+  // INSERT OR IGNORE — no-op if already present. Closes a latent race
+  // where /api/chat was previously assuming the client pre-created via
+  // /api/threads, which silently made getThread() return undefined and
+  // per-thread overrides impossible.
+  if (threadId) createThread(threadId);
+
+  // Thread-scoped override: if the thread has a system_prompt set, use
+  // that instead of whatever the client sent. Lets users keep per-thread
+  // personas ("this thread is for code") without mutating global prefs.
+  const thread0 = threadId ? getThread(threadId) : undefined;
+  const systemPrompt = thread0?.system_prompt ?? clientPrompt;
 
   // Validate messages array
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -340,7 +366,22 @@ export async function POST(req: Request) {
     });
   }
 
-  // Model selection priority: request > selected provider slot > primary slot > system profile > fallback
+  // Model selection precedence — two storage layers meet here:
+  //   1. `model` from body  ← user pick in DeckPrefs (localStorage, client)
+  //   2. getDefaultModel(slot) ← env LLM_* / runtime override (provider
+  //      config store, server)
+  //   3. systemProfile recommendation ← hardware-probed fallback
+  //   4. hardcoded last-resort string
+  //
+  // The two stores are NOT synced intentionally. DeckPrefs.model is "what
+  // the user clicked in the UI"; getProviderConfig()/getDefaultModel() is
+  // "how this server knows to talk to a provider by default." The user
+  // always wins when set, because composer pill > inherited config.
+  // When prefs.model is empty (first run, or user cleared it), the server
+  // config supplies a sane default so chat still works.
+  //
+  // To change the system-wide default without clicking in the UI, set
+  // LLM_MODEL in env or call /api/backend to write runtimeOverride.
   const selectedModel =
     model ??
     getDefaultModel(clientSlot) ??
@@ -381,6 +422,34 @@ export async function POST(req: Request) {
   const routeModeHeader = req.headers.get("x-deck-route-mode");
   const legacyFreeHeader = req.headers.get("x-deck-free-mode") === "1";
   const freeMode = routeModeHeader === "free" || legacyFreeHeader;
+  const cloudMode = routeModeHeader === "cloud";
+
+  // Cloud mode: user pinned a specific paid provider+model.
+  // No fallback on failure — policy is predictable cost/quality > auto-degrade.
+  if (cloudMode) {
+    if (!cloudProvider || !cloudModel) {
+      return new Response(
+        JSON.stringify({ error: "cloud mode requires cloudProvider and cloudModel in body" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    console.log(`[Chat] Cloud mode — delegating to /api/chat/cloud (${cloudProvider}:${cloudModel})`);
+    const { POST: cloudPost } = await import("./cloud/route");
+    const cloudReq = new Request(new URL("/api/chat/cloud", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages,
+        threadId: thread,
+        provider: cloudProvider,
+        model: cloudModel,
+        systemPrompt,
+      }),
+      signal: req.signal,
+    });
+    return cloudPost(cloudReq);
+  }
+
   if (freeMode) {
     console.log(`[Chat] Free mode active — delegating to /api/chat/free (preferred=${model ?? "<none>"})`);
     const { POST: freePost } = await import("./free/route");
@@ -454,10 +523,13 @@ export async function POST(req: Request) {
   // Prepend the user's system prompt (augmented for the target model)
   // so Agent-GO forwards it to the LLM as the first message. Agent-GO's
   // own baked-in prompt still runs — these two stack.
-  const agentMessages: AgentGOMessage[] = withSystemPrompt(
-    agentMessagesRaw,
-    augmentForModel(systemPrompt ?? "", selectedModel),
-  );
+  //
+  // Agent-GO itself talks OpenAI-compatible downstream, so we pass the
+  // messages with role:"system". If the user eventually configures
+  // Agent-GO to talk directly to Claude/Gemini, that's an Agent-GO side
+  // concern — we hand it the prepared messages and let it adapt.
+  const prepared = prepareForModel(agentMessagesRaw, systemPrompt ?? "", selectedModel);
+  const agentMessages: AgentGOMessage[] = prepared.messages as AgentGOMessage[];
 
   const agentRequest: AgentGOStartRunRequest = {
     messages: agentMessages,

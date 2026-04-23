@@ -513,8 +513,10 @@ export interface UseAgentRunReturn {
       threadId: string;
       model: string;
       uploadIds?: string[];
-      routeMode?: "local" | "free";
+      routeMode?: "local" | "free" | "cloud";
       systemPrompt?: string;
+      cloudProvider?: "anthropic" | "openai" | "google";
+      cloudModel?: string;
     }
   ) => Promise<SendResult>;
   /** Stop the current run */
@@ -561,8 +563,10 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         threadId: string;
         model: string;
         uploadIds?: string[];
-        routeMode?: "local" | "free";
+        routeMode?: "local" | "free" | "cloud";
         systemPrompt?: string;
+        cloudProvider?: "anthropic" | "openai" | "google";
+        cloudModel?: string;
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
@@ -595,6 +599,8 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             threadId: opts.threadId,
             uploadIds: opts.uploadIds,
             systemPrompt: opts.systemPrompt,
+            cloudProvider: opts.cloudProvider,
+            cloudModel: opts.cloudModel,
           }),
           signal: controller.signal,
         });

@@ -27,8 +27,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, Cpu, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, Cloud, Cpu, RefreshCw, Sparkles } from "lucide-react";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { CLOUD_PROVIDERS } from "@/lib/llm/cloudProviders";
+import type { CloudProviderId as CloudId } from "@/lib/llm/cloudProviders";
 
 type Provider = "openrouter" | "nvidia";
 
@@ -202,12 +204,18 @@ export function RoutePicker() {
     freePinned !== freeStatus.activeModelId;
   const noKey = mode === "free" && freeStatus && !freeStatus.enabled;
 
-  const pillIcon = mode === "free" ? <Sparkles size={14} /> : <Cpu size={14} />;
-  const pillLabel = mode === "free" ? "Free" : "Local";
+  const cloudProviderRecord = CLOUD_PROVIDERS.find((p) => p.id === prefs.cloudProvider);
+  const cloudModelRecord = cloudProviderRecord?.models.find((m) => m.id === prefs.cloudModel);
+
+  const pillIcon =
+    mode === "cloud" ? <Cloud size={14} /> : mode === "free" ? <Sparkles size={14} /> : <Cpu size={14} />;
+  const pillLabel = mode === "cloud" ? "Cloud" : mode === "free" ? "Free" : "Local";
   const pillModel =
     mode === "local"
       ? ollamaCurrent
-      : freeActive?.model.displayName ?? (freePinned || "pick a model");
+      : mode === "free"
+        ? freeActive?.model.displayName ?? (freePinned || "pick a model")
+        : cloudModelRecord?.displayName ?? prefs.cloudModel ?? "pick a model";
 
   const byProvider = freeStatus?.status.reduce<Record<Provider, StatusEntry[]>>(
     (acc, s) => {
@@ -271,6 +279,15 @@ export function RoutePicker() {
               onClick={() => switchRouteMode("free")}
             >
               <Sparkles size={12} /> Free
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "cloud"}
+              className={`composer-route-tab${mode === "cloud" ? " is-active" : ""}`}
+              onClick={() => switchRouteMode("cloud")}
+            >
+              <Cloud size={12} /> Cloud
             </button>
           </div>
 
@@ -407,6 +424,63 @@ export function RoutePicker() {
                   </div>
                 );
               })}
+            </>
+          )}
+
+          {mode === "cloud" && (
+            <>
+              <div className="composer-model-head">
+                <span className="composer-tweaks-axis-label">Cloud providers</span>
+              </div>
+              <div className="composer-free-providers">
+                {CLOUD_PROVIDERS.map((p) => {
+                  const isActive = p.id === prefs.cloudProvider;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`composer-free-provider-chip${isActive ? " is-on" : ""}`}
+                      disabled={!p.implemented}
+                      onClick={() => {
+                        const firstModel = p.models[0]?.id ?? "";
+                        updatePrefs({ cloudProvider: p.id as CloudId, cloudModel: firstModel });
+                      }}
+                      title={p.implemented ? `Use ${p.name}` : `${p.name} adapter not yet implemented`}
+                    >
+                      {p.name}
+                      {!p.implemented && " · soon"}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="composer-free-note">
+                Paid providers — charged per token. API key via <code>{cloudProviderRecord?.envKey ?? "..."}</code>.
+              </p>
+              {cloudProviderRecord && (
+                <ul className="composer-model-list">
+                  {cloudProviderRecord.models.map((m) => {
+                    const isActive = m.id === prefs.cloudModel;
+                    return (
+                      <li key={m.id}>
+                        <button
+                          type="button"
+                          className={`composer-model-row${isActive ? " is-active" : ""}`}
+                          onClick={() => updatePrefs({ cloudModel: m.id })}
+                        >
+                          <div className="composer-model-row-main">
+                            <span className="composer-model-row-name">{m.displayName}</span>
+                            {isActive && <span className="composer-model-hot">ACTIVE</span>}
+                          </div>
+                          <div className="composer-model-row-meta">
+                            {formatContext(m.contextWindow)} ctx · {m.modality}
+                            {m.note && ` · ${m.note}`}
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </>
           )}
         </div>

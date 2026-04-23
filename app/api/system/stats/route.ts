@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { collectMacGpu } from "@/lib/hardware/mac-gpu";
+import { collectAmdGpu } from "@/lib/hardware/amd-gpu";
 
 const execAsync = promisify(exec);
+
+/** Windows sometimes installs nvidia-smi to Program Files instead of PATH. */
+const NVIDIA_SMI_CANDIDATES: string[] = (() => {
+  if (process.platform !== "win32") return ["nvidia-smi"];
+  return [
+    "nvidia-smi",
+    `"C:\\Program Files\\NVIDIA Corporation\\NVSMI\\nvidia-smi.exe"`,
+    `"C:\\Windows\\System32\\nvidia-smi.exe"`,
+  ];
+})();
 
 interface GpuStats {
   name: string;
@@ -22,26 +34,62 @@ interface ServiceStatus {
 }
 
 async function getGpuStats(): Promise<GpuStats | null> {
-  try {
-    const { stdout } = await execAsync(
-      "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits"
-    );
-    const parts = stdout.trim().split(", ");
-    if (parts.length >= 5) {
-      const memUsed = parseInt(parts[1], 10);
-      const memTotal = parseInt(parts[2], 10);
+  // Apple Silicon: real live metrics via ioreg, no sudo required.
+  if (process.platform === "darwin") {
+    const mac = await collectMacGpu();
+    if (mac) {
       return {
-        name: parts[0],
-        memoryUsed: memUsed,
-        memoryTotal: memTotal,
-        memoryPercent: Math.round((memUsed / memTotal) * 100),
-        utilization: parseInt(parts[3], 10),
-        temperature: parseInt(parts[4], 10),
+        name: mac.name,
+        memoryUsed: mac.memoryUsedMb,
+        memoryTotal: mac.memoryTotalMb,
+        memoryPercent: mac.memoryPercent,
+        utilization: mac.utilization,
+        // Real temp when powermetrics is enabled; 0 otherwise (UI hides it).
+        temperature: mac.temperatureC ?? 0,
       };
     }
-  } catch {
-    // nvidia-smi not available
+    // Fall through to nvidia-smi for Intel Macs with eGPUs.
   }
+
+  // NVIDIA — iterate install-path candidates so Windows users without
+  // nvidia-smi on PATH still work out of the box.
+  for (const cmd of NVIDIA_SMI_CANDIDATES) {
+    try {
+      const { stdout } = await execAsync(
+        `${cmd} --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader,nounits`,
+        { timeout: 2000 },
+      );
+      const parts = stdout.trim().split(", ");
+      if (parts.length >= 5) {
+        const memUsed = parseInt(parts[1], 10);
+        const memTotal = parseInt(parts[2], 10);
+        return {
+          name: parts[0],
+          memoryUsed: memUsed,
+          memoryTotal: memTotal,
+          memoryPercent: Math.round((memUsed / memTotal) * 100),
+          utilization: parseInt(parts[3], 10),
+          temperature: parseInt(parts[4], 10),
+        };
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
+  // AMD via rocm-smi (Linux-only).
+  const amd = await collectAmdGpu();
+  if (amd) {
+    return {
+      name: amd.name,
+      memoryUsed: amd.memoryUsedMb,
+      memoryTotal: amd.memoryTotalMb,
+      memoryPercent: amd.memoryPercent,
+      utilization: amd.utilization,
+      temperature: amd.temperatureC,
+    };
+  }
+
   return null;
 }
 

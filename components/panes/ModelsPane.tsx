@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Gauge } from "lucide-react";
+import { VramEstimator } from "@/components/models/VramEstimator";
 
 interface OllamaModel {
   name: string;
@@ -23,6 +25,7 @@ export function ModelsPane() {
   const [loading, setLoading] = useState(true);
   const [pulling, setPulling] = useState<string | null>(null);
   const [newModel, setNewModel] = useState("");
+  const [vramTarget, setVramTarget] = useState<OllamaModel | null>(null);
 
   const fetchModels = async () => {
     try {
@@ -167,6 +170,14 @@ export function ModelsPane() {
 
                 <div className="flex items-center gap-2 pt-3 border-t border-[var(--border)]">
                   <button
+                    onClick={() => setVramTarget(model)}
+                    className="btn btn-ghost text-xs"
+                    title="Estimate VRAM"
+                  >
+                    <Gauge className="w-3.5 h-3.5 mr-1 inline" />
+                    VRAM
+                  </button>
+                  <button
                     onClick={() => navigator.clipboard.writeText(model.name)}
                     className="btn btn-ghost text-xs flex-1"
                     title="Copy name"
@@ -185,6 +196,14 @@ export function ModelsPane() {
           </div>
         )}
       </div>
+
+      {vramTarget && (
+        <VramEstimator
+          modelName={vramTarget.name}
+          modelBytes={vramTarget.size}
+          onClose={() => setVramTarget(null)}
+        />
+      )}
     </div>
   );
 }

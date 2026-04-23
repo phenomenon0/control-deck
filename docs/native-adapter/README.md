@@ -1,7 +1,16 @@
 # native-adapter docs
 
-How to drive external native apps from control-deck via AT-SPI on Linux
-(macOS / Windows stubs pending).
+How to drive external native apps from control-deck.
+
+| Platform | Backend                           | Status |
+|----------|-----------------------------------|--------|
+| Linux    | AT-SPI via python `scripts/atspi-helper.py` + xdg portals | Shipping |
+| macOS    | AXUIElement via compiled Swift helper    | Shipping |
+| Windows  | UI Automation via `WinAutomationHost.exe` (C# / FlaUI) | Shipping |
+
+All three expose the same nine `native_*` tools (locate, click, type,
+tree, key, focus, screen_grab, focus_window, click_pixel). Windows
+additionally exposes five UIA-only extras — see [windows.md](./windows.md).
 
 Start with [SKILL.md](./SKILL.md) — tool contracts, click cascade, framework
 matrix, gotchas.

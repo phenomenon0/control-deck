@@ -13,7 +13,12 @@ const ITEMS = [
   { href: "/deck/terminal", label: "Terminal", icon: Icon.Terminal, kbd: "2" },
   { href: "/deck/visual", label: "Visual", icon: Icon.Image, kbd: "3" },
   { href: "/deck/audio", label: "Audio", icon: Icon.Waveform, kbd: "4" },
-  { href: "/deck/control", label: "Control", icon: Icon.Grid, kbd: "5" },
+  { href: "/deck/models", label: "Models", icon: Icon.Cpu, kbd: "5" },
+  { href: "/deck/control", label: "Control", icon: Icon.Layers, kbd: "6" },
+  { href: "/deck/workspace", label: "Workspace", icon: Icon.Grid, kbd: "7" },
+  { href: "/deck/capabilities", label: "Capabilities", icon: Icon.Wrench, kbd: "8" },
+  { href: "/deck/hardware", label: "Hardware", icon: Icon.Cpu, kbd: "9" },
+  { href: "/deck/settings", label: "Settings", icon: Icon.Settings, kbd: "0" },
 ] as const;
 
 interface SidebarProps {
@@ -48,9 +53,14 @@ export function Sidebar({ onOpenPalette }: SidebarProps) {
       })}
 
       <div className="nav-section">Session</div>
-      <button className="nav-item" onClick={() => setSettingsOpen(true)}>
+      <button
+        className="nav-item"
+        onClick={() => setSettingsOpen(true)}
+        title="Quick settings drawer (⌘,)"
+      >
         <Icon.Settings size={13} sw={1.25} />
-        <span className="nav-item-label">Settings</span>
+        <span className="nav-item-label">Quick settings</span>
+        <span className="kbd">⌘,</span>
       </button>
       <button className="nav-item" onClick={onOpenPalette}>
         <Icon.CommandIcon size={13} sw={1.25} />

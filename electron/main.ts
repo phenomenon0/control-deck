@@ -12,6 +12,8 @@ import {
   registerThemedBrowser,
   type ThemedBrowserRegistry,
 } from "./services/themed-browser";
+import { registerWindowsHost } from "./services/windows-host";
+import { startTerminalService } from "./services/terminal-service";
 
 const IS_DEV = !app.isPackaged;
 const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
@@ -51,6 +53,7 @@ let portalBridgePort: number | null = null;
 let portalBridgeSecret: string | null = null;
 let themedBrowser: ThemedBrowserRegistry | null = null;
 let remoteDesktopClient: RemoteDesktopClient | null = null;
+let terminalService: { kill: () => void } | null = null;
 
 function resolveRemoteDesktopHelper(): string {
   const candidates = [
@@ -192,8 +195,20 @@ function pickFreePort(): Promise<number> {
 
 async function startEmbeddedServer(): Promise<string> {
   if (IS_DEV) {
-    // In dev, the developer runs `bun run dev` separately.
-    return process.env.CONTROL_DECK_URL ?? "http://localhost:3333";
+    // In dev, the developer runs `bun run dev` separately. Wait for it
+    // instead of crashing on race — the Next server is often still
+    // compiling when Electron reaches this point.
+    const devUrl = process.env.CONTROL_DECK_URL ?? "http://localhost:3333";
+    console.log(`[electron] waiting for dev server at ${devUrl} (start with \`bun run dev\`)`);
+    try {
+      await waitForUrl(devUrl, 120_000);
+      console.log(`[electron] dev server responsive at ${devUrl}`);
+    } catch {
+      throw new Error(
+        `dev server at ${devUrl} never came up. Run \`bun run dev\` in another terminal, then relaunch Electron.`,
+      );
+    }
+    return devUrl;
   }
 
   const port = await pickFreePort();
@@ -489,6 +504,16 @@ app.whenReady().then(async () => {
       console.error("[electron] portal bridge failed to start:", err);
     }
   }
+
+  if (process.platform === "win32") {
+    registerWindowsHost();
+  }
+
+  try {
+    terminalService = startTerminalService();
+  } catch (err) {
+    console.error("[electron] terminal service auto-spawn failed:", err);
+  }
   try {
     await createWindow();
   } catch (err) {
@@ -522,6 +547,10 @@ app.on("before-quit", () => {
   if (remoteDesktopClient) {
     remoteDesktopClient.close().catch(() => {});
     remoteDesktopClient = null;
+  }
+  if (terminalService) {
+    try { terminalService.kill(); } catch { /* ignore */ }
+    terminalService = null;
   }
   try {
     const handoff = portalHandoffPath();

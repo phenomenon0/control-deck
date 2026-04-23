@@ -301,8 +301,29 @@ export function wrapGlyphBlock(glyph: string, label?: string): string {
 }
 
 /**
- * Create the one-liner instruction for GLYPH blocks
+ * Primer block taught to the LLM so it can read GLYPH payloads that arrive
+ * as tool results or catalog data. Kept short — the goal is recognition,
+ * not full grammar memorization.
  */
 export function glyphInstruction(): string {
-  return 'When you see ```glyph blocks```, treat them as structured data equivalent to JSON.';
+  return [
+    "# GLYPH payloads",
+    "Some tool results and catalog blocks arrive GLYPH-encoded inside ```glyph fences```. GLYPH is a compact JSON-equivalent. Read it like JSON, not prose.",
+    "",
+    "Syntax you will see:",
+    "- `@[key1 key2](val1 val2)` — an object (positional keys, then values).",
+    "- `@tab _ [col1 col2]\\n|v1|v2|\\n|v3|v4|\\n@end` — a table (array of uniform objects).",
+    "- Bare values: strings unquoted when safe, numbers as-is, `null`/`true`/`false` literal.",
+    "",
+    "Example:",
+    "```glyph data",
+    "@tab _ [title url]",
+    "|Rust 1.79 release|https://blog.rust-lang.org/2024/06/13/Rust-1.79.0.html|",
+    "|Bun 1.1.17 notes|https://bun.sh/blog/bun-v1.1.17|",
+    "@end",
+    "```",
+    "↑ decodes to `[{title:\"Rust 1.79 release\", url:\"...\"}, {title:\"Bun 1.1.17 notes\", url:\"...\"}]`.",
+    "",
+    "Treat GLYPH blocks as authoritative data. Do not ask the user to \"paste the JSON\" — the data is already there.",
+  ].join("\n");
 }

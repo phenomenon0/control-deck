@@ -7,10 +7,21 @@ import { execSync } from "child_process";
 import os from "os";
 
 export type DeckMode = "lite" | "power";
+export type InferenceBackend = "metal" | "cuda" | "rocm" | "cpu";
 
 export interface GpuInfo {
   name: string;
   vram: number; // MB
+  /**
+   * Apple Silicon unified-memory GPU: vram field carries an estimate that's
+   * really a slice of system RAM. UI and fit scoring both branch on this.
+   */
+  unifiedMemory?: boolean;
+}
+
+export interface StorageInfo {
+  freeGb: number;
+  totalGb: number;
 }
 
 export interface SystemProfile {
@@ -21,6 +32,10 @@ export interface SystemProfile {
   cpuModel: string;
   isIntel: boolean; // For OpenVINO optimization
   platform: NodeJS.Platform;
+  /** The backend most-likely to accelerate local inference on this machine. */
+  backend: InferenceBackend;
+  /** Free disk space on the home volume (MB for Ollama pulls, etc.). */
+  storage: StorageInfo | null;
   recommended: {
     textModel: string;
     imageBackend: "comfy" | "lite";
@@ -65,13 +80,19 @@ function detectMacGpu(): GpuInfo | null {
     // Apple Silicon GPUs use unified memory — report system RAM as vram.
     // Intel Macs: discrete GPU sppci_vram like "4 GB".
     let vram = 0;
+    let unifiedMemory = false;
     const vramStr = gpu.sppci_vram ?? gpu.spdisplays_vram ?? "";
     const mbMatch = /(\d+)\s*MB/i.exec(vramStr);
     const gbMatch = /(\d+)\s*GB/i.exec(vramStr);
     if (mbMatch) vram = parseInt(mbMatch[1], 10);
     else if (gbMatch) vram = parseInt(gbMatch[1], 10) * 1024;
-    else vram = Math.round(os.totalmem() / (1024 * 1024) / 2); // unified memory: assume half
-    return { name, vram };
+    else {
+      // Apple Silicon path — unified memory. A practical inference budget is
+      // ~60% of system RAM: leaving 40% for OS + app + context scratch.
+      vram = Math.round((os.totalmem() / (1024 * 1024)) * 0.6);
+      unifiedMemory = true;
+    }
+    return { name, vram, unifiedMemory };
   } catch {
     return null;
   }
@@ -130,6 +151,62 @@ function getCpuInfo(): { cores: number; model: string; isIntel: boolean } {
 }
 
 /**
+ * Infer the preferred inference backend for this machine.
+ * Heuristic: Apple Silicon → metal, NVIDIA GPU → cuda, AMD GPU detected → rocm,
+ * anything else → cpu. We don't shell out for arch detection on darwin since
+ * system_profiler already gave us the Apple-Silicon signal via unifiedMemory.
+ */
+function detectBackend(gpu: GpuInfo | null): InferenceBackend {
+  if (process.platform === "darwin") {
+    return gpu?.unifiedMemory ? "metal" : gpu ? "metal" : "cpu";
+  }
+  if (gpu) {
+    const n = gpu.name.toLowerCase();
+    if (n.includes("nvidia") || n.includes("geforce") || n.includes("rtx") ||
+        n.includes("quadro") || n.includes("tesla") || n.includes("a100") ||
+        n.includes("h100")) {
+      return "cuda";
+    }
+    if (n.includes("amd") || n.includes("radeon")) {
+      return "rocm";
+    }
+  }
+  return "cpu";
+}
+
+/**
+ * Free + total disk on the user's home volume. Used to filter out model
+ * pulls that would exceed available space.
+ */
+function detectStorage(): StorageInfo | null {
+  try {
+    // `df -Pk` returns POSIX-standard 6 columns:
+    //   Filesystem  1024-blocks  Used  Available  Capacity  Mounted-on
+    // — consistent across darwin + linux. Wraps long filesystem names to a
+    // second line only when the Filesystem is too long; -P forces one line.
+    const home = os.homedir();
+    const output = execSync(`df -Pk "${home}"`, {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    const lines = output.split("\n").filter((l) => l.trim());
+    if (lines.length < 2) return null;
+    const cols = lines[lines.length - 1].split(/\s+/);
+    // POSIX layout: [fs, 1024-blocks, used, available, capacity, mount]
+    const totalKb = Number(cols[1]);
+    const availKb = Number(cols[3]);
+    if (!Number.isFinite(availKb) || !Number.isFinite(totalKb)) return null;
+    return {
+      freeGb: Math.round(availKb / (1024 * 1024)),
+      totalGb: Math.round(totalKb / (1024 * 1024)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Determine recommended mode based on hardware
  */
 function determineMode(gpu: GpuInfo | null, ram: number): DeckMode {
@@ -179,6 +256,8 @@ export function detectSystem(): SystemProfile {
   const cpu = getCpuInfo();
   const mode = determineMode(gpu, ram);
   const recommended = getRecommendedSettings(mode, gpu);
+  const backend = detectBackend(gpu);
+  const storage = detectStorage();
 
   return {
     mode,
@@ -188,8 +267,44 @@ export function detectSystem(): SystemProfile {
     cpuModel: cpu.model,
     isIntel: cpu.isIntel,
     platform: process.platform,
+    backend,
+    storage,
     recommended,
   };
+}
+
+/**
+ * Fetch the list of models currently installed in the user's Ollama.
+ * Async + separate from detectSystem so hardware probing stays cheap.
+ * Returns [] when Ollama is offline / misconfigured — non-fatal.
+ */
+export async function getInstalledOllamaModels(): Promise<
+  Array<{ name: string; sizeBytes: number; family?: string; quantization?: string }>
+> {
+  const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434")
+    .replace(/\/v1$/, "");
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      models?: Array<{
+        name: string;
+        size: number;
+        details?: { family?: string; quantization_level?: string };
+      }>;
+    };
+    return (data.models ?? []).map((m) => ({
+      name: m.name,
+      sizeBytes: m.size,
+      family: m.details?.family,
+      quantization: m.details?.quantization_level,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /**

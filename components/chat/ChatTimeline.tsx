@@ -14,12 +14,14 @@ interface ChatTimelineProps {
   emptyState?: React.ReactNode;
   /** Callback when user clicks Retry on an error segment */
   onRetry?: () => void;
+  /** Callback to TTS-play a specific message on demand */
+  onSpeak?: (text: string) => void;
 }
 
 /** Distance from bottom (px) within which auto-scroll stays active */
 const SCROLL_THRESHOLD = 100;
 
-export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetry }: ChatTimelineProps) {
+export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetry, onSpeak }: ChatTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollPill, setShowScrollPill] = useState(false);
@@ -86,6 +88,7 @@ export function ChatTimeline({ segments, isStreaming = false, emptyState, onRetr
               segment={segment}
               isLast={idx === segments.length - 1}
               onRetry={segment.type === "error" ? onRetry : undefined}
+              onSpeak={onSpeak}
             />
           ))}
           <div ref={bottomRef} />

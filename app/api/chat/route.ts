@@ -43,6 +43,7 @@ import {
 import { getDefaultModel, getProviderConfig } from "@/lib/llm";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
+import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
 
 // Agent-GO server configuration
 const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
@@ -348,6 +349,50 @@ export async function POST(req: Request) {
   const runId = generateId();
   const messageId = generateId();
 
+  // Probe Agent-GO up front. If it's down (common during local dev without
+  // the Go binary), fall through to /api/chat/simple so chat still works.
+  // The probe is non-blocking at 400ms — Agent-GO's /health is an instant
+  // response when alive, so this adds essentially zero latency to the
+  // healthy path.
+  const agentgoAlive = await fetch(`${AGENTGO_URL}/health`, {
+    signal: AbortSignal.timeout(400),
+    cache: "no-store",
+  })
+    .then((r) => r.ok)
+    .catch(() => false);
+
+  // Free-tier mode: when the client opts in, skip Agent-GO entirely and
+  // route through OpenRouter's free-model roulette. User-visible privacy
+  // tradeoff (free tiers may train on prompts) — enforced client-side by
+  // the FreeModeToggle opt-in.
+  const freeMode = req.headers.get("x-deck-free-mode") === "1";
+  if (freeMode) {
+    console.log(`[Chat] Free mode active — delegating to /api/chat/free`);
+    const { POST: freePost } = await import("./free/route");
+    const freeReq = new Request(new URL("/api/chat/free", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, threadId: thread, needsMultimodal: hasImages }),
+      signal: req.signal,
+    });
+    return freePost(freeReq);
+  }
+
+  if (!agentgoAlive) {
+    console.log(`[Chat] Agent-GO unreachable at ${AGENTGO_URL}; falling back to /api/chat/simple`);
+    // Invoke the simple route's handler directly instead of HTTP self-fetch.
+    // Next's dev server can buffer or serialize recursive same-origin fetches,
+    // which manifested as a hung SSE stream during testing.
+    const { POST: simplePost } = await import("./simple/route");
+    const fallbackReq = new Request(new URL("/api/chat/simple", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, model: selectedModel, threadId: thread }),
+      signal: req.signal,
+    });
+    return simplePost(fallbackReq);
+  }
+
   console.log(`[Chat] Starting run via Agent-GO: thread=${thread}, model=${selectedModel}`);
 
   // Emit local RunStarted (for immediate UI feedback)
@@ -430,11 +475,14 @@ export async function POST(req: Request) {
       await safeWriteSSE(runStarted);
       await safeWriteSSE(msgStart);
 
-      // Start run on Agent-GO
-      const startResponse = await fetch(`${AGENTGO_URL}/runs`, {
+      // Start run on Agent-GO. retryingFetch handles network errors + 5xx
+      // with exponential backoff so a brief Agent-GO hiccup doesn't break
+      // the chat turn; 4xx still fails fast.
+      const startResponse = await retryingFetch(`${AGENTGO_URL}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(agentRequest),
+        signal: req.signal,
       });
 
       if (!startResponse.ok) {
@@ -447,11 +495,16 @@ export async function POST(req: Request) {
       console.log(`[Chat] Agent-GO run started: ${agentRunId}`);
       if (agentRunId) setAgentRunId(runId, agentRunId);
 
-      // Stream events from Agent-GO
-      const eventsResponse = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/events`, {
-        headers: { Accept: "text/event-stream" },
-        signal: req.signal,
-      });
+      // Stream events from Agent-GO. Retry the initial connect; mid-stream
+      // reconnect would need server seq coordination, so we accept that a
+      // dropped SSE connection ends the run.
+      const eventsResponse = await retryingFetch(
+        `${AGENTGO_URL}/runs/${agentRunId}/events`,
+        {
+          headers: { Accept: "text/event-stream" },
+          signal: req.signal,
+        }
+      );
 
       if (!eventsResponse.ok) {
         throw new Error(`Agent-GO events returned ${eventsResponse.status}`);
@@ -536,12 +589,17 @@ export async function POST(req: Request) {
       if (isAborted) {
         console.log("[Chat] Request aborted during Agent-GO proxy");
       } else {
-        const errMsg = error instanceof Error ? error.message : "Unknown error";
+        const unavailable = error instanceof AgentGoUnavailableError;
+        const errMsg = unavailable
+          ? `Agent-GO at ${AGENTGO_URL} is unreachable (tried ${error.attempts}×). Start it with ./start-full-stack.sh or set AGENTGO_URL.`
+          : error instanceof Error
+            ? error.message
+            : "Unknown error";
         console.error("[Chat] Agent-GO proxy error:", error);
 
         const runError = createEvent<RunError>("RunError", thread, {
           runId,
-          error: { message: errMsg },
+          error: { message: errMsg, code: unavailable ? "AGENTGO_UNAVAILABLE" : undefined },
         });
         errorRun(runId, errMsg);
         saveEvent(runError);
@@ -610,6 +668,23 @@ export async function PUT(req: Request) {
   createRun(runId, thread, "tool:" + tool);
 
   try {
+    // Same approval gate as /api/tools/bridge — dynamic import to avoid
+    // pulling the approvals spine into the chat-route initial bundle.
+    const { gateToolCall } = await import("@/lib/approvals/gate");
+    const verdict = await gateToolCall({
+      toolName: tool,
+      toolArgs: (args ?? {}) as Record<string, unknown>,
+      runId,
+      threadId: thread,
+    });
+    if (verdict.decision === "denied") {
+      errorRun(runId, verdict.reason);
+      return Response.json(
+        { success: false, error: `tool call denied: ${verdict.reason}`, runId, threadId: thread },
+        { status: 403 },
+      );
+    }
+
     const toolCall = { name: tool, args: args ?? {} } as Parameters<typeof executeToolWithGlyph>[0];
     const result = await executeToolWithGlyph(toolCall, ctx);
 

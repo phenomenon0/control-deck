@@ -516,7 +516,7 @@ Thread <span class="e">─►</span> SQLite (threads, messages) <span class="e">
 
 <p><strong>What is wired but mute.</strong> The provider abstraction in <code>lib/llm/providers.ts</code> supports ten backends, has a runtime-override mechanism (<code>setRuntimeProvider</code>), and a system-prompt builder (<code>buildSystemPrompt</code>) that composes GPU stats + a GLYPH-compressed tool catalog + model-specific meta files. <strong>None of it is called in the chat path.</strong> The Go subprocess owns the system prompt; the deck's careful prompt machinery has no consumer. <code>moby.txt</code>, <code>moby-lite.txt</code>, and every file under <code>lib/prompts/meta/</code> are unreferenced at runtime.</p>
 
-<p>The Dojo AG-UI reference implementation (<code>lib/agui/dojo/</code>) is explicit about being unwired: its index comment reads <em>"Reference implementation — not wired into the main deck surface yet."</em> Its hook (<code>useAgui.ts</code>) has exactly one non-test caller: a demo card.</p>
+<p>The experimental AG-UI dojo (<code>lib/agui/experimental/</code>, formerly <code>lib/agui/dojo/</code>) is explicit about being unwired: its index comment reads <em>"Reference implementation — not wired into the main deck surface yet."</em> Its hook (<code>useAgui.ts</code>) has exactly one non-test caller: a demo card.</p>
 
 <div class="insight">
 <div class="label">The silent gap that matters most</div>

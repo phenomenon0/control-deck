@@ -457,6 +457,12 @@ export function SettingsDrawer() {
               </SettingRow>
             </div>
           </section>
+
+          {/*
+            Modalities moved to the first-class Models pane at /deck/models
+            (sidebar icon → kbd 5). ModalitiesPanel.tsx remains as a
+            reusable primitive the compare/inspector views may reuse later.
+          */}
         </div>
       </div>
     </div>

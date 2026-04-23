@@ -9,7 +9,7 @@ import type {
   ArtifactSegment,
   ErrorSegment,
 } from "@/lib/types/agentRun";
-import { Check, AlertCircle, RotateCcw, Square } from "lucide-react";
+import { Check, AlertCircle, RotateCcw, Square, Volume2 } from "lucide-react";
 import { ReasoningBubble } from "./ReasoningDisplay";
 import { AgentActivityBlock } from "./AgentActivityBlock";
 import { ArtifactRenderer } from "./ArtifactRenderer";
@@ -19,9 +19,10 @@ interface TimelineSegmentProps {
   segment: TSegment;
   isLast?: boolean;
   onRetry?: () => void;
+  onSpeak?: (text: string) => void;
 }
 
-export function TimelineSegment({ segment, isLast = false, onRetry }: TimelineSegmentProps) {
+export function TimelineSegment({ segment, isLast = false, onRetry, onSpeak }: TimelineSegmentProps) {
   switch (segment.type) {
     case "user-message":
       return <UserMessageBlock segment={segment} />;
@@ -30,7 +31,7 @@ export function TimelineSegment({ segment, isLast = false, onRetry }: TimelineSe
     case "agent-activity":
       return <AgentActivityBlock segment={segment} />;
     case "agent-message":
-      return <AgentTextBlock segment={segment} isLast={isLast} />;
+      return <AgentTextBlock segment={segment} isLast={isLast} onSpeak={onSpeak} />;
     case "artifact":
       return <ArtifactBlock segment={segment} />;
     case "error":
@@ -80,10 +81,13 @@ function AgentReasoningBlock({
 function AgentTextBlock({
   segment,
   isLast,
+  onSpeak,
 }: {
   segment: AgentMessageSegment;
   isLast: boolean;
+  onSpeak?: (text: string) => void;
 }) {
+  const canSpeak = !!onSpeak && !segment.isStreaming && segment.content.trim().length > 0;
   return (
     <article aria-label="Agent response" className="timeline-enter-assistant tl-agent-msg">
       <RichText content={segment.content} />
@@ -100,6 +104,17 @@ function AgentTextBlock({
         <div className="run-complete-indicator tl-complete-label">
           <Check size={12} />
           <span>Complete</span>
+          {canSpeak && (
+            <button
+              type="button"
+              onClick={() => onSpeak!(segment.content)}
+              className="tl-speak-btn"
+              aria-label="Speak this response"
+              title="Speak this response"
+            >
+              <Volume2 size={12} />
+            </button>
+          )}
         </div>
       )}
     </article>

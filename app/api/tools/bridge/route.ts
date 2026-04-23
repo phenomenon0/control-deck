@@ -51,6 +51,25 @@ export const BRIDGE_TOOLS = new Set<string>([
   "native_screen_grab",
   "native_focus_window",
   "native_click_pixel",
+  // Windows-only UIA extras
+  "native_invoke",
+  "native_wait_for",
+  "native_element_from_point",
+  "native_read_text",
+  "native_with_cache",
+  // Robust-automation primitives (watchers + baselines)
+  "native_watch_install",
+  "native_watch_drain",
+  "native_watch_remove",
+  "native_baseline_capture",
+  "native_baseline_restore",
+  // Workspace control (relayed via SSE to any connected WorkspaceShell)
+  "workspace_open_pane",
+  "workspace_close_pane",
+  "workspace_focus_pane",
+  "workspace_reset",
+  "workspace_list_panes",
+  "workspace_pane_call",
 ]);
 
 interface BridgeRequest {
@@ -147,7 +166,20 @@ export async function POST(req: Request): Promise<Response> {
       console.warn("[bridge] no schema for tool:", tool);
     }
 
-    // Build the typed ToolCall with validated (and potentially defaulted) args.
+    const { gateToolCall } = await import("@/lib/approvals/gate");
+    const verdict = await gateToolCall({
+      toolName: tool,
+      toolArgs: validatedArgs,
+      runId: ctx.run_id,
+      threadId: ctx.thread_id,
+    });
+    if (verdict.decision === "denied") {
+      return Response.json(
+        { success: false, error: `tool call denied: ${verdict.reason}` } as BridgeResponse,
+        { status: 403 },
+      );
+    }
+
     const toolCall = {
       name: tool,
       args: validatedArgs,

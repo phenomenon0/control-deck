@@ -27,7 +27,7 @@ import {
   type InterruptState,
   type ReasoningState,
   type JsonPatchOperation,
-} from "@/lib/agui/dojo";
+} from "@/lib/agui/experimental";
 
 export interface UseAguiOptions {
   /** Thread ID for the conversation */

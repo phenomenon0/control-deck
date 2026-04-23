@@ -60,9 +60,29 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     when: "no-input",
     label: "Go to Audio",
   });
-  useShortcut("5", () => router.push("/deck/control"), {
+  useShortcut("5", () => router.push("/deck/models"), {
+    when: "no-input",
+    label: "Go to Models",
+  });
+  useShortcut("6", () => router.push("/deck/control"), {
     when: "no-input",
     label: "Go to Control",
+  });
+  useShortcut("7", () => router.push("/deck/workspace"), {
+    when: "no-input",
+    label: "Go to Workspace",
+  });
+  useShortcut("8", () => router.push("/deck/capabilities"), {
+    when: "no-input",
+    label: "Go to Capabilities",
+  });
+  useShortcut("9", () => router.push("/deck/hardware"), {
+    when: "no-input",
+    label: "Go to Hardware",
+  });
+  useShortcut("0", () => router.push("/deck/settings"), {
+    when: "no-input",
+    label: "Go to Settings",
   });
 
   return (

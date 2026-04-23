@@ -26,10 +26,8 @@ export async function getNativeAdapter(): Promise<NativeAdapter> {
   }
 
   if (process.platform === "win32") {
-    cached = unsupportedAdapter(
-      "win32",
-      "Windows UIA adapter not yet implemented; FlaUI shim lands with the Windows build",
-    );
+    const { windowsUiaAdapter } = await import("./windows-uia");
+    cached = windowsUiaAdapter;
     return cached;
   }
 
@@ -70,4 +68,28 @@ export type {
   FocusWindowResult,
   PointerButton,
   ClickPixelArgs,
+  UiaPattern,
+  InvokeArgs,
+  InvokeResult,
+  WaitForArgs,
+  WaitForResult,
+  WaitForEvent,
+  ElementFromPointArgs,
+  ReadTextArgs,
+  ReadTextResult,
+  WithCacheArgs,
+  WithCacheResult,
+  WatchAction,
+  WatchInstallArgs,
+  WatchInstallResult,
+  WatchDrainArgs,
+  WatchDrainResult,
+  WatchEventRecord,
+  WatchRemoveArgs,
+  WatchRemoveResult,
+  BaselineCaptureArgs,
+  BaselineCaptureResult,
+  BaselineRestoreArgs,
+  BaselineRestoreResult,
+  BaselineWindow,
 } from "./types";

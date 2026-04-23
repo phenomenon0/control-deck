@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getUpload } from "@/lib/agui/db";
+import { safeDispositionFilename } from "@/lib/upload/utils";
 
 export async function GET(
   _req: NextRequest,
@@ -27,7 +28,7 @@ export async function GET(
       "Content-Length": String(buffer.length),
       "Cache-Control": "public, max-age=31536000, immutable",
       ...(upload.filename && {
-        "Content-Disposition": `inline; filename="${upload.filename}"`,
+        "Content-Disposition": `inline; filename="${safeDispositionFilename(upload.filename)}"`,
       }),
     },
   });

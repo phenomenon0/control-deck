@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createUpload, getUpload, getUploadsByThread } from "@/lib/agui/db";
 import { generateId } from "@/lib/agui/events";
+import { safeDispositionFilename } from "@/lib/upload/utils";
 
 const ALLOWED_TYPES = [
   "image/png",
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
       }
       
       mimeType = file.type;
-      filename = file.name;
+      filename = safeDispositionFilename(file.name);
       
       // Convert to base64
       const arrayBuffer = await file.arrayBuffer();
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
       threadId = body.threadId;
       data = body.data;
       mimeType = body.mimeType;
-      filename = body.filename;
+      filename = body.filename != null ? safeDispositionFilename(body.filename) : undefined;
       
       if (!threadId || !data || !mimeType) {
         return NextResponse.json(

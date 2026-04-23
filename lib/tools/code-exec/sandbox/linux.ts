@@ -23,6 +23,9 @@ import { DEFAULT_SANDBOX } from "../types";
 // Check if we're on Linux
 const IS_LINUX = process.platform === "linux";
 
+// Emitted at most once per process lifetime when unshare is unavailable.
+let unshareWarningShown = false;
+
 /**
  * Create an isolated sandbox environment
  */
@@ -275,7 +278,17 @@ export async function runSandboxed(
     proc.on("error", (err) => {
       finished = true;
       clearTimeout(timeoutHandle);
-      
+
+      // If the spawn failed because unshare wasn't available (ENOENT / EPERM),
+      // warn once so operators know isolation is not active.
+      if (isolated.command === "unshare" && !unshareWarningShown) {
+        unshareWarningShown = true;
+        console.warn(
+          "[sandbox] unshare unavailable — code exec running without network isolation. " +
+          "Install util-linux and grant CAP_SYS_ADMIN to enable."
+        );
+      }
+
       resolve({
         exitCode: -1,
         stdout,

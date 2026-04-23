@@ -229,7 +229,20 @@ function parseProviderConfig(prefix: string): ProviderConfig | undefined {
 }
 
 /**
- * Get provider configuration from environment (with runtime override)
+ * Get provider configuration from environment (with runtime override).
+ *
+ * NOTE on the two model-storage layers: this function's return value is
+ * the SERVER-SIDE default, sourced from env LLM_* variables + any
+ * `setRuntimeProvider` override from /api/backend. It is NOT synced with
+ * `DeckPrefs.model` (localStorage), which is the user's client-side pick.
+ *
+ * `/api/chat` reads DeckPrefs.model first (via request body) and only
+ * falls back to this when the user hasn't chosen. The split is deliberate:
+ *   - DeckPrefs.model answers "what did the user click?"
+ *   - getProviderConfig() answers "how does this server talk to providers?"
+ * Merging them would either (a) overwrite every user pick when env
+ * changes, or (b) let one user's browser dictate the system-wide default
+ * for every other caller. Both are wrong, so we keep them separate.
  */
 export function getProviderConfig(): ProviderSlots {
   // Runtime override takes precedence for primary slot

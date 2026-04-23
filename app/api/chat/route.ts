@@ -366,7 +366,22 @@ export async function POST(req: Request) {
     });
   }
 
-  // Model selection priority: request > selected provider slot > primary slot > system profile > fallback
+  // Model selection precedence — two storage layers meet here:
+  //   1. `model` from body  ← user pick in DeckPrefs (localStorage, client)
+  //   2. getDefaultModel(slot) ← env LLM_* / runtime override (provider
+  //      config store, server)
+  //   3. systemProfile recommendation ← hardware-probed fallback
+  //   4. hardcoded last-resort string
+  //
+  // The two stores are NOT synced intentionally. DeckPrefs.model is "what
+  // the user clicked in the UI"; getProviderConfig()/getDefaultModel() is
+  // "how this server knows to talk to a provider by default." The user
+  // always wins when set, because composer pill > inherited config.
+  // When prefs.model is empty (first run, or user cleared it), the server
+  // config supplies a sane default so chat still works.
+  //
+  // To change the system-wide default without clicking in the UI, set
+  // LLM_MODEL in env or call /api/backend to write runtimeOverride.
   const selectedModel =
     model ??
     getDefaultModel(clientSlot) ??

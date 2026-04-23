@@ -69,10 +69,12 @@ export const CLOUD_PROVIDERS: ReadonlyArray<CloudProvider> = [
     id: "google",
     name: "Google",
     envKey: "GOOGLE_API_KEY",
-    implemented: false,
+    implemented: true,
     models: [
-      { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", contextWindow: 1_000_000, modality: "multimodal", note: "adapter not yet wired" },
-      { id: "gemini-1.5-pro", displayName: "Gemini 1.5 Pro", contextWindow: 2_000_000, modality: "multimodal", note: "adapter not yet wired" },
+      { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro", contextWindow: 2_000_000, modality: "multimodal" },
+      { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash", contextWindow: 1_000_000, modality: "multimodal" },
+      { id: "gemini-2.0-flash", displayName: "Gemini 2.0 Flash", contextWindow: 1_000_000, modality: "multimodal" },
+      { id: "gemini-1.5-pro", displayName: "Gemini 1.5 Pro", contextWindow: 2_000_000, modality: "multimodal" },
     ],
   },
 ];
@@ -207,6 +209,87 @@ export function parseAnthropicLine(line: string): StreamEvent | null {
   }
 }
 
+// ---- Google Gemini ----------------------------------------------------
+
+/**
+ * Gemini's content shape differs from everyone else's:
+ *   - Role values are "user" and "model" (not "assistant").
+ *   - Messages are `contents: [{ role, parts: [{ text }] }]`.
+ *   - System prompt goes in `systemInstruction.parts[0].text`.
+ *   - Auth is a `?key=` query param or `x-goog-api-key` header.
+ *   - Streaming endpoint returns SSE when `?alt=sse` is appended.
+ */
+export async function dispatchGoogle(args: DispatchArgs): Promise<Response> {
+  const key = process.env.GOOGLE_API_KEY;
+  if (!key) throw new Error("GOOGLE_API_KEY not set");
+
+  // Translate OpenAI-compat messages → Gemini contents. Strip any
+  // residual role:"system" (we already extracted it into args.system).
+  const contents = args.messages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
+
+  const body: Record<string, unknown> = {
+    contents,
+    generationConfig: { maxOutputTokens: 4096 },
+  };
+  if (args.system) {
+    body.systemInstruction = { parts: [{ text: args.system }] };
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    args.model,
+  )}:streamGenerateContent?alt=sse`;
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": key,
+    },
+    body: JSON.stringify(body),
+    signal: args.signal,
+  });
+}
+
+/**
+ * Gemini SSE: each `data:` payload is a JSON candidates-envelope.
+ * Text is at `candidates[0].content.parts[*].text`, token counts
+ * ride along in `usageMetadata`. No [DONE] sentinel — stream just
+ * ends when the server closes.
+ */
+export function parseGoogleLine(line: string): StreamEvent | null {
+  if (!line.startsWith("data:")) return null;
+  const payload = line.slice(5).trim();
+  if (!payload) return null;
+  try {
+    const chunk = JSON.parse(payload) as {
+      candidates?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+        finishReason?: string;
+      }>;
+      usageMetadata?: {
+        promptTokenCount?: number;
+        candidatesTokenCount?: number;
+      };
+    };
+    const ev: StreamEvent = {};
+    const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+    const delta = parts.map((p) => p.text ?? "").join("");
+    if (delta) ev.delta = delta;
+    if (chunk.usageMetadata) {
+      ev.inputTokens = chunk.usageMetadata.promptTokenCount;
+      ev.outputTokens = chunk.usageMetadata.candidatesTokenCount;
+    }
+    if (chunk.candidates?.[0]?.finishReason) ev.done = true;
+    return ev;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Unified dispatcher ----------------------------------------------
 
 export async function dispatchCloud(
@@ -219,6 +302,6 @@ export async function dispatchCloud(
     case "anthropic":
       return { response: await dispatchAnthropic(args), parse: parseAnthropicLine };
     case "google":
-      throw new Error("Google adapter not yet implemented");
+      return { response: await dispatchGoogle(args), parse: parseGoogleLine };
   }
 }

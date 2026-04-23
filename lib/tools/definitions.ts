@@ -328,6 +328,41 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 export type ToolName = ToolCall["name"];
 
+/**
+ * Per-tool args schemas keyed by ToolName.
+ * Used by the bridge route for runtime input validation.
+ * Only the `args` sub-schema is stored; the tool name is already known from the key.
+ */
+export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
+  edit_image:            EditImageSchema.shape.args,
+  generate_audio:        GenerateAudioSchema.shape.args,
+  image_to_3d:           ImageTo3DSchema.shape.args,
+  generate_image:        GenerateImageSchema.shape.args,
+  analyze_image:         AnalyzeImageSchema.shape.args,
+  web_search:            WebSearchSchema.shape.args,
+  glyph_motif:           GlyphMotifSchema.shape.args,
+  execute_code:          ExecuteCodeSchema.shape.args,
+  vector_search:         VectorSearchSchema.shape.args,
+  vector_store:          VectorStoreSchema.shape.args,
+  vector_ingest:         VectorIngestSchema.shape.args,
+  "live.play":           LivePlaySchema.shape.args,
+  "live.set_track":      LiveSetTrackSchema.shape.args,
+  "live.apply_script":   LiveApplyScriptSchema.shape.args,
+  "live.fx":             LiveFxSchema.shape.args,
+  "live.load_sample":    LiveLoadSampleSchema.shape.args,
+  "live.generate_sample":LiveGenerateSampleSchema.shape.args,
+  "live.bpm":            LiveBpmSchema.shape.args,
+  native_locate:         NativeLocateSchema.shape.args,
+  native_click:          NativeClickSchema.shape.args,
+  native_type:           NativeTypeSchema.shape.args,
+  native_tree:           NativeTreeSchema.shape.args,
+  native_key:            NativeKeySchema.shape.args,
+  native_focus:          NativeFocusSchema.shape.args,
+  native_screen_grab:    NativeScreenGrabSchema.shape.args,
+  native_focus_window:   NativeFocusWindowSchema.shape.args,
+  native_click_pixel:    NativeClickPixelSchema.shape.args,
+};
+
 // Type helpers for individual tools
 export type EditImageArgs = z.infer<typeof EditImageSchema>["args"];
 export type GenerateAudioArgs = z.infer<typeof GenerateAudioSchema>["args"];

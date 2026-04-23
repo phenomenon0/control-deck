@@ -18,6 +18,7 @@
 
 import { executeToolWithGlyph, type ExecutorContext } from "@/lib/tools/executor";
 import type { ToolCall, ToolName } from "@/lib/tools/definitions";
+import { TOOL_SCHEMAS } from "@/lib/tools/definitions";
 import { hub } from "@/lib/agui/hub";
 import { createEvent, generateId, type ArtifactCreated } from "@/lib/agui/events";
 import { saveEvent, createArtifact } from "@/lib/agui/db";
@@ -130,11 +131,26 @@ export async function POST(req: Request): Promise<Response> {
   };
 
   try {
-    // Execute tool - cast to the expected union type
-    // The executor will validate and handle unknown tools
+    // Validate args against the per-tool Zod schema (defense-in-depth).
+    const schema = TOOL_SCHEMAS[tool as ToolName];
+    let validatedArgs: Record<string, unknown> = args;
+    if (schema) {
+      const parsed = schema.safeParse(args);
+      if (!parsed.success) {
+        return Response.json(
+          { success: false, message: "invalid args", errors: parsed.error.issues } as BridgeResponse & { errors: unknown[] },
+          { status: 400 }
+        );
+      }
+      validatedArgs = parsed.data as Record<string, unknown>;
+    } else {
+      console.warn("[bridge] no schema for tool:", tool);
+    }
+
+    // Build the typed ToolCall with validated (and potentially defaulted) args.
     const toolCall = {
       name: tool,
-      args: args,
+      args: validatedArgs,
     } as ToolCall;
 
     const result = await executeToolWithGlyph(toolCall, execCtx);

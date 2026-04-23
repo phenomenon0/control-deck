@@ -83,6 +83,11 @@ module.exports = async function afterPack(context) {
         /* best effort */
       }
       console.log(`[after-pack] copied helper ${name}`);
+    } else if (platformName === "mac") {
+      throw new Error(
+        `[after-pack] macOS helper binary missing: ${src}\n` +
+        `Build it first with: bun run electron:macos-helper`
+      );
     } else {
       console.warn(`[after-pack] helper missing at ${src}`);
     }

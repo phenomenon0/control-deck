@@ -105,13 +105,13 @@ lib/prompts/
 CONTROL_DECK_MODE=lite npm run dev
 
 # Test system detection
-npx tsx -e "
+bunx tsx -e "
 import { detectSystem, formatSystemProfile } from './lib/system/detect.ts';
 console.log(formatSystemProfile(detectSystem()));
 "
 
 # Test ONNX pipeline directly (warning: uses ~8GB RAM)
-npx tsx -e "
+bunx tsx -e "
 import { initPipeline, runPipeline } from './lib/tools/lite-image/pipeline.ts';
 await initPipeline();
 const pixels = await runPipeline({ prompt: 'a rose', width: 256, height: 256, steps: 1 });

@@ -71,7 +71,13 @@ module.exports = async function afterPack(context) {
     "terminal-service.cjs",
   ];
   if (platformName === "linux") {
-    scriptFiles.push("atspi-helper.py", "remote-desktop.py", "wl-activate.py", "screencast-capture.py");
+    scriptFiles.push(
+      "atspi-helper.py",
+      "remote-desktop.py",
+      "wl-activate.py",
+      "screencast-capture.py",
+      "screenshot-capture.py",
+    );
   } else if (platformName === "mac") {
     scriptFiles.push("macos-ax-helper.bin");
   }

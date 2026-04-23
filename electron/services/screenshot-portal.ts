@@ -6,35 +6,23 @@
  * Reserve ScreenCast for the lazy warm session that absolute-coord pointer
  * injection needs.
  *
+ * Why this spawns Python instead of using dbus-next directly: on Electron 41
+ * / Node 24, dbus-next's session-bus proxy hangs or SIGTRAPs (NAN-based
+ * `usocket` addon is incompatible with the newer V8 / Node ABI when the
+ * handshake exchanges FDs). Python's dbus-python stack works reliably, so
+ * we shell out to scripts/screenshot-capture.py per grab.
+ *
  * Spec: https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Screenshot.html
  */
 
-import * as dbus from "dbus-next";
 import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 
-const BUS = "org.freedesktop.portal.Desktop";
-const PATH = "/org/freedesktop/portal/desktop";
-const SCREENSHOT_IFACE = "org.freedesktop.portal.Screenshot";
-const REQUEST_IFACE = "org.freedesktop.portal.Request";
-
-// dbus-next can't introspect transient Request paths — hand it the XML.
-const REQUEST_XML = `<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
-<node>
-  <interface name="org.freedesktop.portal.Request">
-    <method name="Close"/>
-    <signal name="Response">
-      <arg type="u" name="response"/>
-      <arg type="a{sv}" name="results"/>
-    </signal>
-  </interface>
-</node>`;
-
-interface PortalResponse {
-  code: number;
-  results: Record<string, dbus.Variant>;
-}
+const CAPTURE_TIMEOUT_MS = 120_000; // generous: first call waits for user click
+const HELPER_PATH = path.resolve(__dirname, "..", "..", "scripts", "screenshot-capture.py");
 
 export interface ScreenshotResult {
   pngPath: string;
@@ -43,90 +31,77 @@ export interface ScreenshotResult {
 }
 
 export class ScreenshotPortal {
-  private bus: dbus.MessageBus | null = null;
-  private iface: dbus.ClientInterface | null = null;
-  private senderName = "";
-
   async init(): Promise<void> {
-    if (this.iface) return;
-    this.bus = dbus.sessionBus();
-    const obj = await this.bus.getProxyObject(BUS, PATH);
-    this.iface = obj.getInterface(SCREENSHOT_IFACE);
-    const busName = (this.bus as unknown as { name?: string }).name ?? "";
-    this.senderName = busName.replace(/^:/, "").replace(/\./g, "_");
+    if (!fs.existsSync(HELPER_PATH)) {
+      throw new Error(`screenshot helper missing at ${HELPER_PATH}`);
+    }
   }
 
   async captureOne(): Promise<ScreenshotResult> {
-    if (!this.iface || !this.bus) await this.init();
-    if (!this.iface || !this.bus) throw new Error("screenshot portal init failed");
-
-    const handleToken = `cd_${crypto.randomBytes(8).toString("hex")}`;
-    const requestPath = `/org/freedesktop/portal/desktop/request/${this.senderName}/${handleToken}`;
-    const pending = this.awaitResponse(requestPath);
-
-    // interactive:true shows the portal's built-in confirm UI on first run,
-    // and silently returns after the user has accepted once. interactive:false
-    // with an empty parent_window gets auto-cancelled by the GNOME portal
-    // ("Failed to associate portal window with parent window") for
-    // non-sandboxed apps like our Electron shell.
-    await this.iface.Screenshot("", {
-      handle_token: new dbus.Variant("s", handleToken),
-      modal: new dbus.Variant("b", false),
-      interactive: new dbus.Variant("b", true),
-    });
-
-    const res = await pending;
-    if (res.code !== 0) {
-      throw new Error(
-        res.code === 1
-          ? "user cancelled screenshot"
-          : `Screenshot failed (code=${res.code})`,
-      );
+    await this.init();
+    const pngPath = path.join(
+      os.tmpdir(),
+      `control-deck-shot-${crypto.randomBytes(6).toString("hex")}.png`,
+    );
+    const result = await runHelper(pngPath);
+    if (!result.ok) throw new Error(result.error || "screenshot portal capture failed");
+    if (!fs.existsSync(result.path)) {
+      throw new Error(`helper reported success but no file at ${result.path}`);
     }
-    const uri = res.results.uri?.value as string | undefined;
-    if (!uri) throw new Error("Screenshot response missing uri");
-
-    const pngPath = uri.startsWith("file://") ? fileURLToPath(uri) : uri;
-    if (!fs.existsSync(pngPath)) {
-      throw new Error(`Screenshot uri does not exist on disk: ${pngPath}`);
-    }
-    const { width, height } = readPngDimensions(pngPath);
-    return { pngPath, width, height };
-  }
-
-  private awaitResponse(requestPath: string): Promise<PortalResponse> {
-    return new Promise(async (resolve, reject) => {
-      if (!this.bus) return reject(new Error("bus not ready"));
-      const obj = await this.bus.getProxyObject(BUS, requestPath, REQUEST_XML);
-      const req = obj.getInterface(REQUEST_IFACE);
-      const listener = (code: number, results: Record<string, dbus.Variant>) => {
-        req.off("Response", listener);
-        resolve({ code, results });
-      };
-      req.on("Response", listener);
-      setTimeout(() => {
-        req.off("Response", listener);
-        reject(new Error("screenshot portal request timed out"));
-      }, 30_000);
-    });
+    return { pngPath: result.path, width: result.width, height: result.height };
   }
 }
 
-// PNG IHDR is always the first chunk; width/height are big-endian u32s at
-// offsets 16 and 20. Saves a pull of the `sharp` dep for a 2-field read.
-function readPngDimensions(pngPath: string): { width: number; height: number } {
-  const fd = fs.openSync(pngPath, "r");
-  try {
-    const header = Buffer.alloc(24);
-    fs.readSync(fd, header, 0, 24, 0);
-    if (header.toString("ascii", 1, 4) !== "PNG") {
-      throw new Error("not a PNG");
-    }
-    return {
-      width: header.readUInt32BE(16),
-      height: header.readUInt32BE(20),
-    };
-  } finally {
-    fs.closeSync(fd);
-  }
+interface HelperSuccess {
+  ok: true;
+  path: string;
+  width: number;
+  height: number;
+}
+interface HelperFailure {
+  ok: false;
+  error?: string;
+}
+type HelperResult = HelperSuccess | HelperFailure;
+
+async function runHelper(pngPath: string): Promise<HelperResult> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("python3", [HELPER_PATH, pngPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout?.on("data", (c: Buffer) => (stdout += c.toString("utf8")));
+    proc.stderr?.on("data", (c: Buffer) => (stderr += c.toString("utf8")));
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      reject(new Error("screenshot-capture.py timed out"));
+    }, CAPTURE_TIMEOUT_MS);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      const firstLine = stdout.split(/\r?\n/).find((l) => l.trim().startsWith("{"));
+      if (!firstLine) {
+        reject(
+          new Error(
+            `screenshot helper produced no JSON (exit=${code}): ${stderr.trim()}`,
+          ),
+        );
+        return;
+      }
+      try {
+        const parsed = JSON.parse(firstLine) as HelperResult;
+        resolve(parsed);
+      } catch (err) {
+        reject(
+          new Error(
+            `screenshot helper returned invalid JSON: ${firstLine} / ${String(err)}`,
+          ),
+        );
+      }
+    });
+  });
 }

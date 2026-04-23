@@ -46,6 +46,10 @@ if (DEVTOOLS_PORT_RAW) {
 
 let serverProc: ChildProcess | null = null;
 let serverUrl: string | null = null;
+let isQuitting = false;
+const SERVER_SUPERVISOR_MAX_RESTARTS = 3;
+const SERVER_SUPERVISOR_BACKOFF_MS = 2_000;
+let serverRestartCount = 0;
 let screenCastSession: ScreenCastSession | null = null;
 let screenCastInitPromise: Promise<ScreenCastSession> | null = null;
 let screenshotPortal: ScreenshotPortal | null = null;
@@ -211,7 +215,6 @@ async function startEmbeddedServer(): Promise<string> {
     return devUrl;
   }
 
-  const port = await pickFreePort();
   const standaloneDir = path.join(process.resourcesPath, "app", ".next", "standalone");
   const serverEntry = path.join(standaloneDir, "server.js");
 
@@ -219,9 +222,40 @@ async function startEmbeddedServer(): Promise<string> {
     throw new Error(`embedded server entry missing: ${serverEntry}`);
   }
 
+  // pickFreePort has to release the port before spawn (the Next server has to
+  // bind it itself), so there is always a TOCTOU window where another process
+  // could grab it. Retry on EADDRINUSE / early-exit with a fresh port.
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const port = await pickFreePort();
+    try {
+      return await spawnNextOnPort(port, standaloneDir, serverEntry);
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[electron] embedded server attempt ${attempt}/${MAX_ATTEMPTS} on port ${port} failed: ${msg}`,
+      );
+      if (serverProc && !serverProc.killed) {
+        serverProc.kill("SIGTERM");
+      }
+      serverProc = null;
+    }
+  }
+  throw new Error(
+    `embedded server failed after ${MAX_ATTEMPTS} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+  );
+}
+
+async function spawnNextOnPort(
+  port: number,
+  standaloneDir: string,
+  serverEntry: string,
+): Promise<string> {
   // ELECTRON_RUN_AS_NODE makes the Electron binary behave like a plain Node
   // runtime, so we can reuse it to host the Next.js standalone server.
-  serverProc = spawn(process.execPath, [serverEntry], {
+  const child = spawn(process.execPath, [serverEntry], {
     cwd: standaloneDir,
     env: {
       ...process.env,
@@ -242,12 +276,14 @@ async function startEmbeddedServer(): Promise<string> {
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
+  serverProc = child;
 
   let earlyExit: number | null = null;
-  serverProc.on("exit", (code) => {
+  const startupExitHandler = (code: number | null) => {
     earlyExit = code ?? -1;
-    console.error(`[electron] embedded server exited (code=${code})`);
-  });
+    console.error(`[electron] embedded server exited during startup (code=${code})`);
+  };
+  child.on("exit", startupExitHandler);
 
   const url = `http://127.0.0.1:${port}`;
   try {
@@ -258,7 +294,71 @@ async function startEmbeddedServer(): Promise<string> {
     }
     throw err;
   }
+
+  // Startup succeeded. Swap the startup-only handler for the supervisor,
+  // which respawns on crash so a dead Next server doesn't leave the UI
+  // with a silent wall of 404s.
+  child.removeListener("exit", startupExitHandler);
+  child.on("exit", (code, signal) => {
+    // Only supervise the current child. If a later respawn replaced this
+    // ref, ignore its death — the new child has its own handler.
+    if (serverProc !== child) return;
+    if (isQuitting || signal === "SIGTERM") return;
+    console.error(
+      `[electron] embedded server crashed post-startup code=${code} signal=${signal}`,
+    );
+    void superviseServerRestart();
+  });
   return url;
+}
+
+async function superviseServerRestart(): Promise<void> {
+  if (serverRestartCount >= SERVER_SUPERVISOR_MAX_RESTARTS) {
+    console.error(
+      `[electron] embedded server supervisor: giving up after ${SERVER_SUPERVISOR_MAX_RESTARTS} restarts`,
+    );
+    if (!isQuitting) {
+      dialog.showErrorBox(
+        "Control Deck backend offline",
+        `The embedded server crashed ${SERVER_SUPERVISOR_MAX_RESTARTS} times in a row and has been stopped. Check the console output and relaunch the app.`,
+      );
+      app.quit();
+    }
+    return;
+  }
+  serverRestartCount++;
+  console.log(
+    `[electron] embedded server supervisor: restart ${serverRestartCount}/${SERVER_SUPERVISOR_MAX_RESTARTS} in ${SERVER_SUPERVISOR_BACKOFF_MS}ms`,
+  );
+  await new Promise((r) => setTimeout(r, SERVER_SUPERVISOR_BACKOFF_MS));
+  if (isQuitting) return;
+  try {
+    const newUrl = await startEmbeddedServer();
+    const urlChanged = newUrl !== serverUrl;
+    serverUrl = newUrl;
+    if (urlChanged) {
+      // Port may have changed (TOCTOU retry picked a fresh one). Reload
+      // every open BrowserWindow against the new origin so cached fetches
+      // don't hammer the dead port.
+      for (const w of BrowserWindow.getAllWindows()) {
+        try {
+          const current = w.webContents.getURL();
+          const route = current.replace(/^https?:\/\/[^/]+/i, "");
+          await w.loadURL(`${newUrl}${route || DEFAULT_ROUTE}`);
+        } catch (err) {
+          console.error("[electron] failed to rebind window to new server URL:", err);
+        }
+      }
+    }
+    // Successful restart — reset the counter so a later crash gets a fresh budget.
+    serverRestartCount = 0;
+  } catch (err) {
+    console.error(
+      `[electron] embedded server supervisor: restart ${serverRestartCount} failed:`,
+      err,
+    );
+    void superviseServerRestart();
+  }
 }
 
 async function createWindow(): Promise<void> {
@@ -398,6 +498,11 @@ async function startPortalBridge(): Promise<void> {
   try {
     const handoff = portalHandoffPath();
     if (handoff && portalBridgePort) {
+      // Unlink before write: `before-quit` cleanup doesn't run on SIGKILL,
+      // so a stale handoff from a crashed run can survive. Overwriting with
+      // O_CREAT|O_TRUNC is fine, but explicit unlink drops the inode so any
+      // still-open reader from the previous run sees EOF.
+      try { fs.unlinkSync(handoff); } catch { /* ok if missing */ }
       fs.writeFileSync(
         handoff,
         JSON.stringify({
@@ -537,6 +642,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   if (serverProc && !serverProc.killed) {
     serverProc.kill("SIGTERM");
   }

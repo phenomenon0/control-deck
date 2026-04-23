@@ -190,69 +190,88 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       socketRef.current = null;
       return;
     }
-    const socket = new WebSocket(getTerminalWebSocketUrl(activeSessionId));
-    socketRef.current = socket;
+
+    let socket: WebSocket | null = null;
+    let cancelled = false;
     setSocketState("connecting");
     setTransportError(null);
 
-    socket.addEventListener("open", () => setSocketState("connected"));
-
-    socket.addEventListener("message", (event) => {
-      let message: TerminalServerMessage;
+    (async () => {
+      let wsUrl: string;
       try {
-        message = JSON.parse(String(event.data)) as TerminalServerMessage;
-      } catch {
+        wsUrl = await getTerminalWebSocketUrl(activeSessionId);
+      } catch (err) {
+        if (cancelled) return;
+        setSocketState("error");
+        setTransportError(err instanceof Error ? err.message : "Unable to resolve terminal WebSocket URL.");
         return;
       }
-      if (message.type === "output") {
-        // Ring-buffer the bytes for readLastOutput() + workspace topic.
-        const next = outputBufferRef.current + message.data;
-        outputBufferRef.current = next.length > OUTPUT_BUFFER_MAX
-          ? next.slice(-OUTPUT_BUFFER_MAX)
-          : next;
-        onOutputRef.current?.(message.data);
+      if (cancelled) return;
 
-        if (terminalReadyRef.current) write(message.data);
-        else pendingOutputRef.current.push(message.data);
-        return;
-      }
-      if (message.type === "meta") {
-        const nextMeta = message as TerminalMetaMessage;
-        setMeta((current) => ({
-          ...current,
-          cwd: "cwd" in nextMeta ? nextMeta.cwd : current.cwd,
-          pid: "pid" in nextMeta ? nextMeta.pid : current.pid,
-          label: "label" in nextMeta ? nextMeta.label : current.label,
-          profile: "profile" in nextMeta ? nextMeta.profile : current.profile,
-          status: "status" in nextMeta ? nextMeta.status : current.status,
-          exitCode: "exitCode" in nextMeta ? nextMeta.exitCode : current.exitCode,
-          error: "error" in nextMeta ? nextMeta.error : current.error,
-        }));
-        return;
-      }
-      if (message.type === "status") {
-        setMeta((c) => ({ ...c, status: message.status }));
-        return;
-      }
-      if (message.type === "exit") {
-        setMeta((c) => ({ ...c, exitCode: message.exitCode }));
-        void refresh();
-      }
-    });
+      socket = new WebSocket(wsUrl);
+      socketRef.current = socket;
 
-    socket.addEventListener("error", () => {
-      setSocketState("error");
-      setTransportError("Unable to attach to the selected terminal session.");
-    });
+      socket.addEventListener("open", () => setSocketState("connected"));
 
-    socket.addEventListener("close", () => {
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-        setSocketState(serviceOnline ? "disconnected" : "error");
-      }
-    });
+      socket.addEventListener("message", (event) => {
+        let message: TerminalServerMessage;
+        try {
+          message = JSON.parse(String(event.data)) as TerminalServerMessage;
+        } catch {
+          return;
+        }
+        if (message.type === "output") {
+          const next = outputBufferRef.current + message.data;
+          outputBufferRef.current = next.length > OUTPUT_BUFFER_MAX
+            ? next.slice(-OUTPUT_BUFFER_MAX)
+            : next;
+          onOutputRef.current?.(message.data);
 
-    return () => socket.close();
+          if (terminalReadyRef.current) write(message.data);
+          else pendingOutputRef.current.push(message.data);
+          return;
+        }
+        if (message.type === "meta") {
+          const nextMeta = message as TerminalMetaMessage;
+          setMeta((current) => ({
+            ...current,
+            cwd: "cwd" in nextMeta ? nextMeta.cwd : current.cwd,
+            pid: "pid" in nextMeta ? nextMeta.pid : current.pid,
+            label: "label" in nextMeta ? nextMeta.label : current.label,
+            profile: "profile" in nextMeta ? nextMeta.profile : current.profile,
+            status: "status" in nextMeta ? nextMeta.status : current.status,
+            exitCode: "exitCode" in nextMeta ? nextMeta.exitCode : current.exitCode,
+            error: "error" in nextMeta ? nextMeta.error : current.error,
+          }));
+          return;
+        }
+        if (message.type === "status") {
+          setMeta((c) => ({ ...c, status: message.status }));
+          return;
+        }
+        if (message.type === "exit") {
+          setMeta((c) => ({ ...c, exitCode: message.exitCode }));
+          void refresh();
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        setSocketState("error");
+        setTransportError("Unable to attach to the selected terminal session.");
+      });
+
+      socket.addEventListener("close", () => {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+          setSocketState(serviceOnline ? "disconnected" : "error");
+        }
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      socket?.close();
+    };
   }, [activeSessionId, refresh, serviceOnline, write]);
 
   // ── Actions ────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@
 
 import { app } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
@@ -24,21 +25,50 @@ interface TerminalServiceProc {
   kill(): void;
 }
 
+interface TerminalServiceConfig {
+  host: string;
+  port: number;
+  baseUrl: string;
+  wsBaseUrl: string;
+  token: string;
+}
+
 let proc: ChildProcess | null = null;
 let restartCount = 0;
 const RESTART_MAX = 3;
 const RESTART_DELAY_MS = 2_000;
+let currentConfig: TerminalServiceConfig | null = null;
+
+export function getTerminalServiceConfig(): TerminalServiceConfig | null {
+  return currentConfig;
+}
 
 export function startTerminalService(): TerminalServiceProc {
+  const host = process.env.TERMINAL_SERVICE_HOST ?? "127.0.0.1";
   const port = Number(process.env.TERMINAL_SERVICE_PORT ?? "4010");
+  // Generate once per Electron session. Propagated to the child via env,
+  // and to the embedded Next server + renderer via main.ts.
+  const token =
+    process.env.TERMINAL_SERVICE_TOKEN || crypto.randomBytes(32).toString("hex");
+  currentConfig = {
+    host,
+    port,
+    baseUrl: `http://${host}:${port}`,
+    wsBaseUrl: `ws://${host}:${port}`,
+    token,
+  };
+
   isPortListening(port, "127.0.0.1").then((listening) => {
     if (listening) {
+      // A pre-existing listener could be a prior run we can't authenticate to.
+      // Leave the UI-side client wired with our token; if it fails, user sees
+      // a clear 401 rather than us silently driving someone else's server.
       console.log(
         `[terminal-service] port ${port} already listening — assuming prior instance, not spawning`,
       );
       return;
     }
-    launch();
+    launch(token);
   });
 
   return {
@@ -75,7 +105,7 @@ function isPortListening(port: number, host: string): Promise<boolean> {
   });
 }
 
-function launch(): void {
+function launch(token: string): void {
   const repoRoot = resolveRepoRoot();
   const terminalScript = resolveTerminalScript(repoRoot);
   if (!terminalScript) {
@@ -107,6 +137,7 @@ function launch(): void {
       ...(isPackagedScript ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
       TERMINAL_SERVICE_HOST: process.env.TERMINAL_SERVICE_HOST ?? "127.0.0.1",
       TERMINAL_SERVICE_PORT: process.env.TERMINAL_SERVICE_PORT ?? "4010",
+      TERMINAL_SERVICE_TOKEN: token,
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -129,7 +160,7 @@ function launch(): void {
     if (restartCount < RESTART_MAX) {
       restartCount++;
       console.log(`[terminal-service] restarting (${restartCount}/${RESTART_MAX})`);
-      setTimeout(launch, RESTART_DELAY_MS);
+      setTimeout(() => launch(token), RESTART_DELAY_MS);
     } else {
       console.error(
         `[terminal-service] giving up after ${RESTART_MAX} restart attempts`,

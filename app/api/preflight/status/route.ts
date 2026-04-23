@@ -52,11 +52,16 @@ const SERVICES: ServiceSpec[] = [
   },
 ];
 
-async function probe(url: string): Promise<ServiceStatus> {
+async function probe(url: string, headers?: Record<string, string>): Promise<ServiceStatus> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method: "GET", signal: ctrl.signal, cache: "no-store" });
+    const res = await fetch(url, {
+      method: "GET",
+      signal: ctrl.signal,
+      cache: "no-store",
+      headers,
+    });
     return res.status < 500 ? "up" : "down";
   } catch {
     return "down";
@@ -66,13 +71,19 @@ async function probe(url: string): Promise<ServiceStatus> {
 }
 
 export async function GET(): Promise<Response> {
+  const terminalToken = process.env.TERMINAL_SERVICE_TOKEN;
   const results = await Promise.all(
     SERVICES.map(async (svc) => ({
       key: svc.key,
       name: svc.name,
       required: svc.required,
       hint: svc.hint,
-      status: await probe(svc.url),
+      status: await probe(
+        svc.url,
+        svc.key === "terminal" && terminalToken
+          ? { Authorization: `Bearer ${terminalToken}` }
+          : undefined,
+      ),
     })),
   );
 

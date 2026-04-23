@@ -14,7 +14,10 @@ import {
   type ThemedBrowserRegistry,
 } from "./services/themed-browser";
 import { registerWindowsHost } from "./services/windows-host";
-import { startTerminalService } from "./services/terminal-service";
+import {
+  startTerminalService,
+  getTerminalServiceConfig,
+} from "./services/terminal-service";
 
 const IS_DEV = !app.isPackaged;
 const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
@@ -298,6 +301,7 @@ async function spawnNextOnPort(
         ? `http://127.0.0.1:${portalBridgePort}`
         : "",
       CONTROL_DECK_PORTAL_SECRET: portalBridgeSecret ?? "",
+      ...terminalServiceEnv(),
     },
     stdio: ["ignore", "inherit", "inherit"],
   });
@@ -636,6 +640,28 @@ ipcMain.handle(
     return { ok: true, x: payload.x, y: payload.y };
   },
 );
+
+function terminalServiceEnv(): NodeJS.ProcessEnv {
+  const cfg = getTerminalServiceConfig();
+  if (!cfg) return {};
+  return {
+    TERMINAL_SERVICE_HOST: cfg.host,
+    TERMINAL_SERVICE_PORT: String(cfg.port),
+    TERMINAL_SERVICE_URL: cfg.baseUrl,
+    TERMINAL_SERVICE_TOKEN: cfg.token,
+  };
+}
+
+ipcMain.handle("terminal:config", () => {
+  const cfg = getTerminalServiceConfig();
+  if (!cfg) return { ok: false, error: "terminal service not running" };
+  return {
+    ok: true,
+    baseUrl: cfg.baseUrl,
+    wsBaseUrl: cfg.wsBaseUrl,
+    token: cfg.token,
+  };
+});
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);

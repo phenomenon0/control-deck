@@ -11,6 +11,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set<string>([
   "portal:screen_grab",
   "portal:focus_window",
   "portal:click_pixel",
+  "terminal:config",
 ]);
 
 interface BrowserState {

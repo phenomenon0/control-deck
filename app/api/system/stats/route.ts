@@ -164,12 +164,14 @@ async function checkVectorDB(url: string): Promise<ServiceStatus> {
 
 async function checkTerminalService(url: string): Promise<ServiceStatus> {
   const start = Date.now();
+  const token = process.env.TERMINAL_SERVICE_TOKEN;
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
     const res = await fetch(`${url}/health`, {
       method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);

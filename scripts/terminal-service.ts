@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -16,6 +17,29 @@ import type {
 const HOST = process.env.TERMINAL_SERVICE_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.TERMINAL_SERVICE_PORT ?? "4010");
 const MAX_HISTORY_BYTES = 1_000_000;
+
+// Shared-secret auth. When set, every HTTP request must carry
+// `Authorization: Bearer <token>` and every WS upgrade must carry
+// `?token=<token>` (browsers can't set headers on WebSocket). Unset =
+// legacy unauthenticated mode for bare `bun run terminal-service`; we
+// log a loud warning so operators notice. Electron always sets it.
+const AUTH_TOKEN = process.env.TERMINAL_SERVICE_TOKEN || "";
+const AUTH_REQUIRED = AUTH_TOKEN.length > 0;
+const AUTH_TOKEN_BUF = AUTH_REQUIRED ? Buffer.from(AUTH_TOKEN, "utf8") : null;
+
+function timingSafeMatches(provided: string): boolean {
+  if (!AUTH_TOKEN_BUF) return true;
+  const buf = Buffer.from(provided, "utf8");
+  if (buf.length !== AUTH_TOKEN_BUF.length) return false;
+  return crypto.timingSafeEqual(buf, AUTH_TOKEN_BUF);
+}
+
+function extractBearer(authHeader: string | string[] | undefined): string {
+  const raw = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  if (!raw) return "";
+  const prefix = "Bearer ";
+  return raw.startsWith(prefix) ? raw.slice(prefix.length) : "";
+}
 
 interface SessionRecord extends TerminalSession {
   pty: IPty | null;
@@ -314,14 +338,28 @@ async function readJsonBody<T>(request: http.IncomingMessage): Promise<T> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
 }
 
-function setCorsHeaders(response: http.ServerResponse): void {
-  response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+function setCorsHeaders(response: http.ServerResponse, request: http.IncomingMessage): void {
+  // Echo the requesting Origin back when it's loopback. Auth token is the
+  // primary gate; CORS is belt-and-braces so a cross-origin page can't even
+  // see error bodies.
+  const origin = Array.isArray(request.headers.origin)
+    ? request.headers.origin[0]
+    : request.headers.origin;
+  if (origin && /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    response.setHeader("Vary", "Origin");
+  }
+  response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
 }
 
-function writeJson(response: http.ServerResponse, status: number, body: unknown): void {
-  setCorsHeaders(response);
+function writeJson(
+  response: http.ServerResponse,
+  request: http.IncomingMessage,
+  status: number,
+  body: unknown,
+): void {
+  setCorsHeaders(response, request);
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.end(JSON.stringify(body));
@@ -344,14 +382,19 @@ function listSessions(): TerminalSession[] {
 
 const server = http.createServer(async (request, response) => {
   if (!request.url) {
-    writeJson(response, 400, { error: "Missing request URL." });
+    writeJson(response, request, 400, { error: "Missing request URL." });
     return;
   }
 
   if (request.method === "OPTIONS") {
-    setCorsHeaders(response);
+    setCorsHeaders(response, request);
     response.statusCode = 204;
     response.end();
+    return;
+  }
+
+  if (AUTH_REQUIRED && !timingSafeMatches(extractBearer(request.headers.authorization))) {
+    writeJson(response, request, 401, { error: "Unauthorized." });
     return;
   }
 
@@ -360,7 +403,7 @@ const server = http.createServer(async (request, response) => {
 
   try {
     if (request.method === "GET" && url.pathname === "/health") {
-      writeJson(response, 200, {
+      writeJson(response, request, 200, {
         ok: true,
         sessions: sessions.size,
         running: Array.from(sessions.values()).filter((session) => session.status === "running").length,
@@ -372,48 +415,48 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/sessions") {
-      writeJson(response, 200, { sessions: listSessions() });
+      writeJson(response, request, 200, { sessions: listSessions() });
       return;
     }
 
     if (request.method === "POST" && url.pathname === "/sessions") {
       const body = await readJsonBody<CreateTerminalSessionInput>(request);
       if (!body.profile || !["claude", "opencode", "shell"].includes(body.profile)) {
-        writeJson(response, 400, { error: "profile must be one of claude, opencode, or shell." });
+        writeJson(response, request, 400, { error: "profile must be one of claude, opencode, or shell." });
         return;
       }
       const session = upsertSession(body);
-      writeJson(response, 200, { session: serializeSession(session) });
+      writeJson(response, request, 200, { session: serializeSession(session) });
       return;
     }
 
     if (route && route.action === "restart" && request.method === "POST") {
       const session = sessions.get(route.id);
       if (!session) {
-        writeJson(response, 404, { error: "Session not found." });
+        writeJson(response, request, 404, { error: "Session not found." });
         return;
       }
       stopForRestart(session);
       startSession(session);
-      writeJson(response, 200, { session: serializeSession(session) });
+      writeJson(response, request, 200, { session: serializeSession(session) });
       return;
     }
 
     if (route && route.action === "kill" && request.method === "POST") {
       const session = sessions.get(route.id);
       if (!session) {
-        writeJson(response, 404, { error: "Session not found." });
+        writeJson(response, request, 404, { error: "Session not found." });
         return;
       }
       killSession(session);
-      writeJson(response, 200, { session: serializeSession(session) });
+      writeJson(response, request, 200, { session: serializeSession(session) });
       return;
     }
 
     if (route && !route.action && request.method === "DELETE") {
       const session = sessions.get(route.id);
       if (!session) {
-        writeJson(response, 404, { error: "Session not found." });
+        writeJson(response, request, 404, { error: "Session not found." });
         return;
       }
       if (session.pty) {
@@ -427,15 +470,15 @@ const server = http.createServer(async (request, response) => {
         socket.close(1000, "Session deleted");
       }
       sessions.delete(route.id);
-      setCorsHeaders(response);
+      setCorsHeaders(response, request);
       response.statusCode = 204;
       response.end();
       return;
     }
 
-    writeJson(response, 404, { error: "Not found." });
+    writeJson(response, request, 404, { error: "Not found." });
   } catch (err) {
-    writeJson(response, 500, {
+    writeJson(response, request, 500, {
       error: err instanceof Error ? err.message : "Unexpected terminal service error.",
     });
   }
@@ -450,6 +493,12 @@ server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url, `http://${request.headers.host ?? `${HOST}:${PORT}`}`);
   const route = matchSessionRoute(url.pathname);
   if (!route || route.action !== "ws") {
+    socket.destroy();
+    return;
+  }
+
+  if (AUTH_REQUIRED && !timingSafeMatches(url.searchParams.get("token") ?? "")) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
     socket.destroy();
     return;
   }
@@ -532,5 +581,11 @@ process.on("SIGTERM", shutdown);
 
 server.listen(PORT, HOST, () => {
   const baseUrl = `http://${HOST}:${PORT}`;
-  console.log(`[terminal-service] listening on ${baseUrl} (${os.platform()})`);
+  const authNote = AUTH_REQUIRED ? "auth: required" : "auth: DISABLED (anyone on 127.0.0.1 can spawn shells)";
+  console.log(`[terminal-service] listening on ${baseUrl} (${os.platform()}) — ${authNote}`);
+  if (!AUTH_REQUIRED) {
+    console.warn(
+      "[terminal-service] TERMINAL_SERVICE_TOKEN is unset. Set it to require Authorization: Bearer on every request.",
+    );
+  }
 });

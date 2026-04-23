@@ -14,7 +14,16 @@
  *                      quantized boundary, independent of the playlist.
  */
 
-import * as Tone from "tone";
+import type * as ToneType from "tone";
+
+// Tone.js is large (~500 kB) and Web Audio–only. Load it on demand so the
+// module can be imported on the server or in tests without pulling in the
+// audio engine. _tone is populated by loadTone() the first time init() runs.
+let _tone: typeof ToneType | null = null;
+async function loadTone(): Promise<typeof ToneType> {
+  if (!_tone) _tone = await import("tone");
+  return _tone;
+}
 import {
   newId,
   type Channel,
@@ -85,23 +94,23 @@ export function diffById<T extends { id: UUID }>(
 
 interface Voice {
   kind: Channel["kind"];
-  output: Tone.ToneAudioNode;
+  output: ToneType.ToneAudioNode;
   fireStep(step: Step, time: number): void;
   dispose(): void;
 }
 
 function createDrumVoice(): Voice {
-  const output = new Tone.Channel({ volume: 0 });
-  const kick = new Tone.MembraneSynth({
+  const output = new _tone!.Channel({ volume: 0 });
+  const kick = new _tone!.MembraneSynth({
     pitchDecay: 0.05,
     octaves: 6,
     envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 0.8 },
   }).connect(output);
-  const snare = new Tone.NoiseSynth({
+  const snare = new _tone!.NoiseSynth({
     noise: { type: "white" },
     envelope: { attack: 0.001, decay: 0.2, sustain: 0 },
   }).connect(output);
-  const hat = new Tone.MetalSynth({
+  const hat = new _tone!.MetalSynth({
     envelope: { attack: 0.001, decay: 0.1, release: 0.05 },
     harmonicity: 5.1,
     modulationIndex: 32,
@@ -130,8 +139,8 @@ function createDrumVoice(): Voice {
 }
 
 function createSynthVoice(): Voice {
-  const output = new Tone.Channel({ volume: -6 });
-  const synth = new Tone.PolySynth(Tone.Synth, {
+  const output = new _tone!.Channel({ volume: -6 });
+  const synth = new _tone!.PolySynth(_tone!.Synth, {
     oscillator: { type: "fatsawtooth" },
     envelope: { attack: 0.01, decay: 0.2, sustain: 0.3, release: 0.4 },
   }).connect(output);
@@ -154,9 +163,9 @@ function createSynthVoice(): Voice {
 }
 
 function createSamplerVoice(sampleUrl: string | undefined): Voice {
-  const output = new Tone.Channel({ volume: 0 });
+  const output = new _tone!.Channel({ volume: 0 });
   const player = sampleUrl
-    ? new Tone.Player({ url: sampleUrl, loop: false }).connect(output)
+    ? new _tone!.Player({ url: sampleUrl, loop: false }).connect(output)
     : null;
 
   return {
@@ -177,8 +186,8 @@ function createPianoVoice(): Voice {
   // Placeholder — smplr integration lifted verbatim from engine.ts happens in
   // Phase 3 when we have a real piano channel to drive. For Phase 2, the piano
   // voice behaves as a synth with a softer patch so no channel breaks.
-  const output = new Tone.Channel({ volume: -3 });
-  const synth = new Tone.PolySynth(Tone.Synth, {
+  const output = new _tone!.Channel({ volume: -3 });
+  const synth = new _tone!.PolySynth(_tone!.Synth, {
     oscillator: { type: "triangle" },
     envelope: { attack: 0.005, decay: 0.3, sustain: 0.2, release: 1.5 },
   }).connect(output);
@@ -208,32 +217,32 @@ function createVoice(channel: Channel): Voice {
 
 // ─── Built-in FX (builtin:*) ────────────────────────────────────────────────
 
-function createBuiltinFx(type: string, wet: number): Tone.ToneAudioNode {
+function createBuiltinFx(type: string, wet: number): ToneType.ToneAudioNode {
   const w = Math.max(0, Math.min(1, wet));
   switch (type) {
-    case "reverb":     return new Tone.Reverb({ decay: 2.5, wet: w });
-    case "delay":      return new Tone.FeedbackDelay({ delayTime: "8n", feedback: 0.3, wet: w });
-    case "chorus":     return new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.7, wet: w }).start();
-    case "filter":     return new Tone.AutoFilter({ frequency: "4n", baseFrequency: 200, octaves: 4, wet: w }).start();
-    case "distortion": return new Tone.Distortion({ distortion: 0.4, wet: w });
-    default:           return new Tone.Gain(1); // unknown → transparent
+    case "reverb":     return new _tone!.Reverb({ decay: 2.5, wet: w });
+    case "delay":      return new _tone!.FeedbackDelay({ delayTime: "8n", feedback: 0.3, wet: w });
+    case "chorus":     return new _tone!.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.7, wet: w }).start();
+    case "filter":     return new _tone!.AutoFilter({ frequency: "4n", baseFrequency: 200, octaves: 4, wet: w }).start();
+    case "distortion": return new _tone!.Distortion({ distortion: 0.4, wet: w });
+    default:           return new _tone!.Gain(1); // unknown → transparent
   }
 }
 
-function createFxNode(spec: FxSpec): Tone.ToneAudioNode {
+function createFxNode(spec: FxSpec): ToneType.ToneAudioNode {
   if (spec.pluginUri.startsWith("builtin:")) {
     return createBuiltinFx(spec.pluginUri.slice("builtin:".length), spec.wet);
   }
   // wam:* not yet supported — Phase 4. Return a passthrough so chains stay valid.
-  return new Tone.Gain(1);
+  return new _tone!.Gain(1);
 }
 
 // ─── Insert nodes ───────────────────────────────────────────────────────────
 
 interface InsertNodes {
-  input: Tone.Gain;
-  output: Tone.Gain;
-  fxNodes: Map<UUID, Tone.ToneAudioNode>; // in spec order via fxOrder
+  input: ToneType.Gain;
+  output: ToneType.Gain;
+  fxNodes: Map<UUID, ToneType.ToneAudioNode>; // in spec order via fxOrder
   fxOrder: UUID[];
 }
 
@@ -266,7 +275,7 @@ function rebuildInsertChain(insert: Insert, nodes: InsertNodes): void {
       // Update wet on existing node if it has a `wet` param.
       const existing = nodes.fxNodes.get(spec.id)!;
       if ("wet" in existing) {
-        (existing as unknown as { wet: Tone.Signal<"normalRange"> }).wet.value =
+        (existing as unknown as { wet: ToneType.Signal<"normalRange"> }).wet.value =
           Math.max(0, Math.min(1, spec.wet));
       }
     }
@@ -274,7 +283,7 @@ function rebuildInsertChain(insert: Insert, nodes: InsertNodes): void {
   nodes.fxOrder = active.map((f) => f.id);
 
   // input → fx[0] → ... → fx[n-1] → output
-  let prev: Tone.ToneAudioNode = nodes.input;
+  let prev: ToneType.ToneAudioNode = nodes.input;
   for (const id of nodes.fxOrder) {
     const node = nodes.fxNodes.get(id)!;
     prev.connect(node);
@@ -288,9 +297,9 @@ function rebuildInsertChain(insert: Insert, nodes: InsertNodes): void {
 interface ScheduledClip {
   clip: PlaylistClip;
   // PatternClip: Part per (pattern x channel) slice
-  parts?: Tone.Part[];
+  parts?: ToneType.Part[];
   // AudioClip: single Player synced to transport
-  player?: Tone.Player;
+  player?: ToneType.Player;
 }
 
 interface PatternEvent {
@@ -334,8 +343,8 @@ export class LiveTransport {
   private playing = false;
   private prev: Song | null = null;
 
-  private masterBus!: Tone.Channel;
-  private masterLimiter!: Tone.Limiter;
+  private masterBus!: ToneType.Channel;
+  private masterLimiter!: ToneType.Limiter;
 
   private voices = new Map<UUID, Voice>();
   private inserts = new Map<UUID, InsertNodes>();
@@ -364,14 +373,15 @@ export class LiveTransport {
 
   async init(): Promise<void> {
     if (this.initialized) return;
-    await Tone.start();
+    await loadTone();
+    await _tone!.start();
 
     const song = this.store.getSong();
-    const transport = Tone.getTransport();
+    const transport = _tone!.getTransport();
     transport.bpm.value = song.bpm;
 
-    this.masterLimiter = new Tone.Limiter(-1).toDestination();
-    this.masterBus = new Tone.Channel({ volume: song.masterGainDb }).connect(this.masterLimiter);
+    this.masterLimiter = new _tone!.Limiter(-1).toDestination();
+    this.masterBus = new _tone!.Channel({ volume: song.masterGainDb }).connect(this.masterLimiter);
 
     this.applyInitial(song);
     this.prev = song;
@@ -394,7 +404,7 @@ export class LiveTransport {
   async start(): Promise<void> {
     await this.init();
     if (this.playing) return;
-    const transport = Tone.getTransport();
+    const transport = _tone!.getTransport();
     transport.stop();
     transport.position = 0;
     transport.start("+0.01");
@@ -403,7 +413,7 @@ export class LiveTransport {
   }
 
   stop(): void {
-    if (this.initialized) Tone.getTransport().stop();
+    if (this.initialized) _tone!.getTransport().stop();
     this.stopAllScenesInternal();
     this.playing = false;
     this.emit();
@@ -425,7 +435,7 @@ export class LiveTransport {
     const group = song.launchGroups.find((g) => g.id === groupId);
     if (!group) return;
 
-    const transport = Tone.getTransport();
+    const transport = _tone!.getTransport();
     if (!this.playing) {
       transport.position = 0;
       transport.start("+0.01");
@@ -452,7 +462,7 @@ export class LiveTransport {
           if (!voice) continue;
           const events = buildPatternEvents(pattern, channelId);
           if (events.length === 0) continue;
-          const part = new Tone.Part<PatternEvent>(
+          const part = new _tone!.Part<PatternEvent>(
             (time, ev) => voice.fireStep(ev.step, time),
             events,
           );
@@ -467,8 +477,8 @@ export class LiveTransport {
       } else {
         const clip = song.playlist.clips.find((c) => c.id === trig.clipId);
         if (!clip || clip.kind !== "audio" || !clip.sampleUrl) continue;
-        const player = new Tone.Player({ url: clip.sampleUrl, loop: true }).connect(this.masterBus);
-        Tone.loaded().then(() => {
+        const player = new _tone!.Player({ url: clip.sampleUrl, loop: true }).connect(this.masterBus);
+        _tone!.loaded().then(() => {
           player.sync().start(startTime);
         }).catch(() => {});
         scheduled.push({ clip, player });
@@ -506,7 +516,7 @@ export class LiveTransport {
   dispose(): void {
     this.stop();
     if (this.positionEventId !== null) {
-      Tone.getTransport().clear(this.positionEventId);
+      _tone?.getTransport().clear(this.positionEventId);
       this.positionEventId = null;
     }
     this.unsubStore?.();
@@ -546,7 +556,7 @@ export class LiveTransport {
   }
 
   private emitPosition(): void {
-    const transport = Tone.getTransport();
+    const transport = _tone!.getTransport();
     const bbs = transport.position.toString().split(":");
     const bar = Number(bbs[0] ?? 0);
     const beat = Math.floor(Number(bbs[1] ?? 0));
@@ -583,7 +593,7 @@ export class LiveTransport {
 
     // 1. Scalar transport
     if (song.bpm !== prev.bpm) {
-      Tone.getTransport().bpm.rampTo(song.bpm, 0.05);
+      _tone!.getTransport().bpm.rampTo(song.bpm, 0.05);
     }
     if (song.masterGainDb !== prev.masterGainDb) {
       this.masterBus.volume.rampTo(song.masterGainDb, 0.05);
@@ -606,7 +616,7 @@ export class LiveTransport {
       }
       // scalar channel state (gain, pan, mute/solo) applied via output channel
       const voice = this.voices.get(ch.id);
-      if (voice?.output instanceof Tone.Channel) {
+      if (voice?.output instanceof _tone!.Channel) {
         voice.output.volume.rampTo(ch.gainDb, 0.03);
         voice.output.mute = ch.muted;
         voice.output.solo = ch.solo;
@@ -674,7 +684,7 @@ export class LiveTransport {
     const existing = this.voices.get(channel.id);
     if (existing) return existing;
     const voice = createVoice(channel);
-    if (voice.output instanceof Tone.Channel) {
+    if (voice.output instanceof _tone!.Channel) {
       voice.output.volume.value = channel.gainDb;
       voice.output.pan.value = channel.pan;
       voice.output.mute = channel.muted;
@@ -691,8 +701,8 @@ export class LiveTransport {
       return existing;
     }
     const nodes: InsertNodes = {
-      input: new Tone.Gain(1),
-      output: new Tone.Gain(1),
+      input: new _tone!.Gain(1),
+      output: new _tone!.Gain(1),
       fxNodes: new Map(),
       fxOrder: [],
     };
@@ -734,16 +744,16 @@ export class LiveTransport {
     }
   }
 
-  private schedulePatternClip(clip: PatternClip, song: Song): Tone.Part[] {
+  private schedulePatternClip(clip: PatternClip, song: Song): ToneType.Part[] {
     const pattern = song.patterns.find((p) => p.id === clip.patternId);
     if (!pattern) return [];
-    const parts: Tone.Part[] = [];
+    const parts: ToneType.Part[] = [];
     for (const channelId of Object.keys(pattern.slices)) {
       const voice = this.voices.get(channelId);
       if (!voice) continue;
       const events = buildPatternEvents(pattern, channelId);
       if (events.length === 0) continue;
-      const part = new Tone.Part<PatternEvent>(
+      const part = new _tone!.Part<PatternEvent>(
         (time, ev) => {
           if (clip.muted) return;
           voice.fireStep(ev.step, time);
@@ -759,16 +769,16 @@ export class LiveTransport {
     return parts;
   }
 
-  private scheduleAudioClip(clip: PlaylistClip): Tone.Player | undefined {
+  private scheduleAudioClip(clip: PlaylistClip): ToneType.Player | undefined {
     if (clip.kind !== "audio") return undefined;
     if (!clip.sampleUrl) return undefined;
-    const player = new Tone.Player({ url: clip.sampleUrl, loop: false });
+    const player = new _tone!.Player({ url: clip.sampleUrl, loop: false });
     player.volume.value = clip.gainDb;
     player.mute = clip.muted;
     player.connect(this.masterBus);
     // Wait until loaded to actually sync, but stamp start time now so it
     // plays at the right transport position once the buffer is ready.
-    Tone.loaded().then(() => {
+    _tone!.loaded().then(() => {
       player.sync().start(`${clip.startBar}m`).stop(`${clip.startBar + clip.lengthBars}m`);
     }).catch(() => { /* load failed — silent no-op */ });
     return player;

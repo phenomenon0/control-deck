@@ -15,6 +15,7 @@ export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 export type ChatSurface = "safe" | "brave" | "radical";
+export type RouteMode = "local" | "free";
 
 export interface VoicePrefs {
   enabled: boolean;
@@ -26,12 +27,26 @@ export interface VoicePrefs {
 }
 
 export interface DeckPrefs {
+  /**
+   * The model id for the currently-active routeMode. Switching mode
+   * swaps this with the remembered id for the new mode, so each mode
+   * keeps its own pick.
+   */
   model: string;
+  /**
+   * Which routing path the chat surface uses. "local" = Ollama
+   * (+ Agent-GO / simple fallback). "free" = free-tier roulette
+   * (OpenRouter + NVIDIA). Replaces the old boolean freeMode.
+   */
+  routeMode: RouteMode;
+  /** Remembered Ollama pick. Populated when routeMode flips away from "local". */
+  localModel: string;
+  /** Remembered free-tier pick. Populated when routeMode flips away from "free". */
+  remoteModel: string;
   reduceMotion: boolean;
   chatContextRail: boolean;
   chatSurface: ChatSurface;
   voice: VoicePrefs;
-  freeMode: boolean;
 }
 
 interface DeckSettingsContextValue {
@@ -39,6 +54,11 @@ interface DeckSettingsContextValue {
   setPrefs: React.Dispatch<React.SetStateAction<DeckPrefs>>;
   updatePrefs: (partial: Partial<DeckPrefs>) => void;
   updateVoicePrefs: (partial: Partial<VoicePrefs>) => void;
+  /**
+   * Toggle between local (Ollama) and free (free-tier roulette) routes
+   * while preserving each mode's remembered model choice.
+   */
+  switchRouteMode: (target: RouteMode) => void;
   settingsOpen: boolean;
   setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   // Right rail
@@ -62,16 +82,18 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
 
 const DEFAULT_PREFS: DeckPrefs = {
   // Empty = resolve at runtime. The server-side fallback in
-  // /api/chat/simple + the ComposerModelPicker both handle empty-string
-  // model by picking the first installed Ollama model. A hardcoded
-  // "qwen2" default was baked in historically and has been the source of
-  // 404s ever since qwen3 replaced it in the curated model set.
+  // /api/chat/simple and the RoutePicker both handle empty-string
+  // by picking the first installed Ollama model. A hardcoded "qwen2"
+  // default was baked in historically and was the source of 404s
+  // ever since qwen3 replaced it.
   model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
+  routeMode: "local",
+  localModel: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
+  remoteModel: "",
   reduceMotion: false,
   chatContextRail: false,
   chatSurface: "safe",
   voice: DEFAULT_VOICE_PREFS,
-  freeMode: false,
 };
 
 const PREFS_KEY = "deck.prefs";
@@ -96,9 +118,12 @@ const STALE_MODEL_DEFAULTS: ReadonlySet<string> = new Set([
 ]);
 
 function migratePrefs(): DeckPrefs {
-  const newPrefs = safeParse<(DeckPrefs & { theme?: string })>(localStorage.getItem(PREFS_KEY));
+  // Accept the old shape (with `freeMode: boolean`) so we don't wipe
+  // settings for anyone upgrading. `freeMode` is mapped to `routeMode`
+  // and the active model is carried into the corresponding slot.
+  const newPrefs = safeParse<(DeckPrefs & { theme?: string; freeMode?: boolean })>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
-    const { theme: _legacyTheme, ...rest } = newPrefs;
+    const { theme: _legacyTheme, freeMode: legacyFreeMode, ...rest } = newPrefs;
     const migratedSurface =
       (newPrefs.chatSurface as string) === "dossier"
         ? "brave"
@@ -110,10 +135,28 @@ function migratePrefs(): DeckPrefs {
       typeof rest.model === "string" && STALE_MODEL_DEFAULTS.has(rest.model)
         ? ""
         : (rest.model ?? "");
+    // If a stored routeMode already exists, respect it. Otherwise derive
+    // from the legacy freeMode boolean.
+    const routeMode: RouteMode =
+      rest.routeMode === "local" || rest.routeMode === "free"
+        ? rest.routeMode
+        : legacyFreeMode
+          ? "free"
+          : "local";
+    // Carry the active model into the mode-specific slot. This means a
+    // first-migration user who had freeMode=true with an Ollama model
+    // pinned will see that id as their remembered remote pref, which is
+    // harmless — the free router will ignore an unknown id and roulette
+    // will proceed.
+    const localModel = rest.localModel ?? (routeMode === "local" ? migratedModel : "");
+    const remoteModel = rest.remoteModel ?? (routeMode === "free" ? migratedModel : "");
     return {
       ...DEFAULT_PREFS,
       ...rest,
       model: migratedModel,
+      routeMode,
+      localModel,
+      remoteModel,
       chatSurface: migratedSurface as ChatSurface,
       voice: { ...DEFAULT_VOICE_PREFS, ...newPrefs.voice },
     };
@@ -202,12 +245,25 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
     setPrefs((p) => ({ ...p, voice: { ...p.voice, ...partial } }));
   }, []);
 
+  const switchRouteMode = useCallback((target: RouteMode) => {
+    setPrefs((p) => {
+      if (p.routeMode === target) return p;
+      // Stash the current active model under the OLD mode, then restore
+      // the target mode's remembered model as the active one.
+      const localModel = p.routeMode === "local" ? p.model : p.localModel;
+      const remoteModel = p.routeMode === "free" ? p.model : p.remoteModel;
+      const nextModel = target === "local" ? localModel : remoteModel;
+      return { ...p, routeMode: target, localModel, remoteModel, model: nextModel };
+    });
+  }, []);
+
   const value = useMemo<DeckSettingsContextValue>(
     () => ({
       prefs,
       setPrefs,
       updatePrefs,
       updateVoicePrefs,
+      switchRouteMode,
       settingsOpen,
       setSettingsOpen,
       railOpen,
@@ -217,7 +273,7 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
       sidebarOpen,
       setSidebarOpen,
     }),
-    [prefs, updatePrefs, updateVoicePrefs, settingsOpen, railOpen, railTab, sidebarOpen]
+    [prefs, updatePrefs, updateVoicePrefs, switchRouteMode, settingsOpen, railOpen, railTab, sidebarOpen]
   );
 
   return (

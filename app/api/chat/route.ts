@@ -372,7 +372,12 @@ export async function POST(req: Request) {
   // user sees a clean 501/429 in the stream rather than a surprise local
   // cascade — that surprise would hide exactly the quota/key problem the
   // user needs to fix.
-  const freeMode = req.headers.get("x-deck-free-mode") === "1";
+  // New header: `x-deck-route-mode: local | free`. Back-compat: the old
+  // `x-deck-free-mode: 1` still means "free". Anything unset defaults
+  // to local (Agent-GO / simple / Ollama).
+  const routeModeHeader = req.headers.get("x-deck-route-mode");
+  const legacyFreeHeader = req.headers.get("x-deck-free-mode") === "1";
+  const freeMode = routeModeHeader === "free" || legacyFreeHeader;
   if (freeMode) {
     console.log(`[Chat] Free mode active — delegating to /api/chat/free (preferred=${model ?? "<none>"})`);
     const { POST: freePost } = await import("./free/route");

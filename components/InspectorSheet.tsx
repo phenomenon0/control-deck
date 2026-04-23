@@ -81,7 +81,16 @@ export function InspectorSheet({ open, onClose }: InspectorSheetProps) {
             <select
               className="model-select"
               value={prefs.model}
-              onChange={(e) => updatePrefs({ model: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                // Mirror into the mode-specific slot so it survives a
+                // routeMode toggle.
+                updatePrefs(
+                  prefs.routeMode === "local"
+                    ? { model: v, localModel: v }
+                    : { model: v, remoteModel: v },
+                );
+              }}
               title="Select model"
             >
               {!models.includes(prefs.model) && prefs.model && (

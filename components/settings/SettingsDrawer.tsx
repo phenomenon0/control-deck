@@ -348,7 +348,13 @@ export function SettingsDrawer() {
                 ) : models.length > 0 ? (
                   <AppleSelect
                     value={prefs.model}
-                    onChange={(v) => updatePrefs({ model: v })}
+                    onChange={(v) =>
+                      updatePrefs(
+                        prefs.routeMode === "local"
+                          ? { model: v, localModel: v }
+                          : { model: v, remoteModel: v },
+                      )
+                    }
                     options={models.map((m) => ({
                       value: m,
                       label: formatModelName(m),
@@ -358,7 +364,14 @@ export function SettingsDrawer() {
                   <input
                     type="text"
                     value={prefs.model}
-                    onChange={(e) => updatePrefs({ model: e.target.value })}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updatePrefs(
+                        prefs.routeMode === "local"
+                          ? { model: v, localModel: v }
+                          : { model: v, remoteModel: v },
+                      );
+                    }}
                     placeholder="e.g. gpt-4o, qwen2.5:7b"
                     style={{
                       fontSize: 13,

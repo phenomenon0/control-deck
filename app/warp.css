@@ -8393,3 +8393,40 @@ textarea.input:focus {
   color: var(--text-muted);
   margin-left: 4px;
 }
+
+/* --- Unified route picker (replaces composer-model-picker +
+       composer-free-pill when both are shown) ------------------------- */
+.composer-route-pill { position: relative; }
+.composer-route-mode {
+  font-weight: 600;
+  letter-spacing: 0.14em;
+}
+.composer-route-panel { min-width: 360px; }
+.composer-route-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--mist);
+  background: color-mix(in oklch, var(--bg-card) 60%, transparent);
+  align-self: flex-start;
+}
+.composer-route-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+.composer-route-tab:hover { color: var(--fg); }
+.composer-route-tab.is-active {
+  color: var(--fg);
+  background: var(--bg-elev);
+}

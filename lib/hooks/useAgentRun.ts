@@ -513,7 +513,7 @@ export interface UseAgentRunReturn {
       threadId: string;
       model: string;
       uploadIds?: string[];
-      freeMode?: boolean;
+      routeMode?: "local" | "free";
     }
   ) => Promise<SendResult>;
   /** Stop the current run */
@@ -560,7 +560,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         threadId: string;
         model: string;
         uploadIds?: string[];
-        freeMode?: boolean;
+        routeMode?: "local" | "free";
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
@@ -585,7 +585,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...(opts.freeMode ? { "x-deck-free-mode": "1" } : {}),
+            ...(opts.routeMode ? { "x-deck-route-mode": opts.routeMode } : {}),
           },
           body: JSON.stringify({
             messages: opts.messages,

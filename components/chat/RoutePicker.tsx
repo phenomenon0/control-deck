@@ -1,0 +1,416 @@
+"use client";
+
+/**
+ * Unified routing pill. Replaces the prior ComposerModelPicker
+ * (Ollama-only) and FreeModeIndicator (free-tier-only) — they were
+ * adjacent but independent, which produced silent conflicts. This
+ * component is a single source of truth: one active route, one active
+ * model, per-mode picks remembered via `DeckSettingsProvider`.
+ *
+ * Layout:
+ *   - Pill shows current mode badge ("Local" / "Free") + active model.
+ *   - Click opens a popover with a mode tab at the top and the relevant
+ *     catalog below.
+ *   - Switching mode swaps in the remembered model for that mode
+ *     (see `switchRouteMode` in DeckSettingsProvider).
+ *   - Picking a model writes `prefs.model` and, for the local mode,
+ *     preloads it into VRAM via /api/hardware/providers/action.
+ *
+ * Notes:
+ *   - The free tab polls /api/free-tier/status every 10s while open or
+ *     when freeMode is active, so live quota counters surface immediately.
+ *   - Clicking "Hunt" POSTs /api/free-tier/refresh to force-pull the
+ *     live OpenRouter catalog.
+ *   - If the user has pinned a free model and the router substituted it
+ *     because of rate limits, a "preferred: X — substituted" line makes
+ *     the hop visible.
+ */
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlertTriangle, Cpu, RefreshCw, Sparkles } from "lucide-react";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+
+type Provider = "openrouter" | "nvidia";
+
+interface OllamaTag {
+  name: string;
+  size: number;
+  details?: {
+    parameter_size?: string;
+    quantization_level?: string;
+    family?: string;
+  };
+}
+
+interface LoadedModel {
+  name: string;
+  size_vram: number;
+}
+
+interface FreeTierModel {
+  id: string;
+  provider: Provider;
+  displayName: string;
+  contextWindow: number;
+  modality: string;
+  rateLimits: { rpm: number; rpd: number };
+}
+
+interface StatusEntry {
+  model: FreeTierModel;
+  remainingRpm: number;
+  remainingRpd: number;
+  locked: boolean;
+  lockReason?: string;
+}
+
+interface StatusResponse {
+  enabled: boolean;
+  providers: { openrouter: boolean; nvidia: boolean };
+  activeModelId: string | null;
+  catalog: FreeTierModel[];
+  status: StatusEntry[];
+  lastRefreshAt: number;
+  lastRefreshResult: {
+    provider: Provider;
+    ok: boolean;
+    added: number;
+    error?: string;
+    at: number;
+  } | null;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatContext(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
+}
+
+export function RoutePicker() {
+  const { prefs, updatePrefs, switchRouteMode } = useDeckSettings();
+  const [open, setOpen] = useState(false);
+  const [ollamaTags, setOllamaTags] = useState<OllamaTag[]>([]);
+  const [ollamaLoaded, setOllamaLoaded] = useState<LoadedModel[]>([]);
+  const [freeStatus, setFreeStatus] = useState<StatusResponse | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  const mode = prefs.routeMode;
+
+  const loadOllama = useCallback(async () => {
+    const [tagsRes, psRes] = await Promise.all([
+      fetch("/api/ollama/tags", { cache: "no-store" }).catch(() => null),
+      fetch("/api/ollama/ps", { cache: "no-store" }).catch(() => null),
+    ]);
+    if (tagsRes?.ok) {
+      const d = (await tagsRes.json()) as { models: OllamaTag[] };
+      setOllamaTags(d.models ?? []);
+    }
+    if (psRes?.ok) {
+      const d = (await psRes.json()) as { models: LoadedModel[] };
+      setOllamaLoaded(d.models ?? []);
+    }
+  }, []);
+
+  const loadFree = useCallback(async () => {
+    const r = await fetch("/api/free-tier/status", { cache: "no-store" }).catch(() => null);
+    if (r?.ok) setFreeStatus((await r.json()) as StatusResponse);
+  }, []);
+
+  const huntFree = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetch("/api/free-tier/refresh", { method: "POST" }).catch(() => null);
+      await loadFree();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadFree]);
+
+  // Background poll while popover is closed but free mode active.
+  useEffect(() => {
+    if (mode !== "free") return;
+    loadFree();
+    const iv = setInterval(loadFree, 10_000);
+    return () => clearInterval(iv);
+  }, [mode, loadFree]);
+
+  // Populate the right catalog when the popover opens.
+  useEffect(() => {
+    if (!open) return;
+    if (mode === "local") loadOllama();
+    else loadFree();
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, mode, loadOllama, loadFree]);
+
+  const pickOllama = async (name: string) => {
+    updatePrefs({ model: name, localModel: name });
+    setBusy(name);
+    try {
+      await fetch("/api/hardware/providers/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: "ollama", action: "load", model: name }),
+      });
+      await loadOllama();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pickFree = (id: string) => {
+    updatePrefs({ model: id, remoteModel: id });
+  };
+
+  // Active-model resolution — same tolerant fallback the old pickers used.
+  const loadedNames = new Set(ollamaLoaded.map((m) => m.name));
+  const ollamaCurrent =
+    (mode === "local" && prefs.model) ||
+    ollamaLoaded[0]?.name ||
+    ollamaTags.find(
+      (m) =>
+        m.details?.family !== "bert" &&
+        m.details?.family !== "nomic-bert" &&
+        !m.name.toLowerCase().includes("embed"),
+    )?.name ||
+    ollamaTags[0]?.name ||
+    "no model";
+
+  const freeActive = freeStatus?.status.find((s) => s.model.id === freeStatus.activeModelId);
+  const freePinned = prefs.remoteModel || prefs.model;
+  const freeSubstituted =
+    mode === "free" &&
+    freePinned &&
+    freeStatus?.activeModelId &&
+    freePinned !== freeStatus.activeModelId;
+  const noKey = mode === "free" && freeStatus && !freeStatus.enabled;
+
+  const pillIcon = mode === "free" ? <Sparkles size={14} /> : <Cpu size={14} />;
+  const pillLabel = mode === "free" ? "Free" : "Local";
+  const pillModel =
+    mode === "local"
+      ? ollamaCurrent
+      : freeActive?.model.displayName ?? (freePinned || "pick a model");
+
+  const byProvider = freeStatus?.status.reduce<Record<Provider, StatusEntry[]>>(
+    (acc, s) => {
+      (acc[s.model.provider] ||= []).push(s);
+      return acc;
+    },
+    { openrouter: [], nvidia: [] },
+  );
+
+  return (
+    <div className="composer-route-pill" ref={ref}>
+      <button
+        type="button"
+        className={`composer-tweaks-launch${open ? " is-open" : ""}${noKey ? " has-warning" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        title={
+          noKey
+            ? "Free mode active but no provider API key set — chat will fail until one is added"
+            : mode === "free"
+              ? `Free-tier roulette — active: ${freeActive?.model.id ?? "—"}`
+              : `Local route — ${ollamaCurrent}${loadedNames.has(ollamaCurrent) ? " (in VRAM)" : ""}`
+        }
+        aria-expanded={open}
+      >
+        {noKey ? <AlertTriangle size={14} /> : pillIcon}
+        <span className="composer-route-mode">{pillLabel}</span>
+        <span className="composer-free-sep">·</span>
+        <span className="composer-model-name">{pillModel}</span>
+        {mode === "local" && loadedNames.has(ollamaCurrent) && (
+          <span className="composer-model-hot">HOT</span>
+        )}
+        {mode === "free" && freeActive && (
+          <span className="composer-free-quota">
+            {freeActive.remainingRpm}/{freeActive.model.rateLimits.rpm}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          className="composer-tweaks-panel composer-route-panel"
+          role="dialog"
+          aria-label="Route picker"
+        >
+          {/* Mode tabs */}
+          <div className="composer-route-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "local"}
+              className={`composer-route-tab${mode === "local" ? " is-active" : ""}`}
+              onClick={() => switchRouteMode("local")}
+            >
+              <Cpu size={12} /> Local
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "free"}
+              className={`composer-route-tab${mode === "free" ? " is-active" : ""}`}
+              onClick={() => switchRouteMode("free")}
+            >
+              <Sparkles size={12} /> Free
+            </button>
+          </div>
+
+          {mode === "local" && (
+            <>
+              <div className="composer-model-head">
+                <span className="composer-tweaks-axis-label">Ollama models</span>
+                {ollamaTags.length === 0 && (
+                  <span className="composer-model-hint">
+                    No Ollama models installed. Pull one from Hardware.
+                  </span>
+                )}
+              </div>
+              <ul className="composer-model-list">
+                {ollamaTags.map((m) => {
+                  const isActive = m.name === ollamaCurrent;
+                  const isLoaded = loadedNames.has(m.name);
+                  const isBusy = busy === m.name;
+                  return (
+                    <li key={m.name}>
+                      <button
+                        type="button"
+                        className={`composer-model-row${isActive ? " is-active" : ""}`}
+                        onClick={() => pickOllama(m.name)}
+                        disabled={isBusy}
+                      >
+                        <div className="composer-model-row-main">
+                          <span className="composer-model-row-name">{m.name}</span>
+                          {isLoaded && <span className="composer-model-hot">HOT</span>}
+                          {isActive && <span className="composer-model-active-dot" />}
+                        </div>
+                        <div className="composer-model-row-meta">
+                          {m.details?.parameter_size ?? "?"} ·{" "}
+                          {m.details?.quantization_level ?? ""} · {formatBytes(m.size)}
+                          {isBusy && <span> · loading…</span>}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
+          {mode === "free" && freeStatus && (
+            <>
+              <div className="composer-model-head">
+                <span className="composer-tweaks-axis-label">Free-tier roulette</span>
+                <div className="composer-free-actions">
+                  <button
+                    type="button"
+                    className="composer-free-off"
+                    onClick={huntFree}
+                    disabled={refreshing}
+                    title="Pull the live free-model list from OpenRouter"
+                  >
+                    <RefreshCw size={10} className={refreshing ? "composer-free-spin" : undefined} />
+                    Hunt
+                  </button>
+                </div>
+              </div>
+
+              <div className="composer-free-providers">
+                <span className={`composer-free-provider-chip${freeStatus.providers.openrouter ? " is-on" : ""}`}>
+                  OpenRouter {freeStatus.providers.openrouter ? "✓" : "· key missing"}
+                </span>
+                <span className={`composer-free-provider-chip${freeStatus.providers.nvidia ? " is-on" : ""}`}>
+                  NVIDIA {freeStatus.providers.nvidia ? "✓" : "· key missing"}
+                </span>
+              </div>
+
+              {noKey && (
+                <p className="composer-free-warning">
+                  <AlertTriangle size={12} /> Set <code>OPENROUTER_API_KEY</code> and/or{" "}
+                  <code>NVIDIA_API_KEY</code>.
+                </p>
+              )}
+              {!noKey && (
+                <p className="composer-free-note">
+                  Prompts may be used for training. Don&apos;t route sensitive threads here.
+                  {freeStatus.lastRefreshResult?.ok === false && (
+                    <span className="composer-free-stale">
+                      {" "}· last refresh failed: {freeStatus.lastRefreshResult.error}
+                    </span>
+                  )}
+                </p>
+              )}
+              {freeSubstituted && (
+                <p className="composer-free-note">
+                  <span className="composer-free-stale">preferred: {freePinned}</span>{" "}
+                  — currently substituted (rate-limited or unavailable).
+                </p>
+              )}
+
+              {(["openrouter", "nvidia"] as const).map((provider) => {
+                const entries = byProvider?.[provider] ?? [];
+                if (entries.length === 0) return null;
+                return (
+                  <div key={provider} className="composer-free-provider-group">
+                    <div className="composer-free-provider-head">
+                      {provider === "openrouter" ? "OpenRouter" : "NVIDIA NIM"} · {entries.length}
+                    </div>
+                    <ul className="composer-model-list">
+                      {entries.map(({ model, remainingRpm, remainingRpd, locked, lockReason }) => {
+                        const isActive = model.id === freeStatus.activeModelId;
+                        const isPinned = model.id === freePinned;
+                        return (
+                          <li key={model.id}>
+                            <button
+                              type="button"
+                              className={`composer-model-row${isActive ? " is-active" : ""}${locked ? " is-locked" : ""}`}
+                              onClick={() => pickFree(model.id)}
+                            >
+                              <div className="composer-model-row-main">
+                                <span className="composer-model-row-name">{model.displayName}</span>
+                                {isActive && <span className="composer-model-hot">ACTIVE</span>}
+                                {isPinned && !isActive && (
+                                  <span className="composer-model-hot">PINNED</span>
+                                )}
+                                {locked && (
+                                  <span className="composer-free-locked">{lockReason}</span>
+                                )}
+                              </div>
+                              <div className="composer-model-row-meta">
+                                {formatContext(model.contextWindow)} ctx · {model.modality} ·{" "}
+                                {remainingRpm}/{model.rateLimits.rpm} rpm ·{" "}
+                                {remainingRpd}/{model.rateLimits.rpd} rpd
+                              </div>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

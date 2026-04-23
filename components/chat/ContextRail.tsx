@@ -1,11 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/warp/Icons";
 import { useChatInspectorData } from "@/lib/hooks/useChatInspector";
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useSystemStats } from "@/lib/hooks/useSystemStats";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
+import { ThreadPromptSheet } from "@/components/chat/ThreadPromptSheet";
 import type { Artifact, ToolCallData } from "@/lib/types/chat";
 import { openArtifactInCanvas } from "@/lib/canvas";
 
@@ -43,9 +45,32 @@ export function ContextRail() {
   const trimmedPrompt = prefs.systemPrompt.trim();
   const promptState: "default" | "custom" | "off" =
     !trimmedPrompt ? "off" : trimmedPrompt === DEFAULT_SYSTEM_PROMPT.trim() ? "default" : "custom";
+
   const { activeThreadId, threads, messages } = useThreadManager();
   const { stats } = useSystemStats();
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
+
+  // Per-thread override state — fetched lazily when the thread id changes,
+  // and refetched when the edit sheet closes (in case a save happened).
+  const [threadPromptOverride, setThreadPromptOverride] = useState<string | null>(null);
+  const [threadSheetOpen, setThreadSheetOpen] = useState(false);
+  useEffect(() => {
+    if (!activeThreadId) {
+      setThreadPromptOverride(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const r = await fetch(`/api/threads/${activeThreadId}/system-prompt`, { cache: "no-store" }).catch(() => null);
+      if (!cancelled && r?.ok) {
+        const d = (await r.json()) as { systemPrompt: string | null };
+        setThreadPromptOverride(d.systemPrompt);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThreadId, threadSheetOpen]);
   const latestTools = toolCalls.slice(-5).reverse();
   const latestArtifacts = artifacts.slice(-4).reverse();
   const messageCount = messages.length;
@@ -126,6 +151,28 @@ export function ContextRail() {
               </span>
             </div>
           </button>
+          {activeThreadId && (
+            <button
+              type="button"
+              className={`ctx-row ctx-row-button ctx-prompt-${threadPromptOverride ? "custom" : "default"}`}
+              onClick={() => setThreadSheetOpen(true)}
+              title={
+                threadPromptOverride
+                  ? "This thread overrides the global prompt — click to edit"
+                  : "This thread inherits the global prompt — click to set a thread-specific prompt"
+              }
+            >
+              <Icon.Chat size={14} sw={1.2} />
+              <div>
+                <strong>Thread prompt</strong>
+                <span>
+                  {threadPromptOverride
+                    ? `override · ${threadPromptOverride.length} chars`
+                    : "inherits global"}
+                </span>
+              </div>
+            </button>
+          )}
           {gpu && (
             <div className="ctx-row">
               <Icon.Grid size={14} sw={1.2} />
@@ -159,6 +206,12 @@ export function ContextRail() {
           <div className="ctx-empty">Tool calls will appear as they run.</div>
         )}
       </section>
+      {threadSheetOpen && activeThreadId && (
+        <ThreadPromptSheet
+          threadId={activeThreadId}
+          onClose={() => setThreadSheetOpen(false)}
+        />
+      )}
     </aside>
   );
 }

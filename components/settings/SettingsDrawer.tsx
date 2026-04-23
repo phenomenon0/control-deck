@@ -10,6 +10,7 @@ import {
   type ChatSurface,
 } from "./DeckSettingsProvider";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
+import { PROMPT_LIBRARY, matchPreset } from "@/lib/llm/promptLibrary";
 import {
   useWarp,
   type Accent,
@@ -411,24 +412,38 @@ export function SettingsDrawer() {
                   >
                     System Prompt
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => updatePrefs({ systemPrompt: DEFAULT_SYSTEM_PROMPT })}
-                    disabled={prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT}
-                    style={{
-                      fontSize: 10,
-                      letterSpacing: 0.12,
-                      textTransform: "uppercase",
-                      padding: "2px 10px",
-                      borderRadius: 999,
-                      border: "1px solid var(--border)",
-                      background: "transparent",
-                      color: prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT ? "var(--text-muted)" : "var(--text-secondary)",
-                      cursor: prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT ? "default" : "pointer",
-                    }}
-                  >
-                    Reset
-                  </button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <AppleSelect
+                      value={matchPreset(prefs.systemPrompt)?.id ?? "__custom"}
+                      onChange={(v) => {
+                        if (v === "__custom") return;
+                        const preset = PROMPT_LIBRARY.find((p) => p.id === v);
+                        if (preset) updatePrefs({ systemPrompt: preset.prompt });
+                      }}
+                      options={[
+                        ...PROMPT_LIBRARY.map((p) => ({ value: p.id, label: p.name })),
+                        { value: "__custom", label: "Custom (edited)" },
+                      ]}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updatePrefs({ systemPrompt: DEFAULT_SYSTEM_PROMPT })}
+                      disabled={prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT}
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: 0.12,
+                        textTransform: "uppercase",
+                        padding: "2px 10px",
+                        borderRadius: 999,
+                        border: "1px solid var(--border)",
+                        background: "transparent",
+                        color: prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT ? "var(--text-muted)" : "var(--text-secondary)",
+                        cursor: prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT ? "default" : "pointer",
+                      }}
+                    >
+                      Reset
+                    </button>
+                  </div>
                 </div>
                 <textarea
                   value={prefs.systemPrompt}

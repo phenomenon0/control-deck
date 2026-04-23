@@ -81,6 +81,7 @@ function initSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY,
       title TEXT,
+      system_prompt TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -203,6 +204,14 @@ function initSchema(db: Database.Database) {
 
   try {
     db.exec(`ALTER TABLE runs ADD COLUMN agent_run_id TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+
+  // Migration: per-thread system prompt override. null means "use the
+  // global DeckPrefs.systemPrompt."
+  try {
+    db.exec(`ALTER TABLE threads ADD COLUMN system_prompt TEXT`);
   } catch {
     // Column already exists, ignore
   }
@@ -470,6 +479,8 @@ export function clearRuns(): void {
 export interface ThreadRow {
   id: string;
   title: string | null;
+  /** Thread-scoped system prompt override; null means "use the global one." */
+  system_prompt: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -491,6 +502,19 @@ export function updateThreadTitle(id: string, title: string): void {
     title,
     new Date().toISOString(),
     id
+  );
+}
+
+/**
+ * Set or clear a thread's system-prompt override. Pass null to revert
+ * the thread to whatever the global DeckPrefs.systemPrompt is.
+ */
+export function updateThreadSystemPrompt(id: string, prompt: string | null): void {
+  const db = getDb();
+  db.prepare(`UPDATE threads SET system_prompt = ?, updated_at = ? WHERE id = ?`).run(
+    prompt,
+    new Date().toISOString(),
+    id,
   );
 }
 

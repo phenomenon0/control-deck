@@ -31,7 +31,7 @@ import {
   updateRunPreview,
 } from "@/lib/agui/db";
 import { freeTierRouter, type Pick, type FreeTierModel } from "@/lib/llm/freeTier";
-import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
+import { prepareForModel } from "@/lib/llm/systemPrompt";
 
 interface ProviderCall {
   url: string;
@@ -217,19 +217,24 @@ export async function POST(req: Request) {
 
         freeTierRouter.record(pick.model.id);
 
-        // Per-pick augmentation — free-tier mid-request switches mean
-        // the model family can change, so the language anchor must be
-        // recomputed for the model we're *actually* about to hit.
-        const augmentedSystem = augmentForModel(systemPrompt ?? "", pick.model.id);
-        const finalMessages = withSystemPrompt(messages, augmentedSystem);
+        // Per-pick preparation — free-tier mid-request switches mean
+        // the model family can change, so augmentation and shape must
+        // be recomputed for the model we're *actually* about to hit.
+        // The free catalog is all OpenAI-compatible today, so `system`
+        // comes back null and messages carry role:"system" — but routing
+        // through prepareForModel means adding Claude/Gemini later is a
+        // no-op at this call site.
+        const prepared = prepareForModel(messages, systemPrompt ?? "", pick.model.id);
+        const openAiBody: Record<string, unknown> = {
+          model: pick.model.id,
+          messages: prepared.messages.map((m) => ({ role: m.role, content: m.content })),
+          stream: true,
+        };
+        if (prepared.system) openAiBody.system = prepared.system;
         const res = await fetch(call.url, {
           method: "POST",
           headers: call.headers,
-          body: JSON.stringify({
-            model: pick.model.id,
-            messages: finalMessages.map((m) => ({ role: m.role, content: m.content })),
-            stream: true,
-          }),
+          body: JSON.stringify(openAiBody),
           signal: req.signal,
         });
 

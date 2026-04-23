@@ -31,7 +31,7 @@ import {
   updateRunPreview,
 } from "@/lib/agui/db";
 import { resolveProviderUrl } from "@/lib/hardware/settings";
-import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
+import { prepareForModel } from "@/lib/llm/systemPrompt";
 
 interface SimpleChatBody {
   messages?: Array<{ role: string; content: string }>;
@@ -125,10 +125,13 @@ export async function POST(req: Request) {
   }
   const requested = model ?? process.env.OLLAMA_MODEL ?? "qwen3:8b";
   const selectedModel = await resolveInstalledModel(requested);
-  const finalMessages = withSystemPrompt(
-    messages,
-    augmentForModel(systemPrompt ?? "", selectedModel),
-  );
+  // Ollama is OpenAI-compatible, so `prepared.system` will be null and
+  // `prepared.messages` carries role:"system". Using prepareForModel
+  // keeps this route identically shaped to the free-tier + Agent-GO
+  // paths and makes future-adapter additions (Claude, Gemini) a matter
+  // of updating the helper, not the call sites.
+  const prepared = prepareForModel(messages, systemPrompt ?? "", selectedModel);
+  const finalMessages = prepared.messages;
   const thread = threadId ?? generateId();
   const runId = generateId();
   const messageId = generateId();

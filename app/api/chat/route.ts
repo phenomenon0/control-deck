@@ -28,9 +28,10 @@ import {
   type AGUIEvent,
 } from "@/lib/agui/events";
 import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
-import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
+import { prepareForModel } from "@/lib/llm/systemPrompt";
 import {
   createRun,
+  createThread,
   finishRun,
   errorRun,
   updateRunPreview,
@@ -315,7 +316,20 @@ export async function POST(req: Request) {
     });
   }
 
-  const { messages, model, threadId, uploadIds, systemPrompt } = body;
+  const { messages, model, threadId, uploadIds, systemPrompt: clientPrompt } = body;
+
+  // Ensure the thread row exists before anything else reads from it.
+  // INSERT OR IGNORE — no-op if already present. Closes a latent race
+  // where /api/chat was previously assuming the client pre-created via
+  // /api/threads, which silently made getThread() return undefined and
+  // per-thread overrides impossible.
+  if (threadId) createThread(threadId);
+
+  // Thread-scoped override: if the thread has a system_prompt set, use
+  // that instead of whatever the client sent. Lets users keep per-thread
+  // personas ("this thread is for code") without mutating global prefs.
+  const thread0 = threadId ? getThread(threadId) : undefined;
+  const systemPrompt = thread0?.system_prompt ?? clientPrompt;
 
   // Validate messages array
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -454,10 +468,13 @@ export async function POST(req: Request) {
   // Prepend the user's system prompt (augmented for the target model)
   // so Agent-GO forwards it to the LLM as the first message. Agent-GO's
   // own baked-in prompt still runs — these two stack.
-  const agentMessages: AgentGOMessage[] = withSystemPrompt(
-    agentMessagesRaw,
-    augmentForModel(systemPrompt ?? "", selectedModel),
-  );
+  //
+  // Agent-GO itself talks OpenAI-compatible downstream, so we pass the
+  // messages with role:"system". If the user eventually configures
+  // Agent-GO to talk directly to Claude/Gemini, that's an Agent-GO side
+  // concern — we hand it the prepared messages and let it adapt.
+  const prepared = prepareForModel(agentMessagesRaw, systemPrompt ?? "", selectedModel);
+  const agentMessages: AgentGOMessage[] = prepared.messages as AgentGOMessage[];
 
   const agentRequest: AgentGOStartRunRequest = {
     messages: agentMessages,

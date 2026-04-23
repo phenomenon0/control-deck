@@ -69,3 +69,8 @@ __pycache__/
 # Stryker mutation testing output
 .stryker-tmp/
 reports/mutation/
+
+# Built terminal-service bundle (produced by scripts/build-terminal-service.cjs
+# during electron:build; the .ts source is the canonical one).
+scripts/terminal-service.cjs
+scripts/terminal-service.js

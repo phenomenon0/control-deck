@@ -17,8 +17,9 @@
     "electron:compile": "tsc -p electron/tsconfig.json && node scripts/postbuild-electron.cjs",
     "electron:macos-helper": "bash scripts/build-macos-helper.sh",
     "electron:win-host": "node scripts/build-win-host.cjs",
+    "electron:terminal-service": "node scripts/build-terminal-service.cjs",
     "electron:dev": "bun run electron:macos-helper && bun run electron:win-host && bun run electron:compile && electron .electron-dist/main.js",
-    "electron:build": "next build && node scripts/copy-native-binaries.cjs && bun run electron:win-host && bun run electron:compile",
+    "electron:build": "next build && node scripts/copy-native-binaries.cjs && bun run electron:terminal-service && bun run electron:win-host && bun run electron:compile",
     "electron:pack": "bun run electron:build && electron-builder --config electron-builder.yml",
     "electron:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty"
   },

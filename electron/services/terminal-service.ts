@@ -4,9 +4,11 @@
  *
  * Strategy:
  *   dev:  spawn via repo-local `node_modules/.bin/tsx` (cross-platform shim).
- *   pack: spawn a pre-compiled JS bundle staged at
- *         `resources/app/scripts/terminal-service.js` (see
- *         electron:build for the build step).
+ *   pack: spawn the pre-bundled CJS at
+ *         `resources/app/scripts/terminal-service.cjs` (produced by
+ *         scripts/build-terminal-service.cjs during electron:build and
+ *         staged by scripts/electron-after-pack.cjs). Runs under
+ *         `ELECTRON_RUN_AS_NODE=1` so process.execPath behaves as plain Node.
  *
  * If launch fails (tsx missing, port in use, etc.) the UI will just
  * keep showing "terminal service offline" — no crash, no blocking.
@@ -93,10 +95,16 @@ function launch(): void {
 
   console.log(`[terminal-service] launching: ${command} ${args.join(" ")}`);
 
+  const isPackagedScript =
+    terminalScript.endsWith(".cjs") || terminalScript.endsWith(".js");
   const child = spawn(command, args, {
     cwd: repoRoot,
     env: {
       ...process.env,
+      // In packaged builds command === process.execPath (the Electron
+      // binary). Without this flag it would try to open a window instead
+      // of running the script.
+      ...(isPackagedScript ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
       TERMINAL_SERVICE_HOST: process.env.TERMINAL_SERVICE_HOST ?? "127.0.0.1",
       TERMINAL_SERVICE_PORT: process.env.TERMINAL_SERVICE_PORT ?? "4010",
     },
@@ -142,10 +150,12 @@ function resolveRepoRoot(): string {
 }
 
 function resolveTerminalScript(repoRoot: string): string | null {
+  // Production: pre-bundled CommonJS produced by scripts/build-terminal-service.cjs,
+  // staged into resources/app/scripts/ by the electron-builder afterPack hook.
+  // Dev: tsx runs the .ts source directly.
   const candidates = app.isPackaged
     ? [
-        // Production: pre-compiled JS (requires build-step; TODO).
-        path.join(repoRoot, "scripts", "terminal-service.js"),
+        path.join(repoRoot, "scripts", "terminal-service.cjs"),
         path.join(repoRoot, "scripts", "terminal-service.ts"),
       ]
     : [
@@ -162,8 +172,8 @@ function buildCommand(
   scriptPath: string,
   repoRoot: string,
 ): { command: string | null; args: string[] } {
-  // Production: pre-compiled JS runs under Electron-as-Node.
-  if (scriptPath.endsWith(".js")) {
+  // Production: pre-bundled CJS runs under Electron-as-Node.
+  if (scriptPath.endsWith(".cjs") || scriptPath.endsWith(".js")) {
     return {
       command: process.execPath,
       args: [scriptPath],

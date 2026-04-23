@@ -64,7 +64,12 @@ module.exports = async function afterPack(context) {
   // Linux uses Python helpers (require python3 + dbus-python + pyatspi on host).
   // macOS uses the compiled Swift helper (self-contained).
   const platformName = context.packager.platform.name;
-  const scriptFiles = [];
+  const scriptFiles = [
+    // Terminal-service bundle produced by scripts/build-terminal-service.cjs.
+    // Always shipped — the wrapper in electron/services/terminal-service.ts
+    // resolves this file first in packaged builds.
+    "terminal-service.cjs",
+  ];
   if (platformName === "linux") {
     scriptFiles.push("atspi-helper.py", "remote-desktop.py", "wl-activate.py", "screencast-capture.py");
   } else if (platformName === "mac") {
@@ -83,14 +88,32 @@ module.exports = async function afterPack(context) {
         /* best effort */
       }
       console.log(`[after-pack] copied helper ${name}`);
-    } else if (platformName === "mac") {
+    } else if (platformName === "mac" && name === "macos-ax-helper.bin") {
       throw new Error(
         `[after-pack] macOS helper binary missing: ${src}\n` +
         `Build it first with: bun run electron:macos-helper`
       );
+    } else if (name === "terminal-service.cjs") {
+      throw new Error(
+        `[after-pack] terminal-service bundle missing: ${src}\n` +
+        `Build it first with: node scripts/build-terminal-service.cjs`
+      );
     } else {
       console.warn(`[after-pack] helper missing at ${src}`);
     }
+  }
+
+  // node-pty full tree beside terminal-service.cjs so require('node-pty')
+  // resolves from scripts/node_modules/. We externalize node-pty in the
+  // bundle because .node binaries can't be bundled — this copies the JS
+  // loader + the platform-specific prebuilds.
+  const ptySrc = path.join(ROOT, "node_modules", "node-pty");
+  const ptyDst = path.join(resourcesApp, "scripts", "node_modules", "node-pty");
+  if (fs.existsSync(ptySrc)) {
+    const ptyCount = copyDir(ptySrc, ptyDst);
+    console.log(`[after-pack] copied node-pty tree (${ptyCount} files) -> scripts/node_modules/node-pty`);
+  } else {
+    throw new Error(`[after-pack] node-pty not found at ${ptySrc} — run \`bun install\` first`);
   }
 
   let total = 0;

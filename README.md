@@ -1,197 +1,184 @@
-# control-deck
+<h1 align="center">⬢ Control Deck</h1>
 
-A Next.js 16 control surface for local + hosted AI workflows — chat, dojo, tool runs, live music, agent-go, etc. Runs on Bun.
+<p align="center">
+  <b>One cockpit for every surface your agent needs to touch.</b><br>
+  Chat, code, terminal, browser, native apps, live music, vision — behind a single UI.
+</p>
 
-## Setup
+---
+
+**Control Deck** is a local-first AI cockpit. It runs your models (Ollama,
+llama.cpp, vLLM, LM Studio, or any OpenAI-compatible endpoint) and your
+cloud keys behind one router, then gives agents typed tools to drive your
+whole machine — browser tabs, terminals, native windows, media pipelines.
+
+Think: **Warp terminal + Linear's keyboard speed + an agent runtime**, with
+the lid off.
+
+> ⚠️ Every tool call goes through an approval gate. Your agent never runs
+> code, opens a window, or touches a file without you seeing the diff.
+
+## What it does
+
+- 💬 **Chat with any model** — switch between local and cloud mid-thread,
+  no context loss.
+- 🛠️ **Run real tools** — code exec, file ops, web search, image gen,
+  vector search, ComfyUI workflows. All typed, all auditable.
+- 🖥️ **Drive your computer** — on Linux and macOS, agents can locate,
+  click, type, and screen-grab through native accessibility APIs.
+- 🌐 **Browse with themed Chromium windows** — agents open tabs as
+  first-class CDP targets you can inspect live.
+- 🎧 **Live-music rig built in** — Tone.js transport, mixer, FX chains on
+  the same surface as chat.
+- ⚡ **One keystroke away** — command palette (`Cmd/Ctrl+K`) reaches every
+  pane, every tool, every setting.
+
+## Quick start
 
 ```bash
 bun install
-```
-
-Create a local env file before running the full deck:
-
-```bash
 cp .env.example .env.local
+bun run dev                        # http://localhost:3333
 ```
 
-## Run
+Point it at local Ollama:
+
+```env
+LLM_PROVIDER=ollama
+LLM_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=qwen2.5:7b
+```
+
+Or drop in any cloud key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, …) and pick a model from the UI.
+
+## Desktop app
 
 ```bash
-bun run dev
+bun run electron:dev               # run locally
+bun run electron:pack              # Linux AppImage (~180 MB)
 ```
 
-Dev server: <http://localhost:3333>.
+The desktop build adds the native-OS adapters, themed browser windows, and
+an opt-in CDP port for
+[browser-harness](../ai_tools/browser-harness).
 
-Other scripts:
+---
 
-| Command | What it does |
-|---|---|
-| `bun run dev` | Next dev server on :3333 |
-| `bun run build` | Next production build |
-| `bun run start` | Next production server on :3333 |
-| `bun run lint` | ESLint (next lint) |
-| `bun run terminal-service` | Standalone PTY terminal service (see `scripts/terminal-service.ts`) |
+## Under the hood
 
-## Environment
+For devs peeking at the engine bay. This isn't a wrapper over someone
+else's SDK — most of the interesting parts are built.
 
-Copy / create `.env.local` at the repo root. `.env.example` includes the
-recommended local-first defaults. Notable variables:
+### Typed tool runtime
 
-- `DECK_TOKEN` — bearer token required on every `/api/*` request (see `middleware.ts`). **If this is unset or empty, API auth is disabled** and the deck is fully open (file upload, code exec, search proxy, etc. all exposed). Set it for any non-local deployment.
-- Local services: `AGENTGO_URL`, `AGENTGO_HEALTH_URL`, `OLLAMA_URL`, `TERMINAL_SERVICE_URL`, `SEARXNG_URL`.
-- Provider API keys (set the ones you use): `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `HUGGINGFACE_API_KEY`.
-- Primary model slot: `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`.
-- Optional extra slots for routing by task: `LLM_FAST_*`, `LLM_VISION_*`, `LLM_EMBEDDING_*`.
-- OpenAI-compatible local endpoints are configured through `LLM_BASE_URL` or the slot-specific `*_BASE_URL` vars. Typical defaults are Ollama `http://localhost:11434/v1`, llama.cpp server `http://localhost:8080/v1`, vLLM `http://localhost:8000/v1`, and LM Studio `http://localhost:1234/v1`.
+Every tool is a **Zod schema → executor switch → bridge registration**.
+`lib/tools/definitions.ts` is the single source of truth; `executor.ts`
+dispatches; `app/api/tools/bridge/route.ts` exposes an allowlist to the
+Agent-GO runtime. Adding a tool is a ~20-line change and the chat UI
+picks it up automatically — type-safe from model to click-through.
 
-For a local-first setup, use:
+Interrupts, approvals, and diffs are not bolted on. The same executor
+emits `pending → approved | rejected → running → done` events that the
+chat rail renders inline. You can pause a run, edit a generated file,
+approve, and the tool resumes against the edited artifact.
 
-- `LLM_PROVIDER=ollama`
-- `LLM_BASE_URL=http://localhost:11434/v1`
-- `LLM_MODEL=qwen2.5:7b`
+### Embedded Next in Electron
 
-For a cloud or gateway-backed setup, switch `LLM_PROVIDER` to the provider you
-want and set its matching API key. If you use a unified gateway, point
-`LLM_BASE_URL` at that gateway and keep the deck on a single provider entry.
+`electron/main.ts` picks a free port, spawns Next's **standalone server**
+(`output: "standalone"`) via `ELECTRON_RUN_AS_NODE=1`, waits for
+readiness, then loads the URL in a `BrowserWindow`. No dev/prod fork,
+no static export, no bundler surprises — the exact same code that ships
+to the web ships to the desktop.
 
-## Package manager
+Native deps (`better-sqlite3`, `node-pty`, `onnxruntime-node`) are
+rebuilt against the Electron ABI via `@electron/rebuild` and copied into
+the standalone output by `scripts/copy-native-binaries.cjs`.
 
-This project standardizes on **bun** (lockfile: `bun.lock`). `package-lock.json`, `yarn.lock`, and `pnpm-lock.yaml` are gitignored — don't add them.
+### Native OS adapters
 
-## Full-stack helper
+Three thin, per-OS adapters behind one `NativeAdapter` interface:
 
-`start-full-stack.sh` boots the Next app alongside the auxiliary services (AGUI backend, Comfy, etc.). Read the script before running — it assumes a specific local layout.
+| OS | Backend | Status |
+|---|---|---|
+| Linux | AT-SPI via `pyatspi` + xdg-desktop-portal (ScreenCast, RemoteDesktop) | primary target |
+| macOS | `AXUIElement` + `CGEvent` via a compiled Swift helper | working |
+| Windows | UIA | stubbed with a clear error |
 
-## Desktop app (Electron)
+Linux screen grabs are **silent after the first portal accept** — a
+Python helper persists the portal's `restore_token` under
+`app.getPath("userData")` so subsequent grabs skip the dialog and return
+a PNG in ~250 ms. See
+[`docs/native-adapter/SKILL.md`](./docs/native-adapter/SKILL.md) for the
+full per-tool coverage matrix and known failures.
 
-Control Deck ships as a cross-platform Electron app that wraps the same Next.js surface plus native OS adapters (AT-SPI / AX / UIA) so one cockpit drives web + terminal + native apps.
+### Themed browser windows with CDP
 
-### Dev
+`electron/services/themed-browser.ts` composes a `BaseWindow` with two
+`WebContentsView`s — a themed header (back/forward/reload/URL/close) and
+a full-bleed page view. Each page view is a **first-class CDP target**.
+Flip on `CONTROL_DECK_DEVTOOLS_PORT=9223` and `browser-harness` attaches
+to the deck's own windows as if they were regular Chromium tabs:
 
 ```bash
-bun run dev          # terminal 1 — Next server on :3333
-bun run electron:dev # terminal 2 — Electron window loading localhost:3333
-```
-
-### Package (Linux AppImage)
-
-```bash
-bun run electron:pack
-```
-
-This runs `next build` (with `output: "standalone"`), copies prebuilt native `.node` binaries into the standalone output via `scripts/copy-native-binaries.cjs`, compiles the Electron main/preload into `.electron-dist/`, then invokes `electron-builder` using `electron-builder.yml`. Artifact lands at `dist-electron/Control Deck-<version>.AppImage` (~180 MB compressed, ~480 MB unpacked).
-
-The Linux build ships CPU-only ONNX runtime by default. To include the CUDA / TensorRT providers (adds ~370 MB), run `INCLUDE_GPU_PROVIDERS=1 bun run electron:pack`.
-
-macOS and Windows targets are pre-configured in `electron-builder.yml` but not yet smoke-tested — signing requires certificates (Apple Developer for macOS; Azure Trusted Signing recommended for Windows).
-
-### Architecture
-
-- `electron/main.ts` — main process. Picks a free port, spawns the Next standalone server via `ELECTRON_RUN_AS_NODE=1`, waits for readiness, loads the URL in a `BrowserWindow`.
-- `electron/preload.ts` — minimal `window.deck` surface (platform info + IPC invoke).
-- `scripts/electron-after-pack.cjs` — copies `.next/standalone` + `.next/static` + `public/` into the packaged `resources/app/` (works around electron-builder's node_modules stripping in extraResources).
-- `components/preflight/PreflightGate.tsx` — boot-time preflight probe that surfaces Agent-GO / Ollama / SearXNG / terminal-service status and shows install hints for missing services.
-- `lib/tools/native/` — native-surface adapters. Linux (`linux-atspi.ts` + `scripts/atspi-helper.py` for AT-SPI; `scripts/remote-desktop.py` daemon for portal key/type/click_pixel) and macOS (`macos-ax.ts` + compiled `scripts/macos-ax-helper.bin` using AXUIElement + CGEvent) are live. Windows (UIA) is stubbed with a clear error message. `input-common.ts` is a latent `@nut-tree/nut-js` fallback — the live adapters bypass it.
-
-### Data dirs
-
-In packaged builds, the SQLite DB path resolves via:
-
-1. `DECK_DB_PATH` env var (if set)
-2. `${CONTROL_DECK_USER_DATA}/data/deck.db` (set by Electron main from `app.getPath("userData")`)
-3. `${XDG_STATE_HOME:-$HOME/.local/state}/control-deck/data/deck.db`
-
-Running from source still uses `./data/deck.db` if that directory exists.
-
-### Themed browser windows
-
-Any external link opened from inside the deck — chat links, tool dashboards,
-plugin tickers, `window.open`, `<a target="_blank">`, or a deliberate
-`window.deck.browser.open(url)` call — spawns a themed Chromium window instead
-of handing the URL to the OS default browser.
-
-Each themed window is a standalone OS window with Control Deck's dark palette:
-a 40px header (back, forward, reload/stop, URL input, close) sitting above a
-full-bleed web view. The header route is `/browser`; the web view is a plain
-`WebContentsView` loading the target URL.
-
-**Programmatic API** (exposed via preload as `window.deck.browser`):
-
-```ts
-// Open a new themed window
-await window.deck.browser.open("https://example.com");
-
-// Drive the active window from inside its header
-await window.deck.browser.navigate("https://other.example");
-await window.deck.browser.back();
-await window.deck.browser.forward();
-await window.deck.browser.reload();
-await window.deck.browser.stop();
-await window.deck.browser.close();
-
-// Subscribe to nav state (only meaningful inside the /browser header route)
-const unsubscribe = window.deck.browser.onState((state) => {
-  console.log(state.url, state.title, state.loading);
-});
-```
-
-The implementation lives in `electron/services/themed-browser.ts`
-(`BaseWindow` + two `WebContentsView`s, header/page split, IPC routing keyed by
-the header's `webContents.id`). The page view is a first-class CDP target, so
-once the devtools port is enabled it attaches just like a regular tab.
-
-### Browser automation (browser-harness)
-
-Control Deck exposes a CDP endpoint on demand so
-[browser-harness](../ai_tools/browser-harness) and similar tools can drive the
-main deck window **and** any themed browser window as ordinary Chromium tabs.
-
-The devtools port is **opt-in** — off by default in both dev and packaged
-builds, on only when `CONTROL_DECK_DEVTOOLS_PORT` is set.
-
-```bash
-# Launch the deck with CDP on (dev)
 CONTROL_DECK_DEVTOOLS_PORT=9223 bun run electron:dev
-
-# In another terminal — attach the harness to whatever's listening there
 ./scripts/attach-harness.sh <<'PY'
-# page_info, screenshot, click, js, etc. are pre-imported
 print(page_info())
 screenshot("/tmp/deck.png")
 PY
 ```
 
-`scripts/attach-harness.sh` reads `http://127.0.0.1:<port>/json/version`,
-extracts the `webSocketDebuggerUrl`, then execs `browser-harness` with
-`BU_CDP_WS` and `BU_NAME=control-deck` set. Any arguments you pass to the
-script are forwarded to `browser-harness` unchanged.
+You get full CDP — `Input.dispatchMouseEvent`, `Network.enable`,
+`Page.captureScreenshot` — across the deck, its tool dashboards, any
+opened link. Agents can drive UI flows the same way a human does.
 
-**Attaching to a specific themed browser window** instead of whatever the
-harness picks first:
+### Multi-provider model router
 
-```python
-targets = cdp("Target.getTargets")["targetInfos"]
-for t in targets:
-    print(t["targetId"], t["url"])
-# Then `set_target(targetId)` or drive via its session.
-```
+One `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL` trio picks the default
+slot. `LLM_FAST_*`, `LLM_VISION_*`, `LLM_EMBEDDING_*` override by task
+so the router can send a cheap model to a classify call and a smart
+model to a plan call in the same run. Provider clients live in
+`lib/llm/`; OpenAI-compatible endpoints (llama.cpp `/v1`, vLLM `/v1`,
+LM Studio `/v1`, OpenRouter, Groq, DeepSeek…) plug in through the
+`LLM_BASE_URL` knob with no code change.
 
-**Caveats**
+### Stack
 
-- The harness's `new_tab(url)` calls `Target.createTarget`, which in Electron
-  creates a page but no visible `BrowserWindow`. To open a **visible** themed
-  window from the harness, evaluate `window.deck.browser.open(url)` on the main
-  deck page via `js(...)` instead, then re-list targets.
-- Driving `window.deck.browser.close()` via `js(..., target_id=<header>)` will
-  raise a `JSONDecodeError` inside the harness — the header target destroys
-  itself before it can flush the CDP response. The Electron side still closes
-  cleanly; it's purely a harness-side read artifact. Real users clicking the
-  header's X button never see this. If you need to close a themed window from
-  the harness, evaluate on the main deck target (once a `closeById` surface
-  lands) or drive the X button with a coordinate click.
-- The port is sticky across the whole Electron app — exposing it in production
-  means any local process can drive the deck. Don't set
-  `CONTROL_DECK_DEVTOOLS_PORT` in packaged builds you ship to users.
-- `remote-allow-origins=*` is set alongside the port so the harness's
-  WebSocket handshake isn't rejected. Combined with the "dev-only" posture,
-  this is fine — do not flip it on in production.
+- **Next.js 16** + **React 19** (App Router, RSC, streaming) on **Bun**
+- **better-sqlite3** for threads, messages, runs, plugin state
+- **onnxruntime-node** for local embeddings (CPU default, CUDA/TensorRT
+  opt-in at package time via `INCLUDE_GPU_PROVIDERS=1`)
+- **node-pty** for real shells in the terminal pane
+- **Tone.js** for the live-music engine
+- **ComfyUI** bridge for image/video workflows
+- **SearXNG** for search (self-hosted, no API key)
+- **Zod 4** everywhere a boundary crosses
+- **Tailwind 4** with a custom Warp-inspired palette
+
+### Security posture
+
+- `DECK_TOKEN` gates every `/api/*` call in `middleware.ts`. Unset =
+  open deck; set = bearer-required.
+- Tool approval is centralized — not per-tool, not per-adapter. One gate
+  means one audit surface.
+- Code exec runs through a sandbox (`lib/tools/code-exec/sandbox/`) with
+  a Linux-namespace path on Linux and a best-effort fallback elsewhere.
+- CDP port is **opt-in** and never flipped on by default in packaged
+  builds. `remote-allow-origins=*` only applies when the port is up.
+
+---
+
+## Docs
+
+- [`BEHAVIOR.md`](./BEHAVIOR.md) — UI invariants and keyboard contracts
+- [`DESIGN.md`](./DESIGN.md) — visual language and pane system
+- [`SURFACE.md`](./SURFACE.md) — tool and plugin API surface
+- [`docs/native-adapter/SKILL.md`](./docs/native-adapter/SKILL.md) —
+  native tool coverage matrix
+
+## Status
+
+Linux is the daily-driver target. macOS works. Windows runs the web
+surface; the native adapter is stubbed. This is a working control layer,
+not a polished product — expect opinionated defaults and the occasional
+sharp edge. PRs welcome.

@@ -20,11 +20,14 @@ under /tmp so repeated locate->click calls within a session stay valid.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import tempfile
 import time
 from typing import Any
+
+log = logging.getLogger("atspi-helper")
 
 CACHE_PATH = os.path.join(tempfile.gettempdir(), f"control-deck-atspi-{os.getuid()}.json")
 CACHE_TTL_SECONDS = 60
@@ -37,7 +40,8 @@ def _read_cache() -> dict[str, Any]:
         if time.time() - raw.get("ts", 0) > CACHE_TTL_SECONDS:
             return {"ts": time.time(), "entries": {}}
         return raw
-    except Exception:
+    except Exception as exc:
+        log.debug("reading cache %s: %s", CACHE_PATH, exc)
         return {"ts": time.time(), "entries": {}}
 
 
@@ -45,8 +49,8 @@ def _write_cache(cache: dict[str, Any]) -> None:
     try:
         with open(CACHE_PATH, "w") as fh:
             json.dump(cache, fh)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("writing cache %s: %s", CACHE_PATH, exc)
 
 
 def _import_pyatspi():
@@ -69,7 +73,8 @@ def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
     try:
         app = node.getApplication()
         app_name = app.name if app else ""
-    except Exception:
+    except Exception as exc:
+        log.debug("_node_handle getApplication: %s", exc)
         app_name = ""
 
     indices: list[str] = []
@@ -77,7 +82,8 @@ def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
     while cursor is not None:
         try:
             parent = cursor.parent
-        except Exception:
+        except Exception as exc:
+            log.debug("_node_handle cursor.parent: %s", exc)
             parent = None
         if parent is None:
             # Reached the application root.
@@ -85,7 +91,8 @@ def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
             break
         try:
             idx = cursor.getIndexInParent()
-        except Exception:
+        except Exception as exc:
+            log.debug("_node_handle getIndexInParent: %s", exc)
             idx = -1
         indices.append(str(idx))
         cursor = parent
@@ -114,9 +121,11 @@ def _walk(root, max_nodes: int = 2000):
             for i in range(node.childCount):
                 try:
                     queue.append(node.getChildAtIndex(i))
-                except Exception:
+                except Exception as exc:
+                    log.debug("_walk getChildAtIndex(%d): %s", i, exc)
                     continue
-        except Exception:
+        except Exception as exc:
+            log.debug("_walk childCount on node: %s", exc)
             continue
 
 
@@ -129,14 +138,16 @@ def _match(node, query: dict[str, Any]) -> bool:
         try:
             if role.lower() not in node.getRoleName().lower():
                 return False
-        except Exception:
+        except Exception as exc:
+            log.debug("_match getRoleName: %s", exc)
             return False
 
     if name:
         try:
             if name.lower() not in (node.name or "").lower():
                 return False
-        except Exception:
+        except Exception as exc:
+            log.debug("_match node.name: %s", exc)
             return False
 
     if app:
@@ -144,7 +155,8 @@ def _match(node, query: dict[str, Any]) -> bool:
             a = node.getApplication()
             if not a or app.lower() not in (a.name or "").lower():
                 return False
-        except Exception:
+        except Exception as exc:
+            log.debug("_match getApplication: %s", exc)
             return False
 
     return True
@@ -227,7 +239,8 @@ def _resolve_handle(handle: dict[str, Any]):
                 break
             try:
                 count = cursor.childCount
-            except Exception:
+            except Exception as exc:
+                log.debug("_resolve_handle childCount at seg %r: %s", seg, exc)
                 cursor = None
                 break
             if idx < 0 or idx >= count:
@@ -235,7 +248,8 @@ def _resolve_handle(handle: dict[str, Any]):
                 break
             try:
                 cursor = cursor.getChildAtIndex(idx)
-            except Exception:
+            except Exception as exc:
+                log.debug("_resolve_handle getChildAtIndex(%d): %s", idx, exc)
                 cursor = None
                 break
         if cursor is not None:
@@ -283,24 +297,25 @@ def op_click(handle: dict[str, Any]) -> dict[str, Any]:
             try:
                 action.doAction(preferred)
                 return {"ok": True, "data": {"method": "action", "name": action.getName(preferred)}}
-            except Exception:
-                pass  # fall through to focus/mouse fallbacks
-    except Exception:
-        pass
+            except Exception as exc:
+                log.warning("op_click doAction(%d): %s", preferred, exc)
+                # fall through to focus/mouse fallbacks
+    except Exception as exc:
+        log.debug("op_click queryAction: %s", exc)
 
     # 2. grabFocus + synthetic Enter
     focus_ok = False
     try:
         comp = node.queryComponent()
         focus_ok = bool(comp.grabFocus())
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("op_click grabFocus: %s", exc)
     if focus_ok:
         try:
             pyatspi.Registry.generateKeyboardEvent(36, None, pyatspi.KEY_PRESSRELEASE)  # keycode 36 = Return
             return {"ok": True, "data": {"method": "focus+enter"}}
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("op_click generateKeyboardEvent (Enter): %s", exc)
 
     # 3. Synthetic mouse click at component center (compositor-level)
     try:
@@ -391,8 +406,8 @@ def op_key(spec: str) -> dict[str, Any]:
         for mod in reversed(modifiers):
             try:
                 pyatspi.Registry.generateKeyboardEvent(mod, None, pyatspi.KEY_RELEASE)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("releasing modifier keysym 0x%x during key teardown: %s", mod, exc)
         return {"ok": False, "error": f"key: {e}"}
 
 
@@ -438,10 +453,11 @@ def op_type(handle: dict[str, Any] | None, text: str) -> dict[str, Any]:
             editable = node.queryEditableText()
             editable.insertText(editable.caretOffset, text, len(text))
             return {"ok": True, "data": {"method": "editable_text"}}
-        except Exception:
+        except Exception as exc:
             # EditableText not supported (common on Qt search bars). Fall
             # through to KEY_STRING — whatever the user has focused on-screen
             # receives the characters.
+            log.debug("op_type queryEditableText (falling back to key_string): %s", exc)
             return _key_string(text)
     return _key_string(text)
 
@@ -466,8 +482,8 @@ def op_tree(handle: dict[str, Any] | None) -> dict[str, Any]:
                 try:
                     for i in range(min(node.childCount, 40)):
                         children.append(build(node.getChildAtIndex(i), depth + 1))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("op_tree build children at depth %d: %s", depth, exc)
             return {"handle": h, "children": children}
 
         result = build(root)

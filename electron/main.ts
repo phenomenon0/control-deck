@@ -411,7 +411,7 @@ async function createWindow(): Promise<void> {
       preload,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       webSecurity: true,
     },
   });

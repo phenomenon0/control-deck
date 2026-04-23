@@ -162,7 +162,7 @@ export function registerThemedBrowser(config: {
         preload: config.preload,
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
+        sandbox: true,
       },
     });
 
@@ -170,7 +170,7 @@ export function registerThemedBrowser(config: {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
+        sandbox: true,
         webSecurity: true,
       },
     });

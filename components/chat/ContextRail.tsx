@@ -4,6 +4,8 @@ import { Icon } from "@/components/warp/Icons";
 import { useChatInspectorData } from "@/lib/hooks/useChatInspector";
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useSystemStats } from "@/lib/hooks/useSystemStats";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
 import type { Artifact, ToolCallData } from "@/lib/types/chat";
 import { openArtifactInCanvas } from "@/lib/canvas";
 
@@ -35,8 +37,12 @@ function toolStatusLabel(tool: ToolCallData): string {
 
 export function ContextRail() {
   const { model, route, isLoading, toolCalls, artifacts } = useChatInspectorData();
+  const { prefs, setSettingsOpen } = useDeckSettings();
   const routeLabel =
     route === "free" ? "free-tier route" : route === "cloud" ? "cloud route" : "local route";
+  const trimmedPrompt = prefs.systemPrompt.trim();
+  const promptState: "default" | "custom" | "off" =
+    !trimmedPrompt ? "off" : trimmedPrompt === DEFAULT_SYSTEM_PROMPT.trim() ? "default" : "custom";
   const { activeThreadId, threads, messages } = useThreadManager();
   const { stats } = useSystemStats();
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
@@ -96,6 +102,30 @@ export function ContextRail() {
               <span>{routeLabel}</span>
             </div>
           </div>
+          <button
+            type="button"
+            className={`ctx-row ctx-row-button ctx-prompt-${promptState}`}
+            onClick={() => setSettingsOpen(true)}
+            title={
+              promptState === "off"
+                ? "No system prompt active — click to edit in Settings"
+                : promptState === "custom"
+                  ? "Custom system prompt — click to edit"
+                  : "Default system prompt (language + brevity anchor) — click to customize"
+            }
+          >
+            <Icon.Settings size={14} sw={1.2} />
+            <div>
+              <strong>System prompt</strong>
+              <span>
+                {promptState === "off"
+                  ? "off — models using their own defaults"
+                  : promptState === "custom"
+                    ? `custom · ${trimmedPrompt.length} chars`
+                    : "default · English + brevity anchor"}
+              </span>
+            </div>
+          </button>
           {gpu && (
             <div className="ctx-row">
               <Icon.Grid size={14} sw={1.2} />

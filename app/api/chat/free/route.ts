@@ -31,6 +31,7 @@ import {
   updateRunPreview,
 } from "@/lib/agui/db";
 import { freeTierRouter, type Pick, type FreeTierModel } from "@/lib/llm/freeTier";
+import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
 
 interface ProviderCall {
   url: string;
@@ -81,6 +82,8 @@ interface FreeChatBody {
    * roulette walk naturally rather than re-pinning the failed choice.
    */
   preferredModel?: string;
+  /** User-editable system prompt. Augmented per-model before use. */
+  systemPrompt?: string;
 }
 
 interface OpenRouterChunk {
@@ -103,7 +106,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const { messages, threadId, needsMultimodal, preferredModel } = body;
+  const { messages, threadId, needsMultimodal, preferredModel, systemPrompt } = body;
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages array required" }, { status: 400 });
   }
@@ -214,12 +217,17 @@ export async function POST(req: Request) {
 
         freeTierRouter.record(pick.model.id);
 
+        // Per-pick augmentation — free-tier mid-request switches mean
+        // the model family can change, so the language anchor must be
+        // recomputed for the model we're *actually* about to hit.
+        const augmentedSystem = augmentForModel(systemPrompt ?? "", pick.model.id);
+        const finalMessages = withSystemPrompt(messages, augmentedSystem);
         const res = await fetch(call.url, {
           method: "POST",
           headers: call.headers,
           body: JSON.stringify({
             model: pick.model.id,
-            messages: messages.map((m) => ({ role: m.role, content: m.content })),
+            messages: finalMessages.map((m) => ({ role: m.role, content: m.content })),
             stream: true,
           }),
           signal: req.signal,

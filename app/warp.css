@@ -8430,3 +8430,19 @@ textarea.input:focus {
   color: var(--fg);
   background: var(--bg-elev);
 }
+
+/* --- Rail: system-prompt state chip ---------------------------------- */
+.ctx-row-button {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.ctx-row-button:hover strong { color: var(--fg); }
+.ctx-prompt-off span { color: #c08800; }
+.ctx-prompt-custom span { color: var(--accent, #6ab0ff); }

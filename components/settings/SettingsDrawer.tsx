@@ -9,6 +9,7 @@ import {
   type VoiceMode,
   type ChatSurface,
 } from "./DeckSettingsProvider";
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
 import {
   useWarp,
   type Accent,
@@ -387,6 +388,77 @@ export function SettingsDrawer() {
                   />
                 )}
               </SettingRow>
+
+              {/* System Prompt */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                  padding: "12px 0 0 0",
+                  borderTop: "1px solid var(--border)",
+                  marginTop: 6,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <label
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "var(--text-primary)",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    System Prompt
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => updatePrefs({ systemPrompt: DEFAULT_SYSTEM_PROMPT })}
+                    disabled={prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT}
+                    style={{
+                      fontSize: 10,
+                      letterSpacing: 0.12,
+                      textTransform: "uppercase",
+                      padding: "2px 10px",
+                      borderRadius: 999,
+                      border: "1px solid var(--border)",
+                      background: "transparent",
+                      color: prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT ? "var(--text-muted)" : "var(--text-secondary)",
+                      cursor: prefs.systemPrompt === DEFAULT_SYSTEM_PROMPT ? "default" : "pointer",
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+                <textarea
+                  value={prefs.systemPrompt}
+                  onChange={(e) => updatePrefs({ systemPrompt: e.target.value })}
+                  rows={6}
+                  placeholder="Leave blank to send no system prompt. Default anchors English + brevity + tool use."
+                  spellCheck={false}
+                  style={{
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border)",
+                    backgroundColor: "var(--bg-secondary)",
+                    color: "var(--text-primary)",
+                    outline: "none",
+                    width: "100%",
+                    resize: "vertical",
+                    fontFamily: "var(--font-mono, monospace)",
+                  }}
+                />
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-muted)" }}>
+                  <span>
+                    Prepended to every chat turn. Model-family adjustments (e.g. language anchor for Nemotron/Qwen) are layered on automatically.
+                  </span>
+                  <span style={{ fontVariantNumeric: "tabular-nums", paddingLeft: 12, whiteSpace: "nowrap" }}>
+                    {prefs.systemPrompt.length} chars
+                  </span>
+                </div>
+              </div>
             </div>
           </section>
 

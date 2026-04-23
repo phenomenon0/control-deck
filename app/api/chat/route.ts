@@ -28,6 +28,7 @@ import {
   type AGUIEvent,
 } from "@/lib/agui/events";
 import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
+import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
 import {
   createRun,
   finishRun,
@@ -54,6 +55,8 @@ interface ChatRequestBody {
   model?: string;
   threadId?: string;
   uploadIds?: string[];
+  /** User-editable system prompt. Augmented per-model in each route. */
+  systemPrompt?: string;
 }
 
 interface AgentGOMessage {
@@ -312,7 +315,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const { messages, model, threadId, uploadIds } = body;
+  const { messages, model, threadId, uploadIds, systemPrompt } = body;
 
   // Validate messages array
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -391,6 +394,7 @@ export async function POST(req: Request) {
         // Raw user intent, not the resolved selectedModel — we want the
         // string the user actually clicked, not any server-side fallback.
         preferredModel: model,
+        systemPrompt,
       }),
       signal: req.signal,
     });
@@ -406,7 +410,7 @@ export async function POST(req: Request) {
     const fallbackReq = new Request(new URL("/api/chat/simple", req.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, model: selectedModel, threadId: thread }),
+      body: JSON.stringify({ messages, model: selectedModel, threadId: thread, systemPrompt }),
       signal: req.signal,
     });
     return simplePost(fallbackReq);
@@ -436,7 +440,7 @@ export async function POST(req: Request) {
 
   // Prepare Agent-GO request — strip fake patterns from assistant messages
   // to prevent the LLM from learning to fake tool calls (SURFACE.md §4.3)
-  const agentMessages: AgentGOMessage[] = messages
+  const agentMessagesRaw: AgentGOMessage[] = messages
     .map(m => {
       const rawContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
       const content = m.role === "assistant" ? stripForLLMHistory(rawContent) : rawContent;
@@ -446,6 +450,14 @@ export async function POST(req: Request) {
       };
     })
     .filter(m => m.content.trim().length > 0);
+
+  // Prepend the user's system prompt (augmented for the target model)
+  // so Agent-GO forwards it to the LLM as the first message. Agent-GO's
+  // own baked-in prompt still runs — these two stack.
+  const agentMessages: AgentGOMessage[] = withSystemPrompt(
+    agentMessagesRaw,
+    augmentForModel(systemPrompt ?? "", selectedModel),
+  );
 
   const agentRequest: AgentGOStartRunRequest = {
     messages: agentMessages,

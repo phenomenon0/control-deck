@@ -514,6 +514,7 @@ export interface UseAgentRunReturn {
       model: string;
       uploadIds?: string[];
       routeMode?: "local" | "free";
+      systemPrompt?: string;
     }
   ) => Promise<SendResult>;
   /** Stop the current run */
@@ -561,6 +562,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         model: string;
         uploadIds?: string[];
         routeMode?: "local" | "free";
+        systemPrompt?: string;
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
@@ -592,6 +594,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             model: opts.model,
             threadId: opts.threadId,
             uploadIds: opts.uploadIds,
+            systemPrompt: opts.systemPrompt,
           }),
           signal: controller.signal,
         });

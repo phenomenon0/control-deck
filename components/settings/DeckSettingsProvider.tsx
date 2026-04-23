@@ -10,6 +10,7 @@ import React, {
   useCallback,
 } from "react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
+import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
 
 export type TTSEngine = "piper" | "xtts" | "chatterbox";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
@@ -43,6 +44,13 @@ export interface DeckPrefs {
   localModel: string;
   /** Remembered free-tier pick. Populated when routeMode flips away from "free". */
   remoteModel: string;
+  /**
+   * User-editable system prompt, prepended to every chat turn (server-
+   * side, after family-aware augmentation in lib/llm/systemPrompt.ts).
+   * Default anchors language + brevity + tool use so fresh installs
+   * aren't at the mercy of each model's training defaults.
+   */
+  systemPrompt: string;
   reduceMotion: boolean;
   chatContextRail: boolean;
   chatSurface: ChatSurface;
@@ -90,6 +98,7 @@ const DEFAULT_PREFS: DeckPrefs = {
   routeMode: "local",
   localModel: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
   remoteModel: "",
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reduceMotion: false,
   chatContextRail: false,
   chatSurface: "safe",

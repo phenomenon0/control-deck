@@ -31,11 +31,13 @@ import {
   updateRunPreview,
 } from "@/lib/agui/db";
 import { resolveProviderUrl } from "@/lib/hardware/settings";
+import { augmentForModel, withSystemPrompt } from "@/lib/llm/systemPrompt";
 
 interface SimpleChatBody {
   messages?: Array<{ role: string; content: string }>;
   model?: string;
   threadId?: string;
+  systemPrompt?: string;
 }
 
 interface OllamaChunk {
@@ -117,12 +119,16 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const { messages, model, threadId } = body;
+  const { messages, model, threadId, systemPrompt } = body;
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages array required" }, { status: 400 });
   }
   const requested = model ?? process.env.OLLAMA_MODEL ?? "qwen3:8b";
   const selectedModel = await resolveInstalledModel(requested);
+  const finalMessages = withSystemPrompt(
+    messages,
+    augmentForModel(systemPrompt ?? "", selectedModel),
+  );
   const thread = threadId ?? generateId();
   const runId = generateId();
   const messageId = generateId();
@@ -178,7 +184,7 @@ export async function POST(req: Request) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: selectedModel,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          messages: finalMessages.map((m) => ({ role: m.role, content: m.content })),
           stream: true,
           keep_alive: "5m",
         }),

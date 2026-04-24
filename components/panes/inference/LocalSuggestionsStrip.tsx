@@ -12,7 +12,8 @@
  * candidate's ollamaTag — same endpoint ModelsPane uses for Ollama.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useModelPull } from "@/lib/hooks/useModelPull";
 
 type ModalityId =
   | "text"
@@ -84,8 +85,9 @@ export function LocalSuggestionsStrip({
 }) {
   const [suggestions, setSuggestions] = useState<LocalSuggestion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pulling, setPulling] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const { pull: startPull, abort: abortPull, progressFor } = useModelPull();
+  const seenDoneRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -111,27 +113,32 @@ export function LocalSuggestionsStrip({
   }, [load, refreshToken]);
 
   const pullModel = useCallback(
-    async (ollamaTag: string) => {
-      setPulling(ollamaTag);
+    (ollamaTag: string) => {
       setMsg(`Pulling ${ollamaTag}…`);
-      try {
-        const res = await fetch("/api/ollama/tags", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: ollamaTag }),
-        });
-        if (!res.ok) throw new Error(`${res.status}`);
-        setMsg(`Pulled ${ollamaTag}. Refreshing…`);
-        await load();
-      } catch (e) {
-        setMsg(`Pull failed: ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        setPulling(null);
-        setTimeout(() => setMsg(null), 4000);
-      }
+      void startPull(ollamaTag);
     },
-    [load],
+    [startPull],
   );
+
+  // When any candidate's pull transitions to "done", refresh the list so
+  // the card flips to "Installed" without a manual reload.
+  useEffect(() => {
+    for (const s of suggestions) {
+      const tag = s.candidate.ollamaTag;
+      if (!tag) continue;
+      const prog = progressFor(tag);
+      if (prog?.phase === "done" && !seenDoneRef.current.has(tag)) {
+        seenDoneRef.current.add(tag);
+        setMsg(`Pulled ${tag}. Refreshing…`);
+        void load();
+        setTimeout(() => setMsg(null), 4000);
+      } else if (prog?.phase === "error" && !seenDoneRef.current.has(`err:${tag}`)) {
+        seenDoneRef.current.add(`err:${tag}`);
+        setMsg(`Pull failed: ${prog.error ?? "unknown"}`);
+        setTimeout(() => setMsg(null), 5000);
+      }
+    }
+  }, [suggestions, progressFor, load]);
 
   if (loading && suggestions.length === 0) {
     return <div className="local-strip-loading">Probing your hardware…</div>;
@@ -194,31 +201,58 @@ export function LocalSuggestionsStrip({
               {s.installed ? (
                 <span className="local-card-installed-badge">Installed</span>
               ) : s.candidate.ollamaTag ? (
-                <button
-                  type="button"
-                  className="inference-action-btn"
-                  disabled={
-                    pulling === s.candidate.ollamaTag ||
-                    s.storage.status === "needs-cleanup" ||
-                    s.fit === "too-big"
+                (() => {
+                  const tag = s.candidate.ollamaTag!;
+                  const prog = progressFor(tag);
+                  const pulling = prog?.phase === "pulling" || prog?.phase === "queued";
+                  if (pulling && prog) {
+                    return (
+                      <div className="local-card-pull-progress">
+                        <div className="local-card-pull-bar">
+                          <div
+                            className="local-card-pull-bar-fill"
+                            style={{ width: `${Math.round(prog.overallPct)}%` }}
+                          />
+                        </div>
+                        <div className="local-card-pull-meta">
+                          <span>{Math.round(prog.overallPct)}%</span>
+                          <button
+                            type="button"
+                            className="local-card-pull-abort"
+                            onClick={() => abortPull(tag)}
+                            aria-label="Cancel pull"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    );
                   }
-                  onClick={() => void pullModel(s.candidate.ollamaTag!)}
-                  title={
-                    s.fit === "too-big"
-                      ? `Exceeds your VRAM budget — won't run on this machine`
-                      : s.storage.status === "needs-cleanup"
-                        ? `Free ${s.storage.shortfallGb} GB before pulling`
-                        : `ollama pull ${s.candidate.ollamaTag}`
-                  }
-                >
-                  {pulling === s.candidate.ollamaTag
-                    ? "Pulling…"
-                    : s.fit === "too-big"
-                      ? "Beyond this PC"
-                      : s.storage.status === "needs-cleanup"
-                        ? "Free space first"
-                        : "Pull"}
-                </button>
+                  return (
+                    <button
+                      type="button"
+                      className="inference-action-btn"
+                      disabled={
+                        s.storage.status === "needs-cleanup" ||
+                        s.fit === "too-big"
+                      }
+                      onClick={() => pullModel(tag)}
+                      title={
+                        s.fit === "too-big"
+                          ? `Exceeds your VRAM budget — won't run on this machine`
+                          : s.storage.status === "needs-cleanup"
+                            ? `Free ${(s.storage as Extract<StorageFit, { status: "needs-cleanup" }>).shortfallGb} GB before pulling`
+                            : `ollama pull ${tag}`
+                      }
+                    >
+                      {s.fit === "too-big"
+                        ? "Beyond this PC"
+                        : s.storage.status === "needs-cleanup"
+                          ? "Free space first"
+                          : "Pull"}
+                    </button>
+                  );
+                })()
               ) : s.installCommand ? (
                 <code className="local-card-cmd" title="Copy & run in a terminal">
                   {s.installCommand}

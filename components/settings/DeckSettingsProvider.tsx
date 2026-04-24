@@ -60,7 +60,15 @@ export interface DeckPrefs {
   chatContextRail: boolean;
   chatSurface: ChatSurface;
   voice: VoicePrefs;
+  /**
+   * Latency/quality trade-off preset for local models across every modality
+   * (text, vision, embeddings, STT, TTS). Drives the recommended defaults
+   * shown in LocalModelsPanel and consumed by the voice route resolver.
+   */
+  localModelPreset: LocalModelPreset;
 }
+
+export type LocalModelPreset = "quick" | "balanced" | "quality";
 
 interface DeckSettingsContextValue {
   prefs: DeckPrefs;
@@ -110,6 +118,7 @@ const DEFAULT_PREFS: DeckPrefs = {
   chatContextRail: false,
   chatSurface: "safe",
   voice: DEFAULT_VOICE_PREFS,
+  localModelPreset: "balanced",
 };
 
 const PREFS_KEY = "deck.prefs";

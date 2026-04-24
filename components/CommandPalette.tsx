@@ -80,7 +80,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: "nav-approvals", label: "Go to Approvals", action: () => router.push("/deck/control?tab=runs&view=approvals"), category: "Navigation" },
     // Navigation — Audio tabs
     { id: "nav-voice", label: "Go to Voice", action: () => router.push("/deck/audio"), category: "Navigation" },
-    { id: "nav-live", label: "Go to Live", action: () => router.push("/deck/audio?tab=live"), category: "Navigation" },
+    { id: "nav-studio", label: "Go to Voice Studio", action: () => router.push("/deck/audio?tab=studio"), category: "Navigation" },
+    { id: "nav-library", label: "Go to Voice Library", action: () => router.push("/deck/audio?tab=library"), category: "Navigation" },
     // Settings
     { id: "settings-open", label: "Open Settings", shortcut: "⌘,", action: () => setSettingsOpen(true), category: "Settings" },
     { id: "settings-inspector", label: "Toggle Sidebar", shortcut: "⌘I", action: () => setRailOpen(o => !o), category: "Settings" },

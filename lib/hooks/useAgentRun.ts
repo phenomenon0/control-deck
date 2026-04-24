@@ -1,4 +1,5 @@
 import { useReducer, useCallback, useRef } from "react";
+import type { LocalPreset } from "@/lib/inference/local-defaults";
 import type {
   AgentRunState,
   RunAction,
@@ -517,6 +518,7 @@ export interface UseAgentRunReturn {
       systemPrompt?: string;
       cloudProvider?: "anthropic" | "openai" | "google";
       cloudModel?: string;
+      preset?: LocalPreset;
     }
   ) => Promise<SendResult>;
   /** Stop the current run */
@@ -567,6 +569,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         systemPrompt?: string;
         cloudProvider?: "anthropic" | "openai" | "google";
         cloudModel?: string;
+        preset?: LocalPreset;
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
@@ -601,6 +604,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             systemPrompt: opts.systemPrompt,
             cloudProvider: opts.cloudProvider,
             cloudModel: opts.cloudModel,
+            preset: opts.preset,
           }),
           signal: controller.signal,
         });

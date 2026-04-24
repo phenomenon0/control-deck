@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import type { GpuStats } from "@/lib/hooks/useSystemStats";
 import type { LoadedOllamaModel } from "@/app/api/ollama/ps/route";
 import { canFit, estimateVramMb, fitLabel, type FitResult } from "@/lib/hardware/vram";
+import { useModelPull, type PullProgress } from "@/lib/hooks/useModelPull";
 import { bytes, relativeTime } from "../types";
 
 export interface InstalledModel {
@@ -17,35 +19,53 @@ export interface InstalledModel {
  * Models tab — unified view of what's in VRAM right now + everything
  * installed on disk (Ollama today; multi-provider when we extend listInstalled
  * merging). Inline fit badges tell you whether each will actually run.
+ *
+ * Pull operations route through the shared useModelPull store so progress
+ * surfaces identically in the RoutePicker Local tab and elsewhere.
+ * `onPull` remains as a refresh signal that fires once per completed pull.
  */
 export function ModelsTab({
   gpu,
   loaded,
   installed,
   onUnload,
-  onPull,
+  onPullComplete,
   onDelete,
 }: {
   gpu: GpuStats | null;
   loaded: LoadedOllamaModel[];
   installed: InstalledModel[];
   onUnload: (name: string) => void;
-  onPull: (name: string) => Promise<void>;
+  /** Fires once per completed pull so the parent can refresh installed list. */
+  onPullComplete: (name: string) => void | Promise<void>;
   onDelete: (name: string) => void;
 }) {
   const [pullName, setPullName] = useState("");
-  const [pulling, setPulling] = useState(false);
+  const { pull, abort, progress } = useModelPull();
+  const seenDoneRef = useRef<Set<string>>(new Set());
 
-  const submitPull = async () => {
-    if (!pullName.trim()) return;
-    setPulling(true);
-    try {
-      await onPull(pullName.trim());
-      setPullName("");
-    } finally {
-      setPulling(false);
-    }
+  const submitPull = () => {
+    const tag = pullName.trim();
+    if (!tag) return;
+    pull(tag);
+    setPullName("");
   };
+
+  // Fire `onPullComplete` once per completed pull so the parent refreshes
+  // the installed list. Tracked per-tag so the singleton store retaining a
+  // finished entry doesn't retrigger on every render.
+  useEffect(() => {
+    progress.forEach((p, tag) => {
+      if (p.phase === "done" && !seenDoneRef.current.has(tag)) {
+        seenDoneRef.current.add(tag);
+        void onPullComplete(tag);
+      }
+    });
+  }, [progress, onPullComplete]);
+
+  const activePulls = Array.from(progress.values()).filter(
+    (p) => p.phase === "queued" || p.phase === "pulling",
+  );
 
   return (
     <>
@@ -107,11 +127,20 @@ export function ModelsTab({
             type="button"
             className="hardware-btn hardware-btn--primary"
             onClick={submitPull}
-            disabled={!pullName.trim() || pulling}
+            disabled={!pullName.trim()}
           >
-            {pulling ? "Pulling…" : "Pull"}
+            Pull
           </button>
         </div>
+        {activePulls.length > 0 && (
+          <ul className="hardware-pull-list">
+            {activePulls.map((p) => (
+              <li key={p.tag}>
+                <PullLine progress={p} onAbort={() => abort(p.tag)} />
+              </li>
+            ))}
+          </ul>
+        )}
         <ul className="hardware-installed-list">
           {installed.map((m) => {
             const isLoaded = loaded.some((p) => p.name === m.name);
@@ -142,6 +171,47 @@ export function ModelsTab({
       </section>
     </>
   );
+}
+
+function PullLine({
+  progress,
+  onAbort,
+}: {
+  progress: PullProgress;
+  onAbort: () => void;
+}) {
+  const pct = Math.round(progress.overallPct);
+  return (
+    <div className="hardware-pull-row">
+      <div className="hardware-pull-row-head">
+        <span className="hardware-pull-row-name">{progress.tag}</span>
+        <span className="hardware-pull-row-status">{progress.statusLine}</span>
+        <button
+          type="button"
+          className="hardware-pull-row-abort"
+          onClick={onAbort}
+          aria-label="Cancel pull"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div className="hardware-pull-row-bar">
+        <div
+          className="hardware-pull-row-bar-fill"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="hardware-pull-row-meta">
+        {pct}%{progress.bytesPerSec > 0 && ` · ${formatRate(progress.bytesPerSec)}`}
+      </div>
+    </div>
+  );
+}
+
+function formatRate(bps: number): string {
+  if (bps >= 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`;
+  if (bps >= 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
+  return `${Math.round(bps)} B/s`;
 }
 
 function FitBadge({ fit }: { fit: FitResult }) {

@@ -1,0 +1,8 @@
+{
+  "provider": "hf",
+  "source": "usage-derived (data/deck.db runs table)",
+  "fetched_at": "2026-04-23T22:54:38.072Z",
+  "defaults": {"api_base":"https://api-inference.huggingface.co","rate_limits":null,"pricing":null,"auth":"bearer","env_key":"HUGGINGFACE_API_KEY"},
+  "models": [
+  ]
+}

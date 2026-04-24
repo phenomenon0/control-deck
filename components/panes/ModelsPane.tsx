@@ -13,10 +13,12 @@
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Gauge, Check, Sparkles, Cloud, Cpu, AlertTriangle } from "lucide-react";
+import { Gauge, Check, Sparkles, Cloud, Cpu, AlertTriangle, Search } from "lucide-react";
 import { VramEstimator } from "@/components/models/VramEstimator";
+import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
 import { useDeckSettings, type RouteMode, type CloudProviderId } from "@/components/settings/DeckSettingsProvider";
 import { CLOUD_PROVIDERS } from "@/lib/llm/cloudProviders";
+import { useCatalog, type CatalogModel } from "@/lib/hooks/useCatalog";
 
 interface OllamaModel {
   name: string;
@@ -192,6 +194,11 @@ export function ModelsPane() {
     [models.length, freeStatus?.catalog.length],
   );
 
+  // --- Catalog browse state ---
+  const [catalogQ, setCatalogQ] = useState("");
+  const freeCatalog = useCatalog({ provider: "openrouter", free: true, limit: 120, q: catalogQ || undefined });
+  const nvidiaCatalog = useCatalog({ provider: "nvidia", limit: 250, q: catalogQ || undefined });
+
   return (
     <div className="models-stage">
       <header className="models-head">
@@ -211,6 +218,11 @@ export function ModelsPane() {
           </div>
         </div>
       </header>
+
+      <LocalModelsPanel
+        preset={prefs.localModelPreset}
+        onPresetChange={(p) => updatePrefs({ localModelPreset: p })}
+      />
 
       {/* Mode tabs */}
       <div className="flex gap-2 mb-5">
@@ -416,6 +428,28 @@ export function ModelsPane() {
               })}
             </div>
           )}
+
+          <CatalogBrowse
+            title="Full OpenRouter catalog"
+            subtitle={`${freeCatalog.total} free-tagged models`}
+            result={freeCatalog}
+            q={catalogQ}
+            onQChange={setCatalogQ}
+            isDefault={(id) => isCurrentDefault("free", id)}
+            onSetDefault={(id) => setDefault({ mode: "free", modelId: id })}
+            formatContext={formatContext}
+          />
+
+          <CatalogBrowse
+            title="NVIDIA NIM catalog"
+            subtitle={`${nvidiaCatalog.total} models`}
+            result={nvidiaCatalog}
+            q={catalogQ}
+            onQChange={setCatalogQ}
+            isDefault={(id) => isCurrentDefault("free", id)}
+            onSetDefault={(id) => setDefault({ mode: "free", modelId: id })}
+            formatContext={formatContext}
+          />
         </>
       )}
 
@@ -488,6 +522,154 @@ export function ModelsPane() {
           onClose={() => setVramTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+interface CatalogBrowseProps {
+  title: string;
+  subtitle: string;
+  result: ReturnType<typeof useCatalog>;
+  q: string;
+  onQChange: (q: string) => void;
+  isDefault: (id: string) => boolean;
+  onSetDefault: (id: string) => void;
+  formatContext: (n: number) => string;
+}
+
+function CatalogBrowse({
+  title,
+  subtitle,
+  result,
+  q,
+  onQChange,
+  isDefault,
+  onSetDefault,
+  formatContext,
+}: CatalogBrowseProps) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? result.models : result.models.slice(0, 12);
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-center gap-3 mb-3">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h3>
+        <span className="text-xs text-[var(--text-muted)]">{subtitle}</span>
+        <div className="ml-auto relative">
+          <Search
+            size={12}
+            className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+          />
+          <input
+            type="text"
+            value={q}
+            onChange={(e) => onQChange(e.target.value)}
+            placeholder="Search catalog"
+            className="h-7 pl-7 pr-2 text-xs rounded-[6px] bg-[rgba(255,255,255,0.04)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--accent)] w-48"
+          />
+        </div>
+      </div>
+
+      {result.loading && result.models.length === 0 ? (
+        <div className="text-xs text-[var(--text-muted)] p-4">Loading catalog…</div>
+      ) : result.error ? (
+        <div className="text-xs text-[var(--error)] p-4">Catalog failed: {result.error}</div>
+      ) : result.models.length === 0 ? (
+        <div className="text-xs text-[var(--text-muted)] p-4">
+          {q ? `No matches for "${q}".` : "No entries."}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {shown.map((m: CatalogModel) => (
+              <CatalogCard
+                key={`${m.provider}:${m.id}`}
+                model={m}
+                isDefault={isDefault(m.id)}
+                onSetDefault={() => onSetDefault(m.id)}
+                formatContext={formatContext}
+              />
+            ))}
+          </div>
+          {result.models.length > 12 && (
+            <button
+              type="button"
+              className="btn btn-ghost text-xs mt-3"
+              onClick={() => setExpanded((e) => !e)}
+            >
+              {expanded ? "Show fewer" : `Show all ${result.models.length}`}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function CatalogCard({
+  model,
+  isDefault,
+  onSetDefault,
+  formatContext,
+}: {
+  model: CatalogModel;
+  isDefault: boolean;
+  onSetDefault: () => void;
+  formatContext: (n: number) => string;
+}) {
+  const price = model.pricing;
+  return (
+    <div
+      className={`rounded-[6px] border ${isDefault ? "border-[var(--accent)]" : "border-[var(--border)]"} bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] transition-colors p-3`}
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="min-w-0 flex-1">
+          <div
+            className="text-xs font-semibold text-[var(--text-primary)] truncate"
+            title={model.display_name || model.id}
+          >
+            {model.display_name || model.id}
+          </div>
+          <div className="text-[10px] text-[var(--text-muted)] truncate font-mono mt-0.5" title={model.id}>
+            {model.id}
+          </div>
+        </div>
+        {isDefault && <Check size={11} className="text-[var(--accent)] flex-shrink-0 mt-1" />}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 mb-2">
+        <span className="badge badge-info text-[9px]">{model.provider}</span>
+        {model.family && <span className="badge badge-neutral text-[9px]">{model.family}</span>}
+        {model.context_window && (
+          <span className="text-[10px] text-[var(--text-muted)]">
+            {formatContext(model.context_window)} ctx
+          </span>
+        )}
+      </div>
+      {price && (price.prompt_per_mtok > 0 || price.completion_per_mtok > 0) && (
+        <div className="text-[10px] text-[var(--text-muted)] font-mono mb-2">
+          ${price.prompt_per_mtok.toFixed(2)}/M in · ${price.completion_per_mtok.toFixed(2)}/M out
+        </div>
+      )}
+      {(!price || (price.prompt_per_mtok === 0 && price.completion_per_mtok === 0)) &&
+        model.tags?.includes("free") && (
+          <div className="text-[10px] text-[var(--success)] mb-2">free</div>
+        )}
+      <div className="flex items-center gap-2 pt-2 border-t border-[var(--border)]">
+        <button
+          onClick={onSetDefault}
+          className={`btn text-[10px] ${isDefault ? "btn-ghost opacity-60 cursor-default" : "btn-primary"}`}
+          disabled={isDefault}
+        >
+          {isDefault ? "Default" : "Set default"}
+        </button>
+        <button
+          onClick={() => navigator.clipboard.writeText(model.id)}
+          className="btn btn-ghost text-[10px]"
+          title="Copy id"
+        >
+          Copy id
+        </button>
+      </div>
     </div>
   );
 }

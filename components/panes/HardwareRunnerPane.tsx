@@ -90,13 +90,12 @@ export function HardwareRunnerPane() {
     reloadInstalled();
   }, [reloadInstalled]);
 
-  const pull = async (name: string) => {
-    await fetch("/api/ollama/tags", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
+  // Pulls now route through the shared useModelPull store (inside
+  // ModelsTab). This handler fires once per completed pull so the
+  // installed list refreshes without re-hitting the pull API.
+  const onPullComplete = async (_name: string) => {
     await reloadInstalled();
+    await ps.refetch();
   };
 
   const deleteModel = async (name: string) => {
@@ -202,7 +201,7 @@ export function HardwareRunnerPane() {
             gpuProcesses={gpuProcesses}
             providers={providers}
             offline={offline}
-            pull={pull}
+            onPullComplete={onPullComplete}
             deleteModel={deleteModel}
           />
         ) : (
@@ -216,7 +215,7 @@ export function HardwareRunnerPane() {
             loaded={ps.models}
             installed={installed}
             onUnload={ps.unload}
-            onPull={pull}
+            onPullComplete={onPullComplete}
             onDelete={deleteModel}
           />
         )}
@@ -267,7 +266,7 @@ function AllSections(props: {
   gpuProcesses: ReturnType<typeof useGpuProcesses>;
   providers: ReturnType<typeof useHardwareProviders>;
   offline: ReturnType<typeof useOfflineModels>;
-  pull: (name: string) => Promise<void>;
+  onPullComplete: (name: string) => void | Promise<void>;
   deleteModel: (name: string) => Promise<void>;
 }) {
   const onProviderAction = async (providerId: string, action: "load" | "unload", model: string) => {
@@ -295,7 +294,7 @@ function AllSections(props: {
           loaded={props.ps.models}
           installed={props.installed}
           onUnload={props.ps.unload}
-          onPull={props.pull}
+          onPullComplete={props.onPullComplete}
           onDelete={props.deleteModel}
         />
       </section>

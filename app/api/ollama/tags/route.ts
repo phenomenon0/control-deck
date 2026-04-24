@@ -47,7 +47,8 @@ export async function GET() {
   }
 }
 
-// Pull a model
+// Pull a model — streams Ollama's NDJSON progress directly to the client.
+// Heartbeat keeps the connection alive during long first-layer negotiation.
 export async function POST(req: Request) {
   const { name } = await req.json();
 
@@ -55,23 +56,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "name required" }, { status: 400 });
   }
 
+  let ollamaRes: Response;
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/pull`, {
+    ollamaRes = await fetch(`${OLLAMA_URL}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, stream: false }),
+      body: JSON.stringify({ name, stream: true }),
     });
-
-    if (!res.ok) {
-      throw new Error(`Ollama returned ${res.status}`);
-    }
-
-    const data = await res.json();
-    return NextResponse.json(data);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 502 });
   }
+
+  if (!ollamaRes.ok || !ollamaRes.body) {
+    const text = await ollamaRes.text().catch(() => "");
+    return NextResponse.json(
+      { error: text || `Ollama returned ${ollamaRes.status}` },
+      { status: 502 },
+    );
+  }
+
+  const body = wrapWithHeartbeat(ollamaRes.body, 12_000);
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/x-ndjson",
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 // Delete a model
@@ -98,4 +111,55 @@ export async function DELETE(req: Request) {
     const msg = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: msg }, { status: 502 });
   }
+}
+
+// Passes an upstream byte stream through to the client, injecting a
+// `{"status":"heartbeat"}\n` line whenever no upstream bytes have flowed
+// for `intervalMs`. Prevents proxies / Next.js from dropping a connection
+// while Ollama is negotiating a layer but not yet emitting progress.
+function wrapWithHeartbeat(upstream: ReadableStream<Uint8Array>, intervalMs: number): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const heartbeat = encoder.encode('{"status":"heartbeat"}\n');
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const reader = upstream.getReader();
+      let closed = false;
+      let lastFlushAt = Date.now();
+
+      const timer = setInterval(() => {
+        if (closed) return;
+        if (Date.now() - lastFlushAt >= intervalMs) {
+          try {
+            controller.enqueue(heartbeat);
+            lastFlushAt = Date.now();
+          } catch {
+            // controller already errored/closed
+          }
+        }
+      }, Math.max(1_000, Math.floor(intervalMs / 2)));
+
+      (async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              controller.enqueue(value);
+              lastFlushAt = Date.now();
+            }
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        } finally {
+          closed = true;
+          clearInterval(timer);
+        }
+      })();
+    },
+    cancel(reason) {
+      upstream.cancel(reason).catch(() => {});
+    },
+  });
 }

@@ -2,22 +2,32 @@ import { NextResponse } from "next/server";
 
 import { ensureBootstrap, getProvider, getSlot } from "@/lib/inference/bootstrap";
 import { invokeStt } from "@/lib/inference/stt/invoke";
+import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { withMetrics } from "@/lib/inference/metrics";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
 
-function resolveSttBinding(): {
+const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
+
+interface SttBinding {
   providerId: string;
   config: InferenceProviderConfig;
-} {
+  /** True when the resolver fell through to the untyped voice-api default. */
+  isFallback: boolean;
+}
+
+function resolveSttBinding(): SttBinding {
   ensureBootstrap();
   const bound = getSlot("stt", "primary");
-  if (bound) return { providerId: bound.providerId, config: bound.config };
+  if (bound) {
+    return { providerId: bound.providerId, config: bound.config, isFallback: false };
+  }
   return {
     providerId: "voice-api",
     config: {
       providerId: "voice-api",
       baseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
     },
+    isFallback: true,
   };
 }
 
@@ -30,12 +40,26 @@ export async function POST(req: Request) {
   }
 
   const language = (formData.get("language") as string | null) ?? undefined;
-  const model = (formData.get("model") as string | null) ?? undefined;
+  const modelParam = (formData.get("model") as string | null) ?? undefined;
   const timestamps = formData.get("timestamps") === "true";
   const mimeType = (formData.get("mimeType") as string | null) ?? undefined;
+  const presetRaw = (formData.get("preset") as string | null) ?? undefined;
+  const preset: LocalPreset =
+    presetRaw && VALID_PRESETS.has(presetRaw as LocalPreset)
+      ? (presetRaw as LocalPreset)
+      : "balanced";
 
-  const { providerId, config } = resolveSttBinding();
+  const { providerId, config, isFallback } = resolveSttBinding();
   const effectiveLanguage = language ?? (config.extras?.language as string | undefined);
+
+  // Preset-driven hint: only when the caller sent no explicit model AND the
+  // slot is unbound. If the sidecar ignores the hint, behaviour is identical
+  // to before; if it honours it, preset=quick gets a smaller Whisper.
+  const model =
+    modelParam ??
+    (isFallback && providerId === "voice-api"
+      ? defaultFor("stt", preset).id ?? undefined
+      : undefined);
 
   try {
     const result = await withMetrics("stt", providerId, () =>

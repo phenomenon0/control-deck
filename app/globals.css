@@ -2554,6 +2554,16 @@ code, pre, .mono, kbd, .font-mono {
   transform: translateY(-1px);
 }
 
+/* Nested inset cell — lives inside a .card, steps one shade darker
+ * (bg-primary sits behind bg-secondary cards). Used for reference
+ * clips, preview rows, asset stat boxes, queue entries. */
+.card-sub {
+  background-color: var(--bg-primary);
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: var(--sp-3);
+}
+
 /* KBD */
 .kbd {
   display: inline-flex;

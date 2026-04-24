@@ -32,6 +32,12 @@ export interface UseVoiceChatOptions {
   ttsEngine?: TTSEngine;
   silenceTimeout?: number;
   silenceThreshold?: number;
+  /**
+   * When false, the hook skips WebSocket/audio setup and returns inert state.
+   * Used when a parent surface provides a shared VoiceSessionProvider, so a
+   * nested consumer (ChatSurface, VoiceModeSheet) doesn't open a second WS.
+   */
+  enabled?: boolean;
 }
 
 export interface UseVoiceChatReturn {
@@ -129,6 +135,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     onListeningStopped,
     silenceTimeout = 1500,
     silenceThreshold = 0.01,
+    enabled = true,
   } = options;
 
   // State
@@ -389,11 +396,12 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     return true;
   }, [connectWebSocket]);
 
-  // Initialize on mount
+  // Initialize on mount. Skip when disabled — a parent provides the runtime.
   useEffect(() => {
+    if (!enabled) return;
     checkVoiceApi();
     initAudioContext();
-  }, [checkVoiceApi, initAudioContext]);
+  }, [enabled, checkVoiceApi, initAudioContext]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Control Deck — Product-Aligned 2-Week Roadmap</title>
+  <link rel="stylesheet" href="./briefing.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="./briefing-index.html">
+        <span class="brand-mark">◆</span>
+        <span>Control Deck Briefings</span>
+      </a>
+      <nav class="topnav">
+        <a href="./briefing-index.html">Index</a>
+        <a href="./what-control-deck-actually-is.html">What it is</a>
+        <a href="./subsystem-map-for-training.html">Subsystem map</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <p class="kicker">Briefing 03 · Product-aligned roadmap</p>
+      <h1>Two weeks to make Control Deck more trainable without collapsing it into “just a harness.”</h1>
+      <p class="subtitle">
+        This roadmap treats Control Deck as a full product first: UI shell, runtime, control plane,
+        machine interface, artifact system, and multimodal workstation. The training-facing work exists
+        to make that product legible, replayable, and improvable by external training stacks.
+      </p>
+      <div class="meta">
+        <span class="badge">Rule 1: do not flatten the product</span>
+        <span class="badge">Rule 2: export traces, don’t embed the trainer</span>
+        <span class="badge">Rule 3: ship measured regressions, not vibes</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Roadmap thesis</h2>
+      <div class="callout">
+        The point of this sprint is not to turn Control Deck into a training framework.
+        The point is to make the real product observable enough, stable enough, and exportable enough
+        that models can be trained against it without dumbing it down.
+      </div>
+      <div class="grid cols-3">
+        <article class="card">
+          <h3>Protect</h3>
+          <p>Keep the full product identity: chat, runs, models, hardware, native actions, multimodal outputs, operator control.</p>
+        </article>
+        <article class="card">
+          <h3>Instrument</h3>
+          <p>Make observations, actions, approvals, artifacts, and outcomes explicit and replayable.</p>
+        </article>
+        <article class="card">
+          <h3>Export</h3>
+          <p>Feed external SFT / preference / RL stacks with clean trajectories instead of stuffing training code into the app.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Three sprint tracks</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Track</th>
+              <th>Purpose</th>
+              <th>Examples</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>A · Product integrity</strong></td>
+              <td>Preserve correct behavior of approvals, runs, panes, artifacts, and model routing.</td>
+              <td>Approval naming fix, route tests, run correctness, operator-visible debug state.</td>
+            </tr>
+            <tr>
+              <td><strong>B · Environment legibility</strong></td>
+              <td>Make the deck understandable to both humans and policies.</td>
+              <td>Observation schema, capability registry, replay bundles, deterministic task packs.</td>
+            </tr>
+            <tr>
+              <td><strong>C · Training handoff</strong></td>
+              <td>Export trajectories and labels cleanly to external training systems.</td>
+              <td>SFT trace export, preference pair generation, reward rows, eval fixtures.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Day-by-day plan</h2>
+      <div class="grid cols-2">
+        <article class="card">
+          <h3>Day 1 · Canonical action semantics</h3>
+          <p><strong>Goal:</strong> one stable action vocabulary across bridge, approvals, live tools, and run logs.</p>
+          <ul class="tight">
+            <li>Normalize live tool naming and approval interpretation.</li>
+            <li>Write regression tests for canonical action names.</li>
+            <li>Document the canonical action namespace.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 2 · Contract tests for the product backbone</h3>
+          <p><strong>Goal:</strong> protect the highest-risk product contracts, not just the harness parts.</p>
+          <ul class="tight">
+            <li>Add route-level tests for chat, tools bridge, glyph-eval, inference providers.</li>
+            <li>Test malformed args, unsupported tools, missing approval, and failure envelopes.</li>
+            <li>Keep tests close to operator-visible behavior.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 3 · Commit the in-repo environment probes</h3>
+          <p><strong>Goal:</strong> move the GLYPH/model/tool matrix out of ad-hoc scripts and into the product repo.</p>
+          <ul class="tight">
+            <li>Commit the matrix harness.</li>
+            <li>Make model/provider inputs configurable.</li>
+            <li>Persist machine-readable output artifacts.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 4 · Observation schema v0</h3>
+          <p><strong>Goal:</strong> define what a model “sees” when driving Control Deck.</p>
+          <ul class="tight">
+            <li>Capture thread context, run phase, tool manifest, approval state, provider state, hardware snapshot, artifact handles.</li>
+            <li>Keep it compact enough for replay and training export.</li>
+            <li>Do not reduce the deck to only messages + tool calls.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 5 · Run export bundle</h3>
+          <p><strong>Goal:</strong> every meaningful run can become a portable training/eval object.</p>
+          <ul class="tight">
+            <li>Bundle run metadata, ordered events, approvals, artifacts, tool invocations, model/provider context.</li>
+            <li>Version the bundle schema.</li>
+            <li>Export at least one real run end to end.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 6 · Replay at the contract level</h3>
+          <p><strong>Goal:</strong> prove Control Deck can replay its own behavior without requiring full token determinism.</p>
+          <ul class="tight">
+            <li>Compare expected vs observed tool/action sequence.</li>
+            <li>Track approval compliance, payload shape, and outcome state.</li>
+            <li>Make pass/fail machine-readable.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 7 · Capability registry</h3>
+          <p><strong>Goal:</strong> record measured local behavior per model, not only curated benchmark metadata.</p>
+          <ul class="tight">
+            <li>Store tool JSON validity, GLYPH parse rate, approval compliance, recovery behavior, latency, quirks.</li>
+            <li>Persist per model/provider/as-of timestamp.</li>
+            <li>Render at least one real model’s local scorecard.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 8 · Product-native task pack v0</h3>
+          <p><strong>Goal:</strong> define tasks that reflect Control Deck as it really exists.</p>
+          <ul class="tight">
+            <li>Chat/tool task</li>
+            <li>Approval-sensitive task</li>
+            <li>Model-selection or provider-selection task</li>
+            <li>Run/artifact inspection task</li>
+          </ul>
+          <p class="note">These should feel like product workflows, not synthetic benchmark trivia.</p>
+        </article>
+
+        <article class="card">
+          <h3>Day 9 · Dataset export modes</h3>
+          <p><strong>Goal:</strong> turn product traces into training-ready records.</p>
+          <ul class="tight">
+            <li>Successful runs → demonstration/SFT examples</li>
+            <li>Human revisions or preferred outcomes → preference pairs</li>
+            <li>Replay outcomes and heuristics → reward/eval rows</li>
+            <li>Failed tool or approval paths → recovery datasets</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 10 · Critical gate</h3>
+          <p><strong>Goal:</strong> block regressions in behavior that matters to the real product.</p>
+          <ul class="tight">
+            <li>Approval compliance</li>
+            <li>GLYPH/tool parsing</li>
+            <li>One replay case</li>
+            <li>One product-native task case</li>
+            <li>One failure-recovery case</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 11 · Operator-visible debug views</h3>
+          <p><strong>Goal:</strong> let a human understand why a model failed to drive the deck correctly.</p>
+          <ul class="tight">
+            <li>Readable expected vs actual action diff</li>
+            <li>Approval timeline</li>
+            <li>Artifact and run context links</li>
+            <li>Compact failure summary per replay/task</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 12 · Expand to richer surfaces</h3>
+          <p><strong>Goal:</strong> start respecting the fact that Control Deck is more than chat and tools.</p>
+          <ul class="tight">
+            <li>Add at least one native/browser/workspace task.</li>
+            <li>Add at least one multimodal or media-oriented task if the local setup supports it.</li>
+            <li>Mark these as higher-variance but product-critical.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 13 · External training handoff spec</h3>
+          <p><strong>Goal:</strong> cleanly separate Control Deck from the trainer while making the bridge obvious.</p>
+          <ul class="tight">
+            <li>Document export schema for SFT / preference / reward pipelines.</li>
+            <li>Show how an external stack like TRL/Axolotl/Atropos would consume it.</li>
+            <li>No weight updates inside the app.</li>
+          </ul>
+        </article>
+
+        <article class="card">
+          <h3>Day 14 · Hardening and scorecard</h3>
+          <p><strong>Goal:</strong> end with evidence, not aspirations.</p>
+          <ul class="tight">
+            <li>Run the critical gate.</li>
+            <li>List what shipped, what failed, what was cut.</li>
+            <li>Define the next 3 moves based on measured pain, not speculation.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>What this roadmap protects that a harness-only plan would miss</h2>
+      <div class="grid cols-2">
+        <article class="card">
+          <h3>It protects product identity</h3>
+          <ul class="tight">
+            <li>The model is trained against approvals, artifacts, model routing, and operator surfaces.</li>
+            <li>The deck remains a product with real workflows.</li>
+            <li>UI, native reach, and multimodality remain first-class.</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>It still gives you the training substrate</h3>
+          <ul class="tight">
+            <li>Stable action schema</li>
+            <li>Observation schema</li>
+            <li>Replay bundles</li>
+            <li>Capability metrics</li>
+            <li>Dataset exports</li>
+            <li>Regression gates</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Scope cuts if time slips</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cut first</th>
+              <th>Keep no matter what</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                Fancy UI polish for scorecards, broad route coverage beyond core contracts,
+                ambitious multimodal task packs, generalized benchmark ingestion.
+              </td>
+              <td>
+                Canonical action semantics, approval correctness, export bundle, replay path,
+                capability registry, critical gate, and at least one product-native task pack.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>End-state statement</h2>
+      <div class="callout">
+        At the end of this sprint, Control Deck should be able to say:
+        <strong>“We can capture, replay, score, and export real product behavior well enough to train models that learn to drive the deck — without shrinking the deck into a toy environment.”</strong>
+      </div>
+    </section>
+
+    <footer>
+      This roadmap intentionally keeps training infrastructure external and treats Control Deck as the product
+      and environment that produces the traces, labels, and eval cases.
+    </footer>
+  </div>
+</body>
+</html>

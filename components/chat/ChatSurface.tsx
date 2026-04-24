@@ -22,6 +22,7 @@ import {
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
+import { useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
 import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
 import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
@@ -367,8 +368,14 @@ export default function ChatSurface() {
 
   // ---------------------------------------------------------------------------
   // Voice chat
+  //
+  // If a parent surface (e.g. LiveVoiceSurface) provides a shared voice session,
+  // reuse its runtime — one mic, one WebSocket, one transcript. Otherwise this
+  // hook owns the voice runtime for standalone chat pages.
   // ---------------------------------------------------------------------------
-  const voiceChat = useVoiceChat({
+  const sharedVoiceSession = useOptionalVoiceSession();
+  const ownVoiceChat = useVoiceChat({
+    enabled: !sharedVoiceSession,
     ttsEngine: prefs.voice.ttsEngine,
     silenceTimeout: prefs.voice.silenceTimeoutMs,
     silenceThreshold: prefs.voice.silenceThreshold,
@@ -379,6 +386,23 @@ export default function ChatSurface() {
       if (prefs.voice.enabled && text.trim()) sendMessageRef.current(text);
     },
   });
+  const voiceChat = sharedVoiceSession?.voiceChat ?? ownVoiceChat;
+
+  // When using a shared session, the callbacks above live on LiveVoiceSurface's
+  // hook — not on ours. Mirror the shared transcript into the composer instead.
+  const sharedPartial = sharedVoiceSession?.transcriptPartial ?? "";
+  const sharedFinal = sharedVoiceSession?.transcriptFinal ?? "";
+  useEffect(() => {
+    if (!sharedVoiceSession) return;
+    if (!prefs.voice.enabled) return;
+    if (sharedPartial) setInputValue(sharedPartial);
+  }, [sharedVoiceSession, prefs.voice.enabled, sharedPartial]);
+  useEffect(() => {
+    if (!sharedVoiceSession) return;
+    if (!prefs.voice.enabled) return;
+    const text = sharedFinal.trim();
+    if (text) sendMessageRef.current(text);
+  }, [sharedVoiceSession, prefs.voice.enabled, sharedFinal]);
 
   // ---------------------------------------------------------------------------
   // Inspector sync (SURFACE.md §5.4 — single update replaces 6 push effects)
@@ -799,6 +823,7 @@ export default function ChatSurface() {
       systemPrompt: prefs.systemPrompt,
       cloudProvider: prefs.cloudProvider,
       cloudModel: prefs.cloudModel,
+      preset: prefs.localModelPreset,
     });
 
     // Persist assistant message on completion

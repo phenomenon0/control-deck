@@ -1,17 +1,14 @@
+import {
+  buildLoopbackTransport,
+  loadBrowserTransport,
+  type TerminalTransport,
+} from "./transport";
 import type {
   CreateTerminalSessionInput,
   ListTerminalSessionsResponse,
   TerminalServiceHealth,
   TerminalSession,
 } from "./types";
-
-const DEFAULT_PORT = process.env.NEXT_PUBLIC_TERMINAL_SERVICE_PORT ?? "4010";
-
-interface TerminalTransport {
-  httpBase: string;
-  wsBase: string;
-  token: string;
-}
 
 // Renderer: fetched once from Electron main via `window.deck.invoke("terminal:config")`.
 // Server-side (Next routes): assembled from env vars.
@@ -36,21 +33,18 @@ function deckBridge(): DeckBridge | null {
 
 function fallbackTransport(): TerminalTransport {
   if (typeof window === "undefined") {
-    return {
-      httpBase: process.env.TERMINAL_SERVICE_URL ?? `http://127.0.0.1:${DEFAULT_PORT}`,
-      wsBase: `ws://127.0.0.1:${DEFAULT_PORT}`,
-      token: process.env.TERMINAL_SERVICE_TOKEN ?? "",
-    };
+    return buildLoopbackTransport({
+      hostname: "127.0.0.1",
+      protocol: "http:",
+      env: process.env,
+    });
   }
-  const httpProto = window.location.protocol === "https:" ? "https:" : "http:";
-  const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const httpEnv = process.env.NEXT_PUBLIC_TERMINAL_SERVICE_URL;
-  const wsEnv = process.env.NEXT_PUBLIC_TERMINAL_SERVICE_WS_URL;
-  return {
-    httpBase: httpEnv ?? `${httpProto}//${window.location.hostname}:${DEFAULT_PORT}`,
-    wsBase: wsEnv ?? `${wsProto}//${window.location.hostname}:${DEFAULT_PORT}`,
-    token: "",
-  };
+
+  return buildLoopbackTransport({
+    hostname: window.location.hostname,
+    protocol: window.location.protocol,
+    env: process.env,
+  });
 }
 
 async function getTransport(): Promise<TerminalTransport> {
@@ -59,7 +53,17 @@ async function getTransport(): Promise<TerminalTransport> {
 
   const bridge = deckBridge();
   if (!bridge) {
-    cachedTransport = fallbackTransport();
+    if (typeof window === "undefined") {
+      cachedTransport = fallbackTransport();
+      return cachedTransport;
+    }
+
+    cachedTransport = await loadBrowserTransport({
+      fetchImpl: fetch,
+      hostname: window.location.hostname,
+      protocol: window.location.protocol,
+      env: process.env,
+    });
     return cachedTransport;
   }
 

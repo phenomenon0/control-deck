@@ -31,6 +31,8 @@ import { AlertTriangle, Cloud, Cpu, RefreshCw, Sparkles } from "lucide-react";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { CLOUD_PROVIDERS } from "@/lib/llm/cloudProviders";
 import type { CloudProviderId as CloudId } from "@/lib/llm/cloudProviders";
+import { LocalModelPanel } from "@/components/chat/LocalModelPanel";
+import { waitForVramResident, listOtherResidentModels } from "@/lib/hardware/ollama-utils";
 
 type Provider = "openrouter" | "nvidia";
 
@@ -82,11 +84,6 @@ interface StatusResponse {
   } | null;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
 function formatContext(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
@@ -98,9 +95,15 @@ export function RoutePicker() {
   const [open, setOpen] = useState(false);
   const [ollamaTags, setOllamaTags] = useState<OllamaTag[]>([]);
   const [ollamaLoaded, setOllamaLoaded] = useState<LoadedModel[]>([]);
+  const [ollamaReachable, setOllamaReachable] = useState<boolean>(true);
   const [freeStatus, setFreeStatus] = useState<StatusResponse | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [localView, setLocalView] = useState<"installed" | "discover">("installed");
+  const [loadWarning, setLoadWarning] = useState<{
+    target: string;
+    blockers: { name: string; size_vram?: number }[];
+  } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
   const mode = prefs.routeMode;
@@ -110,13 +113,21 @@ export function RoutePicker() {
       fetch("/api/ollama/tags", { cache: "no-store" }).catch(() => null),
       fetch("/api/ollama/ps", { cache: "no-store" }).catch(() => null),
     ]);
+    // 502 / fetch-failed means the daemon isn't listening — distinguish
+    // from an ollama that's up but has no pulled models, since the copy
+    // and remediation differ ("start ollama" vs "pull a model").
+    setOllamaReachable(tagsRes?.ok === true);
     if (tagsRes?.ok) {
       const d = (await tagsRes.json()) as { models: OllamaTag[] };
       setOllamaTags(d.models ?? []);
+    } else {
+      setOllamaTags([]);
     }
     if (psRes?.ok) {
       const d = (await psRes.json()) as { models: LoadedModel[] };
       setOllamaLoaded(d.models ?? []);
+    } else {
+      setOllamaLoaded([]);
     }
   }, []);
 
@@ -143,6 +154,14 @@ export function RoutePicker() {
     return () => clearInterval(iv);
   }, [mode, loadFree]);
 
+  // When the Local tab opens, land on whichever view is actionable:
+  // discover when no models are installed, installed otherwise.
+  useEffect(() => {
+    if (!open || mode !== "local") return;
+    if (ollamaReachable && ollamaTags.length === 0) setLocalView("discover");
+    else if (ollamaTags.length > 0) setLocalView((v) => (v === "discover" ? v : "installed"));
+  }, [open, mode, ollamaReachable, ollamaTags.length]);
+
   // Populate the right catalog when the popover opens.
   useEffect(() => {
     if (!open) return;
@@ -165,15 +184,40 @@ export function RoutePicker() {
   const pickOllama = async (name: string) => {
     updatePrefs({ model: name, localModel: name });
     setBusy(name);
+    setLoadWarning(null);
     try {
       await fetch("/api/hardware/providers/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ providerId: "ollama", action: "load", model: name }),
       });
+      const hot = await waitForVramResident(name, { timeoutMs: 45_000 });
       await loadOllama();
+      if (!hot) {
+        const others = await listOtherResidentModels(name);
+        if (others.length > 0) {
+          setLoadWarning({ target: name, blockers: others });
+        }
+      }
     } finally {
       setBusy(null);
+    }
+  };
+
+  const unloadBlocker = async (blocker: string) => {
+    try {
+      await fetch("/api/ollama/ps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: blocker }),
+      });
+    } finally {
+      setLoadWarning(null);
+      await loadOllama();
+      // Re-trigger the load now that VRAM is free
+      if (loadWarning?.target) {
+        void pickOllama(loadWarning.target);
+      }
     }
   };
 
@@ -193,7 +237,7 @@ export function RoutePicker() {
         !m.name.toLowerCase().includes("embed"),
     )?.name ||
     ollamaTags[0]?.name ||
-    "no model";
+    (mode === "local" && !ollamaReachable ? "ollama down" : "no model");
 
   const freeActive = freeStatus?.status.find((s) => s.model.id === freeStatus.activeModelId);
   const freePinned = prefs.remoteModel || prefs.model;
@@ -203,6 +247,8 @@ export function RoutePicker() {
     freeStatus?.activeModelId &&
     freePinned !== freeStatus.activeModelId;
   const noKey = mode === "free" && freeStatus && !freeStatus.enabled;
+  const localDown = mode === "local" && !ollamaReachable;
+  const warn = Boolean(noKey) || localDown;
 
   const cloudProviderRecord = CLOUD_PROVIDERS.find((p) => p.id === prefs.cloudProvider);
   const cloudModelRecord = cloudProviderRecord?.models.find((m) => m.id === prefs.cloudModel);
@@ -229,18 +275,20 @@ export function RoutePicker() {
     <div className="composer-route-pill" ref={ref}>
       <button
         type="button"
-        className={`composer-tweaks-launch${open ? " is-open" : ""}${noKey ? " has-warning" : ""}`}
+        className={`composer-tweaks-launch${open ? " is-open" : ""}${warn ? " has-warning" : ""}`}
         onClick={() => setOpen((o) => !o)}
         title={
           noKey
             ? "Free mode active but no provider API key set — chat will fail until one is added"
             : mode === "free"
               ? `Free-tier roulette — active: ${freeActive?.model.id ?? "—"}`
-              : `Local route — ${ollamaCurrent}${loadedNames.has(ollamaCurrent) ? " (in VRAM)" : ""}`
+              : mode === "local" && !ollamaReachable
+                ? "Ollama daemon not reachable — run `ollama serve`"
+                : `Local route — ${ollamaCurrent}${loadedNames.has(ollamaCurrent) ? " (in VRAM)" : ""}`
         }
         aria-expanded={open}
       >
-        {noKey ? <AlertTriangle size={14} /> : pillIcon}
+        {warn ? <AlertTriangle size={14} /> : pillIcon}
         <span className="composer-route-mode">{pillLabel}</span>
         <span className="composer-free-sep">·</span>
         <span className="composer-model-name">{pillModel}</span>
@@ -292,44 +340,20 @@ export function RoutePicker() {
           </div>
 
           {mode === "local" && (
-            <>
-              <div className="composer-model-head">
-                <span className="composer-tweaks-axis-label">Ollama models</span>
-                {ollamaTags.length === 0 && (
-                  <span className="composer-model-hint">
-                    No Ollama models installed. Pull one from Hardware.
-                  </span>
-                )}
-              </div>
-              <ul className="composer-model-list">
-                {ollamaTags.map((m) => {
-                  const isActive = m.name === ollamaCurrent;
-                  const isLoaded = loadedNames.has(m.name);
-                  const isBusy = busy === m.name;
-                  return (
-                    <li key={m.name}>
-                      <button
-                        type="button"
-                        className={`composer-model-row${isActive ? " is-active" : ""}`}
-                        onClick={() => pickOllama(m.name)}
-                        disabled={isBusy}
-                      >
-                        <div className="composer-model-row-main">
-                          <span className="composer-model-row-name">{m.name}</span>
-                          {isLoaded && <span className="composer-model-hot">HOT</span>}
-                          {isActive && <span className="composer-model-active-dot" />}
-                        </div>
-                        <div className="composer-model-row-meta">
-                          {m.details?.parameter_size ?? "?"} ·{" "}
-                          {m.details?.quantization_level ?? ""} · {formatBytes(m.size)}
-                          {isBusy && <span> · loading…</span>}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
+            <LocalModelPanel
+              tags={ollamaTags}
+              loaded={ollamaLoaded}
+              reachable={ollamaReachable}
+              busy={busy}
+              activeName={ollamaCurrent}
+              view={localView}
+              onViewChange={setLocalView}
+              onPick={pickOllama}
+              onRefresh={loadOllama}
+              loadWarning={loadWarning}
+              onUnloadBlocker={unloadBlocker}
+              onDismissWarning={() => setLoadWarning(null)}
+            />
           )}
 
           {mode === "free" && freeStatus && (

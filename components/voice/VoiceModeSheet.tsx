@@ -5,6 +5,7 @@ import { VoiceOrb, type OrbPhase } from "./VoiceOrb";
 import { VoiceTranscript } from "./VoiceTranscript";
 import { VoiceToolResults } from "./VoiceToolResult";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
+import { useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 
@@ -62,8 +63,12 @@ export function VoiceModeSheet({
   // Track if we're in the middle of a conversation turn (waiting for AI response)
   const isProcessingRef = useRef(false);
 
-  // Voice chat hook - uses settings from provider
-  const voiceChat = useVoiceChat({
+  // Voice chat hook. If a parent surface provides a VoiceSessionProvider —
+  // e.g. fullscreen voice mode opened from inside the Live tab — reuse its
+  // runtime so we don't open a second WebSocket.
+  const sharedVoiceSession = useOptionalVoiceSession();
+  const ownVoiceChat = useVoiceChat({
+    enabled: !sharedVoiceSession,
     ttsEngine: prefs.voice.ttsEngine,
     silenceTimeout: prefs.voice.silenceTimeoutMs,
     silenceThreshold: prefs.voice.silenceThreshold,
@@ -88,6 +93,16 @@ export function VoiceModeSheet({
       }
     },
   });
+  const voiceChat = sharedVoiceSession?.voiceChat ?? ownVoiceChat;
+
+  // Mirror the shared session's transcript into this sheet when a parent owns
+  // the runtime. These effects are no-ops when voiceChat is ours.
+  const sharedPartial = sharedVoiceSession?.transcriptPartial ?? "";
+  const sharedFinal = sharedVoiceSession?.transcriptFinal ?? "";
+  useEffect(() => {
+    if (!sharedVoiceSession) return;
+    if (sharedPartial) setCurrentUserSpeech(sharedPartial);
+  }, [sharedVoiceSession, sharedPartial]);
 
   // Auto-start listening when sheet opens (always continuous)
   useEffect(() => {
@@ -342,6 +357,14 @@ export function VoiceModeSheet({
     },
     [selectedModel, threadId, mode, isOpen, voiceChat, onMessageSent]
   );
+
+  // Drive conversation turns from the shared session's final transcript when
+  // a parent owns the runtime. (No-op when voiceChat is ours.)
+  useEffect(() => {
+    if (!sharedVoiceSession) return;
+    const text = sharedFinal.trim();
+    if (text) handleUserUtterance(text);
+  }, [sharedVoiceSession, sharedFinal, handleUserUtterance]);
 
   // Handle mic button interaction (barge-in support)
   const handleMicPress = useCallback(() => {

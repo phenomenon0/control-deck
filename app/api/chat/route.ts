@@ -43,6 +43,7 @@ import {
   type MessageMetadata,
 } from "@/lib/agui/db";
 import { getDefaultModel, getProviderConfig } from "@/lib/llm";
+import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
@@ -62,7 +63,15 @@ interface ChatRequestBody {
   cloudProvider?: "anthropic" | "openai" | "google";
   /** Cloud mode: the specific model id under the pinned provider. */
   cloudModel?: string;
+  /**
+   * Local-first quality preset. Only used as a fallback when `model` is
+   * empty and env/runtime configs have nothing to offer either. Explicit
+   * pins always win.
+   */
+  preset?: LocalPreset;
 }
+
+const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
 
 interface AgentGOMessage {
   role: "user" | "assistant" | "system" | "tool";
@@ -328,7 +337,11 @@ export async function POST(req: Request) {
     systemPrompt: clientPrompt,
     cloudProvider,
     cloudModel,
+    preset: presetRaw,
   } = body;
+
+  const preset: LocalPreset =
+    presetRaw && VALID_PRESETS.has(presetRaw) ? presetRaw : "balanced";
 
   // Ensure the thread row exists before anything else reads from it.
   // INSERT OR IGNORE — no-op if already present. Closes a latent race
@@ -382,10 +395,18 @@ export async function POST(req: Request) {
   //
   // To change the system-wide default without clicking in the UI, set
   // LLM_MODEL in env or call /api/backend to write runtimeOverride.
+  // Preset-driven local-first rung: only kicks in when no explicit pin and
+  // no env/runtime override exist. `defaultFor` returns the manifest id for
+  // the active modality at the active preset — matches what the Models pane
+  // recommends and pulls.
+  const presetLocalModel =
+    defaultFor(hasImages ? "vision" : "text", preset).id ?? undefined;
+
   const selectedModel =
     model ??
     getDefaultModel(clientSlot) ??
     (clientSlot !== "primary" ? getDefaultModel("primary") : undefined) ??
+    presetLocalModel ??
     systemProfile.recommended.textModel ??
     (hasImages ? "llama3.2-vision:11b" : "llama3.2:3b");
 

@@ -39,10 +39,39 @@ if (!IS_DEV && !process.env.DECK_TOKEN) {
 }
 const DECK_TOKEN = process.env.DECK_TOKEN ?? "";
 
-// Wayland: let Chromium pick the native platform instead of forcing X11.
-// Must be set before app.whenReady(). Harmless on X11-only systems.
+// Linux: pin to X11 ozone by default. Chromium's Wayland backend on NVIDIA
+// has known flicker/tearing (crbug.com/1261448, /1318150) — X11 is stable on
+// NVIDIA and still works under XWayland on Wayland sessions. Users with a
+// working Wayland+AMD/Intel stack can opt back in with ELECTRON_OZONE_PLATFORM_HINT.
+// VA-API probes fail without the NVIDIA VA-API driver and trigger cascading
+// compositor fallbacks; disable the feature outright.
 if (process.platform === "linux") {
-  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+  // Honor session type by default (Wayland on Wayland, X11 otherwise). Override
+  // with ELECTRON_OZONE_PLATFORM if the user has a specific preference.
+  const ozoneOverride = process.env.ELECTRON_OZONE_PLATFORM;
+  if (ozoneOverride) {
+    app.commandLine.appendSwitch("ozone-platform", ozoneOverride);
+  } else {
+    app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+  }
+  // NVIDIA + Wayland + Chromium's DMA-BUF compositor has observable tearing
+  // ("elements stack over each other, vertical+horizontal glitches"). Force
+  // the final window composite onto the CPU — content pages still render via
+  // the GPU, so this isn't software rasterization. Escape hatch:
+  // CONTROL_DECK_GPU_COMPOSITING=1 restores the default.
+  if (process.env.CONTROL_DECK_GPU_COMPOSITING !== "1") {
+    app.commandLine.appendSwitch("disable-gpu-compositing");
+  }
+  app.commandLine.appendSwitch(
+    "disable-features",
+    [
+      "VaapiVideoDecoder",
+      "VaapiVideoEncoder",
+      "UseMultiPlaneFormatForHardwareVideo",
+      "WaylandLinuxDrmSyncobj",
+      "WaylandFractionalScaleV1",
+    ].join(","),
+  );
   app.commandLine.appendSwitch("enable-features", "WaylandWindowDecorations");
 }
 
@@ -418,14 +447,29 @@ async function createWindow(): Promise<void> {
     minHeight: 600,
     backgroundColor: "#0b0b0f",
     autoHideMenuBar: true,
+    show: false,
     webPreferences: {
       preload,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      backgroundThrottling: false,
     },
   });
+
+  // Show the window as soon as Chromium signals first paint. Fall back to a
+  // 2s timeout because some GPU-init paths on Wayland + NVIDIA can suppress
+  // the ready-to-show signal; we'd rather show a dark window than a ghost.
+  let shown = false;
+  const showOnce = (reason: string) => {
+    if (shown) return;
+    shown = true;
+    console.log(`[electron] showing window (${reason})`);
+    if (!win.isDestroyed()) win.show();
+  };
+  win.once("ready-to-show", () => showOnce("ready-to-show"));
+  setTimeout(() => showOnce("timeout"), 2000);
 
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (/^https?:/i.test(target)) {

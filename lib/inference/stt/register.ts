@@ -5,13 +5,15 @@
  * Deepgram's Nova for low-latency streaming-style transcription.
  *
  * Env vars:
- *   STT_PROVIDER      voice-api | openai | groq | deepgram
- *                     (default: voice-api — zero regression)
- *   STT_MODEL         default model id
- *   STT_LANGUAGE      optional BCP-47 hint for all requests
- *   GROQ_API_KEY      required for groq
- *   DEEPGRAM_API_KEY  required for deepgram
- *   OPENAI_API_KEY    reused from text slot, required for openai
+ *   STT_PROVIDER         voice-api | openai | groq | deepgram | cartesia | assemblyai
+ *                        (default: voice-api — zero regression)
+ *   STT_MODEL            default model id
+ *   STT_LANGUAGE         optional BCP-47 hint for all requests
+ *   GROQ_API_KEY         required for groq
+ *   DEEPGRAM_API_KEY     required for deepgram
+ *   OPENAI_API_KEY       reused from text slot, required for openai
+ *   CARTESIA_API_KEY     required for cartesia ink-whisper
+ *   ASSEMBLYAI_API_KEY   required for assemblyai universal-3
  */
 
 import { registerProvider, getProvider } from "../registry";
@@ -39,15 +41,15 @@ const SEEDS: ProviderSeed[] = [
   {
     id: "openai",
     name: "OpenAI",
-    description: "whisper-1, gpt-4o-transcribe",
+    description: "gpt-4o-transcribe (~2.46% WER — accuracy leader)",
     requiresApiKey: true,
     defaultBaseURL: "https://api.openai.com/v1",
-    defaultModels: ["whisper-1", "gpt-4o-mini-transcribe", "gpt-4o-transcribe"],
+    defaultModels: ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"],
   },
   {
     id: "groq",
     name: "Groq",
-    description: "Whisper-large-v3-turbo at sub-second latency, generous free tier",
+    description: "Whisper-large-v3-turbo at $0.04/hr — cheapest batch",
     requiresApiKey: true,
     defaultBaseURL: "https://api.groq.com/openai/v1",
     defaultModels: ["whisper-large-v3-turbo", "whisper-large-v3"],
@@ -55,10 +57,26 @@ const SEEDS: ProviderSeed[] = [
   {
     id: "deepgram",
     name: "Deepgram",
-    description: "Nova-3; strong diarization and streaming",
+    description: "Nova-3 — strong diarization + streaming",
     requiresApiKey: true,
     defaultBaseURL: "https://api.deepgram.com/v1",
     defaultModels: ["nova-3", "nova-2"],
+  },
+  {
+    id: "cartesia",
+    name: "Cartesia",
+    description: "Ink-Whisper — voice-agent-tuned streaming, dynamic chunking",
+    requiresApiKey: true,
+    defaultBaseURL: "https://api.cartesia.ai",
+    defaultModels: ["ink-whisper"],
+  },
+  {
+    id: "assemblyai",
+    name: "AssemblyAI",
+    description: "Universal-3 Pro — 1.52% WER on LibriSpeech (Mar 2026), ~150ms first-partial",
+    requiresApiKey: true,
+    defaultBaseURL: "https://api.assemblyai.com/v2",
+    defaultModels: ["universal-3-pro", "universal-3", "universal-2"],
   },
 ];
 

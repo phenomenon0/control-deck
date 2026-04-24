@@ -172,9 +172,126 @@ const NVIDIA_SEED: FreeTierModel[] = [
 // slice; NVIDIA stays put. Consumers read via `getCatalog()` so the same
 // array identity is preserved — don't expose the inner array directly.
 let catalog: FreeTierModel[] = [...NVIDIA_SEED, ...OPENROUTER_SEED];
+let catalogAugmented = false;
 
 export function getCatalog(): ReadonlyArray<FreeTierModel> {
+  ensureAugmented();
   return catalog;
+}
+
+// Chat-usable modalities on the roulette. Embeddings, rerankers, image/video
+// gen, ocr, bio, etc. are curated into data/*-catalog.json but explicitly
+// excluded here — the roulette is for user-facing chat/reasoning only.
+const ROULETTE_MODALITIES = new Set(["text", "vision", "multimodal"]);
+
+interface CatalogFileModel {
+  id: string;
+  publisher: string;
+  display_name: string;
+  modality: string[];
+  context_window: number | null;
+  max_output: number | null;
+  pricing: unknown;
+  rate_limits: { rpm: number | null; rpd: number | null } | null;
+  tags: string[];
+  notes?: { curated?: string | null };
+}
+interface CatalogFile {
+  provider: "nvidia" | "openrouter";
+  defaults: {
+    rate_limits: { rpm: number | null; rpd: number | null } | null;
+    pricing: unknown;
+  };
+  models: CatalogFileModel[];
+}
+
+function readCatalogFile(relPath: string): CatalogFile | null {
+  // Sync read is fine: runs once per router instance on first pick().
+  // `require("fs")` inside the function avoids bundling fs into client
+  // builds that transitively import this module for types only.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("fs") as typeof import("fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("path") as typeof import("path");
+    const full = path.join(process.cwd(), relPath);
+    if (!fs.existsSync(full)) return null;
+    return JSON.parse(fs.readFileSync(full, "utf8")) as CatalogFile;
+  } catch {
+    return null;
+  }
+}
+
+function toFreeTierModel(
+  m: CatalogFileModel,
+  provider: FreeTierProvider,
+  defaultRateLimits: { rpm: number; rpd: number },
+  defaultMaxOutput: number,
+): FreeTierModel | null {
+  if (!m.modality.some((x) => ROULETTE_MODALITIES.has(x))) return null;
+  // heuristic: "reasoning" is inferred from curated notes / tags rather
+  // than modality, since modality is an input-shape concept.
+  const curated = (m.notes?.curated ?? "").toLowerCase();
+  const isReasoning =
+    m.tags.some((t) => t === "reasoning") ||
+    /\breasoning\b|chain[- ]of[- ]thought|thinking model/.test(curated);
+  const hasVision = m.modality.includes("vision") || m.modality.includes("multimodal");
+  const modality: FreeTierModality = isReasoning
+    ? "reasoning"
+    : hasVision
+      ? "multimodal"
+      : "text";
+  return {
+    id: m.id,
+    provider,
+    displayName: m.display_name || prettyName(m.id),
+    contextWindow: m.context_window ?? 128_000,
+    maxOutput: m.max_output ?? defaultMaxOutput,
+    modality,
+    rateLimits: {
+      rpm: m.rate_limits?.rpm ?? defaultRateLimits.rpm,
+      rpd: m.rate_limits?.rpd ?? defaultRateLimits.rpd,
+    },
+  };
+}
+
+/**
+ * Augment the seed catalog with chat-usable free-tier models from
+ * data/*-catalog.json. Seeds stay at the head of the list so the
+ * roulette's curated preference order is preserved; catalog-derived
+ * entries fill in behind them.
+ *
+ * Idempotent: flipping `catalogAugmented` makes subsequent calls a no-op.
+ * Safe to call on every public entry point.
+ */
+function ensureAugmented(): void {
+  if (catalogAugmented) return;
+  catalogAugmented = true;
+  const existing = new Set(catalog.map((m) => m.id));
+
+  const nvidiaFile = readCatalogFile("data/nvidia-catalog.json");
+  if (nvidiaFile) {
+    for (const m of nvidiaFile.models) {
+      if (existing.has(m.id)) continue;
+      const mapped = toFreeTierModel(m, "nvidia", { rpm: 40, rpd: 1000 }, 4096);
+      if (!mapped) continue;
+      catalog.push(mapped);
+      existing.add(m.id);
+    }
+  }
+
+  const orFile = readCatalogFile("data/openrouter-catalog.json");
+  if (orFile) {
+    for (const m of orFile.models) {
+      if (existing.has(m.id)) continue;
+      // Only free-tier on OR — paid models go through a different path.
+      if (!m.tags.includes("free")) continue;
+      const mapped = toFreeTierModel(m, "openrouter", { rpm: 20, rpd: 200 }, 16_000);
+      if (!mapped) continue;
+      catalog.push(mapped);
+      existing.add(m.id);
+    }
+  }
 }
 
 interface OpenRouterModel {
@@ -363,6 +480,7 @@ class FreeTierRouter {
   }
 
   pick(options: PickOptions = {}): Pick | null {
+    ensureAugmented();
     const candidates = catalog.filter((m) => {
       if (options.excludeIds?.has(m.id)) return false;
       if (options.needsMultimodal && m.modality !== "multimodal" && m.modality !== "vision") return false;
@@ -420,6 +538,7 @@ class FreeTierRouter {
   }
 
   status(): StatusEntry[] {
+    ensureAugmented();
     return catalog.map((model) => {
       const c = this.getCounter(model.id);
       const avail = this.isAvailable(model);
@@ -446,7 +565,7 @@ class FreeTierRouter {
 // The cache key carries a version suffix: bump it whenever the class
 // shape changes (new methods, renamed fields) so dev reloads pick up the
 // new instance instead of returning a stale one that's missing methods.
-const ROUTER_VERSION = 3;
+const ROUTER_VERSION = 4;
 const globalAny = globalThis as unknown as { [k: string]: FreeTierRouter | undefined };
 const key = `__deckFreeTierRouter_v${ROUTER_VERSION}`;
 export const freeTierRouter: FreeTierRouter =

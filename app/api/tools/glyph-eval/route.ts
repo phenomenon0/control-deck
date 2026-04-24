@@ -6,7 +6,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { encodeGlyphSmart } from "@/lib/codec";
+import { encodeGlyphSmart, glyphInstruction } from "@/lib/codec";
+import { getDefaultModel, getProviderConfig, listProviderModels } from "@/lib/llm/providers";
 
 const TEST_SEARCH_RESULTS = {
   results: [
@@ -74,15 +75,27 @@ const EVAL_QUESTIONS: EvalQuestion[] = [
 ];
 
 export async function POST() {
-  const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:8080/v1";
-  const MODEL = process.env.LLM_MODEL ?? process.env.DEFAULT_MODEL ?? "qwen2";
-  
+  const providerConfig = getProviderConfig().primary;
+  const configuredBase = process.env.LLM_BASE_URL ?? providerConfig?.baseURL ?? "http://localhost:8080/v1";
+  const LLM_BASE_URL = configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase.replace(/\/$/, "")}/v1`;
+  const configuredModel = process.env.LLM_MODEL ?? process.env.DEFAULT_MODEL ?? getDefaultModel("primary");
+  const availableModels = providerConfig ? await listProviderModels(providerConfig) : [];
+  let model = configuredModel;
+
+  if (!model || (availableModels.length > 0 && !availableModels.includes(model))) {
+    model = availableModels[0];
+  }
+
+  if (!model) {
+    throw new Error("No model configured for GLYPH eval");
+  }
+
   try {
     // Encode test data as GLYPH
     const glyphResult = encodeGlyphSmart(TEST_SEARCH_RESULTS);
     const glyphData = glyphResult.glyph;
     
-    console.log(`[GLYPH Eval] Testing with ${glyphData.length} char GLYPH (${glyphResult.savings.toFixed(1)}% savings)`);
+    console.log(`[GLYPH Eval] Testing ${model} with ${glyphData.length} char GLYPH (${glyphResult.savings.toFixed(1)}% savings)`);
     
     const results: Array<{
       question: string;
@@ -93,31 +106,28 @@ export async function POST() {
     
     // Run each question
     for (const q of EVAL_QUESTIONS) {
-      const prompt = `You are given data in GLYPH format. Parse it and answer the question.
-
-\`\`\`glyph
-${glyphData}
-\`\`\`
-
-Question: ${q.question}
-
-Answer concisely:`;
+      const prompt = `You are given data in GLYPH format. Parse it and answer the question.\n\n\`\`\`glyph\n${glyphData}\n\`\`\`\n\nQuestion: ${q.question}\n\nAnswer concisely:`;
 
       try {
         const response = await fetch(`${LLM_BASE_URL}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: MODEL,
-            messages: [{ role: "user", content: prompt }],
+            model,
+            messages: [
+              { role: "system", content: glyphInstruction() },
+              { role: "user", content: prompt },
+            ],
             stream: false,
             temperature: 0,
-            max_tokens: 1024,
+            max_tokens: 256,
+            chat_template_kwargs: { enable_thinking: false },
           }),
         });
 
         if (!response.ok) {
-          throw new Error(`LLM returned ${response.status}`);
+          const errorText = await response.text();
+          throw new Error(`LLM returned ${response.status}${errorText ? `: ${errorText.slice(0, 240)}` : ""}`);
         }
 
         const data = await response.json();
@@ -148,6 +158,8 @@ Answer concisely:`;
     console.log(`[GLYPH Eval] Complete: ${passed}/${passed + failed} passed`);
     
     return NextResponse.json({
+      model,
+      baseURL: LLM_BASE_URL,
       passed,
       failed,
       total: results.length,

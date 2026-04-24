@@ -33,8 +33,14 @@ win-host/obj/
 # GNHF local state (not for version control)
 .gnhf/
 
-# data (local state)
-data/
+# Agent scratch plans (not for version control)
+.hermes/
+
+# data (local state) — SQLite, logs, per-user caches.
+# Curated catalogs are shared knowledge and committed.
+data/*
+!data/.gitkeep
+!data/*-catalog.json
 
 # code coverage
 coverage

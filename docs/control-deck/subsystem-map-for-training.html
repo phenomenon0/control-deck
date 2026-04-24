@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Control Deck — Subsystem Map for Training Models to Drive It</title>
+  <link rel="stylesheet" href="./briefing.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="./briefing-index.html">
+        <span class="brand-mark">◆</span>
+        <span>Control Deck Briefings</span>
+      </a>
+      <nav class="topnav">
+        <a href="./briefing-index.html">Index</a>
+        <a href="./what-control-deck-actually-is.html">What it is</a>
+        <a href="./product-aligned-roadmap.html">Roadmap</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <p class="kicker">Briefing 02 · Subsystem map</p>
+      <h1>If you train models to drive Control Deck, you are training against a layered environment.</h1>
+      <p class="subtitle">
+        The repo shape makes this clear: a policy is not learning one API. It is learning how to move
+        through a stack of observations, actions, approvals, artifacts, hardware signals, and modality-specific
+        surfaces.
+      </p>
+      <div class="meta">
+        <span class="badge">19 deck pages</span>
+        <span class="badge">73 API routes</span>
+        <span class="badge">65 pane components</span>
+        <span class="badge">Top lib groups: inference 42 · tools 38 · hardware 23 · hooks 20 · agui 18</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>High-level architecture map</h2>
+      <pre class="diagram">Human operator
+  ↓
+Deck UI shell (app/deck/* + components/panes/*)
+  ↓
+Conversation + activity surfaces (chat, runs, approvals, artifacts)
+  ↓
+API/control plane (app/api/*)
+  ↓
+Execution backends (tools, inference, native OS, terminal, workspace, media)
+  ↓
+Persistence + state (SQLite / AGUI events / settings / artifacts / invocations)
+  ↓
+External systems (models, browser targets, OS windows, files, GPUs, media services)</pre>
+      <p>
+        Training models to “drive Control Deck” means deciding what observation slices and action channels
+        from this stack should become policy inputs and outputs.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Subsystem inventory and training relevance</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Subsystem</th>
+              <th>Repo signals</th>
+              <th>What it does in the product</th>
+              <th>Why it matters for training</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>UI shell and panes</strong></td>
+              <td><code>app/deck/*</code>, <code>components/panes/*</code></td>
+              <td>
+                Exposes the operator-facing surfaces: chat, models, hardware, runs, settings, tools,
+                voice, live, visual, workspace, terminal.
+              </td>
+              <td>
+                This is the observation surface. Even if training starts with tool traces rather than pixels,
+                the model needs a coherent view of what surface it is operating inside.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Chat + AGUI + runs</strong></td>
+              <td><code>app/api/chat/*</code>, <code>app/api/agui/*</code>, <code>lib/agui/*</code>, runs panes</td>
+              <td>
+                Handles streaming, run events, approvals, threads, artifacts, and message history.
+              </td>
+              <td>
+                This is the trajectory backbone. It should become the canonical source for demonstrations,
+                replay bundles, failure labels, and evaluation traces.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Tool runtime + bridge + approvals</strong></td>
+              <td><code>lib/tools/*</code>, <code>app/api/tools/bridge/route.ts</code>, <code>lib/approvals/gate.ts</code>, <code>lib/codec/*</code></td>
+              <td>
+                Defines the typed action space, argument schemas, GLYPH transport, execution routing,
+                and approval decisions.
+              </td>
+              <td>
+                This is the most important training substrate early on. If the action space is unstable,
+                everything downstream gets noisy.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Inference control plane</strong></td>
+              <td><code>lib/inference/*</code>, <code>app/api/inference/*</code>, model/hardware panes</td>
+              <td>
+                Routes text, image, video, audio, vision, embeddings, rerank, provider metrics,
+                and benchmark metadata.
+              </td>
+              <td>
+                Lets you train policies that make model-aware and modality-aware choices instead of blindly
+                calling a single default model.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Hardware awareness</strong></td>
+              <td><code>lib/hardware/*</code>, <code>app/api/hardware/*</code>, <code>app/deck/hardware</code></td>
+              <td>
+                Reads GPU/VRAM/process state, provider availability, offline models, and machine profile.
+              </td>
+              <td>
+                Enables resource-aware decision making: pick a local model, avoid VRAM contention,
+                or explain why a task should route elsewhere.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Native/browser/workspace execution</strong></td>
+              <td><code>lib/tools/native/*</code>, terminal/workspace libs, Electron/browser wiring</td>
+              <td>
+                Gives the system reach into the OS, browser-ish targets, shells, and code sandboxes.
+              </td>
+              <td>
+                This is where Control Deck becomes more than an LLM dashboard. It is the environment layer
+                for genuinely agentic training tasks.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Multimodal creative surfaces</strong></td>
+              <td><code>voice</code>, <code>comfy</code>, <code>live</code>, <code>audio</code>, <code>visual</code>, widgets</td>
+              <td>
+                Supports media generation, live transport, voice I/O, and richer artifact workflows.
+              </td>
+              <td>
+                High-value later-stage curriculum. These surfaces let you train multimodal workflows instead
+                of purely textual tool use.
+              </td>
+            </tr>
+            <tr>
+              <td><strong>Plugins, skills, rules</strong></td>
+              <td><code>lib/plugins/*</code>, <code>lib/skills/*</code>, <code>lib/rules/*</code>, related API routes</td>
+              <td>
+                Adds extensibility, procedural memory, and declarative policy surfaces.
+              </td>
+              <td>
+                Useful for advanced training: models can learn when to invoke structured capability packs,
+                not only raw tools.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Training priority tiers</h2>
+      <div class="grid cols-3">
+        <article class="card">
+          <h3>Tier 1 · Essential first</h3>
+          <ul class="tight">
+            <li>Tool runtime and schema-valid action emission</li>
+            <li>Approvals and side-effect discipline</li>
+            <li>AGUI runs/events/artifacts as trace backbone</li>
+            <li>Replayable chat/tool trajectories</li>
+            <li>GLYPH/tool parsing reliability</li>
+          </ul>
+          <p class="note">This is the smallest stable loop for SFT/eval/reward collection.</p>
+        </article>
+        <article class="card">
+          <h3>Tier 2 · Product-native depth</h3>
+          <ul class="tight">
+            <li>Inference routing decisions</li>
+            <li>Hardware-aware task planning</li>
+            <li>Run inspection and artifact interpretation</li>
+            <li>Model/provider selection under constraints</li>
+          </ul>
+          <p class="note">This is where the model starts feeling like it understands the deck.</p>
+        </article>
+        <article class="card">
+          <h3>Tier 3 · Rich environment control</h3>
+          <ul class="tight">
+            <li>Native OS automation</li>
+            <li>Browser-target workflows</li>
+            <li>Workspace and terminal multi-step tasks</li>
+            <li>Voice/media/live/Comfy multimodal flows</li>
+          </ul>
+          <p class="note">This is the highest-value frontier, but it needs the earlier tiers to be stable.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>What to export from each subsystem</h2>
+      <div class="grid cols-2">
+        <article class="card">
+          <h3>Observation exports</h3>
+          <ul class="tight">
+            <li>Thread state and recent messages</li>
+            <li>Run phase and current tool status</li>
+            <li>Available tool manifest + schemas</li>
+            <li>Approval mode and pending approval queue</li>
+            <li>Provider/model availability and current routing config</li>
+            <li>Hardware snapshot: VRAM, active model processes, offline availability</li>
+            <li>Artifact handles and compact previews</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>Action exports</h3>
+          <ul class="tight">
+            <li>Typed tool calls with arguments</li>
+            <li>Approval request / approve / reject / revise flows</li>
+            <li>Model or provider switching</li>
+            <li>Workspace/terminal/browser/native actions</li>
+            <li>Stop, retry, resume, handoff, or ask-for-clarification acts</li>
+            <li>Artifact-producing actions and post-hoc evaluation markers</li>
+          </ul>
+        </article>
+      </div>
+      <hr />
+      <p>
+        The crucial point: the training interface should be a faithful projection of the real product,
+        not a toy abstraction that strips away approvals, hardware state, artifacts, or modality choices.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Best near-term training loop</h2>
+      <pre class="diagram">Real Control Deck task
+  → observation snapshot
+  → policy action(s)
+  → tool/native/browser execution
+  → approvals / interruptions / artifacts
+  → run + event persistence
+  → export trajectory
+  → convert to demos / preference pairs / reward rows / eval cases
+  → train in external stack
+  → replay in Control Deck</pre>
+      <p class="callout">
+        This keeps Control Deck true to itself while still making it the center of model improvement.
+      </p>
+    </section>
+
+    <footer>
+      Grounded in repo structure captured from filesystem inspection on 2026-04-23, including grouped counts for
+      <code>app/api</code>, <code>components/panes</code>, and <code>lib</code>.
+    </footer>
+  </div>
+</body>
+</html>

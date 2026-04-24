@@ -169,12 +169,11 @@ export function VoicePane() {
               onTouchEnd={handleMicRelease}
               disabled={voiceApiStatus === "disconnected" || isProcessingSTT}
               className={`
-                relative rounded-full transition-all duration-200 
+                relative rounded-full bg-transparent border-0 p-0 transition-all duration-200
                 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-2
                 ${voiceApiStatus === "disconnected" ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
                 ${isListening ? "scale-110" : "hover:scale-105"}
               `}
-              style={{ background: "transparent", border: "none", padding: 0 }}
             >
               <AudioLevelIndicator
                 level={audioLevel}
@@ -211,7 +210,7 @@ export function VoicePane() {
 
             {/* Error */}
             {error && (
-              <div className="flex items-center gap-2 text-sm text-red-400">
+              <div className="flex items-center gap-2 text-sm text-[var(--error)]">
                 <span>{error}</span>
                 <button
                   onClick={clearError}
@@ -318,11 +317,8 @@ function SpeakingIndicator() {
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className="w-0.5 bg-[var(--accent)] rounded-full voice-bar"
-          style={{
-            height: "100%",
-            animationDelay: `${(i - 1) * 0.1}s`,
-          }}
+          className="w-0.5 h-full bg-[var(--accent)] rounded-full voice-bar"
+          style={{ animationDelay: `${(i - 1) * 0.1}s` }}
         />
       ))}
     </div>

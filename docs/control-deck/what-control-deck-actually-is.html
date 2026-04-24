@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Control Deck — What It Actually Is</title>
+  <link rel="stylesheet" href="./briefing.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="./briefing-index.html">
+        <span class="brand-mark">◆</span>
+        <span>Control Deck Briefings</span>
+      </a>
+      <nav class="topnav">
+        <a href="./briefing-index.html">Index</a>
+        <a href="./subsystem-map-for-training.html">Subsystem map</a>
+        <a href="./product-aligned-roadmap.html">Roadmap</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <p class="kicker">Briefing 01 · Product architecture</p>
+      <h1>Control Deck is a full operating environment, not a single-purpose harness.</h1>
+      <p class="subtitle">
+        The right mental model is not “chat app,” not “trainer,” and not merely “eval harness.”
+        Control Deck is a local-first human+agent operating surface that combines UI shell,
+        agent runtime, inference router, machine-control layer, creative workstation, and
+        persistence spine into one product.
+      </p>
+      <div class="meta">
+        <span class="badge">Observed in repo: 19 deck pages</span>
+        <span class="badge">65 pane components</span>
+        <span class="badge">73 API routes</span>
+        <span class="badge">226 TypeScript files under <code>lib/</code></span>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>The thesis</h2>
+      <p class="lead">
+        Control Deck is best understood as the operating layer for an entire machine and AI stack.
+        Training and evaluation matter, but they should be built around this environment rather than
+        replacing its identity.
+      </p>
+      <div class="callout">
+        <strong>Repo-grounded evidence:</strong>
+        README calls it “one cockpit for every surface your agent needs to touch.”
+        DESIGN.md says “Control Deck is not a chatbot. It is the operating layer for an entire machine and AI stack.”
+        SURFACE.md says the primary content is work product and agent activity, not text exchange.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>What it is, in layers</h2>
+      <div class="grid cols-2">
+        <article class="card">
+          <h3>1. Operator cockpit</h3>
+          <p>
+            The app has dedicated deck surfaces for chat, models, hardware, tools, runs, settings,
+            voice, visual work, live music, terminal, workspace, and more. That makes it a supervision
+            and control shell for both humans and agents, not just a single chat transcript.
+          </p>
+        </article>
+        <article class="card">
+          <h3>2. Agent runtime surface</h3>
+          <p>
+            The run lifecycle spans chat submission, tool dispatch, approval, interruption, resume,
+            artifact rendering, and persistence. In other words: the UI is not merely showing results;
+            it is presenting an active runtime.
+          </p>
+        </article>
+        <article class="card">
+          <h3>3. Inference and model control plane</h3>
+          <p>
+            The repo has a large inference/hardware surface: provider bindings, metrics, suggestions,
+            system profiling, benchmarks, embeddings, rerank, image/audio/video/vision/tts/stt routes.
+            That is model orchestration, not just prompt dispatch.
+          </p>
+        </article>
+        <article class="card">
+          <h3>4. Machine-control layer</h3>
+          <p>
+            Tools reach the terminal, files, browser-like surfaces, native OS accessibility APIs,
+            code execution sandboxes, and workspace flows. This makes Control Deck a machine interface,
+            not only a model interface.
+          </p>
+        </article>
+        <article class="card">
+          <h3>5. Multimodal creative workstation</h3>
+          <p>
+            Voice, audio, ComfyUI, visual, live transport, mixer, playlist, pattern rack, widgets,
+            and artifact views make the product broader than conventional agent consoles. It is built
+            for making things, not just asking questions.
+          </p>
+        </article>
+        <article class="card">
+          <h3>6. Desktop application platform</h3>
+          <p>
+            Electron, native dependencies, themed browser windows, and OS adapters make the app a
+            real desktop environment with system reach, not just a local website.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>What it is not</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Reduction</th>
+              <th>Why it is incomplete</th>
+              <th>Better framing</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>“It’s a chatbot UI.”</td>
+              <td>
+                The docs explicitly push against this. Agent activity, tools, artifacts, runs,
+                approvals, and work product outrank plain conversation.
+              </td>
+              <td>It is a work-oriented control surface with chat as one lane.</td>
+            </tr>
+            <tr>
+              <td>“It’s an eval harness.”</td>
+              <td>
+                Harness behavior is important, but the product also includes native control, hardware
+                visibility, multimodal generation, desktop embedding, and operator workflows.
+              </td>
+              <td>It is a product with an eval substrate inside it.</td>
+            </tr>
+            <tr>
+              <td>“It’s a trainer.”</td>
+              <td>
+                Nothing in the current repo suggests that gradient updates, checkpoint management,
+                or distributed training infrastructure are core responsibilities.
+              </td>
+              <td>It should feed external training stacks by generating traces, labels, and tasks.</td>
+            </tr>
+            <tr>
+              <td>“It’s only a tools bridge.”</td>
+              <td>
+                The repo has much more: panes, routes, model routing, desktop wiring, media surfaces,
+                skills, plugins, rules, runs, and artifact storage.
+              </td>
+              <td>It is a unified operating environment where the bridge is one backbone.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Why this framing matters</h2>
+      <div class="grid cols-3">
+        <article class="stat">
+          <span class="n">Product</span>
+          <p>
+            If you flatten Control Deck into a narrow harness, you lose the thing that makes it worth
+            training against: a rich, cross-surface environment with actual operator workflows.
+          </p>
+        </article>
+        <article class="stat">
+          <span class="n">Research</span>
+          <p>
+            If you preserve its full shape, you can study more realistic agent behavior: model switching,
+            approval-seeking, artifact production, hardware-aware decisions, and multi-tool coordination.
+          </p>
+        </article>
+        <article class="stat">
+          <span class="n">Training</span>
+          <p>
+            The goal is not to teach a policy to hit one endpoint. The goal is to teach a policy to
+            operate a layered environment safely and effectively.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>The best one-sentence description</h2>
+      <div class="callout">
+        <strong>Control Deck is a local-first operating environment for human+agent work:</strong>
+        a UI shell, runtime, model router, machine-control plane, artifact system, and multimodal
+        workstation that can later serve as a high-value environment for training and evaluating models.
+      </div>
+      <p class="note">
+        That preserves the product’s real identity while still making room for the training/eval agenda.
+      </p>
+    </section>
+
+    <footer>
+      Built from repo/docs inspection on 2026-04-23: README.md, DESIGN.md, SURFACE.md, app/deck, app/api,
+      components/panes, and lib/ directory structure.
+    </footer>
+  </div>
+</body>
+</html>

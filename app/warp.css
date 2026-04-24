@@ -1,6 +1,10 @@
-/* Design tokens previously lived in ../UI/handoff/tokens.standalone.css
-   but that handoff directory was removed in 1528661. The :root block
-   below is self-contained, so no import is needed. */
+/* Base palette lives in ./styles/tokens.css — raw colors (void/parchment/
+   amber), semantic aliases (--bg, --fg, --bg-card, --accent), spacing,
+   radius, motion, and z-index. The :root block below layers on the
+   shadcn/tailwind-compat names and component shortcuts that older code
+   references, and must be imported AFTER tokens.css so the var() lookups
+   resolve. */
+@import "./styles/tokens.css";
 
 :root {
   --bg-base: var(--bg);

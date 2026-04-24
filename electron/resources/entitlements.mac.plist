@@ -2,17 +2,19 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- V8 JIT in renderer + main. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>
+  <!-- Electron + child shells (node-pty) allocate executable pages. -->
   <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
   <true/>
-  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
-  <true/>
+  <!-- Native deps (better-sqlite3, node-pty, sharp, koffi) ship prebuilts
+       signed by upstream, not by us. Without this hardened-runtime
+       refuses to dlopen them. -->
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
+  <!-- useVoiceChat: getUserMedia({audio:true}) for voice chat. -->
   <key>com.apple.security.device.audio-input</key>
-  <true/>
-  <key>com.apple.security.automation.apple-events</key>
   <true/>
 </dict>
 </plist>

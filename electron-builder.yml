@@ -58,12 +58,11 @@ mac:
     NSAccessibilityUsageDescription: >-
       Control Deck reads the accessibility tree of other apps so the agent
       can locate buttons, fill text fields, and click on your behalf.
-    NSAppleEventsUsageDescription: >-
-      Control Deck uses AppleScript events to raise windows and interact
-      with running applications.
     NSScreenCaptureDescription: >-
       Control Deck captures your screen so the agent can reason about what
       is currently on display.
+    NSMicrophoneUsageDescription: >-
+      Control Deck records your microphone for voice chat with the agent.
 
 win:
   # Stable AppUserModelID so Windows identifies the app for notifications,

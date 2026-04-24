@@ -56,4 +56,5 @@ export const Icon = {
   Arrow: (p: IconProps) => <I {...p} d={<><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></>} />,
   Download: (p: IconProps) => <I {...p} d={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></>} />,
   Expand: (p: IconProps) => <I {...p} d={<><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" x2="14" y1="3" y2="10" /><line x1="3" x2="10" y1="21" y2="14" /></>} />,
+  Columns: (p: IconProps) => <I {...p} d={<><rect width="18" height="18" x="3" y="3" rx="2" /><line x1="9" x2="9" y1="3" y2="21" /><line x1="15" x2="15" y1="3" y2="21" /></>} />,
 };

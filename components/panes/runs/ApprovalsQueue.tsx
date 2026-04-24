@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { ToolCallDiff } from "./ToolCallDiff";
 
 interface Approval {
   id: string;
@@ -138,7 +139,7 @@ export function ApprovalsQueue() {
                 <span className={`approval-status approval-status--${a.status}`}>{a.status}</span>
               </header>
               {a.reason && <p className="approval-reason">{a.reason}</p>}
-              <pre className="approval-args">{JSON.stringify(a.tool_args, null, 2)}</pre>
+              <ToolCallDiff toolName={a.tool_name} args={a.tool_args} />
               {a.status === "pending" && (
                 <footer>
                   <button

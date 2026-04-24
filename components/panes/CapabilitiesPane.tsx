@@ -16,13 +16,15 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ToolsTab } from "@/components/panes/capabilities/tools/ToolsTab";
 import { SkillsTab } from "@/components/panes/capabilities/skills/SkillsTab";
 import { RulesTab } from "@/components/panes/capabilities/rules/RulesTab";
+import { MCPServersTab } from "@/components/panes/capabilities/mcp/MCPServersTab";
 
-type TabId = "tools" | "skills" | "rules";
+type TabId = "tools" | "skills" | "rules" | "mcp";
 
 const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: "tools", label: "Tools" },
   { id: "skills", label: "Skills" },
   { id: "rules", label: "Rules" },
+  { id: "mcp", label: "MCP" },
 ];
 
 export function CapabilitiesPane() {
@@ -72,6 +74,7 @@ export function CapabilitiesPane() {
         {active === "tools" && <ToolsTab />}
         {active === "skills" && <SkillsTab />}
         {active === "rules" && <RulesTab />}
+        {active === "mcp" && <MCPServersTab />}
       </div>
     </div>
   );

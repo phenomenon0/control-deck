@@ -6,6 +6,8 @@ import { Icon } from "@/components/warp/Icons";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { useTerminalSessions } from "@/lib/hooks/useTerminalSessions";
 import { getTerminalWebSocketUrl } from "@/lib/terminal/client";
+import { useTerminalAgui } from "@/lib/terminal/useTerminalAgui";
+import { deriveTerminalEmptyState, type TerminalEmptyState } from "@/lib/terminal/pane-state";
 import type {
   TerminalMetaMessage,
   TerminalProfile,
@@ -84,6 +86,16 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const onOutputRef = useRef(props.onOutput);
   useEffect(() => { onOutputRef.current = props.onOutput; }, [props.onOutput]);
 
+  const aguiBridge = useTerminalAgui();
+  const aguiRef = useRef(aguiBridge);
+  useEffect(() => { aguiRef.current = aguiBridge; }, [aguiBridge]);
+
+  // Mirror the active session into a ref so the socket effect can read
+  // profile/label/cwd without adding `activeSession` to its deps (which
+  // would tear down the socket on every session-list refresh). Assigned
+  // further down after `activeSession` is computed.
+  const activeSessionRef = useRef<TerminalSession | null>(null);
+
   useImperativeHandle(handleRef, () => ({
     sendKeys: (keys: string) => {
       const sock = socketRef.current;
@@ -120,6 +132,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     () => sessions.find((s) => s.id === activeSessionId) ?? null,
     [sessions, activeSessionId],
   );
+  useEffect(() => { activeSessionRef.current = activeSession; }, [activeSession]);
   const activeSessionKey = activeSession
     ? `${activeSession.id}:${activeSession.startedAt}`
     : null;
@@ -211,7 +224,24 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
-      socket.addEventListener("open", () => setSocketState("connected"));
+      // Snapshot profile/label/cwd at effect start — updates from `meta`
+      // messages would re-render but wouldn't change session identity.
+      const snapshot = activeSessionRef.current;
+      let sessionProfileForBridge: TerminalProfile | undefined = snapshot?.profile;
+      const sessionLabel = snapshot?.label ?? null;
+      const sessionCwd = snapshot?.cwd ?? null;
+
+      socket.addEventListener("open", () => {
+        setSocketState("connected");
+        if (sessionProfileForBridge) {
+          aguiRef.current.start({
+            sessionId: activeSessionId,
+            profile: sessionProfileForBridge,
+            label: sessionLabel,
+            cwd: sessionCwd,
+          });
+        }
+      });
 
       socket.addEventListener("message", (event) => {
         let message: TerminalServerMessage;
@@ -226,6 +256,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
             ? next.slice(-OUTPUT_BUFFER_MAX)
             : next;
           onOutputRef.current?.(message.data);
+          aguiRef.current.emit(activeSessionId, sessionProfileForBridge, message.data);
 
           if (terminalReadyRef.current) write(message.data);
           else pendingOutputRef.current.push(message.data);
@@ -243,6 +274,19 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
             exitCode: "exitCode" in nextMeta ? nextMeta.exitCode : current.exitCode,
             error: "error" in nextMeta ? nextMeta.error : current.error,
           }));
+          // If the server reveals the profile after connect, retroactively
+          // start the bridge run so we don't miss the session entirely.
+          if ("profile" in nextMeta && !sessionProfileForBridge) {
+            sessionProfileForBridge = nextMeta.profile;
+            if (sessionProfileForBridge) {
+              aguiRef.current.start({
+                sessionId: activeSessionId,
+                profile: sessionProfileForBridge,
+                label: "label" in nextMeta ? nextMeta.label ?? null : sessionLabel,
+                cwd: "cwd" in nextMeta ? nextMeta.cwd ?? null : sessionCwd,
+              });
+            }
+          }
           return;
         }
         if (message.type === "status") {
@@ -251,6 +295,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
         }
         if (message.type === "exit") {
           setMeta((c) => ({ ...c, exitCode: message.exitCode }));
+          aguiRef.current.end(activeSessionId, message.exitCode ?? null);
           void refresh();
         }
       });
@@ -270,6 +315,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
 
     return () => {
       cancelled = true;
+      if (activeSessionId) aguiRef.current.end(activeSessionId);
       socket?.close();
     };
   }, [activeSessionId, refresh, serviceOnline, write]);
@@ -430,7 +476,15 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const detailCwd = meta.cwd ?? activeSession?.cwd ?? null;
   const detailPid = meta.pid ?? activeSession?.pid ?? null;
   const activeCanStop = detailStatus === "running" || detailStatus === "starting";
-  const errorNotice = transportError || actionError || meta.error || null;
+  const errorNotice = transportError || actionError || meta.error || error || null;
+  const emptyState = deriveTerminalEmptyState({
+    serviceOnline,
+    activeSession: Boolean(activeSession),
+    error: errorNotice,
+  });
+  const friendlyErrorNotice = errorNotice === "Unauthorized."
+    ? "token mismatch · terminal relay is up but this browser session is not authenticated"
+    : errorNotice;
   const activeLabel = meta.label ?? activeSession?.label ?? null;
   const activeSummary = activeLabel ?? activeSession?.label ?? "No active session";
   const activeLocation = detailCwd
@@ -440,10 +494,12 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       : "Launch Shell, Claude, or OpenCode";
   const serviceStateLabel = loading
     ? "Syncing"
-    : serviceOnline
-      ? "Service online"
-      : "Service offline";
-  const transportLabel = toTitleCase(socketState);
+    : emptyState.kind === "locked"
+      ? "Service locked"
+      : serviceOnline
+        ? "Service online"
+        : "Service offline";
+  const transportLabel = emptyState.kind === "locked" ? "Locked" : toTitleCase(socketState);
   const liveModeCount = profileCounts.claude + profileCounts.opencode;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -490,10 +546,10 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       <div className="terminal-overview-grid terminal-overview-grid--deck">
         <OverviewCard
           label="Terminal Service"
-          value={serviceOnline ? "Online" : "Offline"}
+          value={emptyState.kind === "locked" ? "Locked" : serviceOnline ? "Online" : "Offline"}
           sub={`${health?.host ?? "127.0.0.1"}:${health?.port ?? 4010}`}
-          badge={loading ? "Syncing" : serviceOnline ? "Ready" : "Down"}
-          tone={serviceOnline ? "ok" : "err"}
+          badge={loading ? "Syncing" : emptyState.kind === "locked" ? "Auth" : serviceOnline ? "Ready" : "Down"}
+          tone={emptyState.kind === "locked" ? "neutral" : serviceOnline ? "ok" : "err"}
         />
         <OverviewCard
           label="Pinned Sessions"
@@ -694,15 +750,23 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
             <div className="tp-surface-wrap">
               {!serviceOnline ? (
                 <TPEmpty
-                  title="Terminal service is down"
-                  body="Start the PTY sidecar and this surface will come back."
-                  code="npm run terminal-service"
-                  error={error}
+                  state={emptyState}
+                  error={friendlyErrorNotice}
+                  action={
+                    <button
+                      type="button"
+                      className="tp-empty-action"
+                      onClick={() => void refresh()}
+                      disabled={loading || busyAction !== null}
+                    >
+                      <span>{loading ? "Syncing…" : "Refresh status"}</span>
+                    </button>
+                  }
                 />
               ) : !activeSession ? (
                 <TPEmpty
-                  title="No session selected"
-                  body="Open a shell from the left, or pick Claude / OpenCode. Each launch becomes a pinned session."
+                  state={emptyState}
+                  error={friendlyErrorNotice}
                   action={
                     <button
                       type="button"
@@ -749,9 +813,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
               {staleCount > 0 && ` · ${staleCount} exited`}
             </span>
             <span className="tp-statusbar-grow" />
-            {errorNotice ? (
-              <span className="tp-statusbar-err" title={errorNotice}>
-                {errorNotice}
+            {friendlyErrorNotice ? (
+              <span className="tp-statusbar-err" title={friendlyErrorNotice}>
+                {friendlyErrorNotice}
               </span>
             ) : (
               <span className="tp-statusbar-item tp-statusbar-dim">
@@ -836,8 +900,8 @@ function SessionContextBox({
           <span className="tp-nowbox-tag tp-nowbox-tag--warn">OFFLINE</span>
         </div>
         <div className="tp-nowbox-body">
-          <div className="tp-nowbox-line tp-nowbox-dim">PTY sidecar isn't responding.</div>
-          <code className="tp-nowbox-code">npm run terminal-service</code>
+          <div className="tp-nowbox-line tp-nowbox-dim">Waiting for the local terminal relay.</div>
+          <div className="tp-nowbox-line tp-nowbox-dim">Refresh the surface once auth + sidecar are back in sync.</div>
         </div>
       </div>
     );
@@ -954,28 +1018,69 @@ function SessionContextBox({
 
 // ──────────────────────────────────────────────────────────────────────
 function TPEmpty({
-  title,
-  body,
-  code,
+  state,
   action,
   error,
 }: {
-  title: string;
-  body: string;
-  code?: string;
+  state: TerminalEmptyState;
   action?: React.ReactNode;
   error?: string | null;
 }) {
+  const eyebrow =
+    state.kind === "locked"
+      ? "Local relay · auth mismatch"
+      : state.kind === "offline"
+        ? "Local relay · offline"
+        : "Command rail · idle";
+
   return (
-    <div className="tp-empty">
-      <div className="tp-empty-mark">
-        <Icon.Terminal size={22} />
+    <div className={`tp-empty tp-empty--${state.tone}`}>
+      <div className="tp-empty-card">
+        <div className="tp-empty-copy-wrap">
+          <div className="tp-empty-eyebrow">{eyebrow}</div>
+          <div className="tp-empty-mainline">
+            <div className="tp-empty-mark">
+              <Icon.Terminal size={22} />
+            </div>
+            <div className="tp-empty-copy">
+              <h2 className="tp-empty-title">{state.title}</h2>
+              <p className="tp-empty-body">{state.body}</p>
+            </div>
+          </div>
+
+          <div className="tp-empty-pills" aria-hidden="true">
+            <span className="tp-empty-pill">pinned shells</span>
+            <span className="tp-empty-pill">Claude + OpenCode</span>
+            <span className="tp-empty-pill">keyboard-first rail</span>
+          </div>
+
+          {state.code && (
+            <div className="tp-empty-command">
+              <span className="tp-empty-command-label">run</span>
+              <code className="tp-empty-code">{state.code}</code>
+            </div>
+          )}
+
+          {action ? <div className="tp-empty-actions">{action}</div> : null}
+          {error ? <div className="tp-empty-detail">{error}</div> : null}
+        </div>
+
+        <div className="tp-empty-side">
+          <div className="tp-empty-side-title">Terminal surface</div>
+          <div className="tp-empty-side-row">
+            <span className="tp-empty-side-key">launch</span>
+            <span className="tp-empty-side-val">⌥N new shell</span>
+          </div>
+          <div className="tp-empty-side-row">
+            <span className="tp-empty-side-key">agents</span>
+            <span className="tp-empty-side-val">Claude / OpenCode</span>
+          </div>
+          <div className="tp-empty-side-row">
+            <span className="tp-empty-side-key">history</span>
+            <span className="tp-empty-side-val">sessions stay pinned</span>
+          </div>
+        </div>
       </div>
-      <h2 className="tp-empty-title">{title}</h2>
-      <p className="tp-empty-body">{body}</p>
-      {code && <code className="tp-empty-code">{code}</code>}
-      {action}
-      {error && <div className="tp-empty-error">{error}</div>}
     </div>
   );
 }

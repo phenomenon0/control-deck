@@ -1,83 +1,18 @@
 /**
- * Tool Bridge API - Agent-GO to Control-Deck Tool Gateway
- * 
- * Single endpoint that Agent-GO calls to execute UI-specific tools:
- * - generate_image (ComfyUI / Lite pipeline)
- * - edit_image (ComfyUI Qwen Edit)
- * - generate_audio (ComfyUI Stable Audio)
- * - image_to_3d (ComfyUI Hunyuan 3D)
- * - analyze_image (Ollama Vision)
- * - glyph_motif (Procedural SVG)
- * - execute_code (Sandboxed code execution)
- * - vector_search (Semantic search with hybrid mode)
- * - vector_store (Store documents with auto-chunking)
- * - vector_ingest (Ingest URLs with auto-chunking)
- * 
- * Agent-GO native tools (web_search, workspace_search) are NOT routed here.
+ * Tool Bridge API — Agent-GO to Control-Deck tool gateway.
+ *
+ * Thin HTTP wrapper around lib/tools/bridgeDispatch, which owns the
+ * BRIDGE_TOOLS allowlist, arg validation, and approval gating. The MCP
+ * server (lib/mcp) shares the same dispatcher.
  */
 
-import { executeToolWithGlyph, type ExecutorContext } from "@/lib/tools/executor";
-import type { ToolCall, ToolName } from "@/lib/tools/definitions";
-import { TOOL_SCHEMAS } from "@/lib/tools/definitions";
-import { hub } from "@/lib/agui/hub";
-import { createEvent, generateId, type ArtifactCreated } from "@/lib/agui/events";
-import { saveEvent, createArtifact } from "@/lib/agui/db";
+import { BRIDGE_TOOLS, bridgeDispatch } from "@/lib/tools/bridgeDispatch";
 
-// Tools that can be executed via bridge
-export const BRIDGE_TOOLS = new Set<string>([
-  "generate_image",
-  "edit_image",
-  "generate_audio",
-  "image_to_3d",
-  "analyze_image",
-  "glyph_motif",
-  "execute_code",
-  "vector_search",
-  "vector_store",
-  "vector_ingest",
-  "live.play",
-  "live.set_track",
-  "live.apply_script",
-  "live.fx",
-  "live.load_sample",
-  "live.generate_sample",
-  "live.bpm",
-  "native_locate",
-  "native_click",
-  "native_type",
-  "native_tree",
-  "native_key",
-  "native_focus",
-  "native_screen_grab",
-  "native_focus_window",
-  "native_click_pixel",
-  // Windows-only UIA extras
-  "native_invoke",
-  "native_wait_for",
-  "native_element_from_point",
-  "native_read_text",
-  "native_with_cache",
-  // Robust-automation primitives (watchers + baselines)
-  "native_watch_install",
-  "native_watch_drain",
-  "native_watch_remove",
-  "native_baseline_capture",
-  "native_baseline_restore",
-  // Workspace control (relayed via SSE to any connected WorkspaceShell)
-  "workspace_open_pane",
-  "workspace_close_pane",
-  "workspace_focus_pane",
-  "workspace_reset",
-  "workspace_list_panes",
-  "workspace_pane_call",
-]);
+export { BRIDGE_TOOLS };
 
 interface BridgeRequest {
-  /** Tool name */
   tool: string;
-  /** Tool arguments */
   args: Record<string, unknown>;
-  /** Execution context from Agent-GO */
   ctx: {
     thread_id: string;
     run_id: string;
@@ -87,17 +22,14 @@ interface BridgeRequest {
 
 interface BridgeResponse {
   success: boolean;
-  message: string;
-  /** Artifacts created (images, audio, etc.) */
+  message?: string;
   artifacts?: Array<{
     id: string;
     url: string;
     name: string;
     mimeType: string;
   }>;
-  /** Raw data for LLM context */
   data?: unknown;
-  /** Error message if failed */
   error?: string;
 }
 
@@ -108,112 +40,51 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return Response.json(
       { success: false, error: "Invalid JSON body" } as BridgeResponse,
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  const { tool, args, ctx } = body;
+  const outcome = await bridgeDispatch({
+    tool: body.tool,
+    args: body.args,
+    threadId: body.ctx?.thread_id,
+    runId: body.ctx?.run_id,
+    toolCallId: body.ctx?.tool_call_id,
+  });
 
-  // Validate request
-  if (!tool || typeof tool !== "string") {
-    return Response.json(
-      { success: false, error: "tool name is required" } as BridgeResponse,
-      { status: 400 }
-    );
-  }
-
-  if (!ctx?.thread_id || !ctx?.run_id) {
-    return Response.json(
-      { success: false, error: "ctx.thread_id and ctx.run_id are required" } as BridgeResponse,
-      { status: 400 }
-    );
-  }
-
-  // Check if tool is allowed via bridge
-  if (!BRIDGE_TOOLS.has(tool)) {
-    return Response.json(
-      { 
-        success: false, 
-        error: `Tool '${tool}' is not available via bridge. Use Agent-GO native tools.` 
-      } as BridgeResponse,
-      { status: 400 }
-    );
-  }
-
-  console.log(`[Bridge] Executing tool: ${tool}`, args);
-
-  // Build executor context
-  const execCtx: ExecutorContext = {
-    threadId: ctx.thread_id,
-    runId: ctx.run_id,
-    toolCallId: ctx.tool_call_id ?? generateId(),
-  };
-
-  try {
-    // Validate args against the per-tool Zod schema (defense-in-depth).
-    const schema = TOOL_SCHEMAS[tool as ToolName];
-    let validatedArgs: Record<string, unknown> = args;
-    if (schema) {
-      const parsed = schema.safeParse(args);
-      if (!parsed.success) {
-        return Response.json(
-          { success: false, message: "invalid args", errors: parsed.error.issues } as BridgeResponse & { errors: unknown[] },
-          { status: 400 }
-        );
-      }
-      validatedArgs = parsed.data as Record<string, unknown>;
-    } else {
-      console.warn("[bridge] no schema for tool:", tool);
-    }
-
-    const { gateToolCall } = await import("@/lib/approvals/gate");
-    const verdict = await gateToolCall({
-      toolName: tool,
-      toolArgs: validatedArgs,
-      runId: ctx.run_id,
-      threadId: ctx.thread_id,
-    });
-    if (verdict.decision === "denied") {
+  switch (outcome.kind) {
+    case "bad_request":
       return Response.json(
-        { success: false, error: `tool call denied: ${verdict.reason}` } as BridgeResponse,
+        {
+          success: false,
+          error: outcome.message,
+          ...(outcome.issues ? { errors: outcome.issues } : {}),
+        } as BridgeResponse & { errors?: unknown },
+        { status: 400 },
+      );
+    case "denied":
+      return Response.json(
+        { success: false, error: `tool call denied: ${outcome.reason}` } as BridgeResponse,
         { status: 403 },
       );
+    case "error":
+      return Response.json(
+        { success: false, error: outcome.message } as BridgeResponse,
+        { status: 500 },
+      );
+    case "ok": {
+      const r = outcome.result;
+      return Response.json({
+        success: r.success,
+        message: r.message,
+        artifacts: r.artifacts,
+        data: r.data,
+        error: r.error,
+      } as BridgeResponse);
     }
-
-    const toolCall = {
-      name: tool,
-      args: validatedArgs,
-    } as ToolCall;
-
-    const result = await executeToolWithGlyph(toolCall, execCtx);
-
-    console.log(`[Bridge] Tool ${tool} completed: success=${result.success}`);
-
-    // Return result to Agent-GO
-    const response: BridgeResponse = {
-      success: result.success,
-      message: result.message,
-      artifacts: result.artifacts,
-      data: result.data,
-      error: result.error,
-    };
-
-    return Response.json(response);
-
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : "Unknown error";
-    console.error(`[Bridge] Tool ${tool} failed:`, error);
-
-    return Response.json(
-      { success: false, error: errMsg } as BridgeResponse,
-      { status: 500 }
-    );
   }
 }
 
-/**
- * GET /api/tools/bridge - List available bridge tools
- */
 export async function GET(): Promise<Response> {
   return Response.json({
     tools: Array.from(BRIDGE_TOOLS),

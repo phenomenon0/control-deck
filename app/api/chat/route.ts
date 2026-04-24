@@ -735,9 +735,9 @@ export async function POST(req: Request) {
  * This remains unchanged - uses local executor
  */
 export async function PUT(req: Request) {
-  // Dynamic import to avoid bundling executor in main chat route
-  const { executeToolWithGlyph } = await import("@/lib/tools/executor");
-  const { BRIDGE_TOOLS } = await import("@/app/api/tools/bridge/route");
+  // Dynamic import keeps the shared bridge dispatcher out of the chat
+  // route's initial bundle (and with it executor, approvals, zod schemas).
+  const { bridgeDispatch } = await import("@/lib/tools/bridgeDispatch");
 
   let body: { tool?: string; args?: Record<string, unknown>; threadId?: string };
   try {
@@ -747,66 +747,49 @@ export async function PUT(req: Request) {
   }
 
   const { tool, args, threadId } = body;
-
-  // Validate tool name
-  if (!tool || typeof tool !== "string") {
-    return Response.json({ success: false, error: "tool name is required" }, { status: 400 });
-  }
-
-  // Allowlist check — only bridge-approved tools may be executed
-  if (!BRIDGE_TOOLS.has(tool)) {
-    return Response.json({ success: false, error: `tool '${tool}' not allowed` }, { status: 403 });
-  }
-
   const thread = threadId ?? generateId();
   const runId = generateId();
   const toolCallId = generateId();
 
-  const ctx = {
+  createRun(runId, thread, "tool:" + (tool ?? "unknown"));
+
+  const outcome = await bridgeDispatch({
+    tool: tool ?? "",
+    args: (args ?? {}) as Record<string, unknown>,
     threadId: thread,
     runId,
     toolCallId,
-  };
+  });
 
-  createRun(runId, thread, "tool:" + tool);
-
-  try {
-    // Same approval gate as /api/tools/bridge — dynamic import to avoid
-    // pulling the approvals spine into the chat-route initial bundle.
-    const { gateToolCall } = await import("@/lib/approvals/gate");
-    const verdict = await gateToolCall({
-      toolName: tool,
-      toolArgs: (args ?? {}) as Record<string, unknown>,
-      runId,
-      threadId: thread,
-    });
-    if (verdict.decision === "denied") {
-      errorRun(runId, verdict.reason);
+  switch (outcome.kind) {
+    case "bad_request":
+      errorRun(runId, outcome.message);
       return Response.json(
-        { success: false, error: `tool call denied: ${verdict.reason}`, runId, threadId: thread },
+        { success: false, error: outcome.message, runId, threadId: thread },
+        { status: 400 },
+      );
+    case "denied":
+      errorRun(runId, outcome.reason);
+      return Response.json(
+        { success: false, error: `tool call denied: ${outcome.reason}`, runId, threadId: thread },
         { status: 403 },
       );
+    case "error":
+      errorRun(runId, outcome.message);
+      return Response.json(
+        { success: false, error: outcome.message, runId, threadId: thread },
+        { status: 500 },
+      );
+    case "ok": {
+      finishRun(runId, 0, 0, 0);
+      const r = outcome.result;
+      return Response.json({
+        success: r.success,
+        message: r.message,
+        artifacts: r.artifacts,
+        runId,
+        threadId: thread,
+      });
     }
-
-    const toolCall = { name: tool, args: args ?? {} } as Parameters<typeof executeToolWithGlyph>[0];
-    const result = await executeToolWithGlyph(toolCall, ctx);
-
-    finishRun(runId, 0, 0, 0);
-
-    return Response.json({
-      success: result.success,
-      message: result.message,
-      artifacts: result.artifacts,
-      runId,
-      threadId: thread,
-    });
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : "Unknown error";
-    errorRun(runId, errMsg);
-
-    return Response.json(
-      { success: false, error: errMsg, runId, threadId: thread },
-      { status: 500 }
-    );
   }
 }

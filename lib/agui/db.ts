@@ -179,6 +179,121 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_invocations_target ON invocations(target_type, target_id);
     CREATE INDEX IF NOT EXISTS idx_invocations_started ON invocations(started_at);
+
+    -- External MCP servers that Control Deck consumes as a client.
+    -- stdio: command + args + env + cwd.  http: url + headers.
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      transport TEXT NOT NULL CHECK(transport IN ('stdio','http')),
+      command TEXT,
+      args TEXT,
+      env TEXT,
+      cwd TEXT,
+      url TEXT,
+      headers TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers(enabled);
+
+    -- Voice assets: published / draft voices the deck can speak with.
+    -- See lib/voice/types.ts for shape.
+    CREATE TABLE IF NOT EXISTS voice_assets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'draft',
+      kind TEXT NOT NULL DEFAULT 'native',
+      provider_id TEXT,
+      engine_id TEXT,
+      model_id TEXT,
+      default_voice_id TEXT,
+      language TEXT,
+      accent TEXT,
+      gender TEXT,
+      style_tags TEXT,            -- JSON array
+      description TEXT,
+      consent_status TEXT NOT NULL DEFAULT 'unknown',
+      rights_status TEXT NOT NULL DEFAULT 'unknown',
+      owner TEXT,
+      meta TEXT,                  -- JSON blob
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_assets_status ON voice_assets(status);
+    CREATE INDEX IF NOT EXISTS idx_voice_assets_provider ON voice_assets(provider_id);
+
+    -- Reference clips the studio uses to clone / fine-tune a voice asset.
+    -- Binds an artifact row to a voice asset with provenance metadata.
+    CREATE TABLE IF NOT EXISTS voice_references (
+      id TEXT PRIMARY KEY,
+      voice_asset_id TEXT NOT NULL,
+      artifact_id TEXT NOT NULL,
+      transcript TEXT,
+      duration_seconds REAL,
+      speaker_name TEXT,
+      source_type TEXT NOT NULL DEFAULT 'unknown',
+      consent_document TEXT,
+      quality_score REAL,
+      meta TEXT,                  -- JSON blob
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (voice_asset_id) REFERENCES voice_assets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_references_asset ON voice_references(voice_asset_id);
+
+    -- Clone / fine-tune / design / preview jobs.
+    CREATE TABLE IF NOT EXISTS voice_jobs (
+      id TEXT PRIMARY KEY,
+      voice_asset_id TEXT NOT NULL,
+      job_type TEXT NOT NULL,
+      provider_id TEXT,
+      engine_id TEXT,
+      model_id TEXT,
+      status TEXT NOT NULL DEFAULT 'queued',
+      input_payload TEXT,         -- JSON blob
+      output_payload TEXT,        -- JSON blob
+      error TEXT,
+      started_at TEXT,
+      ended_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (voice_asset_id) REFERENCES voice_assets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_jobs_asset ON voice_jobs(voice_asset_id);
+    CREATE INDEX IF NOT EXISTS idx_voice_jobs_status ON voice_jobs(status);
+
+    -- Generated preview clips for A/B comparison.
+    CREATE TABLE IF NOT EXISTS voice_previews (
+      id TEXT PRIMARY KEY,
+      voice_asset_id TEXT NOT NULL,
+      job_id TEXT,
+      artifact_id TEXT NOT NULL,
+      prompt_text TEXT NOT NULL,
+      rating_similarity REAL,
+      rating_quality REAL,
+      rating_latency REAL,
+      meta TEXT,                  -- JSON blob
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (voice_asset_id) REFERENCES voice_assets(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_previews_asset ON voice_previews(voice_asset_id);
+    CREATE INDEX IF NOT EXISTS idx_voice_previews_job ON voice_previews(job_id);
+
+    -- Assistant session metadata.
+    CREATE TABLE IF NOT EXISTS voice_sessions (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT,
+      run_id TEXT,
+      stt_provider_id TEXT,
+      tts_provider_id TEXT,
+      voice_asset_id TEXT,
+      mode TEXT NOT NULL DEFAULT 'push_to_talk',
+      latency_summary TEXT,       -- JSON blob
+      meta TEXT,                  -- JSON blob
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_sessions_thread ON voice_sessions(thread_id);
   `);
   
   // Migration: Add run_id column to messages if it doesn't exist
@@ -1024,4 +1139,126 @@ export function getInvocationStats(
          GROUP BY target_id`,
     )
     .all(targetType) as InvocationStats[];
+}
+
+export type McpTransportKind = "stdio" | "http";
+
+export interface McpServerRow {
+  id: string;
+  name: string;
+  transport: McpTransportKind;
+  command: string | null;
+  args: string[] | null;
+  env: Record<string, string> | null;
+  cwd: string | null;
+  url: string | null;
+  headers: Record<string, string> | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface McpServerDbRow {
+  id: string;
+  name: string;
+  transport: McpTransportKind;
+  command: string | null;
+  args: string | null;
+  env: string | null;
+  cwd: string | null;
+  url: string | null;
+  headers: string | null;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function rowToMcpServer(r: McpServerDbRow): McpServerRow {
+  return {
+    id: r.id,
+    name: r.name,
+    transport: r.transport,
+    command: r.command,
+    args: r.args ? (JSON.parse(r.args) as string[]) : null,
+    env: r.env ? (JSON.parse(r.env) as Record<string, string>) : null,
+    cwd: r.cwd,
+    url: r.url,
+    headers: r.headers ? (JSON.parse(r.headers) as Record<string, string>) : null,
+    enabled: r.enabled === 1,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export interface McpServerInput {
+  id: string;
+  name: string;
+  transport: McpTransportKind;
+  command?: string | null;
+  args?: string[] | null;
+  env?: Record<string, string> | null;
+  cwd?: string | null;
+  url?: string | null;
+  headers?: Record<string, string> | null;
+  enabled?: boolean;
+}
+
+export function upsertMcpServer(input: McpServerInput): McpServerRow {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO mcp_servers (id, name, transport, command, args, env, cwd, url, headers, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name=excluded.name,
+       transport=excluded.transport,
+       command=excluded.command,
+       args=excluded.args,
+       env=excluded.env,
+       cwd=excluded.cwd,
+       url=excluded.url,
+       headers=excluded.headers,
+       enabled=excluded.enabled,
+       updated_at=excluded.updated_at`,
+  ).run(
+    input.id,
+    input.name,
+    input.transport,
+    input.command ?? null,
+    input.args ? JSON.stringify(input.args) : null,
+    input.env ? JSON.stringify(input.env) : null,
+    input.cwd ?? null,
+    input.url ?? null,
+    input.headers ? JSON.stringify(input.headers) : null,
+    input.enabled === false ? 0 : 1,
+    now,
+    now,
+  );
+  const row = db
+    .prepare(`SELECT * FROM mcp_servers WHERE id = ?`)
+    .get(input.id) as McpServerDbRow;
+  return rowToMcpServer(row);
+}
+
+export function getMcpServers(onlyEnabled: boolean = false): McpServerRow[] {
+  const db = getDb();
+  const rows = (
+    onlyEnabled
+      ? db.prepare(`SELECT * FROM mcp_servers WHERE enabled = 1 ORDER BY name`).all()
+      : db.prepare(`SELECT * FROM mcp_servers ORDER BY name`).all()
+  ) as McpServerDbRow[];
+  return rows.map(rowToMcpServer);
+}
+
+export function getMcpServer(id: string): McpServerRow | undefined {
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT * FROM mcp_servers WHERE id = ?`)
+    .get(id) as McpServerDbRow | undefined;
+  return row ? rowToMcpServer(row) : undefined;
+}
+
+export function deleteMcpServer(id: string): void {
+  const db = getDb();
+  db.prepare(`DELETE FROM mcp_servers WHERE id = ?`).run(id);
 }

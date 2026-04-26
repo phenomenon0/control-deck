@@ -14,6 +14,7 @@
  */
 
 import { SpeechHandle } from "./speech-handle";
+import { int16PcmBytesToFloat32 } from "./streaming-tts";
 
 export interface AgentOutputOptions {
   /** Initial output device id (optional). */
@@ -105,6 +106,28 @@ export class AgentOutput {
     } else {
       output.connect(ctx.destination);
     }
+  }
+
+  /**
+   * Streaming-TTS entry point — convert one Int16 LE PCM chunk into an
+   * AudioBuffer and queue it. Used by `StreamingTtsClient` so the post-
+   * processing graph and the per-handle queue stay the only playback path.
+   */
+  async playPcm16Chunk(
+    handle: SpeechHandle,
+    pcm: ArrayBuffer,
+    sampleRate: number,
+  ): Promise<void> {
+    if (handle.state === "interrupted") return;
+    if (pcm.byteLength === 0) return;
+    const ctx = await this.ensureReady();
+    const float = int16PcmBytesToFloat32(pcm);
+    if (float.length === 0) return;
+    const buffer = ctx.createBuffer(1, float.length, sampleRate);
+    // Copy via the channel data view — sidesteps the lib.dom typing for
+    // copyToChannel, which is overly narrow on Float32Array<ArrayBufferLike>.
+    buffer.getChannelData(0).set(float);
+    await this.play(handle, buffer);
   }
 
   /** Schedule an AudioBuffer to play, tagged to the active SpeechHandle. */

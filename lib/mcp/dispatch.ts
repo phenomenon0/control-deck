@@ -5,6 +5,10 @@
  * per call and record the run in SQLite — that lets externally-triggered
  * tool calls show up in RunsPane alongside native runs, and inherit the
  * same approval gate by going through bridgeDispatch.
+ *
+ * Thread IDs are now derived from the MCP session ID (if available from
+ * the transport header), giving each external agent its own thread in RunsPane.
+ * Falls back to "mcp:external" for clients that don't send session IDs.
  */
 
 import { bridgeDispatch } from "@/lib/tools/bridgeDispatch";
@@ -23,8 +27,10 @@ export interface McpToolResult {
 }
 
 export interface McpDispatchOptions {
-  /** Stable thread key per MCP session; defaults to "mcp:external". */
+  /** Stable thread key per MCP session; defaults to "mcp:external" if no session. */
   threadId?: string;
+  /** Optional session ID from MCP transport header for thread derivation. */
+  sessionId?: string;
 }
 
 export async function callBridgeToolForMcp(
@@ -32,7 +38,9 @@ export async function callBridgeToolForMcp(
   args: Record<string, unknown>,
   opts: McpDispatchOptions = {},
 ): Promise<McpToolResult> {
-  const threadId = opts.threadId ?? "mcp:external";
+  // Derive threadId from MCP session ID if provided, otherwise use default
+  const sessionId = opts.sessionId ?? opts.threadId;
+  const threadId = sessionId ? `mcp:${sessionId}` : "mcp:external";
   const runId = generateId();
   const toolCallId = generateId();
 
@@ -52,18 +60,21 @@ export async function callBridgeToolForMcp(
       return {
         content: [{ type: "text", text: `bad request: ${outcome.message}` }],
         isError: true,
+        structuredContent: { error: outcome.message, issues: outcome.issues },
       };
     case "denied":
       errorRun(runId, outcome.reason);
       return {
         content: [{ type: "text", text: `tool call denied: ${outcome.reason}` }],
         isError: true,
+        structuredContent: { error: outcome.reason },
       };
     case "error":
       errorRun(runId, outcome.message);
       return {
         content: [{ type: "text", text: `error: ${outcome.message}` }],
         isError: true,
+        structuredContent: { error: outcome.message },
       };
     case "ok": {
       finishRun(runId, 0, 0, 0);

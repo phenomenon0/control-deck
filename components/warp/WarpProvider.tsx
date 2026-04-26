@@ -11,8 +11,18 @@ import {
 } from "react";
 
 export type Warmth = "cool" | "neutral" | "warm" | "ember";
-export type TypeSet = "matter" | "inter" | "editorial";
-export type Accent = "mono" | "amber" | "ember" | "sage";
+/**
+ * Body + display font face. The first three are the original deck variants;
+ * the last four are pulled in from the audio v3 wireframes so picking one in
+ * settings retypes every surface (chat, audio, panes) at once.
+ */
+export type TypeSet =
+  | "matter" | "inter" | "editorial"
+  | "newsreader" | "fraunces" | "crimson" | "jetbrains";
+/** Accent swatch — drives --accent + --accent-deep + --accent-rgb everywhere. */
+export type Accent =
+  | "mono" | "amber" | "ember" | "sage"
+  | "graphite" | "rose" | "ultra";
 export type Theme = "dark" | "light";
 
 export interface WarpTweaks {

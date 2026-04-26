@@ -270,6 +270,10 @@ export function SettingsDrawer() {
                     { value: "matter", label: "Matter" },
                     { value: "inter", label: "Inter" },
                     { value: "editorial", label: "Editorial" },
+                    { value: "newsreader", label: "Newsreader" },
+                    { value: "fraunces", label: "Fraunces" },
+                    { value: "crimson", label: "Crimson" },
+                    { value: "jetbrains", label: "JetBrains" },
                   ]}
                   value={tweaks.type}
                   onChange={(v: string) => setTweak("type", v as TypeSet)}
@@ -296,6 +300,9 @@ export function SettingsDrawer() {
                     { value: "amber", label: "Amber" },
                     { value: "ember", label: "Ember" },
                     { value: "sage", label: "Sage" },
+                    { value: "graphite", label: "Graphite" },
+                    { value: "rose", label: "Rose" },
+                    { value: "ultra", label: "Ultra" },
                   ]}
                   value={tweaks.accent}
                   onChange={(v: string) => setTweak("accent", v as Accent)}

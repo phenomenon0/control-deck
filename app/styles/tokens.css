@@ -152,20 +152,34 @@
 [data-warmth="warm"]    { --void:#0d0b08; --charcoal:#1e1a15; }
 [data-warmth="ember"]   { --void:#110c07; --charcoal:#241b12; }
 
-/* Type — matter = Instrument, inter = Inter, editorial = Fraunces display */
+/* Type — body face used everywhere (--font-sans) and the display face used
+   for Newsroom/Stage prose (--font-display). New variants come from the
+   audio v3 wireframes so the deck and the wireframes share one vocabulary. */
 [data-type="matter"]    { --font-sans:"Instrument Sans","Inter Tight",sans-serif;
                           --font-display:"Instrument Sans",sans-serif; }
 [data-type="inter"]     { --font-sans:"Inter","Inter Tight",sans-serif;
                           --font-display:"Inter",sans-serif; }
 [data-type="editorial"] { --font-sans:"Inter Tight",sans-serif;
                           --font-display:"Fraunces",serif; }
+[data-type="newsreader"]{ --font-sans:"Newsreader","New York",Georgia,serif;
+                          --font-display:"Newsreader",Georgia,serif; }
+[data-type="fraunces"]  { --font-sans:"Fraunces","Newsreader",Georgia,serif;
+                          --font-display:"Fraunces",Georgia,serif; }
+[data-type="crimson"]   { --font-sans:"Crimson Pro","Newsreader",Georgia,serif;
+                          --font-display:"Crimson Pro",Georgia,serif; }
+[data-type="jetbrains"] { --font-sans:"JetBrains Mono","Geist Mono",ui-monospace,monospace;
+                          --font-display:"JetBrains Mono",ui-monospace,monospace; }
 
 /* Accent — shifts the single hero color without touching palette */
-[data-accent="mono"]  { --accent: var(--parchment);
-                        --accent-muted: rgba(250,249,246,0.06); }
-[data-accent="amber"] { --accent: #d4a574; --accent-muted: rgba(212,165,116,0.12); }
-[data-accent="ember"] { --accent: #e5a056; --accent-muted: rgba(229,160,86,0.14); }
-[data-accent="sage"]  { --accent: #9fbf9d; --accent-muted: rgba(159,191,157,0.14); }
+[data-accent="mono"]    { --accent: var(--parchment);
+                          --accent-muted: rgba(250,249,246,0.06); }
+[data-accent="amber"]   { --accent: #d4a574; --accent-muted: rgba(212,165,116,0.12); }
+[data-accent="ember"]   { --accent: #e5a056; --accent-muted: rgba(229,160,86,0.14); }
+[data-accent="sage"]    { --accent: #9fbf9d; --accent-muted: rgba(159,191,157,0.14); }
+/* New swatches — match audio v3 wireframes so swatch picks read identically */
+[data-accent="graphite"]{ --accent: #7c8fa3; --accent-muted: rgba(124,143,163,0.14); }
+[data-accent="rose"]    { --accent: #d58b8b; --accent-muted: rgba(213,139,139,0.14); }
+[data-accent="ultra"]   { --accent: #9fa7e6; --accent-muted: rgba(159,167,230,0.16); }
 
 /* Optional light mode (flip semantic aliases; palette stays) */
 [data-theme="light"] {

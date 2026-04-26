@@ -2,12 +2,10 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Terminal, useTerminal } from "@wterm/react";
-import { Icon } from "@/components/warp/Icons";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { useTerminalSessions } from "@/lib/hooks/useTerminalSessions";
 import { getTerminalWebSocketUrl } from "@/lib/terminal/client";
 import { useTerminalAgui } from "@/lib/terminal/useTerminalAgui";
-import { deriveTerminalEmptyState, type TerminalEmptyState } from "@/lib/terminal/pane-state";
 import type {
   TerminalMetaMessage,
   TerminalProfile,
@@ -15,8 +13,15 @@ import type {
   TerminalSession,
   TerminalSessionStatus,
 } from "@/lib/terminal/types";
+import { StatusBar, TabStrip, Topbar, defaultModeFor, compactPath, type TerminalMode } from "./terminal/parts";
+import { TerminalClassic } from "./terminal/TerminalClassic";
+import { TerminalAgent, useAgentTimeline, type AgentAutonomy } from "./terminal/TerminalAgent";
 
 const LAST_SESSION_KEY = "deck:last-terminal-session";
+const MODE_OVERRIDE_KEY = "deck:terminal-mode";
+const AUTONOMY_KEY = "deck:terminal-autonomy";
+const RAIL_KEY = "deck:terminal-rail-collapsed";
+const TIMELINE_WIDTH_KEY = "deck:terminal-timeline-width";
 
 type SocketState = "disconnected" | "connecting" | "connected" | "error";
 
@@ -30,35 +35,15 @@ interface SessionMetaState {
   error?: string | null;
 }
 
-const PROFILE_LABEL: Record<TerminalProfile, string> = {
-  claude: "Claude",
-  opencode: "OpenCode",
-  shell: "Shell",
-};
-
-const KBD_NEW_SHELL = "⌥N";
-const KBD_CLOSE = "⌥W";
-const KBD_RESTART = "⌥⇧R";
-
-/**
- * Imperative handle exposed to parents via forwardRef. Kept small on
- * purpose — the workspace adapter (and the agent surface through it)
- * consumes exactly these two methods plus the onOutput callback, and
- * we don't want TerminalPane leaking its internal state model.
- */
 export interface TerminalPaneHandle {
-  /** Send keystrokes directly to the active session's stdin. */
   sendKeys: (keys: string) => { delivered: boolean; reason?: string };
-  /** Return the last `chars` bytes of stdout/stderr (capped at the ring buffer). */
   readLastOutput: (chars?: number) => string;
 }
 
 export interface TerminalPaneProps {
-  /** Fires once per output chunk arriving from the terminal service WS. */
   onOutput?: (data: string) => void;
 }
 
-/** Ring buffer max in chars — enough for a reasonable recent window. */
 const OUTPUT_BUFFER_MAX = 64_000;
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
@@ -80,9 +65,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const terminalReadyRef = useRef(false);
   const pendingOutputRef = useRef<string[]>([]);
   const outputBufferRef = useRef<string>("");
+  const chunkCountRef = useRef(0);
 
-  // onOutput needs the latest prop value without re-subscribing the
-  // message listener on every render.
   const onOutputRef = useRef(props.onOutput);
   useEffect(() => { onOutputRef.current = props.onOutput; }, [props.onOutput]);
 
@@ -90,10 +74,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const aguiRef = useRef(aguiBridge);
   useEffect(() => { aguiRef.current = aguiBridge; }, [aguiBridge]);
 
-  // Mirror the active session into a ref so the socket effect can read
-  // profile/label/cwd without adding `activeSession` to its deps (which
-  // would tear down the socket on every session-list refresh). Assigned
-  // further down after `activeSession` is computed.
   const activeSessionRef = useRef<TerminalSession | null>(null);
 
   useImperativeHandle(handleRef, () => ({
@@ -119,6 +99,46 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [meta, setMeta] = useState<SessionMetaState>({});
+  const [lastChunkAt, setLastChunkAt] = useState<number | null>(null);
+  const [chunkCount, setChunkCount] = useState(0);
+
+  const [modeOverride, setModeOverride] = useState<TerminalMode | null>(() => {
+    if (typeof window === "undefined") return null;
+    const v = window.localStorage.getItem(MODE_OVERRIDE_KEY);
+    return v === "classic" || v === "agent" ? v : null;
+  });
+  const [autonomy, setAutonomy] = useState<AgentAutonomy>(() => {
+    if (typeof window === "undefined") return "assist";
+    const v = window.localStorage.getItem(AUTONOMY_KEY);
+    return v === "manual" || v === "autonomous" ? v : "assist";
+  });
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(RAIL_KEY) === "1";
+  });
+  const [timelineWidth, setTimelineWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 300;
+    const v = Number(window.localStorage.getItem(TIMELINE_WIDTH_KEY));
+    return Number.isFinite(v) && v >= 220 && v <= 720 ? v : 300;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (modeOverride) window.localStorage.setItem(MODE_OVERRIDE_KEY, modeOverride);
+    else window.localStorage.removeItem(MODE_OVERRIDE_KEY);
+  }, [modeOverride]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(AUTONOMY_KEY, autonomy);
+  }, [autonomy]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(RAIL_KEY, railCollapsed ? "1" : "0");
+  }, [railCollapsed]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(TIMELINE_WIDTH_KEY, String(Math.round(timelineWidth)));
+  }, [timelineWidth]);
 
   const focusTerminalSoon = useCallback(
     (delay = 0) => {
@@ -137,22 +157,13 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     ? `${activeSession.id}:${activeSession.startedAt}`
     : null;
 
+  const mode: TerminalMode = modeOverride ?? defaultModeFor(activeSession);
+
   const runningCount =
     health?.running ?? sessions.filter((s) => s.status === "running").length;
   const staleCount = sessions.filter(
     (s) => s.status === "exited" || s.status === "error",
   ).length;
-  const profileCounts = useMemo(
-    () =>
-      sessions.reduce(
-        (counts, session) => {
-          counts[session.profile] += 1;
-          return counts;
-        },
-        { claude: 0, opencode: 0, shell: 0 } satisfies Record<TerminalProfile, number>,
-      ),
-    [sessions],
-  );
 
   useEffect(() => {
     if (activeSessionId && sessions.some((s) => s.id === activeSessionId)) return;
@@ -175,6 +186,9 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   useEffect(() => {
     terminalReadyRef.current = false;
     pendingOutputRef.current = [];
+    chunkCountRef.current = 0;
+    setChunkCount(0);
+    setLastChunkAt(null);
     setMeta(
       activeSession
         ? {
@@ -224,8 +238,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
-      // Snapshot profile/label/cwd at effect start — updates from `meta`
-      // messages would re-render but wouldn't change session identity.
       const snapshot = activeSessionRef.current;
       let sessionProfileForBridge: TerminalProfile | undefined = snapshot?.profile;
       const sessionLabel = snapshot?.label ?? null;
@@ -258,6 +270,10 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           onOutputRef.current?.(message.data);
           aguiRef.current.emit(activeSessionId, sessionProfileForBridge, message.data);
 
+          chunkCountRef.current += 1;
+          setChunkCount(chunkCountRef.current);
+          setLastChunkAt(Date.now());
+
           if (terminalReadyRef.current) write(message.data);
           else pendingOutputRef.current.push(message.data);
           return;
@@ -274,8 +290,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
             exitCode: "exitCode" in nextMeta ? nextMeta.exitCode : current.exitCode,
             error: "error" in nextMeta ? nextMeta.error : current.error,
           }));
-          // If the server reveals the profile after connect, retroactively
-          // start the bridge run so we don't miss the session entirely.
           if ("profile" in nextMeta && !sessionProfileForBridge) {
             sessionProfileForBridge = nextMeta.profile;
             if (sessionProfileForBridge) {
@@ -320,7 +334,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     };
   }, [activeSessionId, refresh, serviceOnline, write]);
 
-  // ── Actions ────────────────────────────────────────────────────────────
   const handleLaunch = useCallback(
     async (profile: TerminalProfile) => {
       try {
@@ -364,21 +377,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     }
   }, [activeSession, killSession]);
 
-  const handleDelete = useCallback(async () => {
-    if (!activeSession) return;
-    try {
-      setActionError(null);
-      setBusyAction("delete");
-      const deletedId = activeSession.id;
-      await deleteSession(activeSession.id);
-      if (activeSessionId === deletedId) setActiveSessionId(null);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Unable to remove session.");
-    } finally {
-      setBusyAction(null);
-    }
-  }, [activeSession, activeSessionId, deleteSession]);
-
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
       try {
@@ -394,20 +392,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     },
     [activeSessionId, deleteSession],
   );
-
-  const handleCopyDirectory = useCallback(async () => {
-    const cwd = meta.cwd ?? activeSession?.cwd;
-    if (!cwd || typeof navigator === "undefined" || !navigator.clipboard) {
-      setActionError("Clipboard access is unavailable.");
-      return;
-    }
-    try {
-      setActionError(null);
-      await navigator.clipboard.writeText(cwd);
-    } catch {
-      setActionError("Unable to copy the current path.");
-    }
-  }, [activeSession, meta.cwd]);
 
   const handleTerminalReady = () => {
     terminalReadyRef.current = true;
@@ -435,7 +419,6 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     }
   };
 
-  // ── Keyboard shortcuts ─────────────────────────────────────────────────
   useShortcut("alt+n", () => void handleLaunch("shell"), {
     when: "no-input",
     label: "Terminal: new shell",
@@ -443,7 +426,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   useShortcut(
     "alt+w",
     () => {
-      if (activeSession) void handleDelete();
+      if (activeSession) void handleDeleteSession(activeSession.id);
     },
     { when: "no-input", label: "Terminal: close session" },
   );
@@ -453,6 +436,14 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       if (activeSession) void handleRestart();
     },
     { when: "no-input", label: "Terminal: restart session" },
+  );
+  useShortcut(
+    "cmd+/",
+    () => setModeOverride((prev) => {
+      const next = (prev ?? defaultModeFor(activeSession)) === "classic" ? "agent" : "classic";
+      return next;
+    }),
+    { when: "no-input", label: "Terminal: toggle classic / agent view" },
   );
 
   const selectByIndex = useCallback(
@@ -475,640 +466,187 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const detailStatus = meta.status ?? activeSession?.status ?? null;
   const detailCwd = meta.cwd ?? activeSession?.cwd ?? null;
   const detailPid = meta.pid ?? activeSession?.pid ?? null;
-  const activeCanStop = detailStatus === "running" || detailStatus === "starting";
   const errorNotice = transportError || actionError || meta.error || error || null;
-  const emptyState = deriveTerminalEmptyState({
-    serviceOnline,
-    activeSession: Boolean(activeSession),
-    error: errorNotice,
-  });
   const friendlyErrorNotice = errorNotice === "Unauthorized."
     ? "token mismatch · terminal relay is up but this browser session is not authenticated"
     : errorNotice;
-  const activeLabel = meta.label ?? activeSession?.label ?? null;
-  const activeSummary = activeLabel ?? activeSession?.label ?? "No active session";
-  const activeLocation = detailCwd
-    ? compactPath(detailCwd)
-    : activeSession?.cwd
-      ? compactPath(activeSession.cwd)
-      : "Launch Shell, Claude, or OpenCode";
-  const serviceStateLabel = loading
-    ? "Syncing"
-    : emptyState.kind === "locked"
-      ? "Service locked"
-      : serviceOnline
-        ? "Service online"
-        : "Service offline";
-  const transportLabel = emptyState.kind === "locked" ? "Locked" : toTitleCase(socketState);
-  const liveModeCount = profileCounts.claude + profileCounts.opencode;
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  const { events: agentEvents, stepCount, tokenCount } = useAgentTimeline(
+    activeSession,
+    lastChunkAt,
+    chunkCount,
+  );
+
+  const autoApprovePolicy = autonomy === "manual"
+    ? "off"
+    : autonomy === "assist"
+      ? "read-only"
+      : "all";
+
+  // Inject the terminal screen into whichever layout is active. The screen
+  // node itself (Terminal + WebSocket) must not remount when mode toggles —
+  // both layouts receive the same memoized node.
+  const screen = activeSession ? (
+    <div
+      className="tp2-screen"
+      data-hotkeys-ignore="true"
+      onMouseDownCapture={() => focusTerminalSoon(0)}
+      onClick={() => focusTerminalSoon(0)}
+    >
+      <Terminal
+        key={activeSessionKey}
+        ref={ref}
+        cols={120}
+        rows={36}
+        autoResize
+        cursorBlink
+        data-hotkeys-ignore="true"
+        onReady={handleTerminalReady}
+        onResize={sendResize}
+        onData={sendInput}
+      />
+    </div>
+  ) : (
+    <EmptyScreen
+      serviceOnline={serviceOnline}
+      loading={loading}
+      onLaunch={handleLaunch}
+      refresh={refresh}
+      error={friendlyErrorNotice}
+    />
+  );
+
   return (
-    <section className="terminal-stage terminal-stage--deck">
-      <header className="terminal-head terminal-head--deck">
-        <div className="terminal-head-copy">
-          <div className="label">Command Surface</div>
-          <h1>Terminal</h1>
-          <p>
-            Persistent shells, Claude, and OpenCode sessions in one operational
-            surface with pinned history, live transport state, and keyboard-first
-            controls.
-          </p>
-        </div>
-        <div className="warp-pane-actions">
-          <span
-            className={`pill--status ${
-              serviceOnline ? "pill--status-finished" : "pill--status-error"
-            }`}
-          >
-            {serviceStateLabel}
-          </span>
-          <button
-            type="button"
-            className="btn btn-secondary text-xs"
-            onClick={() => void refresh()}
-            disabled={loading || busyAction !== null}
-          >
-            {loading ? "Syncing…" : "Refresh"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary text-xs"
-            onClick={() => void handleLaunch("shell")}
-            disabled={!serviceOnline || busyAction !== null}
-            title={`New shell (${KBD_NEW_SHELL})`}
-          >
-            New shell
-          </button>
-        </div>
-      </header>
+    <section className="tp2-stage">
+      <Topbar
+        breadcrumb={{
+          cwd: detailCwd,
+          branch: null,
+          mode,
+        }}
+        agentOn={mode === "agent" && detailStatus === "running"}
+        autoApprove={autoApprovePolicy}
+        onToggleMode={() => setModeOverride((prev) => {
+          const next = (prev ?? defaultModeFor(activeSession)) === "classic" ? "agent" : "classic";
+          return next;
+        })}
+      />
+      <TabStrip
+        sessions={sessions}
+        activeId={activeSessionId}
+        busy={busyAction !== null}
+        canLaunch={serviceOnline}
+        onSelect={handleSelectSession}
+        onClose={handleDeleteSession}
+        onNew={handleLaunch}
+        onClear={outputBufferRef.current ? () => { outputBufferRef.current = ""; } : undefined}
+      />
 
-      <div className="terminal-overview-grid terminal-overview-grid--deck">
-        <OverviewCard
-          label="Terminal Service"
-          value={emptyState.kind === "locked" ? "Locked" : serviceOnline ? "Online" : "Offline"}
-          sub={`${health?.host ?? "127.0.0.1"}:${health?.port ?? 4010}`}
-          badge={loading ? "Syncing" : emptyState.kind === "locked" ? "Auth" : serviceOnline ? "Ready" : "Down"}
-          tone={emptyState.kind === "locked" ? "neutral" : serviceOnline ? "ok" : "err"}
+      {mode === "agent" ? (
+        <TerminalAgent
+          session={activeSession}
+          status={detailStatus}
+          autonomy={autonomy}
+          onAutonomyChange={setAutonomy}
+          threadId={activeSession ? `t_${activeSession.id.slice(0, 8)}` : null}
+          stepCount={stepCount}
+          tokenCount={tokenCount}
+          events={agentEvents}
+          footprint={{ artifacts: 0, writes: 0, net: 0 }}
+          screen={screen}
+          proposedCommand={null}
+          timelineWidth={timelineWidth}
+          onTimelineWidthChange={setTimelineWidth}
         />
-        <OverviewCard
-          label="Pinned Sessions"
-          value={`${sessions.length}`}
-          sub={`${runningCount} live${staleCount > 0 ? ` · ${staleCount} exited` : ""}`}
-          badge={sessions.length > 0 ? `${profileCounts.shell} shell` : "None"}
+      ) : (
+        <TerminalClassic
+          session={activeSession}
+          status={detailStatus}
+          pid={detailPid}
+          screen={screen}
+          railCollapsed={railCollapsed}
+          onToggleRail={() => setRailCollapsed((v) => !v)}
         />
-        <OverviewCard
-          label="Active Focus"
-          value={activeSummary}
-          sub={activeLocation}
-          badge={activeSession ? PROFILE_LABEL[activeSession.profile] : "Idle"}
-          accent={Boolean(activeSession)}
-        />
-        <OverviewCard
-          label="Transport"
-          value={transportLabel}
-          sub={
-            activeSession
-              ? `PID ${detailPid ?? "—"} · ${liveModeCount} agent session${
-                  liveModeCount === 1 ? "" : "s"
-                }`
-              : `${KBD_NEW_SHELL} new shell · ${KBD_CLOSE} close`
-          }
-          badge={activeSession ? socketState : "Idle"}
-          tone={socketState === "error" ? "err" : socketState === "connected" ? "ok" : "neutral"}
-        />
-      </div>
+      )}
 
-      <div className="terminal-deck-shell warp-pane-card">
-        <div className="tp-root">
-          <div className="tp-topbar">
-            {activeSession ? (
-              <div className="tp-crumb">
-                <span className={`tp-crumb-dot tp-crumb-dot--${activeSession.status}`} />
-                <span className="tp-crumb-profile">{PROFILE_LABEL[activeSession.profile]}</span>
-                <span className="tp-crumb-slash">/</span>
-                <span className="tp-crumb-label">{activeLabel}</span>
-                {detailCwd && (
-                  <code className="tp-crumb-path" title={detailCwd}>
-                    {compactPath(detailCwd)}
-                  </code>
-                )}
-              </div>
-            ) : (
-              <div className="tp-crumb tp-crumb--empty">No active session</div>
-            )}
-            <div className="tp-topbar-actions">
-              {activeSession && (
-                <>
-                  <button
-                    type="button"
-                    className="tp-chip"
-                    onClick={() => void handleCopyDirectory()}
-                    disabled={!detailCwd}
-                    title="Copy working directory"
-                  >
-                    copy path
-                  </button>
-                  {activeCanStop && (
-                    <button
-                      type="button"
-                      className="tp-chip"
-                      onClick={() => void handleKill()}
-                      disabled={busyAction !== null}
-                    >
-                      stop
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="tp-chip"
-                    onClick={() => void handleRestart()}
-                    disabled={busyAction !== null}
-                    title={`Restart (${KBD_RESTART})`}
-                  >
-                    restart
-                  </button>
-                  <button
-                    type="button"
-                    className="tp-chip tp-chip--danger"
-                    onClick={() => void handleDelete()}
-                    disabled={busyAction !== null}
-                    title={`Close session (${KBD_CLOSE})`}
-                  >
-                    close
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="tp-main">
-            <aside className="tp-sidebar">
-              <div className="tp-sidebar-launch">
-                <div className="tp-sidebar-head">
-                  <div>
-                    <div className="tp-sidebar-kicker">Launch</div>
-                    <div className="tp-sidebar-copy">
-                      Start a session or jump back into a pinned one.
-                    </div>
-                  </div>
-                  <span className="tp-sidebar-count">
-                    {sessions.length} session{sessions.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="tp-new-btn tp-new-btn--primary"
-                  onClick={() => void handleLaunch("shell")}
-                  disabled={!serviceOnline || busyAction !== null}
-                  title={`New shell (${KBD_NEW_SHELL})`}
-                >
-                  <Icon.Plus size={12} sw={2} />
-                  <span>Shell</span>
-                  <span className="tp-new-btn-kbd">{KBD_NEW_SHELL}</span>
-                </button>
-                <button
-                  type="button"
-                  className="tp-new-btn"
-                  onClick={() => void handleLaunch("claude")}
-                  disabled={!serviceOnline || busyAction !== null}
-                >
-                  <Icon.Plus size={12} sw={2} />
-                  <span>Claude</span>
-                </button>
-                <button
-                  type="button"
-                  className="tp-new-btn"
-                  onClick={() => void handleLaunch("opencode")}
-                  disabled={!serviceOnline || busyAction !== null}
-                >
-                  <Icon.Plus size={12} sw={2} />
-                  <span>OpenCode</span>
-                </button>
-              </div>
-              <div className="tp-sidebar-list">
-                {sessions.length === 0 ? (
-                  <div className="tp-sidebar-empty">No sessions yet. Launch one above to begin.</div>
-                ) : (
-                  sessions.map((session, i) => {
-                    const isActive = session.id === activeSessionId;
-                    return (
-                      <div
-                        key={session.id}
-                        className={`tp-thread${isActive ? " tp-thread--on" : ""}`}
-                      >
-                        <button
-                          type="button"
-                          className="tp-thread-main"
-                          onClick={() => handleSelectSession(session.id)}
-                          title={`${PROFILE_LABEL[session.profile]} — ${session.cwd}`}
-                        >
-                          <span className={`tp-thread-dot tp-thread-dot--${session.status}`} />
-                          <div className="tp-thread-body">
-                            <div className="tp-thread-row">
-                              <span className="tp-thread-name">{session.label}</span>
-                              {i < 9 && <span className="tp-thread-kbd">⌥{i + 1}</span>}
-                            </div>
-                            <div className="tp-thread-meta">
-                              <span>{PROFILE_LABEL[session.profile]}</span>
-                              <span className="tp-thread-sep">·</span>
-                              <span>{formatRelativeTime(session.lastActiveAt)}</span>
-                            </div>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          className="tp-thread-close"
-                          aria-label={`Close ${session.label}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleDeleteSession(session.id);
-                          }}
-                          disabled={busyAction !== null}
-                        >
-                          <Icon.X size={11} sw={2} />
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <SessionContextBox
-                session={activeSession}
-                status={detailStatus}
-                pid={detailPid}
-                exitCode={meta.exitCode ?? null}
-                errorText={meta.error ?? null}
-                serviceOnline={serviceOnline}
-                staleCount={staleCount}
-                busy={busyAction !== null}
-                onRestart={() => void handleRestart()}
-                onKill={() => void handleKill()}
-              />
-            </aside>
-
-            <div className="tp-surface-wrap">
-              {!serviceOnline ? (
-                <TPEmpty
-                  state={emptyState}
-                  error={friendlyErrorNotice}
-                  action={
-                    <button
-                      type="button"
-                      className="tp-empty-action"
-                      onClick={() => void refresh()}
-                      disabled={loading || busyAction !== null}
-                    >
-                      <span>{loading ? "Syncing…" : "Refresh status"}</span>
-                    </button>
-                  }
-                />
-              ) : !activeSession ? (
-                <TPEmpty
-                  state={emptyState}
-                  error={friendlyErrorNotice}
-                  action={
-                    <button
-                      type="button"
-                      className="tp-new-btn tp-new-btn--primary"
-                      onClick={() => void handleLaunch("shell")}
-                      disabled={busyAction !== null}
-                    >
-                      <Icon.Plus size={12} sw={2} />
-                      <span>Shell</span>
-                      <span className="tp-new-btn-kbd">{KBD_NEW_SHELL}</span>
-                    </button>
-                  }
-                />
-              ) : (
-                <div
-                  className="tp-surface"
-                  data-hotkeys-ignore="true"
-                  onMouseDownCapture={() => focusTerminalSoon(0)}
-                  onClick={() => focusTerminalSoon(0)}
-                >
-                  <Terminal
-                    key={activeSessionKey}
-                    ref={ref}
-                    className="tp-screen"
-                    cols={120}
-                    rows={36}
-                    autoResize
-                    cursorBlink
-                    data-hotkeys-ignore="true"
-                    onReady={handleTerminalReady}
-                    onResize={sendResize}
-                    onData={sendInput}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="tp-statusbar">
-            <span className={`tp-socket tp-socket--${socketState}`}>{socketState}</span>
-            {detailPid && <span className="tp-statusbar-item">pid {detailPid}</span>}
-            <span className="tp-statusbar-item tp-statusbar-dim">
-              {sessions.length} session{sessions.length === 1 ? "" : "s"} · {runningCount} live
-              {staleCount > 0 && ` · ${staleCount} exited`}
-            </span>
-            <span className="tp-statusbar-grow" />
-            {friendlyErrorNotice ? (
-              <span className="tp-statusbar-err" title={friendlyErrorNotice}>
-                {friendlyErrorNotice}
-              </span>
-            ) : (
-              <span className="tp-statusbar-item tp-statusbar-dim">
-                {serviceOnline ? "● online" : "○ offline"} · {health?.host ?? "127.0.0.1"}:
-                {health?.port ?? 4010}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+      <StatusBar
+        left={[
+          {
+            key: "socket",
+            label: socketState === "connected" ? "● connected" : socketState === "connecting" ? "◦ connecting" : socketState === "error" ? "✗ error" : "○ idle",
+            tone: socketState === "error" ? "err" : socketState === "connected" ? "ok" : "dim",
+          },
+          ...(detailPid ? [{ key: "pid", label: `pid ${detailPid}` }] : []),
+          {
+            key: "sessions",
+            label: `${sessions.length} session${sessions.length === 1 ? "" : "s"} · ${runningCount} live${staleCount > 0 ? ` · ${staleCount} exited` : ""}`,
+            tone: "dim" as const,
+          },
+          ...(friendlyErrorNotice ? [{ key: "err", label: friendlyErrorNotice, tone: "err" as const }] : []),
+        ]}
+        right={[
+          { key: "host", label: `${health?.host ?? "127.0.0.1"}:${health?.port ?? 4010}` },
+          { key: "new", kbd: "⌥N", label: "new" },
+          { key: "mode", kbd: "⌘/", label: "mode" },
+        ]}
+      />
     </section>
   );
 });
 
-// ──────────────────────────────────────────────────────────────────────
-function OverviewCard({
-  label,
-  value,
-  sub,
-  badge,
-  tone = "neutral",
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  badge?: string;
-  tone?: "neutral" | "ok" | "err";
-  accent?: boolean;
-}) {
-  return (
-    <article
-      className={`terminal-overview-card${accent ? " terminal-overview-card--accent" : ""}`}
-    >
-      <div className="terminal-overview-card-top">
-        <span className="terminal-overview-label">{label}</span>
-        {badge ? (
-          <span className={`terminal-overview-badge terminal-overview-badge--${tone}`}>
-            {badge}
-          </span>
-        ) : null}
-      </div>
-      <div className="terminal-overview-value" title={value}>
-        {value}
-      </div>
-      <div className="terminal-overview-sub" title={sub}>
-        {sub}
-      </div>
-    </article>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────
-function SessionContextBox({
-  session,
-  status,
-  pid,
-  exitCode,
-  errorText,
+function EmptyScreen({
   serviceOnline,
-  staleCount,
-  busy,
-  onRestart,
-  onKill,
-}: {
-  session: TerminalSession | null;
-  status: TerminalSessionStatus | null;
-  pid: number | null;
-  exitCode: number | null;
-  errorText: string | null;
-  serviceOnline: boolean;
-  staleCount: number;
-  busy: boolean;
-  onRestart: () => void;
-  onKill: () => void;
-}) {
-  // offline
-  if (!serviceOnline) {
-    return (
-      <div className="tp-nowbox tp-nowbox--offline">
-        <div className="tp-nowbox-head">
-          <span className="tp-nowbox-tag tp-nowbox-tag--warn">OFFLINE</span>
-        </div>
-        <div className="tp-nowbox-body">
-          <div className="tp-nowbox-line tp-nowbox-dim">Waiting for the local terminal relay.</div>
-          <div className="tp-nowbox-line tp-nowbox-dim">Refresh the surface once auth + sidecar are back in sync.</div>
-        </div>
-      </div>
-    );
-  }
-
-  // no active session
-  if (!session) {
-    return (
-      <div className="tp-nowbox tp-nowbox--idle">
-        <div className="tp-nowbox-head">
-          <span className="tp-nowbox-tag">IDLE</span>
-        </div>
-        <div className="tp-nowbox-body">
-          <div className="tp-nowbox-line tp-nowbox-dim">No session attached.</div>
-          <div className="tp-nowbox-line tp-nowbox-dim">
-            Launch one above, or pick a session from the list.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const isAgent = session.profile === "claude" || session.profile === "opencode";
-  const isRunning = status === "running" || status === "starting";
-  const isExited = status === "exited" || status === "error";
-
-  // exited — show exit code + restart
-  if (isExited) {
-    const code = typeof exitCode === "number" ? exitCode : null;
-    return (
-      <div className="tp-nowbox tp-nowbox--exited">
-        <div className="tp-nowbox-head">
-          <span className="tp-nowbox-tag tp-nowbox-tag--err">EXITED</span>
-          {code !== null && (
-            <span
-              className={`tp-nowbox-code-chip tp-nowbox-code-chip--${code === 0 ? "ok" : "err"}`}
-            >
-              code {code}
-            </span>
-          )}
-        </div>
-        <div className="tp-nowbox-body">
-          <div className="tp-nowbox-line tp-nowbox-dim">
-            stopped {formatRelativeTime(session.lastActiveAt)}
-          </div>
-          {errorText && <div className="tp-nowbox-line tp-nowbox-err">{errorText}</div>}
-          <button type="button" className="tp-nowbox-cta" onClick={onRestart} disabled={busy}>
-            Restart session
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // agent running — task stack scaffold
-  if (isAgent && isRunning) {
-    return (
-      <div className="tp-nowbox tp-nowbox--agent">
-        <div className="tp-nowbox-head">
-          <span className="tp-nowbox-tag">TASK STACK</span>
-          <span className="tp-nowbox-pulse" />
-        </div>
-        <div className="tp-nowbox-body">
-          <div className="tp-nowbox-line tp-nowbox-dim">
-            {PROFILE_LABEL[session.profile]} running · pid {pid ?? "—"}
-          </div>
-          <div className="tp-nowbox-stack">
-            <div className="tp-nowbox-stack-empty">
-              Tasks will land here as the agent works.
-            </div>
-          </div>
-          <button type="button" className="tp-nowbox-cta tp-nowbox-cta--ghost" onClick={onKill} disabled={busy}>
-            <Icon.Stop size={10} sw={2} />
-            <span>Stop agent</span>
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // shell running — live NOW panel
-  return (
-    <div className="tp-nowbox tp-nowbox--now">
-      <div className="tp-nowbox-head">
-        <span className="tp-nowbox-tag">NOW</span>
-        <span className="tp-nowbox-pulse" />
-      </div>
-      <div className="tp-nowbox-body">
-        <div className="tp-nowbox-row">
-          <span className="tp-nowbox-key">uptime</span>
-          <span className="tp-nowbox-val">{formatRelativeTime(session.startedAt)}</span>
-        </div>
-        {pid && (
-          <div className="tp-nowbox-row">
-            <span className="tp-nowbox-key">pid</span>
-            <span className="tp-nowbox-val">{pid}</span>
-          </div>
-        )}
-        <div className="tp-nowbox-row">
-          <span className="tp-nowbox-key">close</span>
-          <span className="tp-nowbox-val">
-            <kbd className="tp-nowbox-kbd">{KBD_CLOSE}</kbd> or <code>exit</code>
-          </span>
-        </div>
-        {staleCount > 0 && (
-          <div className="tp-nowbox-line tp-nowbox-dim tp-nowbox-stale">
-            {staleCount} exited · clean up
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────────────
-function TPEmpty({
-  state,
-  action,
+  loading,
+  onLaunch,
+  refresh,
   error,
 }: {
-  state: TerminalEmptyState;
-  action?: React.ReactNode;
-  error?: string | null;
+  serviceOnline: boolean;
+  loading: boolean;
+  onLaunch: (profile: TerminalProfile) => void;
+  refresh: () => void;
+  error: string | null;
 }) {
-  const eyebrow =
-    state.kind === "locked"
-      ? "Local relay · auth mismatch"
-      : state.kind === "offline"
-        ? "Local relay · offline"
-        : "Command rail · idle";
-
   return (
-    <div className={`tp-empty tp-empty--${state.tone}`}>
-      <div className="tp-empty-card">
-        <div className="tp-empty-copy-wrap">
-          <div className="tp-empty-eyebrow">{eyebrow}</div>
-          <div className="tp-empty-mainline">
-            <div className="tp-empty-mark">
-              <Icon.Terminal size={22} />
-            </div>
-            <div className="tp-empty-copy">
-              <h2 className="tp-empty-title">{state.title}</h2>
-              <p className="tp-empty-body">{state.body}</p>
-            </div>
-          </div>
-
-          <div className="tp-empty-pills" aria-hidden="true">
-            <span className="tp-empty-pill">pinned shells</span>
-            <span className="tp-empty-pill">Claude + OpenCode</span>
-            <span className="tp-empty-pill">keyboard-first rail</span>
-          </div>
-
-          {state.code && (
-            <div className="tp-empty-command">
-              <span className="tp-empty-command-label">run</span>
-              <code className="tp-empty-code">{state.code}</code>
-            </div>
-          )}
-
-          {action ? <div className="tp-empty-actions">{action}</div> : null}
-          {error ? <div className="tp-empty-detail">{error}</div> : null}
-        </div>
-
-        <div className="tp-empty-side">
-          <div className="tp-empty-side-title">Terminal surface</div>
-          <div className="tp-empty-side-row">
-            <span className="tp-empty-side-key">launch</span>
-            <span className="tp-empty-side-val">⌥N new shell</span>
-          </div>
-          <div className="tp-empty-side-row">
-            <span className="tp-empty-side-key">agents</span>
-            <span className="tp-empty-side-val">Claude / OpenCode</span>
-          </div>
-          <div className="tp-empty-side-row">
-            <span className="tp-empty-side-key">history</span>
-            <span className="tp-empty-side-val">sessions stay pinned</span>
-          </div>
-        </div>
+    <div className="tp2-empty">
+      <div className="tp2-empty-mark">▶_</div>
+      <div className="tp2-empty-title">{serviceOnline ? "New session" : "Terminal relay offline"}</div>
+      <div className="tp2-empty-body">
+        {serviceOnline
+          ? "pick a starting point or press ⌥N to drop into a shell"
+          : "waiting for the local terminal relay · check auth + sidecar"}
       </div>
+      {serviceOnline ? (
+        <div className="tp2-empty-options">
+          <button type="button" className="tp2-opt" onClick={() => onLaunch("shell")}>
+            <kbd className="tp2-kbd">⌥N</kbd>
+            <span className="tp2-opt-title">local shell</span>
+            <span className="tp2-opt-hint">zsh / bash / nu</span>
+          </button>
+          <button type="button" className="tp2-opt" onClick={() => onLaunch("claude")}>
+            <span className="tp2-opt-glyph">✦</span>
+            <span className="tp2-opt-title">Claude</span>
+            <span className="tp2-opt-hint">agent session</span>
+          </button>
+          <button type="button" className="tp2-opt" onClick={() => onLaunch("opencode")}>
+            <span className="tp2-opt-glyph">◆</span>
+            <span className="tp2-opt-title">OpenCode</span>
+            <span className="tp2-opt-hint">agent session</span>
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="tp2-opt tp2-opt--primary"
+          onClick={refresh}
+          disabled={loading}
+        >
+          {loading ? "syncing…" : "refresh status"}
+        </button>
+      )}
+      {error && <div className="tp2-empty-error">{error}</div>}
     </div>
   );
 }
 
-function compactPath(input: string): string {
-  if (!input) return "—";
-  const home =
-    typeof window !== "undefined"
-      ? (window as unknown as { __HOME__?: string }).__HOME__
-      : undefined;
-  let out = input;
-  if (home && out.startsWith(home)) out = "~" + out.slice(home.length);
-  const normalized = out.replace(/\/+$/, "");
-  const segments = normalized.split("/").filter(Boolean);
-  if (segments.length <= 3) return out || "/";
-  return `…/${segments.slice(-3).join("/")}`;
-}
-
-function formatRelativeTime(value: string): string {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return value;
-  const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (deltaSeconds < 60) return "just now";
-  if (deltaSeconds < 3600) return `${Math.floor(deltaSeconds / 60)}m`;
-  if (deltaSeconds < 86400) return `${Math.floor(deltaSeconds / 3600)}h`;
-  return `${Math.floor(deltaSeconds / 86400)}d`;
-}
-
-function toTitleCase(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
+export { compactPath };

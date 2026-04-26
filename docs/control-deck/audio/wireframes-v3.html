@@ -1,0 +1,1818 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audio — Wireframes v3 (modalities & fonts)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;500;600;700&family=Inter+Tight:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,16..72,400;0,16..72,500;0,16..72,600;1,16..72,400;1,16..72,500&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     PALETTE — dark by default, light via [data-theme="light"].
+     Five modalities (Conductor, Newsroom, Stage, Tape, Forum)
+     share the same primitives; modality-specific styles are
+     prefixed cdt- / nr- / stg- / tp- / fr-.
+     ============================================================ */
+  :root,
+  [data-theme="dark"]{
+    --bg-1:#0A0A0B;
+    --bg-2:#111114;
+    --bg-3:#16171B;
+    --bg-4:#1E1F24;
+    --ink:#EDEDEF;
+    --ink-2:#C7C7CC;
+    --ink-3:#8E8E93;
+    --ink-4:#5A5A60;
+    --rule:#2A2B30;
+    --hairline:#22232A;
+    --accent:#D4A574;     /* warm tan, default */
+    --accent-2:#A87E4A;
+    --accent-soft:rgba(212,165,116,.18);
+    --warn:#D4A574;
+    --ok:#7AB87A;
+    --err:#D86B5C;
+  }
+  [data-theme="light"]{
+    --bg-1:#fafaf8;
+    --bg-2:#f0efea;
+    --bg-3:#e6e4dd;
+    --bg-4:#dcdad2;
+    --ink:#111113;
+    --ink-2:#2a2a2d;
+    --ink-3:#6e6e73;
+    --ink-4:#a1a1a6;
+    --rule:#1a1a1c;
+    --hairline:#d2d1cb;
+    --accent:#3a4a5c;
+    --accent-2:#283544;
+    --accent-soft:rgba(58,74,92,.10);
+    --warn:#8a6a1f;
+    --ok:#4a6b4a;
+    --err:#8b3a30;
+  }
+
+  /* Accent overrides selected from the tweaks panel */
+  [data-accent="amber"]    { --accent:#D4A574; --accent-2:#A87E4A; --accent-soft:rgba(212,165,116,.18); }
+  [data-accent="graphite"] { --accent:#7C8FA3; --accent-2:#566578; --accent-soft:rgba(124,143,163,.18); }
+  [data-accent="sage"]     { --accent:#8AA98A; --accent-2:#637E63; --accent-soft:rgba(138,169,138,.18); }
+  [data-accent="rose"]     { --accent:#D58B8B; --accent-2:#A66565; --accent-soft:rgba(213,139,139,.18); }
+  [data-accent="ultra"]    { --accent:#9FA7E6; --accent-2:#6E78C6; --accent-soft:rgba(159,167,230,.18); }
+
+  /* Font families — every UI surface picks one of these via --font-active */
+  :root{
+    --font-sans:    "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    --font-tight:   "Inter Tight", "Inter", sans-serif;
+    --font-humane:  "Instrument Sans", "Inter", sans-serif;
+    --font-serif:   "Newsreader", "New York", Georgia, serif;
+    --font-modern:  "Fraunces", "Newsreader", Georgia, serif;
+    --font-classic: "Crimson Pro", "Newsreader", Georgia, serif;
+    --font-mono:    "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+    --font-hand:    "Caveat", cursive;
+
+    /* The "active" body face. Swapped by the font picker. */
+    --font-active: var(--font-sans);
+    /* Counter-face used for headings / display when active is sans-y */
+    --font-display: var(--font-serif);
+  }
+  [data-font="sans"]    { --font-active: var(--font-sans);    --font-display: var(--font-serif);  }
+  [data-font="tight"]   { --font-active: var(--font-tight);   --font-display: var(--font-modern); }
+  [data-font="humane"]  { --font-active: var(--font-humane);  --font-display: var(--font-classic);}
+  [data-font="serif"]   { --font-active: var(--font-serif);   --font-display: var(--font-mono);   }
+  [data-font="modern"]  { --font-active: var(--font-modern);  --font-display: var(--font-modern); }
+  [data-font="classic"] { --font-active: var(--font-classic); --font-display: var(--font-classic);}
+  [data-font="mono"]    { --font-active: var(--font-mono);    --font-display: var(--font-mono);   }
+
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    background:var(--bg-1);
+    color:var(--ink);
+    font-family: var(--font-active);
+    font-weight:400;
+    letter-spacing:-0.01em;
+    -webkit-font-smoothing:antialiased;
+  }
+  body{min-height:100vh; transition: background 200ms ease, color 200ms ease;}
+
+  /* Subtle grain that survives both themes */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:100;
+    background-image:
+      radial-gradient(rgba(255,255,255,0.014) 1px, transparent 1px),
+      radial-gradient(rgba(255,255,255,0.010) 1px, transparent 1px);
+    background-size: 3px 3px, 7px 7px;
+    background-position: 0 0, 1px 2px;
+    mix-blend-mode: overlay;
+  }
+  [data-theme="light"] body::before{
+    background-image:
+      radial-gradient(rgba(0,0,0,0.018) 1px, transparent 1px),
+      radial-gradient(rgba(0,0,0,0.012) 1px, transparent 1px);
+    mix-blend-mode: multiply;
+  }
+
+  /* ============ TOP CHROME ============ */
+  .topbar{
+    display:grid; grid-template-columns: 1fr auto 1fr;
+    align-items:center; gap:24px;
+    padding: 14px 28px 12px;
+    border-bottom: 1px solid var(--rule);
+    position:sticky; top:0;
+    background: color-mix(in oklab, var(--bg-1) 88%, transparent);
+    backdrop-filter: blur(10px);
+    z-index:10;
+  }
+  .brand{
+    display:flex; align-items:baseline; gap:10px;
+    font-family: var(--font-active); font-weight: 600; font-size: 16px;
+    letter-spacing:-0.02em;
+  }
+  .brand .label{font-weight:400; color:var(--ink-3);}
+  .brand small{
+    font-family: var(--font-mono); font-size:10px; color:var(--ink-3);
+    letter-spacing:.12em; text-transform:uppercase; font-weight:400;
+  }
+  .tabs{
+    display:flex; gap:2px; justify-self:center;
+    background: var(--bg-2); padding: 3px; border-radius: 8px;
+    border: 1px solid var(--hairline);
+  }
+  .tab{
+    font-family: var(--font-active); font-size: 13px; font-weight: 500;
+    padding: 6px 13px; border: none;
+    background: transparent; color: var(--ink-3); cursor: pointer;
+    border-radius: 6px; letter-spacing:-0.01em;
+  }
+  .tab.active{ background: var(--bg-3); color: var(--ink); box-shadow: 0 0 0 1px var(--hairline), 0 1px 2px rgba(0,0,0,.18);}
+  .tab .num{font-family:var(--font-mono); font-size:10px; color:var(--ink-4); margin-right:7px;}
+  .tab.active .num{color:var(--accent);}
+  .topbar .rail-meta{
+    justify-self:end; display:flex; gap:10px; align-items:center;
+    font-family:var(--font-mono); font-size:10px; color:var(--ink-3);
+    letter-spacing:.08em; text-transform:uppercase;
+  }
+  .topbar .rail-meta .dot{width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block; margin-right:6px;}
+  .icon-btn{
+    width:28px; height:28px; display:inline-grid; place-items:center;
+    border:1px solid var(--hairline); background:var(--bg-2); color:var(--ink-2);
+    border-radius:6px; cursor:pointer; font-family:var(--font-mono); font-size:11px;
+  }
+  .icon-btn:hover{border-color:var(--accent); color:var(--accent);}
+
+  /* Iteration root */
+  .iter{display:none;}
+  .iter.active{display:block;}
+
+  /* ============ ITERATION HEAD ============ */
+  .iter-head{
+    display:flex; align-items:baseline; gap: 24px;
+    padding: 16px 28px 12px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .iter-head .num{
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-3);
+    letter-spacing:.2em; text-transform:uppercase;
+  }
+  .iter-head h1{
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 28px; margin: 0; line-height: 1; letter-spacing:-0.02em;
+    font-style: italic; color: var(--ink);
+  }
+  .iter-head .pitch{
+    font-family: var(--font-active); font-size: 13px; color: var(--ink-3);
+    line-height: 1.5; max-width: 680px;
+  }
+  .iter-head .pitch em{font-style: italic; color: var(--ink-2);}
+  .iter-head .tags{
+    margin-left:auto; display:flex; gap:6px;
+    font-family: var(--font-mono); font-size: 9px; color:var(--ink-3);
+    letter-spacing:.1em; text-transform:uppercase;
+    flex-shrink:0;
+  }
+  .iter-head .tags span{
+    border: 1px solid var(--hairline); padding: 3px 8px; border-radius: 999px;
+  }
+
+  /* ============ SHARED PRIMITIVES ============ */
+  .panel{
+    position: relative;
+    background: var(--bg-2);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .panel.inset{background: var(--bg-3);}
+  .panel .label{
+    display:block;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+    margin-bottom: 10px;
+  }
+  .panel .label .counter{color:var(--ink-4); float:right;}
+
+  .pill{
+    display:inline-flex; align-items:center; gap:5px;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 9px; border:1px solid var(--hairline); border-radius: 999px;
+    color: var(--ink-2); background: transparent;
+  }
+  .pill.on{background: var(--ink); color: var(--bg-1); border-color: var(--ink);}
+  .pill.accent{background:var(--accent); color:var(--bg-1); border-color:var(--accent);}
+  .pill.warn{background:transparent; color:var(--warn); border-color:var(--warn);}
+  .pill.ok{background:transparent; color:var(--ok); border-color:var(--ok);}
+  .pill.err{background:transparent; color:var(--err); border-color:var(--err);}
+  .pill .dot{width:6px; height:6px; border-radius:50%; background:currentColor;}
+
+  .btn{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family: var(--font-active); font-weight: 500; font-size: 13px;
+    padding: 6px 12px; border: 1px solid var(--hairline);
+    background: var(--bg-3); border-radius: 6px;
+    cursor: pointer; color: var(--ink);
+    letter-spacing:-0.01em;
+  }
+  .btn:hover{border-color:var(--accent); color:var(--accent);}
+  .btn.primary{background:var(--accent); color:var(--bg-1); border-color:var(--accent);}
+  .btn.primary:hover{filter:brightness(1.05); color:var(--bg-1);}
+  .btn.ghost{background:transparent; color:var(--ink-2);}
+  .btn.sm{font-size:12px; padding:4px 10px;}
+  .btn kbd{
+    font-family:var(--font-mono); font-size:10px; font-weight:400;
+    background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 3px;
+    margin-left: 4px; opacity:.7; color:var(--ink-2);
+  }
+  .btn.primary kbd{background: rgba(0,0,0,.18); color:var(--bg-1);}
+
+  .note{
+    font-family: var(--font-hand); font-size: 17px; color: var(--accent);
+    line-height: 1.15; font-weight: 500;
+  }
+  .kv{display:grid; grid-template-columns: 80px 1fr; gap:4px 12px; font-size:12px;}
+  .kv dt{font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3);}
+  .kv dd{margin:0; color:var(--ink-2);}
+
+  .rule{height:1px; background:var(--hairline); margin:14px 0;}
+
+  /* ============================================================
+     ITER 1 — CONDUCTOR
+     ============================================================ */
+  .cdt-grid{
+    display:grid;
+    grid-template-columns: 240px minmax(0,1fr) 240px;
+    gap: 18px;
+    padding: 18px 28px 28px;
+    min-height: calc(100vh - 116px);
+  }
+  .cdt-col{display:flex; flex-direction:column; gap:14px;}
+
+  .cdt-stage{
+    position:relative; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(closest-side, var(--bg-2), var(--bg-1) 80%);
+    border:1px solid var(--hairline); border-radius:12px;
+    overflow:hidden; min-height: 580px;
+  }
+  .cdt-rings{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  }
+  .cdt-ring{
+    position:absolute; border-radius:50%;
+    border:1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+    animation: cdtPulse 6s ease-in-out infinite;
+  }
+  .cdt-ring.r1{ width:280px; height:280px; opacity:.55; animation-delay:0s; }
+  .cdt-ring.r2{ width:420px; height:420px; opacity:.30; animation-delay:.6s; }
+  .cdt-ring.r3{ width:580px; height:580px; opacity:.15; animation-delay:1.2s; }
+  @keyframes cdtPulse{
+    0%,100%{ transform:scale(1); opacity:var(--p,.4); }
+    50%   { transform:scale(1.04); opacity: calc(var(--p,.4) * 1.5); }
+  }
+
+  .cdt-orb{
+    position:relative; width:160px; height:160px; border-radius:50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), var(--accent-2) 60%, var(--bg-3) 100%);
+    box-shadow: 0 0 60px color-mix(in oklab, var(--accent) 35%, transparent),
+                inset 0 0 40px rgba(0,0,0,.35);
+    display:grid; place-items:center;
+    transition: transform 200ms ease;
+  }
+  .cdt-orb__core{
+    width:32px; height:32px; border-radius:50%;
+    background: rgba(255,255,255,.85);
+    box-shadow: 0 0 24px rgba(255,255,255,.6);
+    animation: cdtBlink 1.6s ease-in-out infinite;
+  }
+  @keyframes cdtBlink{ 0%,100%{opacity:.85;} 50%{opacity:.4;} }
+
+  .cdt-orb[data-state="listening"] .cdt-orb__core{ animation: cdtListenScale 1.1s ease-in-out infinite; }
+  @keyframes cdtListenScale{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.45);} }
+  .cdt-orb[data-state="thinking"]{ animation: cdtThink 2s linear infinite; }
+  @keyframes cdtThink{ 0%{ transform:rotate(0deg);} 100%{ transform:rotate(360deg);} }
+  .cdt-orb[data-state="speaking"] .cdt-orb__core{ background:#fff; animation: cdtSpeak .8s ease-in-out infinite; }
+  @keyframes cdtSpeak{ 0%,100%{ transform:scale(1);} 50%{ transform:scale(.7);} }
+  .cdt-orb[data-state="error"]{
+    background: radial-gradient(circle at 30% 30%, var(--err), color-mix(in oklab, var(--err) 60%, var(--bg-3)) 60%, var(--bg-3) 100%);
+    box-shadow: 0 0 60px color-mix(in oklab, var(--err) 35%, transparent), inset 0 0 40px rgba(0,0,0,.35);
+  }
+
+  .cdt-wave{
+    display:flex; align-items:center; gap:3px; margin-top:18px; height:28px;
+  }
+  .cdt-wave i{
+    display:block; width:3px; background:var(--accent); border-radius:2px;
+    animation: cdtWv 1s ease-in-out infinite;
+  }
+  .cdt-wave i:nth-child(1){ height:8px;  animation-delay: 0s; }
+  .cdt-wave i:nth-child(2){ height:14px; animation-delay: .07s; }
+  .cdt-wave i:nth-child(3){ height:22px; animation-delay: .14s; }
+  .cdt-wave i:nth-child(4){ height:18px; animation-delay: .21s; }
+  .cdt-wave i:nth-child(5){ height:26px; animation-delay: .28s; }
+  .cdt-wave i:nth-child(6){ height:14px; animation-delay: .35s; }
+  .cdt-wave i:nth-child(7){ height:8px;  animation-delay: .42s; }
+  @keyframes cdtWv{ 0%,100%{ transform:scaleY(.4); opacity:.5;} 50%{ transform:scaleY(1.1); opacity:1;} }
+
+  .cdt-caption{
+    position:absolute; left:50%; bottom:28px; transform:translateX(-50%);
+    font-family: var(--font-display); font-style:italic; color:var(--ink-2);
+    font-size:18px; max-width:520px; text-align:center;
+  }
+  .cdt-transcript{
+    position:absolute; left:50%; top:28px; transform:translateX(-50%);
+    font-family: var(--font-mono); font-size:11px; color:var(--ink-3);
+    text-align:center; max-width:520px; letter-spacing:.04em;
+  }
+  .cdt-transcript .turn{ display:block; margin:2px 0; opacity:.85; }
+  .cdt-transcript .turn .who{ color:var(--accent); margin-right:8px; }
+
+  /* Satellites floating in stage corners */
+  .cdt-sat{
+    position:absolute; width:200px;
+    background: var(--bg-2); border:1px solid var(--hairline); border-radius:10px;
+    padding: 10px 12px;
+  }
+  .cdt-sat.nw{ top:18px; left:18px; }
+  .cdt-sat.ne{ top:18px; right:18px; text-align:right; }
+  .cdt-sat.sw{ bottom:18px; left:18px; }
+  .cdt-sat.se{ bottom:18px; right:18px; text-align:right; }
+  .cdt-sat .lbl{ font-family: var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.12em; text-transform:uppercase; margin-bottom:6px; }
+  .cdt-sat .v{ font-family: var(--font-active); font-size:13px; color:var(--ink); font-weight:500; }
+  .cdt-sat .sub{ font-family: var(--font-active); font-size:11px; color:var(--ink-3); margin-top:2px; }
+
+  /* ============================================================
+     ITER 2 — NEWSROOM
+     ============================================================ */
+  .nr-grid{
+    display:grid;
+    grid-template-columns: 280px minmax(0,1fr) 280px;
+    gap: 18px; padding: 18px 28px 32px;
+    min-height: calc(100vh - 116px);
+  }
+  .nr-col{display:flex; flex-direction:column; gap:14px;}
+
+  .nr-mic{
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+    padding-top:18px; padding-bottom:18px;
+  }
+  .nr-mic .orb{
+    width:120px; height:120px; border-radius:50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), var(--accent-2) 60%, var(--bg-3) 100%);
+    box-shadow: 0 0 40px color-mix(in oklab, var(--accent) 30%, transparent), inset 0 0 30px rgba(0,0,0,.4);
+    display:grid; place-items:center;
+    cursor:pointer;
+  }
+  .nr-mic .orb .core{
+    width:24px; height:24px; border-radius:50%;
+    background: rgba(255,255,255,.85);
+    animation: cdtBlink 1.6s ease-in-out infinite;
+  }
+  .nr-mic .modes{ display:flex; gap:6px; }
+
+  .nr-byline{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .nr-byline__opt{
+    border:1px solid var(--hairline); background:var(--bg-3);
+    border-radius:8px; padding:10px 12px; cursor:pointer;
+    text-align:left; color:var(--ink);
+    font-family: var(--font-active);
+  }
+  .nr-byline__opt[aria-pressed="true"]{ border-color:var(--accent); background: var(--accent-soft); }
+  .nr-byline__opt .name{ font-weight:600; font-size:13px; display:block; }
+  .nr-byline__opt .desc{ font-size:11px; color:var(--ink-3); display:block; margin-top:2px; }
+  .nr-byline__opt .kbd{ font-family:var(--font-mono); font-size:10px; color:var(--ink-3); float:right; }
+  /* Per-tone font flavour in the doc body */
+  .nr-byline__opt[data-tone="reporter"]{ font-family: var(--font-active); }
+  .nr-byline__opt[data-tone="essay"] .name{ font-family: var(--font-display); font-style:italic; }
+  .nr-byline__opt[data-tone="tech"]  .name{ font-family: var(--font-mono); font-size:12px; letter-spacing:.04em;}
+  .nr-byline__opt[data-tone="casual"] .name{ font-family: var(--font-hand); font-size:19px; font-weight:500;}
+
+  .nr-doc{
+    background: var(--bg-2); border:1px solid var(--hairline); border-radius:10px;
+    padding: 28px 40px 36px;
+    min-height: 520px;
+    font-family: var(--font-display);
+    color: var(--ink);
+  }
+  .nr-doc[data-tone="reporter"]{ font-family: var(--font-active); }
+  .nr-doc[data-tone="tech"]{ font-family: var(--font-mono); font-size:14px; letter-spacing:.01em; }
+  .nr-doc[data-tone="casual"]{ font-family: var(--font-hand); font-size: 22px; line-height:1.4;}
+  .nr-doc h2{
+    font-size: 28px; line-height:1.15; margin: 0 0 6px;
+    font-weight: 600; letter-spacing:-0.02em;
+  }
+  .nr-doc .deck{
+    font-style: italic; color: var(--ink-3); font-size: 15px; margin-bottom: 20px;
+    border-bottom: 1px solid var(--hairline); padding-bottom: 14px;
+  }
+  .nr-doc h3{ font-size:18px; margin: 22px 0 8px; font-weight:600;}
+  .nr-doc p{ margin: 0 0 14px; line-height:1.6; font-size:15px; color:var(--ink-2); }
+  .nr-doc ul{ margin: 0 0 14px 22px; padding:0; color:var(--ink-2); font-size:15px; line-height:1.6;}
+  .nr-doc blockquote{
+    border-left: 3px solid var(--accent);
+    margin: 18px 0; padding: 4px 0 4px 16px;
+    font-style: italic; color: var(--ink); font-size: 17px;
+  }
+  .nr-doc blockquote .attrib{ display:block; font-style: normal; font-size: 12px; color: var(--ink-3); margin-top: 6px; font-family: var(--font-mono); letter-spacing:.06em;}
+  .nr-doc .embed{
+    margin: 18px 0; padding: 12px 14px; background: var(--bg-3);
+    border:1px dashed var(--hairline); border-radius:6px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+    display:flex; gap:10px; align-items:center;
+  }
+  .nr-doc .embed .glyph{ font-size:16px; color:var(--accent); }
+  .nr-doc__toolbar{
+    display:flex; align-items:center; gap:10px; margin-bottom:14px;
+    font-family: var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.1em; text-transform:uppercase;
+  }
+  .nr-doc__toolbar .sep{ width:1px; height:14px; background:var(--hairline);}
+  .nr-doc__foot{
+    margin-top: 24px; padding-top: 14px; border-top:1px solid var(--hairline);
+    display:flex; justify-content:space-between; align-items:center;
+    font-family: var(--font-mono); font-size: 10px; color:var(--ink-3); letter-spacing:.08em;
+  }
+
+  .nr-outline ol{ list-style:none; padding:0; margin:0; }
+  .nr-outline li{
+    padding: 6px 0; border-bottom: 1px dashed var(--hairline);
+    font-size: 13px; color: var(--ink-2); display:flex; gap:8px;
+  }
+  .nr-outline li:last-child{border-bottom:none;}
+  .nr-outline li .num{ color: var(--ink-4); font-family: var(--font-mono); font-size: 10px; min-width: 18px;}
+
+  .nr-artifacts .row{
+    display:grid; grid-template-columns: 32px 1fr auto; gap:10px;
+    padding: 8px 0; border-bottom: 1px dashed var(--hairline);
+    align-items:center;
+  }
+  .nr-artifacts .row:last-child{ border-bottom:none; }
+  .nr-artifacts .glyph{
+    width:32px; height:32px; display:grid; place-items:center;
+    border:1px solid var(--hairline); border-radius:6px;
+    font-family: var(--font-mono); font-size: 13px; color:var(--accent);
+    background: var(--bg-3);
+  }
+  .nr-artifacts .name{ font-size:13px; color:var(--ink); }
+  .nr-artifacts .meta{ font-size:11px; color:var(--ink-3); }
+
+  /* ============================================================
+     ITER 3 — STAGE (voice as character with spotlight)
+     ============================================================ */
+  .stg-grid{
+    display:grid;
+    grid-template-columns: 260px minmax(0,1fr) 260px;
+    gap: 18px; padding:18px 28px 28px;
+    min-height: calc(100vh - 116px);
+  }
+  .stg-col{display:flex; flex-direction:column; gap:14px;}
+  .stg-stage{
+    position:relative; min-height:600px; border-radius:14px;
+    background:
+      radial-gradient(ellipse at 50% 35%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 60%),
+      linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 80%);
+    border:1px solid var(--hairline);
+    overflow:hidden;
+    display:grid;
+    grid-template-rows: 1fr auto;
+  }
+  .stg-floor{
+    position:absolute; left:0; right:0; bottom:0; height:50%;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,.35) 100%);
+    pointer-events:none;
+  }
+  .stg-spot{
+    position:absolute; left:50%; top:0; transform:translateX(-50%);
+    width: 360px; height: 480px;
+    background: radial-gradient(ellipse at 50% 0%, color-mix(in oklab, var(--accent) 38%, transparent), transparent 70%);
+    pointer-events:none;
+  }
+  .stg-cast{
+    position:relative; z-index:2;
+    align-self:center; justify-self:center;
+    margin-top: 70px;
+    display:flex; gap: 80px; align-items:flex-end;
+  }
+  .stg-character{
+    width:96px;
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    cursor:pointer; position:relative;
+    filter: brightness(0.55);
+    transition: filter 200ms ease, transform 200ms ease;
+  }
+  .stg-character.active{
+    filter: brightness(1.05);
+    transform: translateY(-12px);
+  }
+  .stg-character .head{
+    width:60px; height:60px; border-radius:50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), var(--accent-2));
+    box-shadow: 0 0 24px color-mix(in oklab, var(--accent) 30%, transparent), inset 0 0 14px rgba(0,0,0,.4);
+  }
+  .stg-character .body{
+    width:46px; height:64px; border-radius: 22px 22px 6px 6px;
+    background: linear-gradient(180deg, var(--bg-4), var(--bg-3));
+    border:1px solid var(--hairline); margin-top:-8px;
+  }
+  .stg-character .name{
+    font-family: var(--font-mono); font-size: 10px; letter-spacing:.12em;
+    text-transform:uppercase; color: var(--ink-2);
+  }
+  .stg-character .role{
+    font-family: var(--font-display); font-style: italic; font-size: 12px;
+    color: var(--ink-3); text-align:center;
+  }
+  .stg-character .cue{
+    position:absolute; top:-30px; left:50%; transform:translateX(-50%);
+    background: var(--accent); color: var(--bg-1); border-radius: 4px;
+    padding: 2px 8px; font-family: var(--font-mono); font-size: 9px;
+    letter-spacing:.12em; text-transform:uppercase; white-space:nowrap;
+    opacity:0; transition: opacity 200ms ease;
+  }
+  .stg-character.active .cue{ opacity:1; }
+
+  .stg-script{
+    position:relative; z-index:2;
+    margin: 16px 24px 18px;
+    background: color-mix(in oklab, var(--bg-3) 80%, transparent);
+    border:1px solid var(--hairline); border-radius:10px;
+    padding: 16px 18px;
+    font-family: var(--font-display);
+    color: var(--ink-2); font-size: 15px; line-height: 1.55;
+  }
+  .stg-script .stagedir{
+    font-family: var(--font-active); font-style: italic; color: var(--ink-3);
+    font-size: 12px; display:block; margin: 4px 0 2px;
+  }
+  .stg-script .line{ margin: 8px 0; }
+  .stg-script .line .who{
+    font-family: var(--font-mono); font-size: 10px; letter-spacing:.14em;
+    text-transform: uppercase; color: var(--accent); margin-right: 12px;
+  }
+  .stg-script .line.now{ color: var(--ink); font-weight: 500; }
+
+  .stg-meter{
+    display:flex; align-items:center; gap:12px;
+    font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+    letter-spacing:.06em;
+  }
+  .stg-meter .bar{
+    flex:1; height:4px; border-radius:2px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent) var(--lvl,40%), var(--bg-4) var(--lvl,40%), var(--bg-4) 100%);
+  }
+
+  .stg-cues ol{ list-style:none; padding:0; margin:0; counter-reset: cue; }
+  .stg-cues li{
+    padding: 10px 0; border-bottom: 1px dashed var(--hairline);
+    display:grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items:center;
+    counter-increment: cue;
+  }
+  .stg-cues li:last-child{border-bottom:none;}
+  .stg-cues li::before{
+    content: counter(cue, decimal-leading-zero);
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-4); letter-spacing:.1em;
+  }
+  .stg-cues .what{ font-size: 13px; color: var(--ink); }
+  .stg-cues .what small{ display:block; font-size: 11px; color: var(--ink-3); margin-top:2px; }
+  .stg-cues .at{ font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing:.08em;}
+
+  /* ============================================================
+     ITER 4 — TAPE (DAW timeline)
+     ============================================================ */
+  .tp-grid{
+    display:grid;
+    grid-template-columns: 240px minmax(0,1fr);
+    gap: 18px; padding:18px 28px 28px;
+    min-height: calc(100vh - 116px);
+  }
+  .tp-col{display:flex; flex-direction:column; gap:14px;}
+  .tp-deck{
+    background: var(--bg-2); border:1px solid var(--hairline); border-radius:10px;
+    padding: 12px;
+    display:flex; flex-direction:column; gap: 10px;
+  }
+  .tp-toolbar{
+    display:flex; align-items:center; gap:10px; padding:6px 4px;
+    border-bottom:1px solid var(--hairline);
+  }
+  .tp-toolbar .clock{
+    font-family: var(--font-mono); font-size: 18px; color: var(--ink); letter-spacing:.06em;
+    margin-left:auto; padding: 4px 10px;
+    border:1px solid var(--hairline); border-radius:6px; background: var(--bg-3);
+  }
+  .tp-tracks{
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .tp-track{
+    display:grid; grid-template-columns: 110px 1fr; gap:8px; align-items:center;
+  }
+  .tp-track__head{
+    background:var(--bg-3); border:1px solid var(--hairline); border-radius:6px;
+    padding:8px 10px;
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .tp-track__head .name{
+    font-family: var(--font-active); font-size:12px; font-weight:600; color:var(--ink);
+  }
+  .tp-track__head .who{
+    font-family: var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.08em; text-transform:uppercase;
+  }
+  .tp-track__head .ctl{
+    display:flex; gap:4px; margin-top:2px;
+  }
+  .tp-track__head .ctl b{
+    font-family: var(--font-mono); font-size:9px; padding: 2px 5px; border-radius: 3px;
+    border:1px solid var(--hairline); cursor:pointer; color:var(--ink-3); font-weight:500; letter-spacing:.06em;
+  }
+  .tp-track__head .ctl b.on[data-key="M"]{ background: var(--err); color:#fff; border-color:var(--err); }
+  .tp-track__head .ctl b.on[data-key="S"]{ background: var(--ok); color:#fff; border-color:var(--ok); }
+  .tp-track__head .ctl b.on[data-key="R"]{ background: var(--accent); color:var(--bg-1); border-color:var(--accent); }
+  .tp-track__lane{
+    height: 64px; border:1px solid var(--hairline); border-radius:6px;
+    background:
+      linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), var(--hairline) calc(10% - 1px), var(--hairline) 10%) 0 0/100% 100%,
+      var(--bg-3);
+    position:relative; overflow:hidden;
+  }
+  .tp-clip{
+    position:absolute; top:6px; bottom:6px; border-radius:5px;
+    background: color-mix(in oklab, var(--accent) 22%, var(--bg-3));
+    border:1px solid color-mix(in oklab, var(--accent) 60%, transparent);
+    overflow:hidden;
+    cursor: ew-resize;
+  }
+  .tp-clip__name{
+    position:absolute; top:3px; left:6px; font-family: var(--font-mono); font-size: 9px;
+    color: var(--accent); letter-spacing:.08em; text-transform:uppercase;
+  }
+  .tp-clip__wave{
+    position:absolute; left:0; right:0; bottom:0; height: 36px;
+    display:flex; align-items:center; gap:1px; padding:0 4px;
+  }
+  .tp-clip__wave i{
+    flex:1; background: var(--accent); border-radius:1px; opacity:.6;
+  }
+  .tp-playhead{
+    position:absolute; top:-2px; bottom:-2px; width:1px; background: var(--err);
+    z-index:5; pointer-events:none;
+  }
+  .tp-playhead::before{
+    content:""; position:absolute; top:-3px; left:-4px; width:9px; height:9px;
+    background: var(--err); border-radius:2px;
+  }
+
+  .tp-ruler{
+    height: 22px; position: relative;
+    border:1px solid var(--hairline); border-radius:6px;
+    background: var(--bg-3);
+    margin-left: 118px;
+    font-family: var(--font-mono); font-size: 9px; color: var(--ink-3); letter-spacing:.06em;
+  }
+  .tp-ruler span{ position:absolute; top:5px; transform:translateX(-50%); }
+
+  .tp-take{ display:grid; grid-template-columns: auto 1fr auto; gap:8px; align-items:center;}
+  .tp-take + .tp-take{ margin-top:6px; padding-top:6px; border-top:1px dashed var(--hairline);}
+  .tp-take .who{ font-family: var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.08em; text-transform:uppercase;}
+  .tp-take .text{ font-family: var(--font-active); font-size:13px; color:var(--ink-2);}
+  .tp-take .mark{ font-family: var(--font-mono); font-size:10px; color:var(--accent);}
+
+  /* ============================================================
+     ITER 5 — FORUM (parallel multi-agent)
+     ============================================================ */
+  .fr-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 18px; padding:18px 28px 28px;
+    min-height: calc(100vh - 116px);
+  }
+  .fr-col{
+    background: var(--bg-2); border:1px solid var(--hairline); border-radius:10px;
+    padding: 14px 16px;
+    display:flex; flex-direction:column; gap: 10px;
+  }
+  .fr-col__head{
+    display:flex; align-items:center; gap:10px;
+    padding-bottom:10px; border-bottom:1px solid var(--hairline);
+  }
+  .fr-col__avatar{
+    width:32px; height:32px; border-radius:50%;
+    background: radial-gradient(circle at 30% 30%, var(--accent), var(--accent-2));
+    box-shadow: inset 0 0 8px rgba(0,0,0,.4);
+    display:grid; place-items:center; color:var(--bg-1); font-family: var(--font-mono); font-size:12px; font-weight:600;
+  }
+  .fr-col__name{ font-family: var(--font-active); font-weight:600; font-size:13px; color:var(--ink); }
+  .fr-col__role{ font-family: var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.08em; text-transform:uppercase;}
+  .fr-col__state{
+    margin-left:auto; font-family: var(--font-mono); font-size:9px;
+    letter-spacing:.12em; text-transform:uppercase;
+    border:1px solid var(--hairline); padding:3px 8px; border-radius:999px;
+    color:var(--ink-3);
+  }
+  .fr-col__state.live{ color: var(--ok); border-color: var(--ok);}
+  .fr-col__state.thinking{ color: var(--accent); border-color: var(--accent);}
+  .fr-col__state.idle{ color: var(--ink-3); }
+
+  .fr-thread{
+    flex:1; display:flex; flex-direction:column; gap:10px;
+    overflow-y:auto; padding:4px 0;
+  }
+  .fr-msg{
+    background: var(--bg-3); border:1px solid var(--hairline); border-radius:8px;
+    padding: 10px 12px;
+    font-family: var(--font-active); font-size:13px; line-height:1.5; color:var(--ink-2);
+  }
+  .fr-msg.self{ background: var(--accent-soft); border-color: color-mix(in oklab, var(--accent) 50%, var(--hairline));}
+  .fr-msg .who{
+    font-family: var(--font-mono); font-size:9px; letter-spacing:.12em;
+    text-transform:uppercase; color: var(--ink-3); display:block; margin-bottom:4px;
+  }
+  .fr-msg .who.accent{ color: var(--accent); }
+  .fr-msg .quote{
+    border-left:2px solid var(--accent); padding-left:8px;
+    margin: 6px 0; font-style: italic; color: var(--ink-3); font-size:12px;
+  }
+  .fr-msg .when{
+    font-family: var(--font-mono); font-size:9px; letter-spacing:.08em;
+    color: var(--ink-4); float:right; margin-top:-14px;
+  }
+  .fr-input{
+    border:1px solid var(--hairline); border-radius:8px;
+    padding:8px 10px;
+    display:flex; gap:6px; align-items:center;
+    background: var(--bg-3);
+    font-family: var(--font-active); font-size:12px; color: var(--ink-3);
+  }
+  .fr-input .mic{
+    width:24px; height:24px; border-radius:50%; background:var(--accent); display:grid; place-items:center;
+    color: var(--bg-1); font-family: var(--font-mono); font-size:11px;
+  }
+
+  /* ============================================================
+     TWEAKS PANEL (right-edge slide-out)
+     ============================================================ */
+  .tweaks-toggle{
+    position:fixed; right:14px; bottom:14px; z-index: 50;
+    background: var(--accent); color: var(--bg-1); border:none;
+    width:44px; height:44px; border-radius:50%;
+    font-family: var(--font-mono); font-size: 16px; font-weight:600;
+    cursor:pointer;
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  }
+  .tweaks{
+    position:fixed; right:0; top:0; bottom:0; width: 320px;
+    background: var(--bg-2); border-left: 1px solid var(--hairline);
+    transform: translateX(100%); transition: transform 220ms ease;
+    z-index: 60;
+    overflow-y:auto;
+    padding: 18px 20px 24px;
+  }
+  .tweaks.open{ transform: translateX(0); }
+  .tweaks h4{
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-3);
+    letter-spacing:.16em; text-transform:uppercase; margin: 18px 0 8px;
+    font-weight: 500;
+  }
+  .tweaks h4:first-child{ margin-top: 0; }
+  .tweaks .row{ display:flex; flex-wrap:wrap; gap:6px; }
+  .tweaks .row .seg{
+    font-family: var(--font-mono); font-size: 10px; padding: 5px 10px;
+    border:1px solid var(--hairline); background: var(--bg-3); color: var(--ink-2);
+    border-radius:5px; cursor:pointer; letter-spacing:.06em;
+  }
+  .tweaks .row .seg.on{ background: var(--accent); color: var(--bg-1); border-color: var(--accent);}
+  .tweaks .swatches{ display:flex; gap:6px; }
+  .tweaks .swatches button{
+    width:28px; height:28px; border-radius:50%;
+    border:2px solid var(--hairline); cursor:pointer;
+  }
+  .tweaks .swatches button.on{ border-color: var(--ink); }
+  .tweaks .preview{
+    margin-top: 6px; padding: 10px 12px; border:1px dashed var(--hairline); border-radius:6px;
+    font-size: 14px; line-height:1.5;
+  }
+  .tweaks .preview .h{ font-family: var(--font-display); font-style: italic; font-size: 18px; display:block; margin-bottom: 4px;}
+  .tweaks .preview .b{ font-family: var(--font-active); color: var(--ink-2); }
+  .tweaks .preview .m{ font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display:block; margin-top: 4px;}
+  .tweaks .preview .s{ font-family: var(--font-hand); font-size: 18px; color: var(--accent); display:block; margin-top: 2px;}
+
+  .tweaks .close{
+    position: absolute; top: 12px; right: 12px;
+    width: 24px; height:24px; display:grid; place-items:center;
+    background: transparent; border: none; color: var(--ink-3); font-size: 16px; cursor: pointer;
+  }
+
+  .tweaks .legend{
+    margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--hairline);
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-3);
+    line-height: 1.7; letter-spacing: .04em;
+  }
+  .tweaks .legend kbd{
+    font-family: var(--font-mono); background: var(--bg-3); border:1px solid var(--hairline);
+    padding: 1px 5px; border-radius: 3px; color: var(--ink-2);
+  }
+
+  /* Responsive — collapse satellites and side cols on narrow widths */
+  @media (max-width: 1280px){
+    .cdt-sat, .cdt-transcript{ display:none; }
+    .cdt-grid, .nr-grid, .stg-grid, .tp-grid, .fr-grid{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+
+<body data-theme="dark" data-accent="amber" data-font="sans">
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <div class="brand">
+    Audio<span class="label">/ wireframes v3</span>
+    <small>· modalities &middot; fonts</small>
+  </div>
+  <div class="tabs" role="tablist" id="modalityTabs">
+    <button class="tab active" data-iter="1"><span class="num">01</span>Conductor</button>
+    <button class="tab" data-iter="2"><span class="num">02</span>Newsroom</button>
+    <button class="tab" data-iter="3"><span class="num">03</span>Stage</button>
+    <button class="tab" data-iter="4"><span class="num">04</span>Tape</button>
+    <button class="tab" data-iter="5"><span class="num">05</span>Forum</button>
+  </div>
+  <div class="rail-meta">
+    <span><span class="dot"></span>session live</span>
+    <span id="clockMini">00:00</span>
+    <button class="icon-btn" id="themeToggle" title="Toggle theme (T)">◑</button>
+    <button class="icon-btn" id="tweakOpen" title="Tweaks (`)">⚙</button>
+  </div>
+</div>
+
+<!-- =====================================================
+     ITER 1 — CONDUCTOR
+     ===================================================== -->
+<section class="iter active" data-iter="1">
+  <div class="iter-head">
+    <span class="num">01 · Conductor</span>
+    <h1>orb at the center of attention</h1>
+    <p class="pitch">Live voice as a single living surface. The orb breathes the session state; satellites at the corners surface what would otherwise crowd the chrome — <em>route, devices, studio, health</em>. Reading rail on the left, now-playing on the right.</p>
+    <div class="tags">
+      <span>orb</span><span>radial</span><span>realtime</span>
+    </div>
+  </div>
+
+  <div class="cdt-grid">
+    <!-- LEFT — Session / Reading -->
+    <div class="cdt-col">
+      <div class="panel">
+        <span class="label">Route <span class="counter">3 hops</span></span>
+        <dl class="kv">
+          <dt>STT</dt><dd>whisper.cpp · base.en</dd>
+          <dt>LLM</dt><dd>llama 3.1 · 8B</dd>
+          <dt>TTS</dt><dd>piper · ryan · medium</dd>
+          <dt>Voice</dt><dd>warm · 1.0×</dd>
+        </dl>
+      </div>
+
+      <div class="panel inset">
+        <span class="label">Reading <span class="counter">last 4 turns</span></span>
+        <p style="font-family:var(--font-display); font-style:italic; font-size:14px; line-height:1.55; margin: 0 0 10px; color:var(--ink-2);">
+          <span style="color:var(--accent); font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; margin-right:6px;">−3</span>
+          Tell me what's interesting in the last hour of logs.
+        </p>
+        <p style="font-family:var(--font-display); font-style:italic; font-size:14px; line-height:1.55; margin: 0 0 10px; color:var(--ink-2);">
+          <span style="color:var(--accent); font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; margin-right:6px;">−2</span>
+          Two new errors out of 1,204 events. One is a transient TLS handshake. The other is a new pattern.
+        </p>
+        <p style="font-family:var(--font-display); font-style:italic; font-size:14px; line-height:1.55; margin: 0 0 10px; color:var(--ink-2);">
+          <span style="color:var(--accent); font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; margin-right:6px;">−1</span>
+          Show me the new one.
+        </p>
+        <p style="font-family:var(--font-display); font-style:italic; font-size:14px; line-height:1.55; margin: 0 0 0; color:var(--ink); font-weight:500;">
+          <span style="color:var(--accent); font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; margin-right:6px;">now</span>
+          Pulled. Three matches in the last 18 minutes — all from the &hellip;
+        </p>
+      </div>
+
+      <div class="panel">
+        <span class="label">Suggested</span>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <button class="btn sm ghost">Pin reply <kbd>P</kbd></button>
+          <button class="btn sm ghost">Make a note <kbd>N</kbd></button>
+          <button class="btn sm ghost">Send to studio <kbd>S</kbd></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER — Stage -->
+    <div class="cdt-stage">
+      <div class="cdt-rings" aria-hidden="true">
+        <div class="cdt-ring r1" style="--p:.55;"></div>
+        <div class="cdt-ring r2" style="--p:.30;"></div>
+        <div class="cdt-ring r3" style="--p:.15;"></div>
+      </div>
+
+      <div class="cdt-transcript" id="cdtTranscript">
+        <span class="turn"><span class="who">user</span>tell me what's interesting in the last hour of logs</span>
+        <span class="turn"><span class="who">deck</span>two new errors out of 1,204 events</span>
+        <span class="turn"><span class="who">user</span>show me the new one</span>
+      </div>
+
+      <div style="display:flex; flex-direction:column; align-items:center;">
+        <div class="cdt-orb" id="cdtOrb" data-state="speaking">
+          <div class="cdt-orb__core"></div>
+        </div>
+        <div class="cdt-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+
+      <div class="cdt-caption" id="cdtCaption">
+        Pulled three matches in the last eighteen minutes — all from the auth gateway.
+      </div>
+
+      <div class="cdt-sat nw">
+        <div class="lbl">Voice</div>
+        <div class="v">Ryan · Warm</div>
+        <div class="sub">1.0× · Piper medium</div>
+      </div>
+      <div class="cdt-sat ne">
+        <div class="lbl">Devices</div>
+        <div class="v">USB Mic 02</div>
+        <div class="sub">Speakers (built-in)</div>
+      </div>
+      <div class="cdt-sat sw">
+        <div class="lbl">Studio</div>
+        <div class="v">2 jobs queued</div>
+        <div class="sub">est. 4m 12s</div>
+      </div>
+      <div class="cdt-sat se">
+        <div class="lbl">Health</div>
+        <div class="v">Green</div>
+        <div class="sub">last check 3s ago</div>
+      </div>
+    </div>
+
+    <!-- RIGHT — Now / Suggested / Keys -->
+    <div class="cdt-col">
+      <div class="panel">
+        <span class="label">Turn <span class="counter">live</span></span>
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+          <span class="pill accent"><span class="dot"></span>speaking</span>
+          <span class="pill">deck</span>
+        </div>
+        <p style="font-family: var(--font-active); font-size: 13px; color:var(--ink); margin:0; line-height:1.5;">
+          Pulled three matches in the last 18m — all from the auth gateway. Want me to open the trace?
+        </p>
+      </div>
+
+      <div class="panel inset">
+        <span class="label">Suggested next</span>
+        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px;">
+          <li><button class="btn sm" style="width:100%; justify-content:flex-start;">Open trace</button></li>
+          <li><button class="btn sm ghost" style="width:100%; justify-content:flex-start;">Group by client</button></li>
+          <li><button class="btn sm ghost" style="width:100%; justify-content:flex-start;">Snooze 10m</button></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <span class="label">Keyboard</span>
+        <div style="display:flex; flex-direction:column; gap:6px; font-size:12px; color:var(--ink-2);">
+          <div><kbd style="font-family:var(--font-mono); background:var(--bg-3); padding:1px 5px; border-radius:3px;">Space</kbd> — push to talk</div>
+          <div><kbd style="font-family:var(--font-mono); background:var(--bg-3); padding:1px 5px; border-radius:3px;">Esc</kbd> — interrupt</div>
+          <div><kbd style="font-family:var(--font-mono); background:var(--bg-3); padding:1px 5px; border-radius:3px;">⌘ K</kbd> — palette</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     ITER 2 — NEWSROOM
+     ===================================================== -->
+<section class="iter" data-iter="2">
+  <div class="iter-head">
+    <span class="num">02 · Newsroom</span>
+    <h1>audio that becomes a document</h1>
+    <p class="pitch">Speak. The deck composes a styled article in real time. Pick a <em>byline</em> — reporter, essay, tech, casual — and the typography, voice and structure shift. Outline + artifacts on the right; the doc breathes as you speak.</p>
+    <div class="tags">
+      <span>audio→doc</span><span>byline</span><span>typography</span>
+    </div>
+  </div>
+
+  <div class="nr-grid">
+    <!-- LEFT -->
+    <div class="nr-col">
+      <div class="panel">
+        <span class="label">Microphone</span>
+        <div class="nr-mic">
+          <div class="orb" id="nrOrb" title="click to toggle"><div class="core"></div></div>
+          <div class="modes">
+            <button class="pill on">PTT</button>
+            <button class="pill">VAD</button>
+            <button class="pill">Open-mic</button>
+          </div>
+        </div>
+        <div class="rule"></div>
+        <div style="display:flex; justify-content:space-between; font-family: var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.08em;">
+          <span>elapsed <b id="nrClock" style="color:var(--ink-2); font-weight:500;">02:14</b></span>
+          <span>words <b id="nrWords" style="color:var(--ink-2); font-weight:500;">418</b></span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="label">Byline</span>
+        <div class="nr-byline" id="bylinePicker">
+          <button class="nr-byline__opt" data-tone="reporter" aria-pressed="true">
+            <span class="kbd">1</span><span class="name">Reporter</span>
+            <span class="desc">tight, factual, present</span>
+          </button>
+          <button class="nr-byline__opt" data-tone="essay" aria-pressed="false">
+            <span class="kbd">2</span><span class="name">Essay</span>
+            <span class="desc">measured, italic, slow</span>
+          </button>
+          <button class="nr-byline__opt" data-tone="tech" aria-pressed="false">
+            <span class="kbd">3</span><span class="name">Tech</span>
+            <span class="desc">precise, mono, listy</span>
+          </button>
+          <button class="nr-byline__opt" data-tone="casual" aria-pressed="false">
+            <span class="kbd">4</span><span class="name">Casual</span>
+            <span class="desc">handwritten, loose</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="panel inset">
+        <span class="label">Commands</span>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn sm ghost" style="justify-content:flex-start;">/heading — split section</button>
+          <button class="btn sm ghost" style="justify-content:flex-start;">/quote — quote last</button>
+          <button class="btn sm ghost" style="justify-content:flex-start;">/embed — pull in artifact</button>
+          <button class="btn sm ghost" style="justify-content:flex-start;">/fact-check</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER — DOC -->
+    <div>
+      <div class="nr-doc" data-tone="reporter" id="nrDoc">
+        <div class="nr-doc__toolbar">
+          <span>Draft &middot; <b id="nrToneLabel" style="color:var(--accent); font-weight:500;">reporter</b></span>
+          <span class="sep"></span>
+          <span>Newsroom · live</span>
+          <span class="sep"></span>
+          <span style="margin-left:auto;">Last save 3s ago</span>
+        </div>
+        <h2>Two errors broke a thousand events</h2>
+        <p class="deck">A late-evening sweep through the gateway logs surfaces a transient handshake fault and a new pattern that has shown up three times in the last eighteen minutes.</p>
+        <p>The deck pulled <b>1,204 events</b> from the past hour. Out of those, two crossed the warning threshold: a transient TLS handshake fault flapping at the edge, and a previously unseen sequence of 401s on the auth gateway.</p>
+        <h3>The new pattern</h3>
+        <ul>
+          <li>Three matches in the last 18 minutes</li>
+          <li>All from the same client class, a single SDK version</li>
+          <li>None are retried; the client gives up after one attempt</li>
+        </ul>
+        <blockquote>
+          The clean signal is in the <em>retry shape</em>. They aren't trying again — that's the tell.
+          <span class="attrib">— deck commentary, 21:17</span>
+        </blockquote>
+        <p>The TLS flap is dismissable for now: 30-second windows, no payload loss. The 401 cluster deserves a trace. The deck queued a <span class="embed" style="display:inline-flex; padding: 4px 8px; margin: 0 2px; vertical-align:middle;"><span class="glyph">⌖</span> trace · auth-gateway · 18m</span> and is ready to open it on the next turn.</p>
+        <div class="nr-doc__foot">
+          <span><b id="nrFootWords" style="color:var(--ink-2); font-weight:500;">418 words</b> · 1m 56s spoken</span>
+          <span>Saved as draft &middot; 21:18 local</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="nr-col">
+      <div class="panel nr-outline">
+        <span class="label">Outline <span class="counter">3 sections</span></span>
+        <ol>
+          <li><span class="num">01</span> Two errors broke a thousand events</li>
+          <li><span class="num">02</span> The new pattern</li>
+          <li><span class="num">03</span> What to open next</li>
+        </ol>
+      </div>
+
+      <div class="panel nr-artifacts">
+        <span class="label">Artifacts <span class="counter">3</span></span>
+        <div class="row">
+          <div class="glyph">⌖</div>
+          <div>
+            <div class="name">trace · auth-gateway · 18m</div>
+            <div class="meta">queued · 12 spans</div>
+          </div>
+          <button class="btn sm ghost">open</button>
+        </div>
+        <div class="row">
+          <div class="glyph">⊞</div>
+          <div>
+            <div class="name">log query · errors[1h]</div>
+            <div class="meta">1,204 rows · csv</div>
+          </div>
+          <button class="btn sm ghost">open</button>
+        </div>
+        <div class="row">
+          <div class="glyph">♪</div>
+          <div>
+            <div class="name">audio · the_briefing.opus</div>
+            <div class="meta">2m 14s · 96 kbps</div>
+          </div>
+          <button class="btn sm ghost">play</button>
+        </div>
+      </div>
+
+      <div class="panel inset">
+        <span class="label">Decisions</span>
+        <ol style="list-style:none; padding:0; margin:0; font-family: var(--font-mono); font-size:11px; color:var(--ink-2); letter-spacing:.04em;">
+          <li style="padding:6px 0; border-bottom:1px dashed var(--hairline);">21:14 · open headline accepted</li>
+          <li style="padding:6px 0; border-bottom:1px dashed var(--hairline);">21:15 · byline → reporter</li>
+          <li style="padding:6px 0;">21:17 · embed trace pinned</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     ITER 3 — STAGE (voices as cast)
+     ===================================================== -->
+<section class="iter" data-iter="3">
+  <div class="iter-head">
+    <span class="num">03 · Stage</span>
+    <h1>voices as a small cast under a spotlight</h1>
+    <p class="pitch">A theatre metaphor for multi-voice work. Each voice is a <em>character</em> standing on a darkened stage; the spotlight follows whoever is currently speaking. The script below scrolls in real time with stage directions; the cue list on the right plays them out.</p>
+    <div class="tags">
+      <span>multi-voice</span><span>cast</span><span>script</span>
+    </div>
+  </div>
+
+  <div class="stg-grid">
+    <!-- LEFT — Script settings -->
+    <div class="stg-col">
+      <div class="panel">
+        <span class="label">Cast <span class="counter">3</span></span>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="pill accent">N</span>
+            <div>
+              <div style="font-size:13px;">Narrator</div>
+              <div style="font-size:11px; color:var(--ink-3);">Newsreader · italic</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="pill">O</span>
+            <div>
+              <div style="font-size:13px;">Operator</div>
+              <div style="font-size:11px; color:var(--ink-3);">JetBrains Mono · 13px</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span class="pill">G</span>
+            <div>
+              <div style="font-size:13px;">Guest</div>
+              <div style="font-size:11px; color:var(--ink-3);">Inter · 14px</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <span class="label">Scene</span>
+        <p style="font-size:13px; color:var(--ink-2); line-height:1.5; margin:0;">
+          <b style="color:var(--ink); font-weight:500;">Daily standup, post-incident.</b><br>
+          A small room. The narrator opens. The operator carries the trace. The guest is on speakerphone.
+        </p>
+      </div>
+
+      <div class="panel inset">
+        <span class="label">Director</span>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn sm">Hold for laugh</button>
+          <button class="btn sm ghost">Cross-fade</button>
+          <button class="btn sm ghost">Spotlight: narrator</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER — STAGE -->
+    <div class="stg-stage">
+      <div class="stg-spot" id="stgSpot"></div>
+      <div class="stg-floor"></div>
+
+      <div class="stg-cast" id="stgCast">
+        <div class="stg-character" data-who="narrator">
+          <div class="cue">on</div>
+          <div class="head"></div>
+          <div class="body"></div>
+          <div class="name">Narrator</div>
+          <div class="role">opens, sets the frame</div>
+        </div>
+        <div class="stg-character active" data-who="operator">
+          <div class="cue">speaking</div>
+          <div class="head"></div>
+          <div class="body"></div>
+          <div class="name">Operator</div>
+          <div class="role">carries the trace</div>
+        </div>
+        <div class="stg-character" data-who="guest">
+          <div class="cue">listening</div>
+          <div class="head"></div>
+          <div class="body"></div>
+          <div class="name">Guest</div>
+          <div class="role">on speakerphone</div>
+        </div>
+      </div>
+
+      <div class="stg-script">
+        <div class="line">
+          <span class="who">Narrator</span>
+          We pulled 1,204 events from the last hour. Two crossed the threshold.
+        </div>
+        <span class="stagedir">(Operator pulls up the trace, leans in.)</span>
+        <div class="line now">
+          <span class="who">Operator</span>
+          The TLS flap I'd dismiss for now — thirty-second windows, no payload loss. The 401 cluster I want to open. Three matches in eighteen minutes, all the same SDK build.
+        </div>
+        <div class="line">
+          <span class="who">Guest</span>
+          <em>(over speaker)</em> That SDK shipped Tuesday. We pinned the auth-token refresh at the wrong spot.
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; margin-top: 14px; padding-top:10px; border-top:1px dashed var(--hairline);">
+          <span class="pill accent"><span class="dot"></span>operator</span>
+          <div class="stg-meter" style="flex:1;">
+            <span style="font-family:var(--font-mono); font-size:10px; color:var(--ink-3); letter-spacing:.06em;">LEVEL</span>
+            <div class="bar" style="--lvl:62%;"></div>
+            <span style="font-family:var(--font-mono); font-size:10px; color:var(--ink-2);">−12 dB</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT — Cue sheet -->
+    <div class="stg-col">
+      <div class="panel stg-cues">
+        <span class="label">Cues <span class="counter">5</span></span>
+        <ol>
+          <li><div class="what">Narrator opens<small>scene set, frame</small></div><div class="at">00:00</div></li>
+          <li><div class="what">Operator on<small>spotlight cross to operator</small></div><div class="at">00:14</div></li>
+          <li><div class="what">Trace embed<small>auth-gateway · 18m</small></div><div class="at">00:42</div></li>
+          <li><div class="what">Guest on speaker<small>cross-fade in</small></div><div class="at">01:08</div></li>
+          <li><div class="what">Curtain<small>save and dismiss</small></div><div class="at">01:55</div></li>
+        </ol>
+      </div>
+      <div class="panel inset">
+        <span class="label">Recording</span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="pill err"><span class="dot"></span>REC</span>
+          <span style="font-family:var(--font-mono); font-size:11px; color:var(--ink-2);" id="stgClock">00:01:34</span>
+          <button class="btn sm ghost" style="margin-left:auto;">stop</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     ITER 4 — TAPE (DAW timeline)
+     ===================================================== -->
+<section class="iter" data-iter="4">
+  <div class="iter-head">
+    <span class="num">04 · Tape</span>
+    <h1>multitrack timeline for spoken sessions</h1>
+    <p class="pitch">When a conversation becomes material — for an episode, a clip, a transcript — Tape lays it out as a DAW. Each <em>voice</em> is a track; each <em>turn</em> is a clip with a waveform; the playhead scrubs through the conversation.</p>
+    <div class="tags">
+      <span>tracks</span><span>clips</span><span>waveform</span>
+    </div>
+  </div>
+
+  <div class="tp-grid">
+    <!-- LEFT — Bin / takes -->
+    <div class="tp-col">
+      <div class="panel">
+        <span class="label">Project</span>
+        <p style="font-size:13px; color:var(--ink); margin: 0; font-weight:500;">post-incident-2025-04.tape</p>
+        <p style="font-size:11px; color:var(--ink-3); margin: 4px 0 0;">3 tracks · 04:48 · 48 kHz</p>
+      </div>
+      <div class="panel">
+        <span class="label">Bin <span class="counter">7</span></span>
+        <div class="tp-take">
+          <span class="who">N</span>
+          <span class="text">"We pulled 1,204 events…"</span>
+          <span class="mark">14s</span>
+        </div>
+        <div class="tp-take">
+          <span class="who">O</span>
+          <span class="text">"The TLS flap I'd dismiss…"</span>
+          <span class="mark">28s</span>
+        </div>
+        <div class="tp-take">
+          <span class="who">O</span>
+          <span class="text">"Three matches in 18 minutes…"</span>
+          <span class="mark">21s</span>
+        </div>
+        <div class="tp-take">
+          <span class="who">G</span>
+          <span class="text">"That SDK shipped Tuesday."</span>
+          <span class="mark">06s</span>
+        </div>
+        <div class="tp-take">
+          <span class="who">G</span>
+          <span class="text">"We pinned the refresh at the wrong spot."</span>
+          <span class="mark">09s</span>
+        </div>
+      </div>
+      <div class="panel inset">
+        <span class="label">Export</span>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <button class="btn sm">Bounce mix → opus</button>
+          <button class="btn sm ghost">Export transcript</button>
+          <button class="btn sm ghost">Send to Newsroom</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT — DAW -->
+    <div>
+      <div class="tp-deck">
+        <div class="tp-toolbar">
+          <button class="btn sm primary" id="tpPlay">▶ Play <kbd>Space</kbd></button>
+          <button class="btn sm ghost">⏮</button>
+          <button class="btn sm ghost">⏭</button>
+          <button class="btn sm ghost">● Rec</button>
+          <button class="btn sm ghost">⌖ Mark</button>
+          <span class="clock" id="tpClock">00:01:24:08</span>
+        </div>
+
+        <div class="tp-ruler">
+          <span style="left:0%;">00:00</span>
+          <span style="left:10%;">00:30</span>
+          <span style="left:20%;">01:00</span>
+          <span style="left:30%;">01:30</span>
+          <span style="left:40%;">02:00</span>
+          <span style="left:50%;">02:30</span>
+          <span style="left:60%;">03:00</span>
+          <span style="left:70%;">03:30</span>
+          <span style="left:80%;">04:00</span>
+          <span style="left:90%;">04:30</span>
+        </div>
+
+        <div class="tp-tracks">
+          <div class="tp-track">
+            <div class="tp-track__head">
+              <span class="name">Narrator</span>
+              <span class="who">tk · 01</span>
+              <span class="ctl"><b data-key="M">M</b><b data-key="S" class="on">S</b><b data-key="R">R</b></span>
+            </div>
+            <div class="tp-track__lane">
+              <div class="tp-clip" style="left:0%; width:8%;">
+                <span class="tp-clip__name">opens</span>
+                <div class="tp-clip__wave">
+                  <i style="height: 30%"></i><i style="height: 60%"></i><i style="height: 80%"></i><i style="height: 50%"></i><i style="height: 70%"></i>
+                  <i style="height: 90%"></i><i style="height: 60%"></i><i style="height: 40%"></i><i style="height: 70%"></i><i style="height: 80%"></i>
+                  <i style="height: 50%"></i><i style="height: 30%"></i><i style="height: 50%"></i><i style="height: 70%"></i><i style="height: 60%"></i>
+                </div>
+              </div>
+              <div class="tp-clip" style="left:74%; width:5%;">
+                <span class="tp-clip__name">curtain</span>
+                <div class="tp-clip__wave">
+                  <i style="height: 40%"></i><i style="height: 70%"></i><i style="height: 50%"></i><i style="height: 80%"></i><i style="height: 60%"></i>
+                  <i style="height: 90%"></i><i style="height: 30%"></i><i style="height: 50%"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tp-track">
+            <div class="tp-track__head">
+              <span class="name">Operator</span>
+              <span class="who">tk · 02</span>
+              <span class="ctl"><b data-key="M">M</b><b data-key="S">S</b><b data-key="R">R</b></span>
+            </div>
+            <div class="tp-track__lane">
+              <div class="tp-clip" style="left:8%; width:18%;">
+                <span class="tp-clip__name">tls flap dismiss</span>
+                <div class="tp-clip__wave">
+                  <i style="height: 40%"></i><i style="height: 70%"></i><i style="height: 90%"></i><i style="height: 60%"></i><i style="height: 80%"></i>
+                  <i style="height: 50%"></i><i style="height: 70%"></i><i style="height: 90%"></i><i style="height: 60%"></i><i style="height: 50%"></i>
+                  <i style="height: 80%"></i><i style="height: 70%"></i><i style="height: 50%"></i><i style="height: 60%"></i><i style="height: 80%"></i>
+                  <i style="height: 90%"></i><i style="height: 70%"></i><i style="height: 60%"></i><i style="height: 50%"></i><i style="height: 80%"></i>
+                  <i style="height: 70%"></i><i style="height: 60%"></i><i style="height: 90%"></i><i style="height: 50%"></i><i style="height: 70%"></i>
+                </div>
+              </div>
+              <div class="tp-clip" style="left:30%; width:14%;">
+                <span class="tp-clip__name">401 cluster</span>
+                <div class="tp-clip__wave">
+                  <i style="height: 60%"></i><i style="height: 80%"></i><i style="height: 90%"></i><i style="height: 70%"></i><i style="height: 60%"></i>
+                  <i style="height: 80%"></i><i style="height: 90%"></i><i style="height: 70%"></i><i style="height: 50%"></i><i style="height: 80%"></i>
+                  <i style="height: 90%"></i><i style="height: 70%"></i><i style="height: 60%"></i><i style="height: 80%"></i><i style="height: 90%"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tp-track">
+            <div class="tp-track__head">
+              <span class="name">Guest</span>
+              <span class="who">tk · 03</span>
+              <span class="ctl"><b data-key="M">M</b><b data-key="S">S</b><b data-key="R">R</b></span>
+            </div>
+            <div class="tp-track__lane">
+              <div class="tp-clip" style="left:46%; width:6%;">
+                <span class="tp-clip__name">SDK tuesday</span>
+                <div class="tp-clip__wave">
+                  <i style="height: 40%"></i><i style="height: 70%"></i><i style="height: 80%"></i><i style="height: 60%"></i><i style="height: 90%"></i>
+                  <i style="height: 70%"></i><i style="height: 50%"></i><i style="height: 80%"></i>
+                </div>
+              </div>
+              <div class="tp-clip" style="left:54%; width:9%;">
+                <span class="tp-clip__name">refresh wrong spot</span>
+                <div class="tp-clip__wave">
+                  <i style="height: 50%"></i><i style="height: 70%"></i><i style="height: 90%"></i><i style="height: 60%"></i><i style="height: 80%"></i>
+                  <i style="height: 90%"></i><i style="height: 60%"></i><i style="height: 50%"></i><i style="height: 80%"></i><i style="height: 70%"></i>
+                  <i style="height: 60%"></i><i style="height: 90%"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tp-playhead" id="tpPlayhead" style="left: calc(28% + 118px);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     ITER 5 — FORUM (multi-agent parallel)
+     ===================================================== -->
+<section class="iter" data-iter="5">
+  <div class="iter-head">
+    <span class="num">05 · Forum</span>
+    <h1>parallel voices, one room</h1>
+    <p class="pitch">A column-per-agent layout. Each agent has its own thread, its own state — listening, thinking, replying. Quotes between columns are visible. <em>You</em> can speak into any one of them, and the deck routes by name (or by the open mic).</p>
+    <div class="tags">
+      <span>multi-agent</span><span>columns</span><span>cross-quote</span>
+    </div>
+  </div>
+
+  <div class="fr-grid">
+    <!-- AGENT 1 -->
+    <div class="fr-col">
+      <div class="fr-col__head">
+        <div class="fr-col__avatar">A</div>
+        <div>
+          <div class="fr-col__name">Archivist</div>
+          <div class="fr-col__role">read-only · history</div>
+        </div>
+        <span class="fr-col__state idle">idle</span>
+      </div>
+      <div class="fr-thread">
+        <div class="fr-msg">
+          <span class="who">archivist</span>
+          Last incident with this signature: <b>2025-02-11</b>, same SDK family. Resolved by pinning the refresh boundary one layer up.
+        </div>
+        <div class="fr-msg">
+          <span class="who">you</span>
+          Pull the postmortem.
+        </div>
+        <div class="fr-msg self">
+          <span class="who accent">archivist</span>
+          Postmortem fetched. 3 sections, 1,200 words. Linked above.
+          <span class="when">21:14</span>
+        </div>
+      </div>
+      <div class="fr-input">
+        <span class="mic">A</span>
+        <span>route to archivist…</span>
+      </div>
+    </div>
+
+    <!-- AGENT 2 -->
+    <div class="fr-col">
+      <div class="fr-col__head">
+        <div class="fr-col__avatar" style="background: radial-gradient(circle at 30% 30%, #7AB87A, #4A6B4A);">O</div>
+        <div>
+          <div class="fr-col__name">Operator</div>
+          <div class="fr-col__role">live · gateway shell</div>
+        </div>
+        <span class="fr-col__state live">live</span>
+      </div>
+      <div class="fr-thread">
+        <div class="fr-msg self">
+          <span class="who accent">operator</span>
+          Three 401 matches in 18 min. All client SDK <span style="font-family:var(--font-mono);">v3.4.1</span>. Same auth path.
+        </div>
+        <div class="fr-msg">
+          <span class="who">you</span>
+          Trace one.
+        </div>
+        <div class="fr-msg self">
+          <span class="who accent">operator</span>
+          Trace open. 12 spans.
+          <div class="quote">From Archivist: "pinning the refresh boundary one layer up" — applies here.</div>
+          Want me to draft the patch?
+          <span class="when">21:18</span>
+        </div>
+      </div>
+      <div class="fr-input">
+        <span class="mic">O</span>
+        <span>route to operator…</span>
+      </div>
+    </div>
+
+    <!-- AGENT 3 -->
+    <div class="fr-col">
+      <div class="fr-col__head">
+        <div class="fr-col__avatar" style="background: radial-gradient(circle at 30% 30%, #9FA7E6, #6E78C6);">S</div>
+        <div>
+          <div class="fr-col__name">Scribe</div>
+          <div class="fr-col__role">writes notes · dispatch</div>
+        </div>
+        <span class="fr-col__state thinking">thinking</span>
+      </div>
+      <div class="fr-thread">
+        <div class="fr-msg">
+          <span class="who">scribe</span>
+          Drafting incident note from Operator's trace…
+        </div>
+        <div class="fr-msg self">
+          <span class="who accent">scribe</span>
+          Title: <b>"401 cluster on auth-gateway, SDK v3.4.1"</b><br>
+          Lede: 18-minute window, three matches, no retries from client.
+          <div class="quote">Quoting Operator: "pinning the refresh at the wrong spot."</div>
+          Ready to save to /notes when you're ready.
+          <span class="when">21:18</span>
+        </div>
+      </div>
+      <div class="fr-input">
+        <span class="mic">S</span>
+        <span>route to scribe…</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================
+     TWEAKS PANEL
+     ===================================================== -->
+<button class="tweaks-toggle" id="tweakBtn" title="Tweaks (`)">⚙</button>
+<aside class="tweaks" id="tweaksPanel" aria-hidden="true">
+  <button class="close" id="tweakClose">×</button>
+
+  <h4>Modality</h4>
+  <div class="row" id="tweakModality">
+    <button class="seg on" data-iter="1">1 · Conductor</button>
+    <button class="seg" data-iter="2">2 · Newsroom</button>
+    <button class="seg" data-iter="3">3 · Stage</button>
+    <button class="seg" data-iter="4">4 · Tape</button>
+    <button class="seg" data-iter="5">5 · Forum</button>
+  </div>
+
+  <h4>Body font</h4>
+  <div class="row" id="tweakFont">
+    <button class="seg on" data-font="sans">Inter</button>
+    <button class="seg" data-font="tight">Inter Tight</button>
+    <button class="seg" data-font="humane">Instrument</button>
+    <button class="seg" data-font="serif">Newsreader</button>
+    <button class="seg" data-font="modern">Fraunces</button>
+    <button class="seg" data-font="classic">Crimson</button>
+    <button class="seg" data-font="mono">JetBrains</button>
+  </div>
+  <div class="preview">
+    <span class="h">Two errors broke a thousand events</span>
+    <span class="b">A late-evening sweep through the gateway logs surfaced a transient handshake fault and a previously unseen sequence of 401s.</span>
+    <span class="m">21:18 LOCAL · NEWSROOM · DRAFT</span>
+    <span class="s">— that's the tell</span>
+  </div>
+
+  <h4>Theme</h4>
+  <div class="row" id="tweakTheme">
+    <button class="seg on" data-theme="dark">Dark</button>
+    <button class="seg" data-theme="light">Light</button>
+  </div>
+
+  <h4>Accent</h4>
+  <div class="swatches" id="tweakAccent">
+    <button class="on" data-accent="amber"    style="background:#D4A574;" title="Amber"></button>
+    <button data-accent="graphite" style="background:#7C8FA3;" title="Graphite"></button>
+    <button data-accent="sage"     style="background:#8AA98A;" title="Sage"></button>
+    <button data-accent="rose"     style="background:#D58B8B;" title="Rose"></button>
+    <button data-accent="ultra"    style="background:#9FA7E6;" title="Ultra"></button>
+  </div>
+
+  <h4>Conductor — orb state</h4>
+  <div class="row" id="tweakOrb">
+    <button class="seg" data-orb="idle">idle</button>
+    <button class="seg" data-orb="listening">listening</button>
+    <button class="seg" data-orb="thinking">thinking</button>
+    <button class="seg on" data-orb="speaking">speaking</button>
+    <button class="seg" data-orb="error">error</button>
+  </div>
+
+  <h4>Newsroom — byline</h4>
+  <div class="row" id="tweakTone">
+    <button class="seg on" data-tone="reporter">reporter</button>
+    <button class="seg" data-tone="essay">essay</button>
+    <button class="seg" data-tone="tech">tech</button>
+    <button class="seg" data-tone="casual">casual</button>
+  </div>
+
+  <div class="legend">
+    <kbd>1</kbd>–<kbd>5</kbd> switch modality &nbsp;
+    <kbd>←</kbd>/<kbd>→</kbd> nav &nbsp;
+    <kbd>F</kbd> cycle font &nbsp;
+    <kbd>T</kbd> theme &nbsp;
+    <kbd>`</kbd> tweaks &nbsp;
+    <kbd>O</kbd> orb state
+  </div>
+</aside>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const body = document.body;
+
+  // ---- Modality switching --------------------------------
+  const tabs = [...document.querySelectorAll('#modalityTabs .tab')];
+  const segs = [...document.querySelectorAll('#tweakModality .seg')];
+  const iters = [...document.querySelectorAll('section.iter')];
+
+  function showIter(n){
+    tabs.forEach(t => t.classList.toggle('active', +t.dataset.iter === n));
+    segs.forEach(s => s.classList.toggle('on',     +s.dataset.iter === n));
+    iters.forEach(i => i.classList.toggle('active', +i.dataset.iter === n));
+  }
+  tabs.forEach(t => t.addEventListener('click', () => showIter(+t.dataset.iter)));
+  segs.forEach(s => s.addEventListener('click', () => showIter(+s.dataset.iter)));
+
+  // ---- Font swap -----------------------------------------
+  const fontSegs = [...document.querySelectorAll('#tweakFont .seg')];
+  const fontOrder = fontSegs.map(s => s.dataset.font);
+  function setFont(name){
+    body.dataset.font = name;
+    fontSegs.forEach(s => s.classList.toggle('on', s.dataset.font === name));
+  }
+  fontSegs.forEach(s => s.addEventListener('click', () => setFont(s.dataset.font)));
+
+  // ---- Theme ---------------------------------------------
+  const themeSegs = [...document.querySelectorAll('#tweakTheme .seg')];
+  function setTheme(name){
+    body.dataset.theme = name;
+    themeSegs.forEach(s => s.classList.toggle('on', s.dataset.theme === name));
+  }
+  themeSegs.forEach(s => s.addEventListener('click', () => setTheme(s.dataset.theme)));
+  document.getElementById('themeToggle').addEventListener('click', () =>
+    setTheme(body.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+  // ---- Accent --------------------------------------------
+  const accentBtns = [...document.querySelectorAll('#tweakAccent button')];
+  function setAccent(name){
+    body.dataset.accent = name;
+    accentBtns.forEach(b => b.classList.toggle('on', b.dataset.accent === name));
+  }
+  accentBtns.forEach(b => b.addEventListener('click', () => setAccent(b.dataset.accent)));
+
+  // ---- Conductor orb state -------------------------------
+  const orbBtns = [...document.querySelectorAll('#tweakOrb .seg')];
+  const cdtOrb = document.getElementById('cdtOrb');
+  const captions = {
+    idle:      'Standing by.',
+    listening: 'Listening — you have the floor.',
+    thinking:  'Working through it…',
+    speaking:  'Pulled three matches in the last eighteen minutes — all from the auth gateway.',
+    error:     'Something broke. The session is held; transcript saved.',
+  };
+  function setOrbState(state){
+    cdtOrb.dataset.state = state;
+    orbBtns.forEach(b => b.classList.toggle('on', b.dataset.orb === state));
+    document.getElementById('cdtCaption').textContent = captions[state] || '';
+  }
+  orbBtns.forEach(b => b.addEventListener('click', () => setOrbState(b.dataset.orb)));
+
+  // ---- Newsroom byline -----------------------------------
+  const toneBtns = [...document.querySelectorAll('#tweakTone .seg')];
+  const bylineBtns = [...document.querySelectorAll('#bylinePicker .nr-byline__opt')];
+  const nrDoc = document.getElementById('nrDoc');
+  const nrToneLabel = document.getElementById('nrToneLabel');
+  function setTone(tone){
+    nrDoc.dataset.tone = tone;
+    nrToneLabel.textContent = tone;
+    toneBtns.forEach(b => b.classList.toggle('on', b.dataset.tone === tone));
+    bylineBtns.forEach(b => b.setAttribute('aria-pressed', b.dataset.tone === tone ? 'true' : 'false'));
+  }
+  toneBtns.forEach(b => b.addEventListener('click', () => setTone(b.dataset.tone)));
+  bylineBtns.forEach(b => b.addEventListener('click', () => setTone(b.dataset.tone)));
+
+  // ---- Newsroom mic toggle (orb pulse demo) --------------
+  const nrOrb = document.getElementById('nrOrb');
+  let nrSpeaking = false;
+  nrOrb && nrOrb.addEventListener('click', () => {
+    nrSpeaking = !nrSpeaking;
+    nrOrb.style.boxShadow = nrSpeaking
+      ? '0 0 60px color-mix(in oklab, var(--accent) 60%, transparent), inset 0 0 30px rgba(0,0,0,.4)'
+      : '0 0 40px color-mix(in oklab, var(--accent) 30%, transparent), inset 0 0 30px rgba(0,0,0,.4)';
+  });
+
+  // ---- Tape transport ------------------------------------
+  const tpPlayBtn = document.getElementById('tpPlay');
+  const tpPlayhead = document.getElementById('tpPlayhead');
+  let tpPlaying = false; let tpPos = 28; let tpRaf = null;
+  function tpTick(){
+    tpPos = (tpPos + 0.06) % 100;
+    tpPlayhead.style.left = `calc(${tpPos}% + 118px)`;
+    const total = 4 * 60 + 48;
+    const sec = Math.floor(total * (tpPos / 100));
+    const m = String(Math.floor(sec / 60)).padStart(2,'0');
+    const s = String(sec % 60).padStart(2,'0');
+    document.getElementById('tpClock').textContent = `00:${m}:${s}:00`;
+    tpRaf = requestAnimationFrame(tpTick);
+  }
+  tpPlayBtn && tpPlayBtn.addEventListener('click', () => {
+    tpPlaying = !tpPlaying;
+    tpPlayBtn.textContent = tpPlaying ? '⏸ Pause' : '▶ Play';
+    if (tpPlaying){ tpRaf = requestAnimationFrame(tpTick); }
+    else { cancelAnimationFrame(tpRaf); }
+  });
+
+  // ---- Stage cast switching ------------------------------
+  const stgCast = document.getElementById('stgCast');
+  if (stgCast){
+    stgCast.addEventListener('click', (e) => {
+      const c = e.target.closest('.stg-character');
+      if (!c) return;
+      [...stgCast.querySelectorAll('.stg-character')].forEach(x => x.classList.toggle('active', x === c));
+      const order = ['narrator','operator','guest'];
+      const idx = order.indexOf(c.dataset.who);
+      const xPct = 25 + idx * 25;
+      document.getElementById('stgSpot').style.left = `${xPct}%`;
+      document.getElementById('stgSpot').style.transform = 'translateX(-50%)';
+    });
+  }
+
+  // ---- Tweaks open/close ---------------------------------
+  const tweaks = document.getElementById('tweaksPanel');
+  const tweakBtn = document.getElementById('tweakBtn');
+  const tweakOpen = document.getElementById('tweakOpen');
+  const tweakClose = document.getElementById('tweakClose');
+  function openTweaks(){ tweaks.classList.add('open'); tweaks.setAttribute('aria-hidden','false'); }
+  function closeTweaks(){ tweaks.classList.remove('open'); tweaks.setAttribute('aria-hidden','true'); }
+  function toggleTweaks(){ tweaks.classList.contains('open') ? closeTweaks() : openTweaks(); }
+  tweakBtn.addEventListener('click', toggleTweaks);
+  tweakOpen.addEventListener('click', toggleTweaks);
+  tweakClose.addEventListener('click', closeTweaks);
+
+  // ---- Tape mute/solo/rec --------------------------------
+  document.querySelectorAll('.tp-track__head .ctl b').forEach(b =>
+    b.addEventListener('click', () => b.classList.toggle('on')));
+
+  // ---- Mini clock ----------------------------------------
+  const startedAt = Date.now();
+  const clockMini = document.getElementById('clockMini');
+  setInterval(() => {
+    const sec = Math.floor((Date.now() - startedAt) / 1000);
+    const m = String(Math.floor(sec / 60)).padStart(2,'0');
+    const s = String(sec % 60).padStart(2,'0');
+    clockMini.textContent = `${m}:${s}`;
+  }, 1000);
+
+  // ---- Keyboard ------------------------------------------
+  window.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key >= '1' && e.key <= '5'){
+      showIter(+e.key);
+    } else if (e.key === 'ArrowRight'){
+      const cur = +document.querySelector('.tab.active').dataset.iter;
+      showIter(Math.min(5, cur + 1));
+    } else if (e.key === 'ArrowLeft'){
+      const cur = +document.querySelector('.tab.active').dataset.iter;
+      showIter(Math.max(1, cur - 1));
+    } else if (e.key.toLowerCase() === 'f'){
+      const cur = body.dataset.font || 'sans';
+      const next = fontOrder[(fontOrder.indexOf(cur) + 1) % fontOrder.length];
+      setFont(next);
+    } else if (e.key.toLowerCase() === 't'){
+      setTheme(body.dataset.theme === 'dark' ? 'light' : 'dark');
+    } else if (e.key === '`'){
+      toggleTweaks();
+    } else if (e.key.toLowerCase() === 'o'){
+      const order = ['idle','listening','thinking','speaking','error'];
+      const cur = cdtOrb.dataset.state || 'idle';
+      const next = order[(order.indexOf(cur) + 1) % order.length];
+      setOrbState(next);
+    }
+  });
+})();
+</script>
+</body>
+</html>

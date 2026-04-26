@@ -22,7 +22,10 @@ export function createDeckMcpServer(
       version: opts.version ?? "0.1.0",
     },
     {
-      capabilities: { tools: {} },
+      capabilities: {
+        tools: {},
+        // Future: sampling, prompts, resources as MCP SDK supports them
+      },
     },
   );
 

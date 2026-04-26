@@ -9,30 +9,30 @@
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createDeckMcpServer } from "@/lib/mcp/server";
+import { generateId } from "@/lib/agui/events";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Module-scoped so the MCP server/transport survive across requests in a
-// single Next.js worker. Stateless transport (no sessionIdGenerator) keeps
-// each client's requests independent — simpler than managing session TTLs.
-let transportPromise: Promise<WebStandardStreamableHTTPServerTransport> | null = null;
+// Per-request transport to avoid Next.js hot-reload gotcha where module
+// reloads orphan old connections. Each request gets its own transport + server
+// instance — simpler and safer than module-scoped singletons in Next.js.
+// Session IDs are derived from the MCP transport's session header per the spec.
+function getTransport(req: Request): WebStandardStreamableHTTPServerTransport {
+  // Extract session ID from MCP transport header (if client supports it)
+  // This allows clients to correlate requests across a session
+  const sessionId = req.headers.get("mcp-session-id") ?? generateId();
 
-function getTransport(): Promise<WebStandardStreamableHTTPServerTransport> {
-  if (transportPromise) return transportPromise;
-  transportPromise = (async () => {
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-    const server = createDeckMcpServer();
-    await server.connect(transport);
-    return transport;
-  })();
-  return transportPromise;
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => sessionId,
+  });
+  const server = createDeckMcpServer();
+  void server.connect(transport); // Fire-and-forget, server lives for request duration
+  return transport;
 }
 
 async function handle(req: Request): Promise<Response> {
-  const transport = await getTransport();
+  const transport = getTransport(req);
   return transport.handleRequest(req);
 }
 

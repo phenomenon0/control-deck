@@ -7,7 +7,8 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { ZodObject, ZodRawShape } from "zod";
+import { ZodObject } from "zod";
+import type { ZodRawShape } from "zod";
 import { BRIDGE_TOOLS } from "@/lib/tools/bridgeDispatch";
 import {
   TOOL_DEFINITIONS,
@@ -35,8 +36,9 @@ export function registerBridgeTools(
     // The MCP SDK's registerTool takes a ZodRawShape (the inside of z.object)
     // OR a full schema. Our TOOL_SCHEMAS entries are ZodObjects — expose their
     // .shape so the SDK can introspect individual fields for the client.
+    // Use instanceof check to properly detect Zod schema types.
     const rawShape: ZodRawShape | undefined =
-      zodSchema && typeof (zodSchema as ZodObject<ZodRawShape>).shape === "object"
+      zodSchema && zodSchema instanceof ZodObject
         ? (zodSchema as ZodObject<ZodRawShape>).shape
         : undefined;
 

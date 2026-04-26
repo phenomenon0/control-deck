@@ -122,10 +122,11 @@ ENGINES: dict[str, EngineSpec] = {
     "kokoro-82m": EngineSpec(
         id="kokoro-82m",
         kind="tts",
-        # The original `hexgrad/Kokoro-82M` repo only ships PyTorch weights;
-        # `kokoro_onnx.Kokoro(model_path, voices_path)` needs the ONNX runtime
-        # build that the onnx-community fork mirrors.
-        hf_repo="onnx-community/Kokoro-82M-v1.0-ONNX",
+        # kokoro_onnx expects two specific files (kokoro-v1.0.onnx +
+        # voices-v1.0.bin) published on the thewh1teagle/kokoro-onnx GitHub
+        # release. Neither HF mirror exposes them in the same shape, so we
+        # bypass HF and fetch direct release assets — see _ensure_kokoro_files.
+        hf_repo=None,
         optional_imports=("kokoro_onnx",),
         label="Kokoro 82M",
     ),
@@ -191,6 +192,23 @@ class EngineRuntime:
 
 def _pull_stream(spec: EngineSpec, model_root: Path) -> Iterator[bytes]:
     yield (json.dumps({"status": "pulling manifest", "model": spec.id}) + "\n").encode()
+    # Kokoro fetches direct GitHub release assets, not an HF repo.
+    if spec.id == "kokoro-82m":
+        target = model_root / spec.id
+        try:
+            for name in _KOKORO_FILES:
+                yield (json.dumps({"status": "downloading", "digest": name, "completed": 0}) + "\n").encode()
+            _ensure_kokoro_files(target)
+            for p in (target / n for n in _KOKORO_FILES):
+                size = p.stat().st_size if p.exists() else 0
+                yield (
+                    json.dumps({"status": "downloading", "digest": p.name, "total": size, "completed": size})
+                    + "\n"
+                ).encode()
+            yield (json.dumps({"status": "success", "model": spec.id}) + "\n").encode()
+        except Exception as e:  # noqa: BLE001
+            yield (json.dumps({"error": f"kokoro fetch failed: {e}"}) + "\n").encode()
+        return
     if spec.hf_repo is None:
         yield (json.dumps({"status": "success", "model": spec.id}) + "\n").encode()
         return
@@ -273,14 +291,31 @@ def _pull_stream(spec: EngineSpec, model_root: Path) -> Iterator[bytes]:
 # ---------------------------------------------------------------------------
 # Engine implementations — kept as small focused functions, lazy-loaded.
 
+_KOKORO_RELEASE_BASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+_KOKORO_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
+
+
+def _ensure_kokoro_files(target: Path) -> tuple[Path, Path]:
+    """Make sure the two kokoro release assets live in `target`. Pull via
+    urllib if missing — the lib's __init__ does `np.load(voices_path)` so
+    the file format and name matter."""
+    import urllib.request
+    target.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for name in _KOKORO_FILES:
+        dest = target / name
+        if not dest.exists() or dest.stat().st_size == 0:
+            url = f"{_KOKORO_RELEASE_BASE}/{name}"
+            LOG.info("kokoro: downloading %s -> %s", url, dest)
+            urllib.request.urlretrieve(url, dest)  # noqa: S310 (controlled URL)
+        paths.append(dest)
+    return paths[0], paths[1]
+
+
 def _load_kokoro(spec: EngineSpec, runtime: EngineRuntime) -> Any:
     import kokoro_onnx  # type: ignore
     target = runtime.model_root / spec.id
-    # kokoro_onnx exposes `Kokoro(model_path, voices_path)`.
-    model_path = next(target.rglob("kokoro-v*.onnx"), None) or next(target.rglob("*.onnx"), None)
-    voices_path = next(target.rglob("voices*.json"), None) or next(target.rglob("*.bin"), None)
-    if model_path is None or voices_path is None:
-        raise RuntimeError(f"kokoro: model files missing under {target}")
+    model_path, voices_path = _ensure_kokoro_files(target)
     return kokoro_onnx.Kokoro(str(model_path), str(voices_path))
 
 

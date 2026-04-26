@@ -33,10 +33,21 @@ const SEEDS: ProviderSeed[] = [
   {
     id: "voice-api",
     name: "Voice API (local sidecar)",
-    description: "Whisper (or equivalent) via the VOICE_API_URL process",
+    description:
+      "Local STT sidecars. Legacy ids (whisper-tiny / large-v3-turbo / large-v3) " +
+      "route to VOICE_API_URL (port 8000). Tiered ids (whisper-large-v3-turbo-cpp / " +
+      "parakeet-tdt-0.6b-v2 / moonshine-tiny) route to the in-repo voice-engines " +
+      "sidecar (port 9101).",
     requiresApiKey: false,
     defaultBaseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
-    defaultModels: [],
+    defaultModels: [
+      "whisper-large-v3-turbo-cpp",
+      "parakeet-tdt-0.6b-v2",
+      "moonshine-tiny",
+      "large-v3-turbo",
+      "whisper-tiny",
+      "large-v3",
+    ],
   },
   {
     id: "openai",

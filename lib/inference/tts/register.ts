@@ -28,12 +28,15 @@ const PROVIDERS: InferenceProvider[] = [
   {
     id: "voice-api",
     name: "Voice API (local sidecar)",
-    description: "Piper / xtts / chatterbox via the VOICE_API_URL process",
+    description:
+      "Local TTS sidecars. Legacy engines (piper/xtts/chatterbox) route to " +
+      "VOICE_API_URL (port 8000). Tiered engines (kokoro-82m, orpheus-3b) " +
+      "route to the in-repo voice-engines sidecar (port 9101).",
     modalities: ["tts", "stt"],
     requiresApiKey: false,
     defaultBaseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
     defaultModels: {
-      tts: ["piper", "xtts", "chatterbox"],
+      tts: ["kokoro-82m", "orpheus-3b", "piper", "xtts", "chatterbox"],
     },
     listModels: async (_m, config) => {
       const voices = await listTtsVoices("voice-api", config);

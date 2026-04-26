@@ -19,6 +19,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { bindSlot, clearSlot } from "./runtime";
+import type { TierId } from "./hardware-tiers";
 import type { Modality, SlotBinding } from "./types";
 
 const FILENAME = "inference-bindings.json";
@@ -30,13 +31,22 @@ function resolvePath(): string {
   return path.join(base, FILENAME);
 }
 
+/**
+ * v1: only `bindings`. v2 adds `selectedTier` so the Hardware pane can show
+ * which tier the user picked. Reads of v1 are forward-compatible (selectedTier
+ * is undefined and the UI shows nothing pinned).
+ */
 interface PersistedBindings {
-  version: 1;
+  version: 1 | 2;
   bindings: Record<string, SlotBinding>; // key: `${modality}::${slotName}`
+  /** Tier the user installed via the TierPicker. Undefined when never set. */
+  selectedTier?: TierId;
+  /** Whether the omni lane was opted-in for the selected tier. */
+  selectedTierOmni?: boolean;
 }
 
 function emptyStore(): PersistedBindings {
-  return { version: 1, bindings: {} };
+  return { version: 2, bindings: {} };
 }
 
 function keyFor(modality: Modality, slotName: string): string {
@@ -49,8 +59,17 @@ export function readPersistedBindings(): PersistedBindings {
     if (!fs.existsSync(p)) return emptyStore();
     const raw = fs.readFileSync(p, "utf8");
     const parsed = JSON.parse(raw) as Partial<PersistedBindings>;
-    if (parsed?.version === 1 && parsed.bindings && typeof parsed.bindings === "object") {
-      return { version: 1, bindings: parsed.bindings };
+    if (
+      (parsed?.version === 1 || parsed?.version === 2) &&
+      parsed.bindings &&
+      typeof parsed.bindings === "object"
+    ) {
+      return {
+        version: parsed.version,
+        bindings: parsed.bindings,
+        selectedTier: parsed.selectedTier,
+        selectedTierOmni: parsed.selectedTierOmni,
+      };
     }
     return emptyStore();
   } catch (err) {
@@ -100,4 +119,43 @@ export function deletePersistedBinding(modality: Modality, slotName: string): vo
 export function listPersistedBindings(): SlotBinding[] {
   const store = readPersistedBindings();
   return Object.values(store.bindings);
+}
+
+export function getSelectedTier(): { tier: TierId | undefined; omni: boolean } {
+  const store = readPersistedBindings();
+  return { tier: store.selectedTier, omni: Boolean(store.selectedTierOmni) };
+}
+
+/**
+ * Mark a tier as installed and (optionally) the omni lane as enabled.
+ * Bumps the file to v2. Writes alongside the existing slot bindings — the
+ * caller is responsible for binding the per-modality slots first via
+ * `savePersistedBinding(...)`.
+ */
+export function setSelectedTier(tier: TierId, opts: { omni?: boolean } = {}): void {
+  const store = readPersistedBindings();
+  store.version = 2;
+  store.selectedTier = tier;
+  store.selectedTierOmni = Boolean(opts.omni);
+  const p = resolvePath();
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(store, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error("[inference] failed to write selected tier:", err);
+    throw err;
+  }
+}
+
+export function clearSelectedTier(): void {
+  const store = readPersistedBindings();
+  delete store.selectedTier;
+  delete store.selectedTierOmni;
+  const p = resolvePath();
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(store, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error("[inference] failed to clear selected tier:", err);
+  }
 }

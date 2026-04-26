@@ -7960,6 +7960,181 @@ textarea.input:focus {
   transition: width 240ms ease;
 }
 
+/* ----- Hardware tier picker (one-click voice bundle install) ----- */
+.tier-picker {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+  padding: 12px 14px 14px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tier-picker--loading,
+.tier-picker--error { opacity: 0.7; }
+.tier-picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tier-picker-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.tier-picker-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.tier-picker-warn { color: rgb(220, 175, 70); }
+.tier-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 1100px) {
+  .tier-picker-grid { grid-template-columns: 1fr; }
+}
+.tier-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
+}
+.tier-card--recommended {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 0 14px rgba(120, 200, 255, 0.08);
+}
+.tier-card--selected { background: rgba(120, 200, 255, 0.04); }
+.tier-card--installed { border-color: rgba(80, 200, 120, 0.45); }
+.tier-card--pulling { border-color: rgba(220, 175, 70, 0.5); }
+.tier-card--error { border-color: rgba(220, 80, 80, 0.55); }
+.tier-card-head { display: flex; flex-direction: column; gap: 4px; }
+.tier-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.tier-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.tier-card-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.tier-card-badge--alt { border-color: rgba(255, 255, 255, 0.25); color: var(--text-secondary); }
+.tier-card-badge--warn { border-color: rgba(220, 175, 70, 0.6); color: rgb(220, 175, 70); }
+.tier-card-badge--ok { border-color: rgba(80, 200, 120, 0.6); color: rgb(80, 200, 120); }
+.tier-card-match {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.tier-card-lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tier-card-lane { display: flex; flex-direction: column; gap: 4px; }
+.tier-card-lane-head {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+.tier-card-lane-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+.tier-card-lane-name {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tier-card-lane-size {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tier-card-row-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+.tier-card-row-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  transition: width 200ms ease;
+}
+.tier-card-row-bar-meta {
+  position: absolute;
+  right: 6px;
+  top: -14px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tier-card-row-error {
+  font-size: 11px;
+  color: rgb(220, 80, 80);
+}
+.tier-card-omni {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tier-card-omni-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tier-card-omni-label { color: var(--text-primary); }
+.tier-card-omni-note { font-size: 11px; color: var(--text-secondary); }
+.tier-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  gap: 8px;
+}
+.tier-card-disk {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tier-card-error {
+  font-size: 11px;
+  color: rgb(220, 80, 80);
+}
+
 /* ----- Modality glance (per-modality landing strip) ----- */
 .hardware-glance {
   border: 1px solid var(--border);

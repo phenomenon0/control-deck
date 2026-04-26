@@ -14,6 +14,10 @@ import {
   QWEN_OMNI_PROVIDER_ID,
   qwenOmniSidecarUrl,
 } from "../omni/local";
+import {
+  shouldRouteToVoiceEngines,
+  voiceEnginesSidecarUrl,
+} from "../voice-engines/sidecar-url";
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -104,24 +108,42 @@ async function invokeQwenOmniSidecarTts(
   };
 }
 
-/** Wrap the existing VOICE_API_URL sidecar — preserves piper/xtts/chatterbox behaviour. */
+/**
+ * VOICE_API_URL sidecar — routes by model id.
+ *
+ * Legacy engines (`piper`, `xtts`, `chatterbox`) → port 8000 (the external
+ * voice-api). Tiered engines declared in `hardware-tiers.ts` (`kokoro-82m`,
+ * `orpheus-3b`) → the in-repo voice-engines sidecar at port 9101.
+ *
+ * The selector is `args.model ?? config.model ?? config.extras.engine` —
+ * the model field carries the engine id when the bundle binds the slot.
+ */
 async function invokeVoiceApi(
   config: InferenceProviderConfig,
   args: TtsArgs,
 ): Promise<TtsResult> {
-  const base = config.baseURL ?? VOICE_API_DEFAULT;
-  const engine = (config.extras?.engine as string | undefined) ?? "piper";
+  const explicitEngine = (config.extras?.engine as string | undefined) ?? null;
+  const requestedModel = args.model ?? config.model ?? explicitEngine ?? null;
+  const useVoiceEngines = shouldRouteToVoiceEngines(requestedModel);
+  const base = useVoiceEngines
+    ? voiceEnginesSidecarUrl()
+    : (config.baseURL ?? VOICE_API_DEFAULT);
+  const engine = useVoiceEngines ? requestedModel! : (explicitEngine ?? "piper");
   const res = await fetch(`${base}/tts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text: args.text,
       engine,
-      voice: args.voice ?? "jenny",
+      voice: args.voice ?? (useVoiceEngines ? "default" : "jenny"),
+      format: args.format ?? "wav",
+      speed: args.speed ?? 1,
     }),
   });
   if (!res.ok) {
-    throw new Error(`voice-api ${res.status}: ${await res.text()}`);
+    throw new Error(
+      `${useVoiceEngines ? "voice-engines" : "voice-api"} ${res.status}: ${await res.text()}`,
+    );
   }
   return {
     audio: await res.arrayBuffer(),

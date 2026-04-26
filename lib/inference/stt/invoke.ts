@@ -8,6 +8,10 @@
 import type { InferenceProviderConfig } from "../types";
 import type { SttArgs, SttResult, SttWord } from "./types";
 import { QWEN_OMNI_PROVIDER_ID, qwenOmniSidecarUrl } from "../omni/local";
+import {
+  shouldRouteToVoiceEngines,
+  voiceEnginesSidecarUrl,
+} from "../voice-engines/sidecar-url";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 const GROQ_BASE = "https://api.groq.com/openai/v1";
@@ -102,28 +106,52 @@ async function invokeQwenOmniSidecarStt(
   };
 }
 
-/** Existing VOICE_API_URL sidecar — preserves current behaviour. */
+/**
+ * VOICE_API_URL sidecar — routes by model id.
+ *
+ * Legacy ids (`whisper-tiny`, `large-v3-turbo`, `large-v3`) → port 8000
+ * (the external faster-whisper sidecar). Tiered ids declared in
+ * `hardware-tiers.ts` (`whisper-large-v3-turbo-cpp`, `parakeet-tdt-0.6b-v2`,
+ * `moonshine-tiny`) → the in-repo voice-engines sidecar at port 9101.
+ */
 async function invokeVoiceApi(
   config: InferenceProviderConfig,
   args: SttArgs,
 ): Promise<SttResult> {
-  const base = config.baseURL ?? VOICE_API_DEFAULT;
+  const requestedModel = args.model ?? config.model ?? null;
+  const useVoiceEngines = shouldRouteToVoiceEngines(requestedModel);
+  const base = useVoiceEngines
+    ? voiceEnginesSidecarUrl()
+    : (config.baseURL ?? VOICE_API_DEFAULT);
   const form = new FormData();
   form.append("audio", args.audio);
+  if (useVoiceEngines && requestedModel) {
+    form.append("engine", requestedModel);
+    if (args.language) form.append("language", args.language);
+  }
   const res = await fetch(`${base}/stt`, { method: "POST", body: form });
   if (!res.ok) {
-    throw new Error(`voice-api ${res.status}: ${await res.text()}`);
+    throw new Error(
+      `${useVoiceEngines ? "voice-engines" : "voice-api"} ${res.status}: ${await res.text()}`,
+    );
   }
   const data = (await res.json()) as {
     text?: string;
     transcription?: string;
     language?: string;
     duration?: number;
+    words?: Array<{ text?: string; word?: string; start: number; end: number }>;
   };
+  const words: SttWord[] | undefined = data.words?.map((w) => ({
+    text: String(w.text ?? w.word ?? ""),
+    start: w.start,
+    end: w.end,
+  }));
   return {
     text: String(data.text ?? data.transcription ?? ""),
     language: data.language,
     duration: data.duration,
+    words,
     providerId: "voice-api",
   };
 }

@@ -23,6 +23,7 @@ import { useOfflineModels } from "@/lib/hooks/useOfflineModels";
 import type { SystemProfile } from "@/lib/system/detect";
 
 import { ModalityGlance } from "@/components/panes/hardware/ModalityGlance";
+import { TierPicker } from "@/components/panes/hardware/TierPicker";
 import { OverviewTab } from "@/components/panes/hardware/tabs/OverviewTab";
 import { ModelsTab, type InstalledModel } from "@/components/panes/hardware/tabs/ModelsTab";
 import { ProcessesTab } from "@/components/panes/hardware/tabs/ProcessesTab";
@@ -145,6 +146,8 @@ export function HardwareRunnerPane() {
           <p>{activeDef.hint}</p>
         </div>
       </header>
+
+      <TierPicker />
 
       <ModalityGlance gpu={gpu} loaded={ps.models} />
 

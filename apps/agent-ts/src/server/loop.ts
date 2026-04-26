@@ -20,6 +20,9 @@ import { resolveLLM } from "./llm.js";
 import { WorkspaceJail } from "../tools/jail.js";
 import { nativeTools } from "../tools/native.js";
 import { bridgeTools } from "../tools/bridge.js";
+import { readBootstrap } from "../context/bootstrap.js";
+import { skillsTools } from "../context/skills.js";
+import { domainSkillsTools } from "../context/domain-skills.js";
 
 export interface LoopDeps {
   bus: EventBus;
@@ -98,6 +101,8 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
     const jail = new WorkspaceJail(workspaceRoot);
     const tools = [
       ...nativeTools(jail),
+      ...skillsTools(jail),
+      ...domainSkillsTools(jail),
       ...(req.tool_bridge_url
         ? bridgeTools({
             bridgeUrl: req.tool_bridge_url,
@@ -107,6 +112,11 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
         : []),
     ];
 
+    const bootstrap = await readBootstrap(jail);
+    const systemPrompt = bootstrap.prefix
+      ? `${SYSTEM_PROMPT}\n\n${bootstrap.prefix}`
+      : SYSTEM_PROMPT;
+
     const beforeToolCall = makeBeforeToolCall({
       broker: deps.broker,
       bus: deps.bus,
@@ -115,7 +125,7 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
 
     const agent = new Agent({
       initialState: {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         model: llm.model,
         thinkingLevel: "off",
         tools,

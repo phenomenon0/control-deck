@@ -432,12 +432,12 @@ export default function ChatSurface() {
     updateInspector({
       threadId: activeThreadId,
       model: resolvedModel ?? selectedModel,
-      route: prefs.routeMode,
+      route: "local",
       isLoading: isRunning,
       artifacts: messages.flatMap((m) => m.artifacts || []),
       toolCalls,
     });
-  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector, agentRun.state.resolvedModel, prefs.routeMode]);
+  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector, agentRun.state.resolvedModel]);
 
   // ---------------------------------------------------------------------------
   // Canvas auto-open: open artifacts in canvas when created during a run
@@ -821,10 +821,7 @@ export default function ChatSurface() {
       threadId,
       model: selectedModel,
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
-      routeMode: prefs.routeMode,
       systemPrompt: prefs.systemPrompt,
-      cloudProvider: prefs.cloudProvider,
-      cloudModel: prefs.cloudModel,
       preset: prefs.localModelPreset,
     });
 

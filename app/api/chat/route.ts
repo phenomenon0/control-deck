@@ -61,10 +61,6 @@ interface ChatRequestBody {
   uploadIds?: string[];
   /** User-editable system prompt. Augmented per-model in each route. */
   systemPrompt?: string;
-  /** Cloud mode: the provider id the user pinned (anthropic/openai/google). */
-  cloudProvider?: "anthropic" | "openai" | "google";
-  /** Cloud mode: the specific model id under the pinned provider. */
-  cloudModel?: string;
   /**
    * Local-first quality preset. Only used as a fallback when `model` is
    * empty and env/runtime configs have nothing to offer either. Explicit
@@ -337,8 +333,6 @@ export async function POST(req: Request) {
     threadId,
     uploadIds,
     systemPrompt: clientPrompt,
-    cloudProvider,
-    cloudModel,
     preset: presetRaw,
   } = body;
 
@@ -428,71 +422,9 @@ export async function POST(req: Request) {
     .then((r) => r.ok)
     .catch(() => false);
 
-  // Free-tier mode: when the client opts in, skip Agent-GO entirely and
-  // route through OpenRouter's free-model roulette. User-visible privacy
-  // tradeoff (free tiers may train on prompts) — enforced client-side by
-  // the FreeModeToggle opt-in.
-  //
-  // Ordering note: this branch is intentionally evaluated BEFORE the
-  // Agent-GO probe. Free mode is an explicit user override, not a
-  // fallback. If free has no valid keys or all models are exhausted, the
-  // user sees a clean 501/429 in the stream rather than a surprise local
-  // cascade — that surprise would hide exactly the quota/key problem the
-  // user needs to fix.
-  // New header: `x-deck-route-mode: local | free`. Back-compat: the old
-  // `x-deck-free-mode: 1` still means "free". Anything unset defaults
-  // to local (Agent-GO / simple / Ollama).
-  const routeModeHeader = req.headers.get("x-deck-route-mode");
-  const legacyFreeHeader = req.headers.get("x-deck-free-mode") === "1";
-  const freeMode = routeModeHeader === "free" || legacyFreeHeader;
-  const cloudMode = routeModeHeader === "cloud";
-
-  // Cloud mode: user pinned a specific paid provider+model.
-  // No fallback on failure — policy is predictable cost/quality > auto-degrade.
-  if (cloudMode) {
-    if (!cloudProvider || !cloudModel) {
-      return new Response(
-        JSON.stringify({ error: "cloud mode requires cloudProvider and cloudModel in body" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    console.log(`[Chat] Cloud mode — delegating to /api/chat/cloud (${cloudProvider}:${cloudModel})`);
-    const { POST: cloudPost } = await import("./cloud/route");
-    const cloudReq = new Request(new URL("/api/chat/cloud", req.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages,
-        threadId: thread,
-        provider: cloudProvider,
-        model: cloudModel,
-        systemPrompt,
-      }),
-      signal: req.signal,
-    });
-    return cloudPost(cloudReq);
-  }
-
-  if (freeMode) {
-    console.log(`[Chat] Free mode active — delegating to /api/chat/free (preferred=${model ?? "<none>"})`);
-    const { POST: freePost } = await import("./free/route");
-    const freeReq = new Request(new URL("/api/chat/free", req.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages,
-        threadId: thread,
-        needsMultimodal: hasImages,
-        // Raw user intent, not the resolved selectedModel — we want the
-        // string the user actually clicked, not any server-side fallback.
-        preferredModel: model,
-        systemPrompt,
-      }),
-      signal: req.signal,
-    });
-    return freePost(freeReq);
-  }
-
+  // Chat is local-only. Cloud + free-tier branches were retired — the
+  // chat surface ships no online sources. The agent runtime selection
+  // still lives in `lib/agentgo/launcher.ts` (TS by default, Go opt-in).
   if (!agentgoAlive) {
     console.log(`[Chat] Agent-GO unreachable at ${AGENTGO_URL}; falling back to /api/chat/simple`);
     // Invoke the simple route's handler directly instead of HTTP self-fetch.

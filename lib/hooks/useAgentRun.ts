@@ -514,10 +514,7 @@ export interface UseAgentRunReturn {
       threadId: string;
       model: string;
       uploadIds?: string[];
-      routeMode?: "local" | "free" | "cloud";
       systemPrompt?: string;
-      cloudProvider?: "anthropic" | "openai" | "google";
-      cloudModel?: string;
       preset?: LocalPreset;
     }
   ) => Promise<SendResult>;
@@ -565,10 +562,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         threadId: string;
         model: string;
         uploadIds?: string[];
-        routeMode?: "local" | "free" | "cloud";
         systemPrompt?: string;
-        cloudProvider?: "anthropic" | "openai" | "google";
-        cloudModel?: string;
         preset?: LocalPreset;
       }
     ): Promise<SendResult> => {
@@ -592,18 +586,13 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(opts.routeMode ? { "x-deck-route-mode": opts.routeMode } : {}),
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: opts.messages,
             model: opts.model,
             threadId: opts.threadId,
             uploadIds: opts.uploadIds,
             systemPrompt: opts.systemPrompt,
-            cloudProvider: opts.cloudProvider,
-            cloudModel: opts.cloudModel,
             preset: opts.preset,
           }),
           signal: controller.signal,

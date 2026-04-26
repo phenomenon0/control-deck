@@ -20,6 +20,11 @@ import {
   domainSkillsTools,
 } from "./domain-skills.js";
 
+function firstText(result: { content: Array<unknown> }): string {
+  const head = result.content[0] as { text?: string } | undefined;
+  return head?.text ?? "";
+}
+
 async function makeWorkspace(): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-ts-ctx-"));
   return root;
@@ -92,11 +97,11 @@ test("skills: discovery + view tools work end-to-end", async () => {
   const tools = skillsTools(jail);
   const list = tools.find((t) => t.name === "skills_list")!;
   const listResult = await list.execute("call-1", {});
-  assert.match(listResult.content[0].text, /haiku/);
+  assert.match(firstText(listResult), /haiku/);
 
   const view = tools.find((t) => t.name === "skill_view")!;
   const viewResult = await view.execute("call-2", { name: "haiku" });
-  assert.match(viewResult.content[0].text, /Compose a haiku/);
+  assert.match(firstText(viewResult), /Compose a haiku/);
 });
 
 test("skills: missing skills directory returns empty list", async () => {
@@ -105,7 +110,7 @@ test("skills: missing skills directory returns empty list", async () => {
   assert.deepEqual(await discoverSkills(jail), []);
   const tools = skillsTools(jail);
   const result = await tools.find((t) => t.name === "skills_list")!.execute("c", {});
-  assert.match(result.content[0].text, /No skills installed/);
+  assert.match(firstText(result), /No skills installed/);
 });
 
 test("domain-skills: lookup by host and by URL", async () => {
@@ -143,8 +148,8 @@ test("domain-skills: tool returns hint when host is unknown", async () => {
     (t) => t.name === "domain_skill_for_host",
   )!;
   const result = await tool.execute("c", { host: "unknown.test" });
-  assert.match(result.content[0].text, /No domain skills/);
-  assert.match(result.content[0].text, /example\.com/);
+  assert.match(firstText(result), /No domain skills/);
+  assert.match(firstText(result), /example\.com/);
 });
 
 test("domain-skills: rejects path traversal in host argument", async () => {
@@ -155,5 +160,5 @@ test("domain-skills: rejects path traversal in host argument", async () => {
   )!;
   const result = await tool.execute("c", { host: "../etc" });
   // "../etc" → containsSlash check fails → host is null → not-parseable branch
-  assert.match(result.content[0].text, /Could not parse host/);
+  assert.match(firstText(result), /Could not parse host/);
 });

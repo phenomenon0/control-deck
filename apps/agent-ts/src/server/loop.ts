@@ -85,7 +85,7 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
       deps.bus.emit(handle.runId, ev);
     };
 
-    const llm = resolveLLM(req.llm);
+    const llm = await resolveLLM(req.llm);
 
     emit("RunStarted", {
       model: llm.modelId,

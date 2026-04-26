@@ -19,8 +19,21 @@ import { RunStore, defaultStorePath } from "./store.js";
 const PORT = parseInt(process.env.AGENTGO_PORT ?? process.env.AGENT_TS_PORT ?? "4243", 10);
 const HOST = process.env.AGENTGO_HOST ?? process.env.AGENT_TS_HOST ?? "127.0.0.1";
 
-const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "http://localhost:11434/v1";
-const LLM_MODEL = process.env.LLM_MODEL ?? process.env.OLLAMA_MODEL ?? "qwen3:8b";
+// Default to llama.cpp's llama-server on :8080/v1 (OpenAI-compat). Ollama
+// at :11434 is still selectable via env. llama-server binds one model at
+// startup, so when LLM_MODEL is unset we resolve the active id from
+// /v1/models lazily at request time (see resolveLLM).
+function normaliseBase(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+  return `${trimmed}/v1`;
+}
+const LLM_BASE_URL =
+  normaliseBase(process.env.LLM_BASE_URL) ??
+  normaliseBase(process.env.LLAMACPP_BASE_URL) ??
+  "http://localhost:8080/v1";
+const LLM_MODEL =
+  process.env.LLM_MODEL ?? process.env.LLAMACPP_MODEL ?? process.env.OLLAMA_MODEL ?? "";
 
 const STORE_DISABLED = process.env.AGENT_TS_STORE_DISABLED === "1";
 const store = STORE_DISABLED ? undefined : new RunStore(defaultStorePath());
@@ -69,7 +82,7 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[agent-ts] listening on http://${HOST}:${PORT}`);
-  console.log(`[agent-ts] llm: ${LLM_BASE_URL} (${LLM_MODEL})`);
+  console.log(`[agent-ts] llm: ${LLM_BASE_URL} (${LLM_MODEL || "auto-resolve from /v1/models"})`);
 });
 
 const shutdown = (sig: string) => {

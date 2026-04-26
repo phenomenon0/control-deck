@@ -171,9 +171,25 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const prevIsListening = useRef(false);
   const prevIsSpeaking = useRef(false);
   const prevError = useRef<string | null>(null);
+  const stateRef = useRef(ctx.state);
+  useEffect(() => {
+    stateRef.current = ctx.state;
+  }, [ctx.state]);
 
   useEffect(() => {
     if (voiceChat.isListening && !prevIsListening.current) {
+      // Barge-in: mic activating mid-turn — abort the in-flight LLM fetch
+      // *before* we change state so the server-side stream is cut off, not
+      // just the audio. The state machine then transitions
+      // speaking/thinking → arming via MIC_REQUESTED.
+      const interruptible =
+        stateRef.current === "speaking" ||
+        stateRef.current === "thinking" ||
+        stateRef.current === "submitting";
+      if (interruptible && speechHandleRef.current) {
+        speechHandleRef.current.interrupt("user-barge-in");
+        speechHandleRef.current = null;
+      }
       dispatchCtx({ type: "MIC_REQUESTED" });
       dispatchCtx({ type: "MIC_GRANTED" });
     } else if (!voiceChat.isListening && prevIsListening.current) {

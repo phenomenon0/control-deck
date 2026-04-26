@@ -35,6 +35,11 @@ Endpoints:
     POST /tts          (JSON: { text, engine?, voice?, format?, speed? })
         -> raw audio bytes (Content-Type: audio/wav)
 
+    WS   /stt/stream?engine=<id>
+        Streaming STT — client sends Int16 LE PCM @ 16 kHz mono as binary
+        frames; server emits {type:"partial"|"final"|"error",text} text frames.
+        Control text ops: {op:"flush"|"final"|"reset"}.
+
 Engines are lazy-loaded on first request. Optional imports are gracefully
 gated — a missing wheel reports `available: false` in /health rather than
 crashing. The `--tier` flag sets the default engine per modality so callers
@@ -63,7 +68,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 LOG = logging.getLogger("voice-engines")
@@ -384,6 +389,69 @@ def _silent_wav(seconds: float) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Streaming helpers
+#
+# The three STT engines we host are batch-only at the model layer. We adopt
+# LiveKit's `AudioRecognition` pattern instead: keep a rolling Int16 PCM buffer
+# per WS connection, run a *partial* transcribe every ~700 ms while voice is
+# active, and a *final* transcribe on the client's `{op:"final"}` flush. This
+# gives the UI streaming-style partials without depending on engine-specific
+# stream APIs that don't exist for half our catalog.
+
+# 16 kHz, 16-bit mono — what every STT engine here expects.
+STREAM_SAMPLE_RATE = 16000
+STREAM_BYTES_PER_SAMPLE = 2
+
+def _pcm16_bytes_to_float32(pcm: bytes) -> Any:
+    import numpy as np  # type: ignore
+    if not pcm:
+        return np.zeros(0, dtype="float32")
+    arr = np.frombuffer(pcm, dtype="<i2").astype("float32") / 32768.0
+    return arr
+
+
+def _stt_transcribe_pcm(eid: str, model: Any, pcm: bytes) -> str:
+    """Run an STT engine over a raw PCM buffer (no WAV wrapper). Returns text."""
+    if not pcm:
+        return ""
+    audio = _pcm16_bytes_to_float32(pcm)
+    if eid == "moonshine-tiny":
+        text = model.transcribe(audio)
+        return str(text or "").strip()
+    if eid == "whisper-large-v3-turbo-cpp":
+        segs = model.transcribe(audio)
+        return " ".join(s.text.strip() for s in segs).strip()
+    if eid == "parakeet-tdt-0.6b-v2":
+        # Parakeet's `.transcribe` wants file paths or numpy arrays depending on
+        # the NeMo version. Prefer the array path; fall back to a temp WAV.
+        try:
+            result = model.transcribe([audio])
+        except Exception:
+            import io as _io
+            import soundfile as sf  # type: ignore
+            buf = _io.BytesIO()
+            sf.write(buf, audio, STREAM_SAMPLE_RATE, format="WAV", subtype="PCM_16")
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                tf.write(buf.getvalue())
+                path = tf.name
+            try:
+                result = model.transcribe([path])
+            finally:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+        first = result[0] if result else None
+        if first is None:
+            return ""
+        if hasattr(first, "text"):
+            return str(first.text).strip()
+        return str(first).strip()
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 
 def build_app(tier: str | None, model_root: Path) -> FastAPI:
@@ -521,6 +589,157 @@ def build_app(tier: str | None, model_root: Path) -> FastAPI:
             LOG.exception("tts failed for %s", eid)
             raise HTTPException(status_code=500, detail=f"tts {eid} failed: {e}") from e
         return Response(content=audio_bytes, media_type=ctype)
+
+    # -----------------------------------------------------------------------
+    # WS /stt/stream — streaming STT.
+    #
+    # Protocol:
+    #   client → server:
+    #     - binary frames: Int16 LE PCM at 16 kHz mono
+    #     - text frames:   {"op": "config", "engine"?: str, "language"?: str}
+    #                      {"op": "flush"}   — emit a partial now
+    #                      {"op": "final"}   — emit final + reset buffer
+    #                      {"op": "reset"}   — drop the buffer, no transcript
+    #   server → client:
+    #     - text frames: {"type": "ready", "engine": str, "sampleRate": 16000}
+    #                    {"type": "partial", "text": str}
+    #                    {"type": "final", "text": str}
+    #                    {"type": "error", "error": str}
+    @app.websocket("/stt/stream")
+    async def stt_stream(ws: WebSocket) -> None:
+        await ws.accept()
+        # Resolve engine: ?engine=... query param overrides tier default.
+        eid = (ws.query_params.get("engine") or default_for("stt") or "").strip()
+        # Per-connection state — guarded only by the engine-level lock during
+        # actual transcribe calls so concurrent partial/final don't collide.
+        buffer = bytearray()
+        partial_at_bytes = 0  # bytes already covered by the last partial
+        partial_min_bytes = STREAM_SAMPLE_RATE * STREAM_BYTES_PER_SAMPLE  # ~1 s
+        last_partial_text = ""
+
+        async def send_error(msg: str) -> None:
+            try:
+                await ws.send_text(json.dumps({"type": "error", "error": msg}))
+            except Exception:
+                pass
+
+        if not eid:
+            await send_error("engine required (no tier default set)")
+            await ws.close()
+            return
+        spec = ENGINES.get(eid)
+        if spec is None or spec.kind != "stt":
+            await send_error(f"unknown stt engine: {eid}")
+            await ws.close()
+            return
+        if not runtime.is_available(eid):
+            await send_error(
+                f"engine {eid} not available — install: {','.join(spec.optional_imports)}"
+            )
+            await ws.close()
+            return
+
+        # Eagerly load the engine so the first partial doesn't pay the cold-start
+        # cost mid-utterance.
+        try:
+            if eid == "moonshine-tiny":
+                model = runtime.get_or_load(eid, lambda: _load_moonshine(spec, runtime))
+            elif eid == "whisper-large-v3-turbo-cpp":
+                model = runtime.get_or_load(eid, lambda: _load_whisper_cpp(spec, runtime))
+            elif eid == "parakeet-tdt-0.6b-v2":
+                model = runtime.get_or_load(eid, lambda: _load_parakeet(spec, runtime))
+            else:
+                await send_error(f"engine not implemented: {eid}")
+                await ws.close()
+                return
+        except Exception as e:  # noqa: BLE001
+            LOG.exception("stt stream load failed for %s", eid)
+            await send_error(f"load {eid} failed: {e}")
+            await ws.close()
+            return
+
+        await ws.send_text(json.dumps({
+            "type": "ready",
+            "engine": eid,
+            "sampleRate": STREAM_SAMPLE_RATE,
+        }))
+
+        engine_lock = runtime._locks[eid]
+
+        async def transcribe(snapshot: bytes) -> str:
+            # Run the (blocking) transcribe in a worker thread; protect against
+            # concurrent calls into the engine with the per-engine lock.
+            import asyncio
+            def _do() -> str:
+                with engine_lock:
+                    return _stt_transcribe_pcm(eid, model, snapshot)
+            return await asyncio.get_event_loop().run_in_executor(None, _do)
+
+        try:
+            while True:
+                msg = await ws.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+                if "bytes" in msg and msg["bytes"] is not None:
+                    buffer.extend(msg["bytes"])
+                    # Auto-emit a partial when we've accumulated enough new audio.
+                    if len(buffer) - partial_at_bytes >= partial_min_bytes:
+                        snapshot = bytes(buffer)
+                        try:
+                            text = await transcribe(snapshot)
+                        except Exception as e:  # noqa: BLE001
+                            LOG.warning("stt stream partial failed: %s", e)
+                            text = last_partial_text
+                        if text and text != last_partial_text:
+                            last_partial_text = text
+                            await ws.send_text(json.dumps({"type": "partial", "text": text}))
+                        partial_at_bytes = len(buffer)
+                    continue
+                text_frame = msg.get("text")
+                if not text_frame:
+                    continue
+                try:
+                    op_msg = json.loads(text_frame)
+                except Exception:
+                    continue
+                op = str(op_msg.get("op") or "")
+                if op == "flush":
+                    snapshot = bytes(buffer)
+                    if not snapshot:
+                        continue
+                    try:
+                        text = await transcribe(snapshot)
+                    except Exception as e:  # noqa: BLE001
+                        await send_error(f"transcribe failed: {e}")
+                        continue
+                    last_partial_text = text
+                    await ws.send_text(json.dumps({"type": "partial", "text": text}))
+                    partial_at_bytes = len(buffer)
+                elif op == "final":
+                    snapshot = bytes(buffer)
+                    final_text = ""
+                    if snapshot:
+                        try:
+                            final_text = await transcribe(snapshot)
+                        except Exception as e:  # noqa: BLE001
+                            await send_error(f"transcribe failed: {e}")
+                    await ws.send_text(json.dumps({"type": "final", "text": final_text}))
+                    buffer.clear()
+                    partial_at_bytes = 0
+                    last_partial_text = ""
+                elif op == "reset":
+                    buffer.clear()
+                    partial_at_bytes = 0
+                    last_partial_text = ""
+                # Any other op is silently ignored — keeps the protocol additive.
+        except WebSocketDisconnect:
+            pass
+        except Exception:  # noqa: BLE001
+            LOG.exception("stt stream error")
+            try:
+                await ws.close()
+            except Exception:
+                pass
 
     return app
 

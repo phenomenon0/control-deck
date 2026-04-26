@@ -49,6 +49,53 @@ type Listener<T> = (payload: T) => void;
 
 const DEFAULT_VAD_ASSET_PATH = "/audio-worklets/";
 
+// ---------------------------------------------------------------------------
+// PCM helpers — shared with the streaming-stt client. Lives here because both
+// the capture path and the WS bridge need exactly the same conversion math.
+
+/**
+ * Cheap linear-decimation downsampler from any source rate to 16 kHz.
+ * Adequate for STT (Whisper et al.) where the model already does its own
+ * featurisation. Avoids pulling in a real DSP dependency.
+ */
+export function downsamplePcmFloat32To16k(
+  frame: Float32Array,
+  srcSampleRate: number,
+): Float32Array {
+  const target = 16000;
+  if (srcSampleRate === target) return frame;
+  if (srcSampleRate < target) return frame; // upsampling not useful for STT
+  const ratio = srcSampleRate / target;
+  const outLength = Math.floor(frame.length / ratio);
+  const out = new Float32Array(outLength);
+  let pos = 0;
+  for (let i = 0; i < outLength; i++) {
+    const start = Math.floor(pos);
+    const end = Math.min(frame.length, Math.floor(pos + ratio));
+    let acc = 0;
+    let count = 0;
+    for (let j = start; j < end; j++) {
+      acc += frame[j];
+      count++;
+    }
+    out[i] = count > 0 ? acc / count : 0;
+    pos += ratio;
+  }
+  return out;
+}
+
+/** Convert Float32 [-1, 1] samples to little-endian Int16 PCM bytes. */
+export function float32ToInt16Bytes(frame: Float32Array): ArrayBuffer {
+  const buf = new ArrayBuffer(frame.length * 2);
+  const view = new DataView(buf);
+  for (let i = 0; i < frame.length; i++) {
+    let s = Math.max(-1, Math.min(1, frame[i]));
+    s = s < 0 ? s * 0x8000 : s * 0x7fff;
+    view.setInt16(i * 2, s | 0, true);
+  }
+  return buf;
+}
+
 export class AgentInput {
   private inputDeviceId: string | null;
   private silenceThreshold: number;

@@ -46,6 +46,16 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Agent-GO receives only a callback URL for the tools bridge in this app.
+  // Permit a bridge-scoped URL token only on that endpoint; all other API
+  // routes still require a header/Bearer credential.
+  if (req.nextUrl.pathname === "/api/tools/bridge") {
+    const bridgeToken = process.env.TOOL_BRIDGE_TOKEN || token;
+    if (req.nextUrl.searchParams.get("bridge_token") === bridgeToken) {
+      return NextResponse.next();
+    }
+  }
+
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 

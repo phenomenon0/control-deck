@@ -9,6 +9,11 @@
 
 import type { InferenceProviderConfig } from "../types";
 import type { TtsArgs, TtsResult, TtsVoice } from "./types";
+import {
+  QWEN_OMNI_MODEL_LABEL,
+  QWEN_OMNI_PROVIDER_ID,
+  qwenOmniSidecarUrl,
+} from "../omni/local";
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -42,9 +47,61 @@ export async function invokeTts(
       return invokeDeepgramAura(config, args);
     case "google":
       return invokeGoogleGemini(config, args);
+    case QWEN_OMNI_PROVIDER_ID:
+      return invokeQwenOmniLocal(config, args);
     default:
       throw new Error(`tts provider not supported: ${providerId}`);
   }
+}
+
+async function invokeQwenOmniLocal(
+  config: InferenceProviderConfig,
+  args: TtsArgs,
+): Promise<TtsResult> {
+  const sidecarUrl =
+    (config.extras?.sidecarUrl as string | null | undefined) ?? qwenOmniSidecarUrl();
+  if (sidecarUrl) {
+    return invokeQwenOmniSidecarTts(sidecarUrl, args);
+  }
+  if (process.env.QWEN_OMNI_REQUIRE_RUNTIME === "1") {
+    throw new Error(
+      "qwen-omni-local: local generation runtime is required but no Omni sidecar is configured. Set OMNI_SIDECAR_URL or start a CUDA-capable runtime.",
+    );
+  }
+  const result = await invokeVoiceApi(
+    {
+      providerId: "voice-api",
+      baseURL: process.env.VOICE_API_URL ?? (config.extras?.fallbackBaseURL as string | undefined),
+      extras: { engine: "piper" },
+    },
+    args,
+  );
+  return { ...result, providerId: QWEN_OMNI_PROVIDER_ID };
+}
+
+async function invokeQwenOmniSidecarTts(
+  baseURL: string,
+  args: TtsArgs,
+): Promise<TtsResult> {
+  const res = await fetch(`${baseURL.replace(/\/+$/, "")}/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: args.text,
+      voice: args.voice ?? "Chelsie",
+      format: args.format ?? "wav",
+      speed: args.speed ?? 1,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`qwen-omni-sidecar-tts ${res.status}: ${await res.text()}`);
+  }
+  const contentType = res.headers.get("content-type") ?? "audio/wav";
+  return {
+    audio: await res.arrayBuffer(),
+    contentType,
+    providerId: QWEN_OMNI_PROVIDER_ID,
+  };
 }
 
 /** Wrap the existing VOICE_API_URL sidecar — preserves piper/xtts/chatterbox behaviour. */
@@ -478,6 +535,8 @@ export async function listTtsVoices(
         "Zephyr",
         "Leda",
       ].map((id) => ({ id, name: id, providerId }));
+    case QWEN_OMNI_PROVIDER_ID:
+      return [{ id: "omni-default", name: QWEN_OMNI_MODEL_LABEL, providerId }];
     default:
       return [];
   }

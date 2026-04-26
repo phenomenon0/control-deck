@@ -967,3 +967,50 @@
   color: var(--au-paper); font-family: var(--au-mono); font-size: 11px;
   flex-shrink: 0;
 }
+
+/* Conductor: assistant reply card and text composer below the orb */
+.cdt-reply {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: calc(50% + 188px);
+  z-index: 3; max-width: 560px; width: 86%;
+  text-align: center;
+  display: flex; flex-direction: column; gap: 6px; align-items: center;
+}
+.cdt-reply__who {
+  font-family: var(--au-mono); font-size: 9px; letter-spacing: 0.18em;
+  color: var(--au-ink-3); text-transform: uppercase;
+}
+.cdt-reply__text {
+  margin: 0; font-family: var(--au-serif); font-size: 16px; line-height: 1.5;
+  color: var(--au-ink-2);
+}
+
+.cdt-textbar {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 18px; z-index: 4;
+  width: min(640px, calc(100% - 32px));
+  display: flex; gap: 8px; align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--au-hair); border-radius: 999px;
+  background: rgba(10, 10, 11, 0.72); backdrop-filter: blur(6px);
+}
+.cdt-textbar__input {
+  flex: 1; background: transparent; border: none; outline: none;
+  font-family: var(--font-sans); font-size: 13px; color: var(--au-ink);
+  padding: 6px 10px;
+}
+.cdt-textbar__input::placeholder { color: var(--au-ink-3); }
+.cdt-textbar__voice {
+  background: transparent; border: 1px solid var(--au-hair); border-radius: 999px;
+  font-family: var(--au-mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--au-ink-2); padding: 4px 8px; cursor: pointer;
+}
+.cdt-textbar__send {
+  background: var(--au-accent); color: var(--au-paper);
+  border: none; border-radius: 999px; padding: 6px 14px;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+  cursor: pointer; transition: opacity 150ms ease;
+}
+.cdt-textbar__send:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}

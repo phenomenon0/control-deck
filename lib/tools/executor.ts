@@ -70,8 +70,8 @@ import { hub } from "@/lib/agui/hub";
 import { executeCode as runCode } from "./code-exec";
 import { type DeckPayload, jsonPayload, smartEncode } from "@/lib/agui/payload";
 import { parseLiveScript } from "@/lib/live/script";
+import { artifactFilePath, artifactRunDir, artifactUrl } from "@/lib/storage/paths";
 import * as fs from "fs/promises";
-import * as path from "path";
 
 // GLYPH encoding configuration
 const GLYPH_CONFIG = {
@@ -627,14 +627,12 @@ async function executeGlyphMotif(
       : generateGlyphSvg({ prompt: args.prompt, style, size, seed: args.seed });
     
     // Create artifact directory
-    const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
-    const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+    const destDir = artifactRunDir(ctx.runId);
     await fs.mkdir(destDir, { recursive: true });
     
     // Save SVG file
     const artifactId = crypto.randomUUID();
-    const filename = `glyph_${result.style}_${result.seed}.svg`;
-    const filePath = path.join(destDir, filename);
+    const { filename, filePath } = artifactFilePath(ctx.runId, `glyph_${result.style}_${result.seed}.svg`);
     await fs.writeFile(filePath, result.svg, "utf-8");
     
     // Create artifact record
@@ -645,7 +643,7 @@ async function executeGlyphMotif(
       toolCallId: ctx.toolCallId,
       mimeType: "image/svg+xml",
       name: `Glyph: ${args.prompt.slice(0, 30)}${args.prompt.length > 30 ? "..." : ""}`,
-      url: `/api/artifacts/${ctx.runId}/${filename}`,
+      url: artifactUrl(ctx.runId, filename),
       localPath: filePath,
       originalPath: filePath,
       meta: { style: result.style, seed: result.seed, sheet },
@@ -722,8 +720,7 @@ async function executeCodeTool(
     );
     
     // Create artifact directory for any outputs
-    const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
-    const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+    const destDir = artifactRunDir(ctx.runId);
     await fs.mkdir(destDir, { recursive: true });
     
     const artifacts: Array<{ id: string; url: string; name: string; mimeType: string }> = [];
@@ -732,8 +729,7 @@ async function executeCodeTool(
     if (result.images && result.images.length > 0) {
       for (const img of result.images) {
         const artifactId = crypto.randomUUID();
-        const filename = img.name;
-        const filePath = path.join(destDir, filename);
+        const { filename, filePath } = artifactFilePath(ctx.runId, img.name);
         
         // Decode base64 and save
         const buffer = Buffer.from(img.data, "base64");
@@ -745,8 +741,8 @@ async function executeCodeTool(
           threadId: ctx.threadId,
           toolCallId: ctx.toolCallId,
           mimeType: img.mimeType,
-          name: `Code Output: ${img.name}`,
-          url: `/api/artifacts/${ctx.runId}/${filename}`,
+          name: `Code Output: ${filename}`,
+          url: artifactUrl(ctx.runId, filename),
           localPath: filePath,
           originalPath: filePath,
           meta: { type: "code_output", language: args.language },
@@ -781,8 +777,7 @@ async function executeCodeTool(
     // Save preview HTML as artifact (for frontend languages)
     if (result.preview?.bundled) {
       const artifactId = crypto.randomUUID();
-      const filename = `preview_${Date.now()}.html`;
-      const filePath = path.join(destDir, filename);
+      const { filename, filePath } = artifactFilePath(ctx.runId, `preview_${Date.now()}.html`);
       
       await fs.writeFile(filePath, result.preview.bundled, "utf-8");
       
@@ -793,7 +788,7 @@ async function executeCodeTool(
         toolCallId: ctx.toolCallId,
         mimeType: "text/html",
         name: `${args.language} Preview`,
-        url: `/api/artifacts/${ctx.runId}/${filename}`,
+        url: artifactUrl(ctx.runId, filename),
         localPath: filePath,
         originalPath: filePath,
         meta: { type: "code_preview", language: args.language },
@@ -1308,14 +1303,12 @@ async function cloudImageToExecutorResult(
     throw new Error("cloud image result carried neither bytes nor url");
   }
 
-  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
-  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  const destDir = artifactRunDir(ctx.runId);
   await fs.mkdir(destDir, { recursive: true });
 
   const ext = result.mime.includes("jpeg") ? "jpg" : result.mime.includes("webp") ? "webp" : "png";
   const artifactId = crypto.randomUUID();
-  const filename = `img_${result.providerId}_${Date.now()}.${ext}`;
-  const filePath = path.join(destDir, filename);
+  const { filename, filePath } = artifactFilePath(ctx.runId, `img_${result.providerId}_${Date.now()}.${ext}`);
   await fs.writeFile(filePath, bytes);
 
   const artifact = {
@@ -1325,7 +1318,7 @@ async function cloudImageToExecutorResult(
     toolCallId: ctx.toolCallId,
     mimeType: result.mime,
     name: `Image: ${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}`,
-    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    url: artifactUrl(ctx.runId, filename),
     localPath: filePath,
     originalPath: filePath,
     meta: {
@@ -1380,8 +1373,7 @@ async function cloudAudioToExecutorResult(
     throw new Error("cloud audio result carried neither bytes nor url");
   }
 
-  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
-  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  const destDir = artifactRunDir(ctx.runId);
   await fs.mkdir(destDir, { recursive: true });
 
   const ext =
@@ -1390,8 +1382,7 @@ async function cloudAudioToExecutorResult(
     : result.mime.includes("ogg") ? "ogg"
     : "audio";
   const artifactId = crypto.randomUUID();
-  const filename = `audio_${result.providerId}_${Date.now()}.${ext}`;
-  const filePath = path.join(destDir, filename);
+  const { filename, filePath } = artifactFilePath(ctx.runId, `audio_${result.providerId}_${Date.now()}.${ext}`);
   await fs.writeFile(filePath, bytes);
 
   const artifact = {
@@ -1401,7 +1392,7 @@ async function cloudAudioToExecutorResult(
     toolCallId: ctx.toolCallId,
     mimeType: result.mime,
     name: `Audio: ${prompt.slice(0, 30)}${prompt.length > 30 ? "..." : ""}`,
-    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    url: artifactUrl(ctx.runId, filename),
     localPath: filePath,
     originalPath: filePath,
     meta: { provider: result.providerId, sourceUrl: result.audioUrl },
@@ -1446,14 +1437,12 @@ async function cloudMeshToExecutorResult(
     throw new Error("cloud mesh result carried neither bytes nor url");
   }
 
-  const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
-  const destDir = path.join(ARTIFACTS_DIR, ctx.runId);
+  const destDir = artifactRunDir(ctx.runId);
   await fs.mkdir(destDir, { recursive: true });
 
   const ext = result.mime.includes("gltf-binary") || result.mime.includes("glb") ? "glb" : "gltf";
   const artifactId = crypto.randomUUID();
-  const filename = `mesh_${result.providerId}_${Date.now()}.${ext}`;
-  const filePath = path.join(destDir, filename);
+  const { filename, filePath } = artifactFilePath(ctx.runId, `mesh_${result.providerId}_${Date.now()}.${ext}`);
   await fs.writeFile(filePath, bytes);
 
   const artifact = {
@@ -1463,7 +1452,7 @@ async function cloudMeshToExecutorResult(
     toolCallId: ctx.toolCallId,
     mimeType: result.mime,
     name: `3D mesh: ${label}`,
-    url: `/api/artifacts/${ctx.runId}/${filename}`,
+    url: artifactUrl(ctx.runId, filename),
     localPath: filePath,
     originalPath: filePath,
     meta: {

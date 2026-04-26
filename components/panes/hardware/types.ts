@@ -9,7 +9,7 @@ export const HARDWARE_TABS: ReadonlyArray<{
   label: string;
   hint: string;
 }> = [
-  { id: "overview", label: "Overview", hint: "KPIs + system profile + services" },
+  { id: "overview", label: "Overview", hint: "System profile + services + Agent-GO" },
   { id: "models", label: "Models", hint: "Installed + loaded across providers" },
   { id: "processes", label: "Processes", hint: "Per-process GPU VRAM" },
   { id: "providers", label: "Providers", hint: "Adapters + discovery sweep" },

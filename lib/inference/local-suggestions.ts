@@ -19,6 +19,12 @@
 
 import type { Modality } from "./types";
 import type { SystemProfile, InferenceBackend } from "@/lib/system/detect";
+import {
+  getQwenOmniStatus,
+  isQwenOmniRepo,
+  QWEN_OMNI_MODEL_ID,
+  QWEN_OMNI_PROVIDER_ID,
+} from "./omni/local";
 
 export type FitScore = "perfect" | "tight" | "overhead-risk" | "too-big";
 
@@ -181,6 +187,12 @@ const TEXT_CANDIDATES: LocalCandidate[] = [
     backends: ["metal", "cuda", "rocm"], family: "qwen", license: "qwen",
     summary: "Qwen 3 8B — 2026 workhorse. Tool-use, long-context, multilingual.",
   }),
+  c("qwen2.5-omni-7b-awq-text", "Qwen2.5 Omni 7B AWQ", "text", QWEN_OMNI_PROVIDER_ID, {
+    hfRepo: QWEN_OMNI_MODEL_ID, vramRequiredMB: 11800, diskMB: 12100,
+    quantization: "AWQ int4", contextWindow: 32768, cpuFriendly: false,
+    backends: ["cuda"], family: "qwen-omni", license: "apache-2.0",
+    summary: "End-to-end assistant model already downloaded for text plus audio/vision turns.",
+  }),
   c("granite3.3:8b", "IBM Granite 3.3 8B", "text", "ollama", {
     ollamaTag: "granite3.3:8b", vramRequiredMB: 4900, diskMB: 4900,
     quantization: "Q4_K_M", contextWindow: 128000, cpuFriendly: false,
@@ -332,6 +344,12 @@ const VISION_CANDIDATES: LocalCandidate[] = [
     backends: ["metal", "cuda"], family: "qwen", license: "qwen",
     summary: "Qwen 2.5 VL — strong OCR + document understanding at 7B.",
   }),
+  c("qwen2.5-omni-7b-awq-vision", "Qwen2.5 Omni 7B AWQ", "vision", QWEN_OMNI_PROVIDER_ID, {
+    hfRepo: QWEN_OMNI_MODEL_ID, vramRequiredMB: 11800, diskMB: 12100,
+    quantization: "AWQ int4", cpuFriendly: false,
+    backends: ["cuda"], family: "qwen-omni", license: "apache-2.0",
+    summary: "Omni vision/video understanding with the same model used by the audio assistant.",
+  }),
   c("llama3.2-vision:11b", "Llama 3.2 Vision 11B", "vision", "ollama", {
     ollamaTag: "llama3.2-vision:11b", vramRequiredMB: 7900, diskMB: 7900,
     quantization: "Q4_K_M", cpuFriendly: false,
@@ -397,6 +415,12 @@ const STT_CANDIDATES: LocalCandidate[] = [
     backends: ["cuda"], family: "parakeet", license: "commercial",
     summary: "1.8% WER on LibriSpeech — beats all Whisper variants.",
   }),
+  c("qwen2.5-omni-7b-awq-stt", "Qwen2.5 Omni 7B AWQ", "stt", QWEN_OMNI_PROVIDER_ID, {
+    hfRepo: QWEN_OMNI_MODEL_ID, vramRequiredMB: 11800, diskMB: 12100,
+    quantization: "AWQ int4", cpuFriendly: false,
+    backends: ["cuda"], family: "qwen-omni", license: "apache-2.0",
+    summary: "Speech input is handled by the end-to-end assistant model instead of a separate STT stack.",
+  }),
 ];
 
 // -- TTS -------------------------------------------------------------------
@@ -425,6 +449,12 @@ const TTS_CANDIDATES: LocalCandidate[] = [
     quantization: "fp16", cpuFriendly: false,
     backends: ["metal", "cuda"], family: "sesame", license: "apache-2.0",
     summary: "2026 release. MOS 4.7 — matches cloud quality on a single GPU.",
+  }),
+  c("qwen2.5-omni-7b-awq-tts", "Qwen2.5 Omni 7B AWQ", "tts", QWEN_OMNI_PROVIDER_ID, {
+    hfRepo: QWEN_OMNI_MODEL_ID, vramRequiredMB: 11800, diskMB: 12100,
+    quantization: "AWQ int4", cpuFriendly: false,
+    backends: ["cuda"], family: "qwen-omni", license: "apache-2.0",
+    summary: "Speech output from the same end-to-end model that reasons over the turn.",
   }),
 ];
 
@@ -604,6 +634,9 @@ function isInstalled(
   candidate: LocalCandidate,
   installed: Array<{ name: string }>,
 ): boolean {
+  if (isQwenOmniRepo(candidate.hfRepo)) {
+    return getQwenOmniStatus().ready;
+  }
   if (!candidate.ollamaTag) return false;
   if (installed.some((m) => m.name === candidate.ollamaTag)) return true;
   // Fuzzy: base name (before colon) + size suffix match.
@@ -682,7 +715,7 @@ export async function suggestForModality(
   );
   const merged: LocalCandidate[] = [
     ...live,
-    ...curated.filter((c) => !(c.hfRepo && liveRepoIds.has(c.hfRepo))),
+    ...curated.filter((c) => !(c.hfRepo && liveRepoIds.has(c.hfRepo) && !isQwenOmniRepo(c.hfRepo))),
   ];
 
   const scored = merged.map((candidate) => {

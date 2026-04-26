@@ -14,6 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "terminal-service": "tsx scripts/terminal-service.ts",
+    "omni:sidecar": ".venv-omni/bin/python scripts/qwen-omni-sidecar.py",
+    "omni:smoke": ".venv-omni/bin/python scripts/qwen-omni-smoke.py",
     "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "catalog": "bun scripts/model-catalog.ts",
     "electron:compile": "tsc -p electron/tsconfig.json && node scripts/postbuild-electron.cjs",

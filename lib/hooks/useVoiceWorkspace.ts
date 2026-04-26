@@ -16,18 +16,17 @@
 import { useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-export type VoiceTab =
-  | "conductor" | "newsroom" | "stage" | "tape" | "forum"
-  | "voices" | "studio" | "health";
+export type VoiceTab = "conductor" | "voices" | "studio" | "health";
 
-const TAB_IDS: ReadonlySet<string> = new Set([
-  "conductor", "newsroom", "stage", "tape", "forum",
-  "voices", "studio", "health",
-]);
+const TAB_IDS: ReadonlySet<string> = new Set(["conductor", "voices", "studio", "health"]);
+
+// Old wireframe tabs that no longer exist — collapse to conductor.
+const RETIRED_TABS: ReadonlySet<string> = new Set(["newsroom", "stage", "tape", "forum"]);
 
 function normalizeTab(raw: string | null): VoiceTab {
   if (raw === "assistant" || raw === "voice" || raw === "live") return "conductor";
   if (raw === "library") return "voices";
+  if (raw && RETIRED_TABS.has(raw)) return "conductor";
   if (raw && TAB_IDS.has(raw)) return raw as VoiceTab;
   return "conductor";
 }
@@ -40,10 +39,6 @@ export interface VoiceWorkspace {
   setAssetId: (id: string) => void;
   setJobId: (id: string) => void;
   jumpToConductor: (opts?: { assetId?: string }) => void;
-  jumpToNewsroom: () => void;
-  jumpToStage: () => void;
-  jumpToTape: () => void;
-  jumpToForum: () => void;
   jumpToVoices: (opts?: { assetId?: string }) => void;
   jumpToStudio: (opts?: { assetId?: string; jobId?: string }) => void;
   jumpToHealth: () => void;
@@ -82,14 +77,6 @@ export function useVoiceWorkspace(): VoiceWorkspace {
   return useMemo<VoiceWorkspace>(() => {
     const jumpToConductor = (opts?: { assetId?: string }) =>
       replace({ tab: "conductor", asset: opts?.assetId ?? null, job: null });
-    const jumpToNewsroom = () =>
-      replace({ tab: "newsroom", asset: null, job: null });
-    const jumpToStage = () =>
-      replace({ tab: "stage", asset: null, job: null });
-    const jumpToTape = () =>
-      replace({ tab: "tape", asset: null, job: null });
-    const jumpToForum = () =>
-      replace({ tab: "forum", asset: null, job: null });
     const jumpToVoices = (opts?: { assetId?: string }) =>
       replace({ tab: "voices", asset: opts?.assetId ?? assetId ?? null, job: null });
     return {
@@ -100,10 +87,6 @@ export function useVoiceWorkspace(): VoiceWorkspace {
       setAssetId: (id) => replace({ asset: id }),
       setJobId: (id) => replace({ job: id }),
       jumpToConductor,
-      jumpToNewsroom,
-      jumpToStage,
-      jumpToTape,
-      jumpToForum,
       jumpToVoices,
       jumpToStudio: (opts) =>
         replace({

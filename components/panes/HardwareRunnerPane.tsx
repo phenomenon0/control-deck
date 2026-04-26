@@ -22,7 +22,7 @@ import { useHardwareProviders } from "@/lib/hooks/useHardwareProviders";
 import { useOfflineModels } from "@/lib/hooks/useOfflineModels";
 import type { SystemProfile } from "@/lib/system/detect";
 
-import { KpiStrip } from "@/components/panes/hardware/KpiStrip";
+import { ModalityGlance } from "@/components/panes/hardware/ModalityGlance";
 import { OverviewTab } from "@/components/panes/hardware/tabs/OverviewTab";
 import { ModelsTab, type InstalledModel } from "@/components/panes/hardware/tabs/ModelsTab";
 import { ProcessesTab } from "@/components/panes/hardware/tabs/ProcessesTab";
@@ -126,7 +126,6 @@ export function HardwareRunnerPane() {
         }
       : null);
   const services = stats?.services ?? [];
-  const installedTotalBytes = installed.reduce((s, m) => s + m.size, 0);
   const activeDef = HARDWARE_TABS.find((t) => t.id === active) ?? HARDWARE_TABS[0];
 
   const counts: Record<HardwareTabId, number | null> = {
@@ -147,12 +146,7 @@ export function HardwareRunnerPane() {
         </div>
       </header>
 
-      <KpiStrip
-        gpu={gpu}
-        loadedModels={ps.models}
-        installedCount={installed.length}
-        installedTotalBytes={installedTotalBytes}
-      />
+      <ModalityGlance gpu={gpu} loaded={ps.models} />
 
       <div className="hardware-tab-toolbar">
         <nav className="hardware-tabs" aria-label="Hardware sections">

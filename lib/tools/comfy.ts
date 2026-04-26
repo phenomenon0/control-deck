@@ -4,7 +4,6 @@
  */
 
 import { mkdir, copyFile, writeFile } from "fs/promises";
-import { existsSync } from "fs";
 import path from "path";
 import os from "os";
 import { hub } from "@/lib/agui/hub";
@@ -18,11 +17,11 @@ import {
 } from "@/lib/agui/events";
 import { jsonPayload } from "@/lib/agui/payload";
 import { createArtifact, saveEvent } from "@/lib/agui/db";
+import { artifactFilePath, artifactRunDir, artifactUrl, safeArtifactFilename } from "@/lib/storage/paths";
 
 const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
 const COMFY_OUTPUT_DIR = process.env.COMFY_OUTPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "output");
 const COMFY_INPUT_DIR = process.env.COMFY_INPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "input");
-const ARTIFACTS_DIR = path.join(process.cwd(), "data", "artifacts");
 const POLL_INTERVAL = 500; // ms - faster polling for quick jobs like SDXL Turbo
 const POLL_TIMEOUT = 300000; // 5 minutes (some workflows take longer)
 
@@ -282,29 +281,41 @@ function getMimeType(filename: string): string {
 /**
  * Copy artifact from ComfyUI output to deck storage
  */
+function resolveComfyOutputPath(img: ComfyImage): string | null {
+  const outputRoot = path.resolve(COMFY_OUTPUT_DIR);
+  const candidate = path.resolve(outputRoot, img.subfolder ?? "", img.filename);
+  if (candidate !== outputRoot && candidate.startsWith(outputRoot + path.sep)) {
+    return candidate;
+  }
+  return null;
+}
+
 async function copyArtifactToDeck(
   img: ComfyImage,
   runId: string
-): Promise<string | null> {
+): Promise<{ path: string; filename: string } | null> {
   try {
-    const srcPath = path.join(
-      COMFY_OUTPUT_DIR,
-      img.subfolder ?? "",
-      img.filename
-    );
-
-    if (!existsSync(srcPath)) {
-      console.warn(`Artifact source not found: ${srcPath}`);
+    const srcPath = resolveComfyOutputPath(img);
+    if (!srcPath) {
+      console.warn(`Rejected Comfy artifact path: ${img.subfolder ?? ""}/${img.filename}`);
       return null;
     }
 
-    const destDir = path.join(ARTIFACTS_DIR, runId);
+    const destDir = artifactRunDir(runId);
     await mkdir(destDir, { recursive: true });
 
-    const destPath = path.join(destDir, img.filename);
-    await copyFile(srcPath, destPath);
+    const { filename, filePath: destPath } = artifactFilePath(runId, img.filename);
+    try {
+      await copyFile(srcPath, destPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        console.warn(`Artifact source not found: ${srcPath}`);
+        return null;
+      }
+      throw err;
+    }
 
-    return destPath;
+    return { path: destPath, filename };
   } catch (err) {
     console.error("Failed to copy artifact:", err);
     return null;
@@ -379,17 +390,14 @@ export async function executeComfyWorkflow(
           for (let idx = 0; idx < images.length; idx++) {
             const img = images[idx];
             const artifactId = generateId(); // Use unique ID instead of promptId-based
-            const url = buildProxyUrl(img);
             const mimeType = getMimeType(img.filename);
-            const artifactName = name ? `${name}-${idx}` : img.filename;
 
             // Copy to deck storage
-            const localPath = await copyArtifactToDeck(img, runId);
-            const originalPath = path.join(
-              COMFY_OUTPUT_DIR,
-              img.subfolder ?? "",
-              img.filename
-            );
+            const copied = await copyArtifactToDeck(img, runId);
+            const originalPath = resolveComfyOutputPath(img) ?? undefined;
+            const storedFilename = copied?.filename ?? safeArtifactFilename(img.filename);
+            const url = copied ? artifactUrl(runId, copied.filename) : buildProxyUrl(img);
+            const artifactName = name ? `${name}-${idx}` : storedFilename;
 
             // Save to database
             createArtifact({
@@ -400,7 +408,7 @@ export async function executeComfyWorkflow(
               mimeType,
               name: artifactName,
               url,
-              localPath: localPath ?? undefined,
+              localPath: copied?.path,
               originalPath,
               meta: { promptId, filename: img.filename, subfolder: img.subfolder },
             });
@@ -418,7 +426,7 @@ export async function executeComfyWorkflow(
                 url,
                 name: artifactName,
                 originalPath,
-                localPath: localPath ?? undefined,
+                localPath: copied?.path,
                 meta: { promptId, filename: img.filename },
               }
             );

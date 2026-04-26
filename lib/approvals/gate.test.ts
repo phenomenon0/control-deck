@@ -116,6 +116,27 @@ describe("gateToolCall — policy decisions", () => {
     expect(dbState.created).toHaveLength(1);
   });
 
+  test("mode=side-effect gates dot-named live tools", async () => {
+    state.approval.defaultMode = "side-effect";
+    const liveTools = [
+      "live.play",
+      "live.set_track",
+      "live.apply_script",
+      "live.fx",
+      "live.load_sample",
+      "live.generate_sample",
+      "live.bpm",
+    ];
+
+    for (const toolName of liveTools) {
+      dbState.nextStatus = ["approved"];
+      const verdict = await gateToolCall({ toolName, toolArgs: {} });
+      expect(verdict.decision).toBe("approved");
+    }
+
+    expect(dbState.created.map((row) => row.toolName)).toEqual(liveTools);
+  });
+
   test("perTool override wins over default", async () => {
     state.approval.defaultMode = "never";
     state.approval.perTool = { execute_code: "ask" };

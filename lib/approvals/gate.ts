@@ -31,6 +31,7 @@ import {
 import { resolveSection } from "@/lib/settings/resolve";
 import type { ApprovalMode } from "@/lib/settings/schema";
 import { hub } from "@/lib/agui/hub";
+import type { ToolName } from "@/lib/tools/definitions";
 
 export interface GateOptions {
   toolName: string;
@@ -55,7 +56,7 @@ export interface GateVerdict {
  * mode gates exactly this set. Conservative by default — anything that
  * shells out, mutates the filesystem, or talks to native desktop is here.
  */
-const SIDE_EFFECT_TOOLS = new Set([
+const SIDE_EFFECT_TOOLS = new Set<ToolName>([
   "execute_code",
   "native_click",
   "native_type",
@@ -66,9 +67,13 @@ const SIDE_EFFECT_TOOLS = new Set([
   "native_focus",
   "vector_ingest",
   "vector_store",
-  "live_apply_script",
-  "live_load_sample",
-  "live_generate_sample",
+  "live.play",
+  "live.set_track",
+  "live.apply_script",
+  "live.fx",
+  "live.load_sample",
+  "live.generate_sample",
+  "live.bpm",
 ]);
 
 function randomId(prefix: string): string {
@@ -95,7 +100,7 @@ function shouldGate(
     case "cost":
       return (options.estimatedCostUsd ?? 0) >= costThreshold;
     case "side-effect":
-      return SIDE_EFFECT_TOOLS.has(options.toolName);
+      return SIDE_EFFECT_TOOLS.has(options.toolName as ToolName);
   }
 }
 

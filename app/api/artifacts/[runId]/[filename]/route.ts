@@ -5,8 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
 import * as path from "path";
-
-const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(process.cwd(), "data", "artifacts");
+import { resolveArtifactRequestPath, safeArtifactFilename } from "@/lib/storage/paths";
 
 // MIME type mapping
 const MIME_TYPES: Record<string, string> = {
@@ -23,20 +22,13 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ runId: string; filename: string }> }
 ) {
   const { runId, filename } = await params;
 
-  // Prevent path traversal: resolve the candidate path and assert it still
-  // lives under ARTIFACTS_DIR. Catches `..`, encoded variants Next already
-  // decoded, absolute paths, and symlink-style tricks in a single check.
-  const artifactsRoot = path.resolve(ARTIFACTS_DIR);
-  const filePath = path.resolve(artifactsRoot, runId, filename);
-  if (
-    filePath !== artifactsRoot &&
-    !filePath.startsWith(artifactsRoot + path.sep)
-  ) {
+  const filePath = resolveArtifactRequestPath(runId, filename);
+  if (!filePath) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   }
 
@@ -48,7 +40,8 @@ export async function GET(
     const data = await fs.readFile(filePath);
 
     // Determine MIME type
-    const ext = path.extname(filename).toLowerCase();
+    const displayName = safeArtifactFilename(filename);
+    const ext = path.extname(displayName).toLowerCase();
     const mimeType = MIME_TYPES[ext] || "application/octet-stream";
 
     // Return file
@@ -56,7 +49,7 @@ export async function GET(
       headers: {
         "Content-Type": mimeType,
         "Cache-Control": "public, max-age=31536000, immutable",
-        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Disposition": `inline; filename="${displayName}"`,
       },
     });
   } catch (error) {

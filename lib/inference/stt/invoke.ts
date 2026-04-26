@@ -7,6 +7,7 @@
 
 import type { InferenceProviderConfig } from "../types";
 import type { SttArgs, SttResult, SttWord } from "./types";
+import { QWEN_OMNI_PROVIDER_ID, qwenOmniSidecarUrl } from "../omni/local";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 const GROQ_BASE = "https://api.groq.com/openai/v1";
@@ -34,9 +35,71 @@ export async function invokeStt(
       return invokeCartesiaInk(config, args);
     case "assemblyai":
       return invokeAssemblyAi(config, args);
+    case QWEN_OMNI_PROVIDER_ID:
+      return invokeQwenOmniLocal(config, args);
     default:
       throw new Error(`stt provider not supported: ${providerId}`);
   }
+}
+
+async function invokeQwenOmniLocal(
+  config: InferenceProviderConfig,
+  args: SttArgs,
+): Promise<SttResult> {
+  const sidecarUrl =
+    (config.extras?.sidecarUrl as string | null | undefined) ?? qwenOmniSidecarUrl();
+  if (sidecarUrl) {
+    return invokeQwenOmniSidecarStt(sidecarUrl, args);
+  }
+  if (process.env.QWEN_OMNI_REQUIRE_RUNTIME === "1") {
+    throw new Error(
+      "qwen-omni-local: local generation runtime is required but no Omni sidecar is configured. Set OMNI_SIDECAR_URL or start a CUDA-capable runtime.",
+    );
+  }
+  const result = await invokeVoiceApi(
+    {
+      providerId: "voice-api",
+      baseURL: process.env.VOICE_API_URL ?? (config.extras?.fallbackBaseURL as string | undefined),
+    },
+    args,
+  );
+  return { ...result, providerId: QWEN_OMNI_PROVIDER_ID };
+}
+
+async function invokeQwenOmniSidecarStt(
+  baseURL: string,
+  args: SttArgs,
+): Promise<SttResult> {
+  const form = new FormData();
+  form.append("audio", args.audio, fileNameFor(args));
+  if (args.language) form.append("language", args.language);
+  if (args.timestamps) form.append("timestamps", "true");
+  const res = await fetch(`${baseURL.replace(/\/+$/, "")}/stt`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`qwen-omni-sidecar-stt ${res.status}: ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    text?: string;
+    transcription?: string;
+    language?: string;
+    duration?: number;
+    words?: Array<{ text?: string; word?: string; start: number; end: number }>;
+  };
+  const words: SttWord[] | undefined = data.words?.map((w) => ({
+    text: String(w.text ?? w.word ?? ""),
+    start: w.start,
+    end: w.end,
+  }));
+  return {
+    text: String(data.text ?? data.transcription ?? ""),
+    language: data.language,
+    duration: data.duration,
+    words,
+    providerId: QWEN_OMNI_PROVIDER_ID,
+  };
 }
 
 /** Existing VOICE_API_URL sidecar — preserves current behaviour. */

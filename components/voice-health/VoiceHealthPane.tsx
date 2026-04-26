@@ -7,7 +7,7 @@
  * recent issues) out of the Live tab so the main surface stays product-like.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 interface ProviderHealth {
   id: string;
@@ -30,6 +30,25 @@ interface RuntimeSnapshot {
     wsUrl: string | null;
     sidecar: "ok" | "unreachable" | "unknown";
   };
+  omni?: {
+    modelLabel: string;
+    modelDir: string;
+    ready: boolean;
+    installed: boolean;
+    generationReady: boolean;
+    cudaAvailable: boolean | null;
+    weightsBytes: number;
+    supportedModalities: string[];
+    issues: string[];
+    smokeCommand: string;
+    fullSmokeCommand: string;
+    sidecar?: {
+      configured: boolean;
+      baseURL: string | null;
+      reachable: boolean | null;
+      detail: string | null;
+    };
+  };
   providers: ProviderHealth[];
   recentSessions: Array<{
     id: string;
@@ -50,7 +69,7 @@ function Pill({
   children,
 }: {
   tone: "ok" | "warn" | "err" | "neutral";
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const color =
     tone === "ok"
@@ -140,6 +159,60 @@ export function VoiceHealthPane() {
             </div>
           </section>
 
+          {snapshot.omni ? (
+            <section className="card space-y-3">
+              <div>
+                <div className="label">End-to-end local model</div>
+                <h2 className="text-sm font-medium text-[var(--text-primary)]">
+                  {snapshot.omni.modelLabel}
+                </h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Pill tone={snapshot.omni.ready ? "ok" : snapshot.omni.installed ? "warn" : "err"}>
+                  snapshot · {snapshot.omni.ready ? "ready" : snapshot.omni.installed ? "incomplete" : "missing"}
+                </Pill>
+                <Pill tone={snapshot.omni.generationReady ? "ok" : "warn"}>
+                  generation · {snapshot.omni.generationReady ? "ready" : "needs CUDA/sidecar"}
+                </Pill>
+                {snapshot.omni.sidecar?.configured ? (
+                  <Pill tone={snapshot.omni.sidecar.reachable === true ? "ok" : snapshot.omni.sidecar.reachable === false ? "err" : "neutral"}>
+                    sidecar · {snapshot.omni.sidecar.reachable === true ? "reachable" : snapshot.omni.sidecar.reachable === false ? "unreachable" : "configured"}
+                  </Pill>
+                ) : (
+                  <Pill tone="neutral">sidecar · unset</Pill>
+                )}
+                <Pill tone="neutral">
+                  modes · {snapshot.omni.supportedModalities.map(labelForModality).join(", ")}
+                </Pill>
+                {snapshot.omni.weightsBytes > 0 ? (
+                  <Pill tone="neutral">weights · {formatGiB(snapshot.omni.weightsBytes)} GiB</Pill>
+                ) : null}
+              </div>
+              {snapshot.omni.sidecar?.configured && snapshot.omni.sidecar.baseURL ? (
+                <div className="text-xs text-[var(--text-muted)] break-all">
+                  sidecar URL · {snapshot.omni.sidecar.baseURL}
+                  {snapshot.omni.sidecar.detail ? ` · ${snapshot.omni.sidecar.detail}` : ""}
+                </div>
+              ) : (
+                <div className="text-xs text-[var(--text-muted)]">
+                  Set <code className="font-mono">OMNI_SIDECAR_URL</code> to a host running the Qwen Omni runtime so /api/voice/omni/respond can serve full local speech.
+                </div>
+              )}
+              <div className="text-xs text-[var(--text-muted)] break-all">
+                {snapshot.omni.modelDir}
+              </div>
+              {snapshot.omni.issues.length > 0 ? (
+                <div className="text-xs text-[var(--warning)]">
+                  {snapshot.omni.issues[0]}
+                </div>
+              ) : null}
+              <div className="grid gap-2 md:grid-cols-2 text-xs">
+                <code className="card-sub text-[var(--text-muted)]">{snapshot.omni.smokeCommand}</code>
+                <code className="card-sub text-[var(--text-muted)]">{snapshot.omni.fullSmokeCommand}</code>
+              </div>
+            </section>
+          ) : null}
+
           <section className="card space-y-3">
             <div>
               <div className="label">Transport</div>
@@ -210,4 +283,23 @@ export function VoiceHealthPane() {
       ) : null}
     </div>
   );
+}
+
+function labelForModality(id: string): string {
+  switch (id) {
+    case "stt":
+      return "STT";
+    case "tts":
+      return "TTS";
+    case "text":
+      return "Text";
+    case "vision":
+      return "Vision";
+    default:
+      return id;
+  }
+}
+
+function formatGiB(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(2);
 }

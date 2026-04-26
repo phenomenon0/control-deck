@@ -47,10 +47,10 @@ import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
+import { buildToolBridgeUrl } from "@/lib/tools/bridge-url";
 
 // Agent-GO server configuration
 const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
-const TOOL_BRIDGE_URL = process.env.TOOL_BRIDGE_URL ?? "http://localhost:3333/api/tools/bridge";
 
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
@@ -563,7 +563,7 @@ export async function POST(req: Request) {
       model: selectedModel,
       api_key: activeConfig.apiKey,
     },
-    tool_bridge_url: TOOL_BRIDGE_URL,
+    tool_bridge_url: buildToolBridgeUrl(req),
   };
 
   // Create SSE streaming response

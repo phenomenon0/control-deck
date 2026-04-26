@@ -61,6 +61,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # caches
 .eslintcache
 .cache
+.hf/
+models/
 *.tsbuildinfo
 target/
 **/src-tauri/gen/

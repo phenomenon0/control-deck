@@ -3,19 +3,25 @@
  *
  *   - Opens the mic via `getUserMedia` with the persisted `deviceId`.
  *   - Routes the stream into an AudioContext for analysis.
- *   - In phase 1 we keep the existing energy-threshold VAD so behavior is
- *     unchanged; phase 2 swaps in a Silero AudioWorklet via `attachVadWorklet`.
- *   - Emits `audioFrame` (raw Float32 mono frames) and `vad` events on a
- *     simple listener API. The session orchestrator subscribes; the React
- *     layer only sees `start()` / `stop()` / `getStream()` / `setDeviceId()`.
+ *   - Tries Silero VAD via `@ricky0123/vad-web` (AudioWorklet + onnxruntime-web)
+ *     first; falls back to an energy-threshold VAD on an AnalyserNode if the
+ *     worklet or ONNX assets fail to load (offline, no WASM, etc).
+ *   - Emits `audioFrame`, `vad`, `level`, and `error` events on a simple
+ *     listener API. The session orchestrator subscribes; the React layer only
+ *     sees `start()` / `stop()` / `getStream()` / `setDeviceId()`.
  *
  * No React in here.
  */
 
+import type { MicVAD as MicVADType } from "@ricky0123/vad-web";
+
 export type VadEvent =
   | { type: "speechStart"; at: number }
-  | { type: "speechEnd"; at: number; durationMs: number }
-  | { type: "speechProb"; prob: number; at: number };
+  | { type: "speechEnd"; at: number; durationMs: number; samples?: Float32Array }
+  | { type: "speechProb"; prob: number; at: number }
+  | { type: "misfire"; at: number };
+
+export type VadBackend = "silero" | "energy";
 
 export interface AgentInputOptions {
   inputDeviceId?: string | null;
@@ -25,6 +31,10 @@ export interface AgentInputOptions {
   silenceTimeoutMs?: number;
   /** Reuse an existing AudioContext (e.g. shared with AgentOutput). */
   audioContext?: AudioContext | null;
+  /** Override worklet/ONNX asset locations. Defaults to `/audio-worklets/`. */
+  vadAssetBasePath?: string;
+  /** Force a specific VAD backend (mostly for tests / debugging). */
+  forceVadBackend?: VadBackend;
 }
 
 export interface AgentInputEventMap {
@@ -32,14 +42,19 @@ export interface AgentInputEventMap {
   vad: VadEvent;
   level: { rms: number; at: number };
   error: { message: string };
+  vadBackendChanged: { backend: VadBackend };
 }
 
 type Listener<T> = (payload: T) => void;
+
+const DEFAULT_VAD_ASSET_PATH = "/audio-worklets/";
 
 export class AgentInput {
   private inputDeviceId: string | null;
   private silenceThreshold: number;
   private silenceTimeoutMs: number;
+  private vadAssetBasePath: string;
+  private forceVadBackend: VadBackend | null;
 
   private ownedCtx: AudioContext | null = null;
   private ctx: AudioContext | null;
@@ -52,6 +67,9 @@ export class AgentInput {
   private silenceStartAt: number | null = null;
   private speechStartAt: number | null = null;
 
+  private micVad: MicVADType | null = null;
+  private currentBackend: VadBackend | null = null;
+
   private listeners = new Map<keyof AgentInputEventMap, Set<Listener<unknown>>>();
 
   constructor(options: AgentInputOptions = {}) {
@@ -59,16 +77,23 @@ export class AgentInput {
     this.silenceThreshold = options.silenceThreshold ?? 0.01;
     this.silenceTimeoutMs = options.silenceTimeoutMs ?? 1500;
     this.ctx = options.audioContext ?? null;
+    this.vadAssetBasePath = options.vadAssetBasePath ?? DEFAULT_VAD_ASSET_PATH;
+    this.forceVadBackend = options.forceVadBackend ?? null;
   }
 
   setInputDevice(deviceId: string | null): void {
     this.inputDeviceId = deviceId;
   }
 
-  /** Tunables read by the energy VAD; phase 2 worklet ignores these. */
+  /** Tunables read by the energy VAD; the Silero path ignores these. */
   setVadParams(opts: { silenceThreshold?: number; silenceTimeoutMs?: number }): void {
     if (opts.silenceThreshold !== undefined) this.silenceThreshold = opts.silenceThreshold;
     if (opts.silenceTimeoutMs !== undefined) this.silenceTimeoutMs = opts.silenceTimeoutMs;
+  }
+
+  /** Which VAD is currently driving events. `null` until `start()` resolves. */
+  get vadBackend(): VadBackend | null {
+    return this.currentBackend;
   }
 
   /** Open mic + start emitting frames + VAD. Idempotent on a running input. */
@@ -98,24 +123,30 @@ export class AgentInput {
     }
     if (this.ctx.state === "suspended") await this.ctx.resume();
 
-    this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 256;
-    this.analyser.smoothingTimeConstant = 0.8;
+    if (this.forceVadBackend === "energy") {
+      this.startEnergyVad();
+      return;
+    }
 
-    this.source = this.ctx.createMediaStreamSource(stream);
-    this.source.connect(this.analyser);
-
-    this.hasSpoken = false;
-    this.silenceStartAt = null;
-    this.speechStartAt = null;
-    this.tickEnergyVad();
+    const sileroOk = await this.tryStartSileroVad(stream);
+    if (!sileroOk) {
+      this.startEnergyVad();
+    }
   }
 
-  /** Stop the mic, release tracks, stop monitoring. */
+  /** Stop the mic, release tracks, stop both VAD backends. */
   async stop(): Promise<void> {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
+    }
+    if (this.micVad) {
+      try {
+        await this.micVad.destroy();
+      } catch {
+        /* ignore */
+      }
+      this.micVad = null;
     }
     if (this.source) {
       try {
@@ -146,6 +177,7 @@ export class AgentInput {
       this.ownedCtx = null;
       this.ctx = null;
     }
+    this.currentBackend = null;
   }
 
   getStream(): MediaStream | null {
@@ -181,9 +213,80 @@ export class AgentInput {
   }
 
   /**
+   * Boot the Silero MicVAD via dynamic import. We share our already-acquired
+   * stream by passing a `getStream` that resolves to it. Returns false if the
+   * worklet/ONNX bundle fails to load — caller falls back to energy VAD.
+   */
+  private async tryStartSileroVad(stream: MediaStream): Promise<boolean> {
+    try {
+      const mod = await import("@ricky0123/vad-web");
+      const ctx = this.ctx ?? undefined;
+      const startedAt = { value: 0 };
+
+      const micVad = await mod.MicVAD.new({
+        model: "v5",
+        baseAssetPath: this.vadAssetBasePath,
+        onnxWASMBasePath: this.vadAssetBasePath,
+        audioContext: ctx,
+        getStream: async () => stream,
+        startOnLoad: false,
+        onSpeechStart: () => {
+          const now = performance.now();
+          startedAt.value = now;
+          this.emit("vad", { type: "speechStart", at: now });
+        },
+        onSpeechEnd: (samples: Float32Array) => {
+          const now = performance.now();
+          this.emit("audioFrame", { samples, sampleRate: 16000, at: now });
+          this.emit("vad", {
+            type: "speechEnd",
+            at: now,
+            durationMs: startedAt.value ? now - startedAt.value : 0,
+            samples,
+          });
+        },
+        onVADMisfire: () => {
+          this.emit("vad", { type: "misfire", at: performance.now() });
+        },
+        onFrameProcessed: (probs: { isSpeech: number; notSpeech: number }) => {
+          const now = performance.now();
+          this.emit("vad", { type: "speechProb", prob: probs.isSpeech, at: now });
+          this.emit("level", { rms: probs.isSpeech, at: now });
+        },
+      });
+
+      await micVad.start();
+      this.micVad = micVad;
+      this.currentBackend = "silero";
+      this.emit("vadBackendChanged", { backend: "silero" });
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("[AgentInput] Silero VAD unavailable, falling back to energy:", msg);
+      return false;
+    }
+  }
+
+  private startEnergyVad(): void {
+    if (!this.ctx || !this.stream) return;
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 256;
+    this.analyser.smoothingTimeConstant = 0.8;
+
+    this.source = this.ctx.createMediaStreamSource(this.stream);
+    this.source.connect(this.analyser);
+
+    this.hasSpoken = false;
+    this.silenceStartAt = null;
+    this.speechStartAt = null;
+    this.currentBackend = "energy";
+    this.emit("vadBackendChanged", { backend: "energy" });
+    this.tickEnergyVad();
+  }
+
+  /**
    * rAF loop that samples the AnalyserNode and emits `level` + energy-based
-   * VAD events. Phase 2 replaces this with the Silero worklet path; this
-   * method stays as the fallback when the worklet fails to load.
+   * VAD events. Active only when the Silero path failed to load.
    */
   private tickEnergyVad(): void {
     if (!this.analyser) return;

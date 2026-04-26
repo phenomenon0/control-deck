@@ -40,6 +40,12 @@ Endpoints:
         frames; server emits {type:"partial"|"final"|"error",text} text frames.
         Control text ops: {op:"flush"|"final"|"reset"}.
 
+    WS   /tts/stream?engine=<id>
+        Streaming TTS — client sends one or more text frames
+        {op:"speak", text, voice?, speed?}; server emits a {type:"start",
+        sampleRate} JSON frame followed by binary Int16 LE PCM chunks and a
+        {type:"end"} JSON frame per utterance. {op:"close"} terminates.
+
 Engines are lazy-loaded on first request. Optional imports are gracefully
 gated — a missing wheel reports `available: false` in /health rather than
 crashing. The `--tier` flag sets the default engine per modality so callers
@@ -452,6 +458,45 @@ def _stt_transcribe_pcm(eid: str, model: Any, pcm: bytes) -> str:
 
 
 # ---------------------------------------------------------------------------
+# TTS streaming helpers
+#
+# Kokoro doesn't expose a true token-level streaming API, but we can give the
+# client first-audio-out latency wins by splitting the input text into
+# sentences/phrases and emitting each chunk as soon as it's synthesised. The
+# wire payload is raw Int16 LE PCM — the client owns format conversion (the
+# AgentOutput AudioBuffer queue already takes Int16 PCM @ kokoro's native rate).
+
+_PHRASE_SPLIT_RE = None  # lazy-compiled
+
+def _split_for_tts(text: str) -> list[str]:
+    global _PHRASE_SPLIT_RE
+    import re
+    if _PHRASE_SPLIT_RE is None:
+        _PHRASE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+|(?<=[,;:])\s+|\n{2,}")
+    parts = [p.strip() for p in _PHRASE_SPLIT_RE.split(text or "") if p and p.strip()]
+    return parts or ([text.strip()] if text and text.strip() else [])
+
+
+def _kokoro_synth_pcm(model: Any, text: str, voice: str, speed: float) -> tuple[Any, int]:
+    """Return (Int16 numpy array, sample_rate) for one phrase. No WAV header."""
+    import numpy as np  # type: ignore
+    audio, sample_rate = model.create(
+        text,
+        voice=voice or "af_sky",
+        speed=float(speed or 1.0),
+        lang="en-us",
+    )
+    if not isinstance(audio, np.ndarray):
+        audio = np.asarray(audio, dtype="float32")
+    if audio.dtype != np.int16:
+        clipped = np.clip(audio, -1.0, 1.0)
+        pcm = (clipped * 32767.0).astype("int16")
+    else:
+        pcm = audio
+    return pcm, int(sample_rate)
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 
 def build_app(tier: str | None, model_root: Path) -> FastAPI:
@@ -736,6 +781,133 @@ def build_app(tier: str | None, model_root: Path) -> FastAPI:
             pass
         except Exception:  # noqa: BLE001
             LOG.exception("stt stream error")
+            try:
+                await ws.close()
+            except Exception:
+                pass
+
+    # -----------------------------------------------------------------------
+    # WS /tts/stream — streaming TTS.
+    #
+    # Protocol:
+    #   client → server (text frames):
+    #     {"op":"speak", "text": str, "voice"?: str, "speed"?: float,
+    #      "utteranceId"?: str}
+    #     {"op":"close"}
+    #   server → client:
+    #     {"type":"start", "utteranceId"?: str, "sampleRate": int}
+    #     binary frames: Int16 LE PCM at the engine's native rate
+    #     {"type":"end", "utteranceId"?: str}
+    #     {"type":"error", "error": str}
+    #
+    # One WS can carry many utterances; the client may send another `speak`
+    # before the previous one finishes — we serialise on the engine lock.
+    @app.websocket("/tts/stream")
+    async def tts_stream(ws: WebSocket) -> None:
+        await ws.accept()
+        eid = (ws.query_params.get("engine") or default_for("tts") or "").strip()
+
+        async def send_error(msg: str) -> None:
+            try:
+                await ws.send_text(json.dumps({"type": "error", "error": msg}))
+            except Exception:
+                pass
+
+        if not eid:
+            await send_error("engine required (no tier default set)")
+            await ws.close()
+            return
+        spec = ENGINES.get(eid)
+        if spec is None or spec.kind != "tts":
+            await send_error(f"unknown tts engine: {eid}")
+            await ws.close()
+            return
+        if not runtime.is_available(eid):
+            await send_error(
+                f"engine {eid} not available — install: {','.join(spec.optional_imports)}"
+            )
+            await ws.close()
+            return
+
+        try:
+            if eid == "kokoro-82m":
+                model = runtime.get_or_load(eid, lambda: _load_kokoro(spec, runtime))
+            elif eid == "orpheus-3b":
+                model = runtime.get_or_load(eid, lambda: _load_orpheus(spec, runtime))
+            else:
+                await send_error(f"engine not implemented: {eid}")
+                await ws.close()
+                return
+        except Exception as e:  # noqa: BLE001
+            LOG.exception("tts stream load failed for %s", eid)
+            await send_error(f"load {eid} failed: {e}")
+            await ws.close()
+            return
+
+        engine_lock = runtime._locks[eid]
+
+        async def synth_one(text: str, voice: str, speed: float) -> tuple[Any, int]:
+            import asyncio
+            def _do() -> tuple[Any, int]:
+                with engine_lock:
+                    if eid == "kokoro-82m":
+                        return _kokoro_synth_pcm(model, text, voice, speed)
+                    # Orpheus stub — return half a second of silence at 24 kHz.
+                    import numpy as np  # type: ignore
+                    return np.zeros(12000, dtype="int16"), 24000
+            return await asyncio.get_event_loop().run_in_executor(None, _do)
+
+        try:
+            while True:
+                msg = await ws.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+                text_frame = msg.get("text")
+                if not text_frame:
+                    continue
+                try:
+                    op_msg = json.loads(text_frame)
+                except Exception:
+                    continue
+                op = str(op_msg.get("op") or "")
+                if op == "close":
+                    break
+                if op != "speak":
+                    continue
+                text = str(op_msg.get("text") or "").strip()
+                if not text:
+                    continue
+                voice = str(op_msg.get("voice") or "")
+                speed = float(op_msg.get("speed") or 1.0)
+                utterance_id = op_msg.get("utteranceId")
+                phrases = _split_for_tts(text)
+
+                # Synthesise the first phrase before announcing `start` so we
+                # know the sample rate. Subsequent phrases reuse the same
+                # rate (Kokoro is stable across calls).
+                first_pcm, sr = await synth_one(phrases[0], voice, speed)
+                start_payload: dict[str, Any] = {"type": "start", "sampleRate": sr}
+                if utterance_id is not None:
+                    start_payload["utteranceId"] = utterance_id
+                await ws.send_text(json.dumps(start_payload))
+                await ws.send_bytes(first_pcm.tobytes())
+
+                for phrase in phrases[1:]:
+                    try:
+                        pcm, _ = await synth_one(phrase, voice, speed)
+                    except Exception as e:  # noqa: BLE001
+                        await send_error(f"synth failed: {e}")
+                        continue
+                    await ws.send_bytes(pcm.tobytes())
+
+                end_payload: dict[str, Any] = {"type": "end"}
+                if utterance_id is not None:
+                    end_payload["utteranceId"] = utterance_id
+                await ws.send_text(json.dumps(end_payload))
+        except WebSocketDisconnect:
+            pass
+        except Exception:  # noqa: BLE001
+            LOG.exception("tts stream error")
             try:
                 await ws.close()
             except Exception:

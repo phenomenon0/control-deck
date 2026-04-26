@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useVoiceChat, type TTSEngine, type VoiceInputMode } from "@/lib/hooks/useVoiceChat";
 import { AudioLevelIndicator } from "@/components/chat/AudioLevelIndicator";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import Link from "next/link";
 
 const ENGINES: { id: TTSEngine; name: string; description: string }[] = [
@@ -15,6 +16,7 @@ export function VoicePane() {
   const [engine, setEngine] = useState<TTSEngine>("chatterbox");
   const [text, setText] = useState("");
   const [mode, setMode] = useState<VoiceInputMode>("push-to-talk");
+  const { prefs } = useDeckSettings();
 
   const {
     isListening,
@@ -33,6 +35,8 @@ export function VoicePane() {
     clearError,
   } = useVoiceChat({
     ttsEngine: engine,
+    inputDeviceId: prefs.voice.audioInputId ?? null,
+    outputDeviceId: prefs.voice.audioOutputId ?? null,
     onTranscript: (transcribedText) => {
       setText(transcribedText);
     },

@@ -26,6 +26,13 @@ export interface VoicePrefs {
   ttsEngine: TTSEngine;
   silenceTimeoutMs: number;
   silenceThreshold: number;
+  /**
+   * `MediaDeviceInfo.deviceId` for the mic / speaker the user picked in
+   * Settings → Voice. Empty/undefined means use the system default.
+   * The IDs are stable per origin until the user clears site data.
+   */
+  audioInputId?: string | null;
+  audioOutputId?: string | null;
 }
 
 export interface DeckPrefs {
@@ -99,6 +106,8 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
   ttsEngine: "piper",
   silenceTimeoutMs: 1200,
   silenceThreshold: 0.14,
+  audioInputId: null,
+  audioOutputId: null,
 };
 
 const DEFAULT_PREFS: DeckPrefs = {

@@ -8,3 +8,4 @@ export {
 } from "./DeckSettingsProvider";
 
 export { SettingsDrawer } from "./SettingsDrawer";
+export { AudioDevicePicker } from "./AudioDevicePicker";

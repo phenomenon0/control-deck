@@ -38,6 +38,18 @@ export interface UseVoiceChatOptions {
    * nested consumer (ChatSurface, VoiceModeSheet) doesn't open a second WS.
    */
   enabled?: boolean;
+  /**
+   * `MediaDeviceInfo.deviceId` for the mic. When set, getUserMedia is
+   * constrained to that device; when null/undefined the system default
+   * is used.
+   */
+  inputDeviceId?: string | null;
+  /**
+   * `MediaDeviceInfo.deviceId` for the speaker. When set, AudioContext
+   * output is routed through a hidden `<audio>` element with `setSinkId`
+   * applied; null/undefined uses `AudioContext.destination` directly.
+   */
+  outputDeviceId?: string | null;
 }
 
 export interface UseVoiceChatReturn {
@@ -136,6 +148,8 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     silenceTimeout = 1500,
     silenceThreshold = 0.01,
     enabled = true,
+    inputDeviceId = null,
+    outputDeviceId = null,
   } = options;
 
   // State
@@ -183,10 +197,63 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const unmountedRef = useRef(false);
   const audioContextInitializingRef = useRef(false);
 
+  // Output device routing — when an outputDeviceId is set we route the
+  // processor through a MediaStreamDestinationNode + hidden <audio> element
+  // so we can call setSinkId on it. Some browsers don't expose setSinkId on
+  // AudioContext directly, so this Media Element shim is the portable path.
+  const routedSinkRef = useRef<{
+    dest: MediaStreamAudioDestinationNode;
+    el: HTMLAudioElement;
+  } | null>(null);
+
+  const attachOutputSink = useCallback(
+    (deviceId: string | null) => {
+      const ctx = audioContextRef.current;
+      const proc = processorRef.current;
+      if (!ctx || !proc) return;
+      try {
+        proc.output.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+      if (routedSinkRef.current) {
+        try {
+          routedSinkRef.current.el.pause();
+          routedSinkRef.current.el.srcObject = null;
+        } catch {
+          /* ignore */
+        }
+        routedSinkRef.current = null;
+      }
+      if (!deviceId) {
+        proc.output.connect(ctx.destination);
+        return;
+      }
+      const dest = ctx.createMediaStreamDestination();
+      proc.output.connect(dest);
+      const el = new Audio();
+      el.srcObject = dest.stream;
+      el.autoplay = true;
+      const elWithSink = el as HTMLAudioElement & {
+        setSinkId?: (id: string) => Promise<void>;
+      };
+      if (typeof elWithSink.setSinkId === "function") {
+        elWithSink.setSinkId(deviceId).catch(() => {
+          /* fall back to default sink rather than going silent */
+        });
+      }
+      void el.play().catch(() => {
+        /* autoplay may fail until next user gesture */
+      });
+      routedSinkRef.current = { dest, el };
+    },
+    [],
+  );
+
   // Initialize audio context and preload fillers (with lock to prevent concurrent init)
   const initAudioContext = useCallback(async () => {
     if (audioContextRef.current) return audioContextRef.current;
-    
+
     // Wait if another init is in progress
     if (audioContextInitializingRef.current) {
       while (audioContextInitializingRef.current) {
@@ -194,14 +261,14 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       }
       return audioContextRef.current!;
     }
-    
+
     audioContextInitializingRef.current = true;
     try {
       audioContextRef.current = new AudioContext();
 
       // Create processor chain
       processorRef.current = await createAudioProcessor(audioContextRef.current);
-      processorRef.current.output.connect(audioContextRef.current.destination);
+      attachOutputSink(outputDeviceId);
 
       // Preload filler audio
       await Promise.all(
@@ -402,6 +469,13 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     checkVoiceApi();
     initAudioContext();
   }, [enabled, checkVoiceApi, initAudioContext]);
+
+  // Re-route output to the picked sink whenever the user changes it.
+  useEffect(() => {
+    if (!enabled) return;
+    if (!audioContextRef.current || !processorRef.current) return;
+    attachOutputSink(outputDeviceId);
+  }, [enabled, outputDeviceId, attachOutputSink]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -805,6 +879,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          deviceId: inputDeviceId ? { exact: inputDeviceId } : undefined,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,

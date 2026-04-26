@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback } from "react";
 import { useVoiceChat, type TTSEngine, type VoiceInputMode } from "@/lib/hooks/useVoiceChat";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { isEditableElement } from "@/lib/dom/editable";
 import { AudioLevelIndicator } from "./AudioLevelIndicator";
 
@@ -22,6 +23,7 @@ export function VoiceInput({
   onModeChange,
   className = "",
 }: VoiceInputProps) {
+  const { prefs } = useDeckSettings();
   const {
     isListening,
     isProcessingSTT,
@@ -34,6 +36,8 @@ export function VoiceInput({
     clearError,
   } = useVoiceChat({
     ttsEngine,
+    inputDeviceId: prefs.voice.audioInputId ?? null,
+    outputDeviceId: prefs.voice.audioOutputId ?? null,
     onAutoSend: onSend,
     silenceTimeout: 1500,
   });
@@ -233,6 +237,7 @@ export function VoiceInputCompact({
   mode,
   className = "",
 }: Omit<VoiceInputProps, "onModeChange">) {
+  const { prefs } = useDeckSettings();
   const {
     isListening,
     isProcessingSTT,
@@ -242,6 +247,8 @@ export function VoiceInputCompact({
     stopListening,
   } = useVoiceChat({
     ttsEngine,
+    inputDeviceId: prefs.voice.audioInputId ?? null,
+    outputDeviceId: prefs.voice.audioOutputId ?? null,
     onAutoSend: onSend,
     silenceTimeout: 1500,
   });

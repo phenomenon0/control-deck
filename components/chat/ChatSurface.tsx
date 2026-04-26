@@ -379,6 +379,8 @@ export default function ChatSurface() {
     ttsEngine: prefs.voice.ttsEngine,
     silenceTimeout: prefs.voice.silenceTimeoutMs,
     silenceThreshold: prefs.voice.silenceThreshold,
+    inputDeviceId: prefs.voice.audioInputId ?? null,
+    outputDeviceId: prefs.voice.audioOutputId ?? null,
     onTranscript: (text) => {
       if (prefs.voice.enabled) setInputValue(text);
     },

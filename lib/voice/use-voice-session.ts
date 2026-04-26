@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { useVoiceChat, type UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import {
   initialContext,
   reduceVoiceSession,
@@ -156,6 +157,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     initialContext,
   );
 
+  const { prefs, updateVoicePrefs } = useDeckSettings();
+  const inputDeviceId = prefs.voice.audioInputId ?? null;
+  const outputDeviceId = prefs.voice.audioOutputId ?? null;
+
   const voiceChat = useVoiceChat({
     onTranscript: (text) => {
       dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
@@ -164,6 +169,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       dispatchCtx({ type: "TRANSCRIPT_FINAL", text });
       onTranscriptFinal?.(text);
     },
+    inputDeviceId,
+    outputDeviceId,
   });
 
   // Bridge useVoiceChat booleans into state-machine events. Treat its booleans
@@ -250,21 +257,24 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     setPresetState(next);
   }, []);
 
-  // Voice + devices (persisted in memory for now; Task 8 wires to library)
+  // Voice id stays in-memory until Task 8 wires it to the library; device IDs
+  // are persisted via DeckSettings so they survive reloads and are shared
+  // across every voice surface.
   const [currentVoiceId, setCurrentVoiceIdState] = useState<string | null>(null);
-  const [currentDevices, setCurrentDevicesState] = useState<{
-    inputId: string | null;
-    outputId: string | null;
-  }>({ inputId: null, outputId: null });
+  const currentDevices = useMemo(
+    () => ({ inputId: inputDeviceId, outputId: outputDeviceId }),
+    [inputDeviceId, outputDeviceId],
+  );
 
   const setVoice = useCallback((id: string | null) => setCurrentVoiceIdState(id), []);
   const setDevices = useCallback(
-    (opts: { inputId?: string | null; outputId?: string | null }) =>
-      setCurrentDevicesState((prev) => ({
-        inputId: opts.inputId !== undefined ? opts.inputId : prev.inputId,
-        outputId: opts.outputId !== undefined ? opts.outputId : prev.outputId,
-      })),
-    [],
+    (opts: { inputId?: string | null; outputId?: string | null }) => {
+      const next: Partial<typeof prefs.voice> = {};
+      if (opts.inputId !== undefined) next.audioInputId = opts.inputId;
+      if (opts.outputId !== undefined) next.audioOutputId = opts.outputId;
+      if (Object.keys(next).length > 0) updateVoicePrefs(next);
+    },
+    [updateVoicePrefs],
   );
 
   // Latency — hook observes state transitions to derive per-turn timing.

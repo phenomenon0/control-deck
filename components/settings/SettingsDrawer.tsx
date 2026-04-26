@@ -9,6 +9,7 @@ import {
   type VoiceMode,
   type ChatSurface,
 } from "./DeckSettingsProvider";
+import { AudioDevicePicker } from "./AudioDevicePicker";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
 import { PROMPT_LIBRARY, matchPreset } from "@/lib/llm/promptLibrary";
 import {
@@ -532,6 +533,9 @@ export function SettingsDrawer() {
                   />
                 </SettingRow>
               )}
+
+              {/* Audio devices — mic input + speaker output */}
+              {prefs.voice.enabled && <AudioDevicePicker />}
             </div>
           </section>
 

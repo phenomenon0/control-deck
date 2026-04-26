@@ -122,7 +122,10 @@ ENGINES: dict[str, EngineSpec] = {
     "kokoro-82m": EngineSpec(
         id="kokoro-82m",
         kind="tts",
-        hf_repo="hexgrad/Kokoro-82M",
+        # The original `hexgrad/Kokoro-82M` repo only ships PyTorch weights;
+        # `kokoro_onnx.Kokoro(model_path, voices_path)` needs the ONNX runtime
+        # build that the onnx-community fork mirrors.
+        hf_repo="onnx-community/Kokoro-82M-v1.0-ONNX",
         optional_imports=("kokoro_onnx",),
         label="Kokoro 82M",
     ),
@@ -291,9 +294,14 @@ def _kokoro_synthesize(model: Any, text: str, voice: str, speed: float) -> tuple
 
 
 def _load_moonshine(spec: EngineSpec, runtime: EngineRuntime) -> Any:
-    import moonshine_onnx  # type: ignore
+    # useful-moonshine-onnx exposes `MoonshineOnnxModel(model_name=...)` and
+    # downloads weights into its own cache the first time. The `target` dir is
+    # only used when the user has pre-pulled via /pull (HF snapshot_download).
+    from moonshine_onnx import MoonshineOnnxModel  # type: ignore
     target = runtime.model_root / spec.id
-    return moonshine_onnx.load_model(str(target))
+    if any(target.rglob("*.onnx")):
+        return MoonshineOnnxModel(models_dir=str(target))
+    return MoonshineOnnxModel(model_name="moonshine/tiny")
 
 
 def _moonshine_transcribe(model: Any, audio_bytes: bytes) -> dict[str, Any]:
@@ -303,11 +311,15 @@ def _moonshine_transcribe(model: Any, audio_bytes: bytes) -> dict[str, Any]:
     if data.ndim == 2:
         data = data.mean(axis=1)
     if sr != 16000:
-        # Cheap linear resample — Moonshine expects 16k.
         x = np.linspace(0, len(data), int(len(data) * 16000 / sr))
         idx = np.clip(x.astype(int), 0, len(data) - 1)
         data = data[idx]
-    text = model.transcribe(data)
+    # MoonshineOnnxModel.generate expects a 2-D batch tensor [batch, samples]
+    # and returns a list of token-id arrays. We decode via load_tokenizer.
+    tokens = model.generate(data[None, :].astype("float32"))
+    from moonshine_onnx import load_tokenizer  # type: ignore
+    tokenizer = load_tokenizer()
+    text = tokenizer.decode_batch(tokens)[0] if tokens is not None else ""
     return {"text": text, "duration": len(data) / 16000.0}
 
 
@@ -422,7 +434,10 @@ def _stt_transcribe_pcm(eid: str, model: Any, pcm: bytes) -> str:
         return ""
     audio = _pcm16_bytes_to_float32(pcm)
     if eid == "moonshine-tiny":
-        text = model.transcribe(audio)
+        from moonshine_onnx import load_tokenizer  # type: ignore
+        tokens = model.generate(audio[None, :].astype("float32"))
+        tokenizer = load_tokenizer()
+        text = tokenizer.decode_batch(tokens)[0] if tokens is not None else ""
         return str(text or "").strip()
     if eid == "whisper-large-v3-turbo-cpp":
         segs = model.transcribe(audio)

@@ -3,15 +3,18 @@
 /**
  * Voice session hook — the canonical runtime the UI talks to.
  *
- * Today this composes the existing `useVoiceChat` primitive (which still owns
- * mic, WebSocket, and playback) with the session state machine from
- * `session-machine.ts` and a route/latency overlay that fetches
- * `/api/voice/runtime`. Task 3 swaps the internals for real capture/playback/
- * transport hooks without changing this public API.
+ * Composes the existing `useVoiceChat` primitive (mic, WebSocket, playback)
+ * with the session state machine (`session-machine.ts`) and a route/latency
+ * overlay that fetches `/api/voice/runtime`. Phase 3 added the
+ * **conductor** layer: `runTurn(text)` orchestrates a full assistant turn —
+ * POST `/api/chat`, stream the response, split into phrases, queue TTS,
+ * await drain. Tool/artifact events from the agentic SSE stream are also
+ * consumed here so any voice surface can read `tools` and `turns`.
  *
- * Every voice surface (Live tab, fullscreen VoiceModeSheet, inline chat mic)
- * should consume this hook instead of calling `useVoiceChat` directly. Sharing
- * a single session means a single WebSocket, one transcript, one state.
+ * Every voice surface (Live tab, fullscreen VoiceModeSheet, inline chat
+ * mic) should consume this hook instead of calling `useVoiceChat` directly.
+ * Sharing a single session means a single WebSocket, one transcript, one
+ * state, one turn-buffer.
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -26,7 +29,15 @@ import {
   type VoiceSessionEvent,
   type VoiceSessionState,
 } from "@/lib/voice/session-machine";
+import {
+  cleanResponseForDisplay,
+  cleanResponseForSpeech,
+  createPhraseSplitter,
+  getToolStartMessage,
+} from "@/lib/voice/conductor";
+import { SpeechHandle } from "@/lib/voice/speech-handle";
 import type { VoiceRoutePreset } from "@/lib/voice/resolve-voice-route";
+import type { Artifact } from "@/lib/types/chat";
 
 export interface VoiceRuntimeSnapshot {
   route: {
@@ -53,6 +64,29 @@ export interface VoiceTurnLatency {
   firstAudioMs?: number;
 }
 
+export type VoiceTurnRole = "user" | "assistant" | "system";
+
+export interface VoiceTurnEntry {
+  id: string;
+  role: VoiceTurnRole;
+  content: string;
+  isStreaming?: boolean;
+  artifacts?: Artifact[];
+}
+
+export interface VoiceToolState {
+  isRunning: boolean;
+  currentToolName: string | null;
+  artifacts: Artifact[];
+}
+
+export interface RunTurnOptions {
+  threadId: string;
+  model: string;
+  /** Called once the assistant turn finishes streaming. */
+  onComplete?: (userText: string, assistantText: string) => void;
+}
+
 export interface VoiceSessionApi {
   state: VoiceSessionState;
   stateLabel: string;
@@ -72,6 +106,10 @@ export interface VoiceSessionApi {
   currentVoiceId: string | null;
   currentDevices: { inputId: string | null; outputId: string | null };
 
+  /** Conductor turn buffer + tool state. */
+  turns: VoiceTurnEntry[];
+  tools: VoiceToolState;
+
   setRoute(preset: VoiceRoutePreset): void;
   setVoice(voiceId: string | null): void;
   setDevices(opts: { inputId?: string | null; outputId?: string | null }): void;
@@ -81,7 +119,19 @@ export interface VoiceSessionApi {
   interrupt(): Promise<void>;
   reset(): void;
 
-  /** Escape hatch for read-aloud and speak-on-submit paths that still drive TTS directly. */
+  /**
+   * Run one assistant turn end-to-end: POST /api/chat → stream → phrase-split
+   * → queue TTS → await speech drain. Calling `interrupt()` mid-flight
+   * aborts the fetch and drains the TTS queue.
+   */
+  runTurn(text: string, opts: RunTurnOptions): Promise<void>;
+
+  /** Subscribe to agentic tool events on a thread. Returns an unsubscribe. */
+  attachThread(threadId: string): () => void;
+
+  clearTurns(): void;
+
+  /** Escape hatch for read-aloud and speak-on-submit paths. */
   speak(text: string): Promise<void>;
   queueSpeech(text: string): void;
   stopSpeaking(): void;
@@ -242,6 +292,195 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     }
   }, [ctx.state]);
 
+  // ------- Conductor: turn buffer + tool state + runTurn orchestrator -------
+
+  const [turns, setTurns] = useState<VoiceTurnEntry[]>([]);
+  const [tools, setTools] = useState<VoiceToolState>({
+    isRunning: false,
+    currentToolName: null,
+    artifacts: [],
+  });
+  const conversationRef = useRef<Array<{ role: string; content: string }>>([]);
+  const speechHandleRef = useRef<SpeechHandle | null>(null);
+  const turnSeqRef = useRef(0);
+
+  const clearTurns = useCallback(() => {
+    setTurns([]);
+    setTools({ isRunning: false, currentToolName: null, artifacts: [] });
+    conversationRef.current = [];
+  }, []);
+
+  const attachThread = useCallback((threadId: string) => {
+    if (typeof window === "undefined" || !threadId) return () => {};
+    const eventSource = new EventSource(`/api/agui/stream?threadId=${threadId}`);
+    eventSource.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        if (event.type === "ToolCallStart") {
+          setTools((prev) => ({
+            ...prev,
+            isRunning: true,
+            currentToolName: event.toolName,
+          }));
+          const toolMsg = getToolStartMessage(event.toolName);
+          if (toolMsg) {
+            setTurns((prev) => [
+              ...prev,
+              { id: `tool-${event.toolCallId}`, role: "system", content: toolMsg },
+            ]);
+          }
+        }
+        if (event.type === "ToolCallResult") {
+          setTools((prev) => ({ ...prev, isRunning: false, currentToolName: null }));
+        }
+        if (event.type === "ArtifactCreated") {
+          const artifact: Artifact = {
+            id: event.artifactId,
+            url: event.url,
+            name: event.name,
+            mimeType: event.mimeType,
+          };
+          setTools((prev) => ({ ...prev, artifacts: [...prev.artifacts, artifact] }));
+        }
+      } catch (err) {
+        console.warn("[useVoiceSession] Failed to parse SSE event:", err);
+      }
+    };
+    eventSource.onerror = () => {
+      // EventSource auto-reconnects; nothing to do here.
+    };
+    return () => eventSource.close();
+  }, []);
+
+  const runTurn = useCallback(
+    async (text: string, opts: RunTurnOptions) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      // Drop any in-flight turn before starting a new one.
+      speechHandleRef.current?.interrupt("new-turn");
+
+      const handle = new SpeechHandle(turnSeqRef.current++);
+      speechHandleRef.current = handle;
+
+      voiceChat.playFiller();
+
+      const userId = `user-${Date.now()}`;
+      const assistantId = `assistant-${Date.now()}`;
+      setTurns((prev) => [
+        ...prev,
+        { id: userId, role: "user", content: trimmed },
+        { id: assistantId, role: "assistant", content: "", isStreaming: true },
+      ]);
+      conversationRef.current.push({ role: "user", content: trimmed });
+
+      let fullResponse = "";
+      const splitter = createPhraseSplitter();
+      const flushQueued = (chunk: string) => {
+        for (const phrase of splitter.push(chunk)) {
+          const speakable = cleanResponseForSpeech(phrase);
+          if (speakable) voiceChat.queueSpeech(speakable);
+        }
+      };
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: conversationRef.current,
+            model: opts.model,
+            threadId: opts.threadId,
+          }),
+          signal: handle.chatAbort.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`Chat API error: ${response.status}`);
+        }
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response body");
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (handle.state === "interrupted") {
+            try {
+              await reader.cancel();
+            } catch {
+              /* ignore */
+            }
+            break;
+          }
+          const chunk = decoder.decode(value, { stream: true });
+          fullResponse += chunk;
+          flushQueued(chunk);
+          setTurns((prev) =>
+            prev.map((entry) =>
+              entry.id === assistantId
+                ? { ...entry, content: cleanResponseForDisplay(fullResponse) }
+                : entry,
+            ),
+          );
+        }
+
+        const tail = splitter.flush();
+        if (tail) {
+          const speakable = cleanResponseForSpeech(tail);
+          if (speakable) voiceChat.queueSpeech(speakable);
+        }
+
+        setTurns((prev) =>
+          prev.map((entry) =>
+            entry.id === assistantId
+              ? {
+                  ...entry,
+                  content: cleanResponseForDisplay(fullResponse),
+                  isStreaming: false,
+                }
+              : entry,
+          ),
+        );
+        conversationRef.current.push({ role: "assistant", content: fullResponse });
+        opts.onComplete?.(trimmed, fullResponse);
+
+        await voiceChat.waitForSpeechEnd();
+        handle.markDone();
+      } catch (err) {
+        if ((err as Error).name === "AbortError" || handle.state === "interrupted") {
+          // Mark assistant entry final with whatever we collected.
+          setTurns((prev) =>
+            prev.map((entry) =>
+              entry.id === assistantId
+                ? {
+                    ...entry,
+                    content: cleanResponseForDisplay(fullResponse),
+                    isStreaming: false,
+                  }
+                : entry,
+            ),
+          );
+          return;
+        }
+        console.error("[useVoiceSession] runTurn error:", err);
+        setTurns((prev) => [
+          ...prev,
+          {
+            id: `error-${Date.now()}`,
+            role: "system",
+            content: "Sorry, there was an error. Please try again.",
+          },
+        ]);
+        handle.markDone();
+      } finally {
+        if (speechHandleRef.current === handle) speechHandleRef.current = null;
+      }
+    },
+    [voiceChat],
+  );
+
+  // ------- Lifecycle controls -------
+
   const startListening = useCallback(async () => {
     if (!enabled) return;
     await voiceChat.startListening();
@@ -252,15 +491,22 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   }, [voiceChat]);
 
   const interrupt = useCallback(async () => {
+    speechHandleRef.current?.interrupt("user-interrupt");
+    speechHandleRef.current = null;
     dispatchCtx({ type: "INTERRUPT" });
     voiceChat.stopSpeaking();
     voiceChat.clearQueue();
   }, [voiceChat]);
 
   const reset = useCallback(() => {
+    speechHandleRef.current?.interrupt("reset");
+    speechHandleRef.current = null;
     dispatchCtx({ type: "RESET" });
     voiceChat.clearTranscript();
     voiceChat.clearError();
+    setTurns([]);
+    setTools({ isRunning: false, currentToolName: null, artifacts: [] });
+    conversationRef.current = [];
   }, [voiceChat]);
 
   return useMemo<VoiceSessionApi>(
@@ -283,6 +529,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       currentVoiceId,
       currentDevices,
 
+      turns,
+      tools,
+
       setRoute,
       setVoice,
       setDevices,
@@ -291,6 +540,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       stopListening,
       interrupt,
       reset,
+
+      runTurn,
+      attachThread,
+      clearTurns,
 
       speak: voiceChat.speak,
       queueSpeech: voiceChat.queueSpeech,
@@ -310,6 +563,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       latency,
       currentVoiceId,
       currentDevices,
+      turns,
+      tools,
       setRoute,
       setVoice,
       setDevices,
@@ -317,6 +572,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       stopListening,
       interrupt,
       reset,
+      runTurn,
+      attachThread,
+      clearTurns,
     ],
   );
 }

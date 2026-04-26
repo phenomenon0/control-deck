@@ -1,0 +1,25 @@
+{
+  "name": "@control-deck/agent-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local agent runtime — pi-agent-core wrapped in the Agent-GO HTTP/SSE wire contract.",
+  "main": "src/server/main.ts",
+  "scripts": {
+    "dev": "tsx src/server/main.ts",
+    "start": "tsx src/server/main.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.70.2",
+    "@mariozechner/pi-ai": "^0.70.2",
+    "@sinclair/typebox": "^0.34.0",
+    "better-sqlite3": "12.9.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

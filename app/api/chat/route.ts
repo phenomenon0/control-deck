@@ -48,9 +48,11 @@ import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
 import { buildToolBridgeUrl } from "@/lib/tools/bridge-url";
-
-// Agent-GO server configuration
-const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
+// Agent runtime selection. Default is the TS implementation (apps/agent-ts)
+// on :4244; set AGENT_RUNTIME=go (or USE_AGENT_GO=1) to pin the legacy Go
+// binary. URL resolution lives in `lib/agentgo/launcher.ts` so launch + chat
+// + approve/reject stay aligned.
+import { AGENTGO_URL } from "@/lib/agentgo/launcher";
 
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;

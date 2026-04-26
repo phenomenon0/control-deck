@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAgentRunId } from "@/lib/agui/db";
-
-const AGENTGO_URL = process.env.AGENTGO_URL ?? "http://localhost:4243";
+import { AGENTGO_URL } from "@/lib/agentgo/launcher";
 
 export async function POST(req: Request) {
   let body: { runId?: string; reason?: string };

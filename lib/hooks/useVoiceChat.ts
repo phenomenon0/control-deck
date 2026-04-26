@@ -50,6 +50,19 @@ export interface UseVoiceChatOptions {
    * applied; null/undefined uses `AudioContext.destination` directly.
    */
   outputDeviceId?: string | null;
+  /**
+   * Optional Float32 PCM passthrough — invoked once per ScriptProcessor
+   * frame (~4096 samples at the AudioContext's native sample rate) while
+   * the mic is open. Used by useVoiceSession to drive the streaming STT
+   * client without forking getUserMedia.
+   */
+  onMicFrame?: (frame: Float32Array, sampleRate: number) => void;
+  /**
+   * When true, the post-stop "blob → legacy WS STT" path is skipped. Set
+   * by useVoiceSession when streaming STT is active, since the streaming
+   * client emits the final transcript via its own protocol.
+   */
+  suppressBlobStt?: boolean;
 }
 
 export interface UseVoiceChatReturn {
@@ -150,6 +163,8 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     enabled = true,
     inputDeviceId = null,
     outputDeviceId = null,
+    onMicFrame,
+    suppressBlobStt = false,
   } = options;
 
   // State
@@ -173,6 +188,13 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const hasSpokenRef = useRef(false);
   const processorRef = useRef<{ input: GainNode; output: GainNode } | null>(null);
+  const micPcmNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const micPcmSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  // Stable ref so the audio callback always sees the latest onMicFrame.
+  const onMicFrameRef = useRef<typeof onMicFrame>(onMicFrame);
+  useEffect(() => {
+    onMicFrameRef.current = onMicFrame;
+  }, [onMicFrame]);
 
   // Audio queue system
   const audioQueueRef = useRef<AudioBuffer[]>([]);
@@ -771,6 +793,22 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       setIsListening(false);
       stopAudioLevelMonitoring();
 
+      // Tear down the streaming-STT passthrough first so its onaudioprocess
+      // doesn't fire after the stream is stopped.
+      if (micPcmNodeRef.current) {
+        try {
+          micPcmNodeRef.current.disconnect();
+        } catch { /* already disconnected */ }
+        micPcmNodeRef.current.onaudioprocess = null;
+        micPcmNodeRef.current = null;
+      }
+      if (micPcmSourceRef.current) {
+        try {
+          micPcmSourceRef.current.disconnect();
+        } catch { /* ignore */ }
+        micPcmSourceRef.current = null;
+      }
+
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -785,6 +823,14 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         mediaRecorderRef.current.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
           audioChunksRef.current = [];
+
+          // Streaming-STT path: parent emits the final transcript via the
+          // streaming client, so don't double-process the recorded blob.
+          if (suppressBlobStt) {
+            onListeningStopped?.();
+            resolve();
+            return;
+          }
 
           if (audioBlob.size < 1000) {
             setError("No audio recorded");
@@ -859,7 +905,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         mediaRecorderRef.current.stop();
       });
     },
-    [onTranscript, onAutoSend, onListeningStopped, stopAudioLevelMonitoring]
+    [onTranscript, onAutoSend, onListeningStopped, stopAudioLevelMonitoring, suppressBlobStt]
   );
 
   const startListening = useCallback(async () => {
@@ -897,6 +943,31 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
+
+      // Streaming-STT passthrough: when the parent supplies an `onMicFrame`
+      // callback we tap the same MediaStream via a ScriptProcessor and emit
+      // raw Float32 frames at the AudioContext's native sample rate. The
+      // StreamingSttClient downsamples to 16 kHz internally.
+      if (onMicFrameRef.current) {
+        const bufferSize = 4096;
+        const node = ctx.createScriptProcessor(bufferSize, 1, 1);
+        node.onaudioprocess = (event) => {
+          const cb = onMicFrameRef.current;
+          if (!cb) return;
+          const channel = event.inputBuffer.getChannelData(0);
+          // Copy because the underlying buffer is reused on the next callback.
+          cb(new Float32Array(channel), event.inputBuffer.sampleRate);
+        };
+        // ScriptProcessor only emits frames while connected to a destination;
+        // route through a muted gain so it doesn't add to the playback graph.
+        const sink = ctx.createGain();
+        sink.gain.value = 0;
+        source.connect(node);
+        node.connect(sink);
+        sink.connect(ctx.destination);
+        micPcmNodeRef.current = node;
+        micPcmSourceRef.current = source;
+      }
 
       // Set up MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {

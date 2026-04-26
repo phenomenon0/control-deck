@@ -37,6 +37,10 @@ import {
   getToolStartMessage,
 } from "@/lib/voice/conductor";
 import { SpeechHandle } from "@/lib/voice/speech-handle";
+import { StreamingTtsClient } from "@/lib/voice/streaming-tts";
+import { StreamingSttClient } from "@/lib/voice/streaming-stt";
+import { AgentOutput } from "@/lib/voice/audio-output";
+import { shouldRouteToVoiceEngines } from "@/lib/inference/voice-engines/sidecar-url";
 import type { VoiceRoutePreset } from "@/lib/voice/resolve-voice-route";
 import type { Artifact } from "@/lib/types/chat";
 
@@ -161,6 +165,45 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const inputDeviceId = prefs.voice.audioInputId ?? null;
   const outputDeviceId = prefs.voice.audioOutputId ?? null;
 
+  // Streaming STT lifecycle — one client per listening session, replaced
+  // on engine change. Constructed lazily inside the mic-frame callback so
+  // we don't open a WS until the user actually starts speaking.
+  const streamingSttRef = useRef<StreamingSttClient | null>(null);
+  const sttModelRef = useRef<string | null>(null);
+  const useStreamingSttRef = useRef(false);
+
+  const ensureStreamingSttClient = useCallback((): StreamingSttClient | null => {
+    if (!useStreamingSttRef.current) return null;
+    const model = sttModelRef.current;
+    if (!model) return null;
+    let client = streamingSttRef.current;
+    if (client) return client;
+    client = new StreamingSttClient({
+      engine: model,
+      onPartial: (text) => {
+        if (text) dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
+      },
+      onFinal: (text) => {
+        const trimmed = (text ?? "").trim();
+        if (!trimmed) return;
+        dispatchCtx({ type: "TRANSCRIPT_FINAL", text: trimmed });
+        onTranscriptFinal?.(trimmed);
+      },
+      onError: (err) => {
+        console.warn("[useVoiceSession] streaming stt error:", err);
+      },
+    });
+    streamingSttRef.current = client;
+    void client.connect();
+    return client;
+  }, [onTranscriptFinal]);
+
+  const handleMicFrame = useCallback((frame: Float32Array, sampleRate: number) => {
+    const client = ensureStreamingSttClient();
+    if (!client) return;
+    client.pushFloat32(frame, sampleRate);
+  }, [ensureStreamingSttClient]);
+
   const voiceChat = useVoiceChat({
     onTranscript: (text) => {
       dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
@@ -171,6 +214,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     },
     inputDeviceId,
     outputDeviceId,
+    onMicFrame: handleMicFrame,
+    suppressBlobStt: useStreamingSttRef.current,
   });
 
   // Bridge useVoiceChat booleans into state-machine events. Treat its booleans
@@ -194,12 +239,23 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         stateRef.current === "thinking" ||
         stateRef.current === "submitting";
       if (interruptible && speechHandleRef.current) {
-        speechHandleRef.current.interrupt("user-barge-in");
+        const handle = speechHandleRef.current;
+        handle.interrupt("user-barge-in");
         speechHandleRef.current = null;
+        streamingTtsRef.current?.close();
+        streamingTtsRef.current = null;
+        agentOutputRef.current?.interrupt(handle, "user-barge-in");
       }
+      // New utterance — reset the streaming STT buffer so partials don't
+      // bleed across turns.
+      streamingSttRef.current?.reset();
       dispatchCtx({ type: "MIC_REQUESTED" });
       dispatchCtx({ type: "MIC_GRANTED" });
     } else if (!voiceChat.isListening && prevIsListening.current) {
+      // End of utterance — ask the streaming STT to emit its final transcript.
+      // The blob-STT path is suppressed when streaming is active, so this is
+      // the only thing that produces TRANSCRIPT_FINAL.
+      streamingSttRef.current?.final();
       dispatchCtx({ type: "VOICE_ENDED" });
     }
     prevIsListening.current = voiceChat.isListening;
@@ -232,6 +288,21 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   // Route + transport snapshot
   const [runtime, setRuntime] = useState<VoiceRuntimeSnapshot | null>(null);
+
+  // Sync streaming-STT activation with the resolved runtime — voice-engines
+  // sidecar engines (kokoro/moonshine/etc) get the WS partial path; the
+  // legacy port-8000 engines stay on the blob-based MediaRecorder flow.
+  useEffect(() => {
+    const model = runtime?.route?.stt?.model ?? null;
+    const next = shouldRouteToVoiceEngines(model);
+    sttModelRef.current = model;
+    useStreamingSttRef.current = next;
+    if (!next && streamingSttRef.current) {
+      streamingSttRef.current.close();
+      streamingSttRef.current = null;
+    }
+  }, [runtime]);
+
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [preset, setPresetState] = useState<VoiceRoutePreset>(initialPreset ?? "local");
 
@@ -330,6 +401,30 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const speechHandleRef = useRef<SpeechHandle | null>(null);
   const turnSeqRef = useRef(0);
 
+  // Streaming TTS path (Phase 6) — only constructed when the active TTS model
+  // is served by the in-repo voice-engines sidecar (port 9101). For legacy
+  // sidecar engines (piper/xtts/chatterbox) we keep `voiceChat.queueSpeech`.
+  const agentOutputRef = useRef<AgentOutput | null>(null);
+  const streamingTtsRef = useRef<StreamingTtsClient | null>(null);
+
+  // Tear down streaming TTS / STT resources when the output device or the
+  // active engine changes (or on unmount).
+  useEffect(() => {
+    return () => {
+      streamingTtsRef.current?.close();
+      streamingTtsRef.current = null;
+      agentOutputRef.current?.stopAll();
+      agentOutputRef.current = null;
+      streamingSttRef.current?.close();
+      streamingSttRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Reroute the speaker when the user changes audio output.
+    void agentOutputRef.current?.setOutputDevice(outputDeviceId);
+  }, [outputDeviceId]);
+
   const clearTurns = useCallback(() => {
     setTurns([]);
     setTools({ isRunning: false, currentToolName: null, artifacts: [] });
@@ -389,6 +484,35 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       const handle = new SpeechHandle(turnSeqRef.current++);
       speechHandleRef.current = handle;
 
+      // Decide TTS lane for this turn. The legacy port-8000 sidecar speaks
+      // WAV-per-phrase; the new tier sidecar streams Int16 PCM so we can
+      // play the first chunk as soon as synthesis begins.
+      const ttsModel = runtime?.route?.tts?.model ?? null;
+      const useStreamingTts = shouldRouteToVoiceEngines(ttsModel);
+      let ttsClient: StreamingTtsClient | null = null;
+      if (useStreamingTts) {
+        // Lazily build (or rebuild) the AgentOutput so the post-processing
+        // graph + speaker-routing live across turns.
+        if (!agentOutputRef.current) {
+          agentOutputRef.current = new AgentOutput({ outputDeviceId });
+        }
+        const output = agentOutputRef.current;
+        // One client per turn keeps utteranceId scoping clean and gives us a
+        // simple `close()` on interrupt.
+        ttsClient = new StreamingTtsClient({
+          engine: ttsModel ?? undefined,
+          voice: currentVoiceId ?? undefined,
+          onChunk: ({ pcm, sampleRate }) => {
+            void output.playPcm16Chunk(handle, pcm, sampleRate);
+          },
+          onError: (err) => {
+            console.warn("[useVoiceSession] streaming tts error:", err);
+          },
+        });
+        streamingTtsRef.current?.close();
+        streamingTtsRef.current = ttsClient;
+      }
+
       voiceChat.playFiller();
 
       const userId = `user-${Date.now()}`;
@@ -401,11 +525,22 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       conversationRef.current.push({ role: "user", content: trimmed });
 
       let fullResponse = "";
+      let phraseSeq = 0;
       const splitter = createPhraseSplitter();
+      const speakPhrase = (speakable: string) => {
+        if (!speakable) return;
+        if (ttsClient) {
+          void ttsClient.speak({
+            text: speakable,
+            utteranceId: `${handle.id}-${phraseSeq++}`,
+          });
+        } else {
+          voiceChat.queueSpeech(speakable);
+        }
+      };
       const flushQueued = (chunk: string) => {
         for (const phrase of splitter.push(chunk)) {
-          const speakable = cleanResponseForSpeech(phrase);
-          if (speakable) voiceChat.queueSpeech(speakable);
+          speakPhrase(cleanResponseForSpeech(phrase));
         }
       };
 
@@ -451,10 +586,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         }
 
         const tail = splitter.flush();
-        if (tail) {
-          const speakable = cleanResponseForSpeech(tail);
-          if (speakable) voiceChat.queueSpeech(speakable);
-        }
+        if (tail) speakPhrase(cleanResponseForSpeech(tail));
 
         setTurns((prev) =>
           prev.map((entry) =>
@@ -470,7 +602,15 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         conversationRef.current.push({ role: "assistant", content: fullResponse });
         opts.onComplete?.(trimmed, fullResponse);
 
-        await voiceChat.waitForSpeechEnd();
+        if (ttsClient) {
+          // Streaming TTS path: nothing left to push, but the AgentOutput
+          // queue may still be draining. Close the WS so the sidecar releases
+          // its lock; AgentOutput keeps playing what's already queued.
+          ttsClient.close();
+          if (streamingTtsRef.current === ttsClient) streamingTtsRef.current = null;
+        } else {
+          await voiceChat.waitForSpeechEnd();
+        }
         handle.markDone();
       } catch (err) {
         if ((err as Error).name === "AbortError" || handle.state === "interrupted") {
@@ -517,9 +657,15 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   }, [voiceChat]);
 
   const interrupt = useCallback(async () => {
-    speechHandleRef.current?.interrupt("user-interrupt");
+    const handle = speechHandleRef.current;
+    handle?.interrupt("user-interrupt");
     speechHandleRef.current = null;
     dispatchCtx({ type: "INTERRUPT" });
+    // Tear down both lanes — only one is active per turn but harmless to do both.
+    streamingTtsRef.current?.close();
+    streamingTtsRef.current = null;
+    if (handle) agentOutputRef.current?.interrupt(handle, "user-interrupt");
+    else agentOutputRef.current?.stopAll();
     voiceChat.stopSpeaking();
     voiceChat.clearQueue();
   }, [voiceChat]);

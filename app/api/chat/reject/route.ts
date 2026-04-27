@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getAgentRunId } from "@/lib/agui/db";
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 export async function POST(req: Request) {
@@ -15,13 +14,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "runId required" }, { status: 400 });
   }
 
-  const agentRunId = getAgentRunId(runId);
-  if (!agentRunId) {
-    return NextResponse.json({ error: "run not found" }, { status: 404 });
-  }
-
+  // Canonical-runId path — see /api/chat/approve for context.
   try {
-    const res = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/reject`, {
+    const res = await fetch(`${AGENTGO_URL}/runs/${runId}/reject`, {
       method: "POST",
       headers: withAgentTsAuth({ "Content-Type": "application/json" }),
       body: JSON.stringify({ reason: body.reason }),

@@ -35,10 +35,8 @@ import {
   finishRun,
   errorRun,
   updateRunPreview,
-  setAgentRunId,
   saveEvent,
   saveMessage,
-  relinkArtifactRun,
   getThread,
   type MessageMetadata,
 } from "@/lib/agui/db";
@@ -94,10 +92,9 @@ interface AgentGOStartRunRequest {
   messages: AgentGOMessage[];
   thread_id: string;
   /**
-   * Canonical AG-UI run id. agent-ts honours it when present so all events
-   * downstream of /runs share the same id Next created here — replaces the
-   * legacy `setAgentRunId` reconciliation step (still kept as a fallback
-   * when older agent-ts builds ignore the field).
+   * Canonical AG-UI run id. agent-ts honours it so all events downstream
+   * of /runs share the same id Next created here. Replaces the legacy
+   * `setAgentRunId` reconciliation step removed in the cd47211 cleanup.
    */
   run_id?: string;
   workspace_root?: string;
@@ -290,17 +287,10 @@ function mapAndPublishEvent(
         name: event.name ?? "artifact",
         mimeType: event.mimeType ?? "application/octet-stream",
       });
-      // Relink the artifact's run_id to the AGUI runId so it matches
-      // the assistant message's runId when loading thread history
-      relinkArtifactRun({
-        artifactId,
-        aguiRunId: runId,
-        threadId,
-        toolCallId: event.toolCallId,
-        mimeType: event.mimeType,
-        name: event.name,
-        url: event.url,
-      });
+      // Artifact rows are inserted upstream (lib/tools/executor.ts via
+      // createArtifact, apps/agent-ts loop.ts via the bridge response)
+      // already keyed to the canonical AG-UI runId. The legacy
+      // relinkArtifactRun() reconciliation is no longer needed.
       break;
     }
 
@@ -586,7 +576,15 @@ export async function POST(req: Request) {
       const startData = await startResponse.json();
       agentRunId = startData.run_id;
       console.log(`[Chat] Agent-GO run started: ${agentRunId}`);
-      if (agentRunId) setAgentRunId(runId, agentRunId);
+      // Canonical-runId invariant: agent-ts must echo back the run_id we
+      // sent in agentRequest. A divergence here means an agent-ts build
+      // ignored req.run_id and allocated its own — the legacy reconcile
+      // path is gone, so this would silently break artifact/run linkage.
+      if (agentRunId && agentRunId !== runId) {
+        console.warn(
+          `[Chat] agent-ts run id divergence: deck=${runId} agent=${agentRunId}`,
+        );
+      }
 
       // Stream events from Agent-GO. Retry the initial connect; mid-stream
       // reconnect would need server seq coordination, so we accept that a

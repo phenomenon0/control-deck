@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getAgentRunId } from "@/lib/agui/db";
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 export async function POST(req: Request) {
@@ -15,13 +14,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "runId required" }, { status: 400 });
   }
 
-  const agentRunId = getAgentRunId(runId);
-  if (!agentRunId) {
-    return NextResponse.json({ error: "run not found" }, { status: 404 });
-  }
-
+  // Canonical-runId path: the deck and agent-ts share the same runId
+  // since cd47211, so we forward straight to agent-ts without the
+  // legacy getAgentRunId reconciliation lookup.
   try {
-    const res = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/approve`, {
+    const res = await fetch(`${AGENTGO_URL}/runs/${runId}/approve`, {
       method: "POST",
       headers: withAgentTsAuth({ "Content-Type": "application/json" }),
     });

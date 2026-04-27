@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorRun, getAgentRunId } from "@/lib/agui/db";
+import { errorRun } from "@/lib/agui/db";
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 /**
@@ -9,9 +9,8 @@ import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
  * interrupts mid-turn so agent-ts aborts the run instead of continuing
  * to spend tokens after the deck-side fetch has been torn down.
  *
- * The deck and agent-ts share the same runId in the modern path, so we
- * try the URL id first and fall back to the legacy agent_run_id mapping
- * for older agent-ts builds that still allocate their own.
+ * Canonical-runId path: deck and agent-ts share the same runId since
+ * cd47211, so the URL `runId` forwards straight to agent-ts.
  */
 export async function POST(
   _req: Request,
@@ -22,10 +21,8 @@ export async function POST(
     return NextResponse.json({ error: "runId required" }, { status: 400 });
   }
 
-  const agentRunId = getAgentRunId(runId) ?? runId;
-
   try {
-    const res = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/cancel`, {
+    const res = await fetch(`${AGENTGO_URL}/runs/${runId}/cancel`, {
       method: "POST",
       headers: withAgentTsAuth({ "Content-Type": "application/json" }),
     });

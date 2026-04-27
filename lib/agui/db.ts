@@ -396,11 +396,13 @@ export function updateRunPreview(id: string, preview: string): void {
   );
 }
 
+/** @deprecated Canonical runId since cd47211; remove with the next schema migration. */
 export function setAgentRunId(id: string, agentRunId: string): void {
   const db = getDb();
   db.prepare(`UPDATE runs SET agent_run_id = ? WHERE id = ?`).run(agentRunId, id);
 }
 
+/** @deprecated Canonical runId since cd47211; remove with the next schema migration. */
 export function getAgentRunId(id: string): string | null {
   const db = getDb();
   const row = db
@@ -531,6 +533,9 @@ export function createArtifact(input: CreateArtifactInput): void {
 /**
  * Relink an artifact's run_id so it matches the AGUI run (not Agent-GO's internal run).
  * If the artifact doesn't exist yet, insert a minimal record.
+ *
+ * @deprecated Canonical runId since cd47211; artifacts are now keyed to the
+ * canonical AG-UI runId at insertion time. Remove with the next schema migration.
  */
 export function relinkArtifactRun(opts: {
   artifactId: string;

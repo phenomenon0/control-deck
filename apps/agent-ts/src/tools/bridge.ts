@@ -2,7 +2,7 @@
  * Bridge tools — HTTP-POST callbacks to Control-Deck's `/api/tools/bridge`.
  *
  * The catalogue is discovered at run start from `/api/tools/catalog` so the
- * agent automatically picks up workspace_*, native_*, live.*, vector_*, plus
+ * agent automatically picks up workspace_*, native_*, vector_*, plus
  * the original media/code-exec set without redeploying agent-ts. Each tool's
  * `parameters` is the JSON Schema returned by the catalogue (cast to TSchema —
  * pi-ai forwards parameters opaquely to the LLM tool spec).

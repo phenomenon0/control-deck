@@ -15,4 +15,3 @@ export { ServiceStatusWidget } from "./ServiceStatusWidget";
 export { ModelFleetWidget } from "./ModelFleetWidget";
 export { QuickActionsWidget } from "./QuickActionsWidget";
 export { RecentActivityWidget } from "./RecentActivityWidget";
-export { LiveTransportWidget } from "./LiveTransportWidget";

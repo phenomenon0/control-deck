@@ -26,13 +26,6 @@ import type {
   VectorSearchArgs,
   VectorStoreArgs,
   VectorIngestArgs,
-  LivePlayArgs,
-  LiveSetTrackArgs,
-  LiveApplyScriptArgs,
-  LiveFxArgs,
-  LiveLoadSampleArgs,
-  LiveGenerateSampleArgs,
-  LiveBpmArgs,
 } from "./definitions";
 import { getNativeAdapter } from "./native";
 import { captureFailureEnvelope } from "./native/failure-envelope";
@@ -74,7 +67,6 @@ import { createEvent, type ArtifactCreated } from "@/lib/agui/events";
 import { hub } from "@/lib/agui/hub";
 import { executeCode as runCode } from "./code-exec";
 import { type DeckPayload, jsonPayload, smartEncode } from "@/lib/agui/payload";
-import { parseLiveScript } from "@/lib/live/script";
 import { artifactFilePath, artifactRunDir, artifactUrl } from "@/lib/storage/paths";
 import * as fs from "fs/promises";
 
@@ -98,13 +90,6 @@ const GLYPH_EXCLUDE_TOOLS = new Set([
   'image_to_3d',      // Artifact refs only
   'glyph_motif',      // SVG artifact
   'analyze_image',    // Text analysis
-  'live.play',        // Client-side dispatch
-  'live.set_track',   // Client-side dispatch
-  'live.apply_script', // Client-side dispatch
-  'live.fx',          // Client-side dispatch
-  'live.load_sample', // Client-side dispatch
-  'live.generate_sample', // Generates artifact, then client-side load
-  'live.bpm',         // Client-side dispatch
   'native_screen_grab', // Base64 PNG blob — nonsense to GLYPH-encode
 ]);
 
@@ -194,20 +179,6 @@ async function dispatchTool(
         return await executeVectorStore(tool.args);
       case "vector_ingest":
         return await executeVectorIngest(tool.args);
-      case "live.play":
-        return executeLivePlay(tool.args, ctx);
-      case "live.set_track":
-        return executeLiveSetTrack(tool.args, ctx);
-      case "live.apply_script":
-        return executeLiveApplyScript(tool.args, ctx);
-      case "live.fx":
-        return executeLiveFx(tool.args, ctx);
-      case "live.load_sample":
-        return await executeLiveLoadSample(tool.args, ctx);
-      case "live.generate_sample":
-        return await executeLiveGenerateSample(tool.args, ctx);
-      case "live.bpm":
-        return executeLiveBpm(tool.args, ctx);
       case "native_locate":
         return await executeNativeLocate(tool.args);
       case "native_click":
@@ -1048,211 +1019,6 @@ async function executeVectorIngest(
       error: errMsg,
     };
   }
-}
-
-function publishLiveEvent(
-  ctx: ExecutorContext,
-  toolName: string,
-  args: Record<string, unknown>,
-) {
-  const dispatchArgs = { ...args, _liveDispatch: true };
-  const startEvt = createEvent<import("@/lib/agui/events").ToolCallStart>(
-    "ToolCallStart", ctx.threadId, {
-      runId: ctx.runId,
-      toolCallId: ctx.toolCallId,
-      toolName,
-    },
-  );
-  saveEvent(startEvt);
-  hub.publish(ctx.threadId, startEvt);
-
-  const argsEvt = createEvent<import("@/lib/agui/events").ToolCallArgs>(
-    "ToolCallArgs", ctx.threadId, {
-      runId: ctx.runId,
-      toolCallId: ctx.toolCallId,
-      delta: JSON.stringify(dispatchArgs),
-      args: jsonPayload(dispatchArgs),
-    },
-  );
-  saveEvent(argsEvt);
-  hub.publish(ctx.threadId, argsEvt);
-}
-
-function executeLivePlay(
-  args: LivePlayArgs,
-  ctx: ExecutorContext,
-): ToolExecutionResult {
-  publishLiveEvent(ctx, "live.play", { action: args.action });
-  return { success: true, message: `Live transport: ${args.action}` };
-}
-
-function executeLiveSetTrack(
-  args: LiveSetTrackArgs,
-  ctx: ExecutorContext,
-): ToolExecutionResult {
-  publishLiveEvent(ctx, "live.set_track", {
-    track: args.track,
-    pattern: args.pattern,
-    ...(args.name && { name: args.name }),
-  });
-  return {
-    success: true,
-    message: `Set track ${args.track} pattern: ${args.pattern}${args.name ? ` (${args.name})` : ""}`,
-  };
-}
-
-function executeLiveApplyScript(
-  args: LiveApplyScriptArgs,
-  ctx: ExecutorContext,
-): ToolExecutionResult {
-  const parsed = parseLiveScript(args.script);
-  if (parsed.errors.length > 0) {
-    return {
-      success: false,
-      message: `Live script has errors: ${parsed.errors.join(" / ")}`,
-      error: parsed.errors.join(" / "),
-      data: {
-        errors: parsed.errors,
-      },
-    };
-  }
-
-  publishLiveEvent(ctx, "live.apply_script", {
-    script: args.script,
-    play: args.play ?? false,
-  });
-
-  return {
-    success: true,
-    message: `Applied live script: ${parsed.tracks.length} tracks, ${parsed.fxChains.length} FX chains, ${parsed.samples.length} sample intents`,
-    data: {
-      bpm: parsed.bpm,
-      tracks: parsed.tracks.length,
-      fxChains: parsed.fxChains.length,
-      samples: parsed.samples.map((sample) => ({
-        track: sample.track,
-        name: sample.name,
-        loader: sample.loader,
-        duration: sample.duration,
-      })),
-    },
-  };
-}
-
-function executeLiveFx(
-  args: LiveFxArgs,
-  ctx: ExecutorContext,
-): ToolExecutionResult {
-  if (args.action === "add" && !args.type) {
-    return { success: false, message: "Effect type is required when adding live FX", error: "Missing effect type" };
-  }
-  if (args.action === "remove" && args.index === undefined) {
-    return { success: false, message: "Effect index is required when removing live FX", error: "Missing effect index" };
-  }
-  publishLiveEvent(ctx, "live.fx", { ...args });
-  if (args.action === "add") {
-    return { success: true, message: `Added ${args.type} to track ${args.track}` };
-  }
-  return { success: true, message: `Removed effect ${args.index} from track ${args.track}` };
-}
-
-async function executeLiveLoadSample(
-  args: LiveLoadSampleArgs,
-  ctx: ExecutorContext,
-): Promise<ToolExecutionResult> {
-  const artifact = getArtifact(args.artifact_id);
-  if (!artifact) {
-    return {
-      success: false,
-      message: `Artifact not found: ${args.artifact_id}`,
-      error: "Artifact not found",
-    };
-  }
-  if (!artifact.mime_type.startsWith("audio/")) {
-    return {
-      success: false,
-      message: `Artifact is not audio: ${args.artifact_id}`,
-      error: "Artifact is not audio",
-    };
-  }
-  const url = artifact.url;
-  publishLiveEvent(ctx, "live.load_sample", {
-    track: args.track,
-    url,
-    ...(args.name && { name: args.name }),
-  });
-  return { success: true, message: `Loading sample into track ${args.track} from ${url}` };
-}
-
-async function executeLiveGenerateSample(
-  args: LiveGenerateSampleArgs,
-  ctx: ExecutorContext,
-): Promise<ToolExecutionResult> {
-  const loader = args.loader ?? "stable-audio";
-  const duration = args.duration ?? 8;
-  const seed = args.seed ?? Math.floor(Math.random() * 1_000_000_000);
-  const workflow = loadWorkflow(loader, {
-    prompt: args.prompt,
-    duration,
-    seed,
-  });
-
-  const result = await executeComfyWorkflow(
-    workflow,
-    `live_sample_t${args.track}_${Date.now()}`,
-    ctx,
-    loader,
-  );
-
-  if (result.status === "success" && result.artifacts?.length) {
-    const artifact = result.artifacts.find((item) => item.mimeType.startsWith("audio/")) ?? result.artifacts[0];
-    publishLiveEvent(ctx, "live.load_sample", {
-      track: args.track,
-      url: artifact.url,
-      ...(args.name && { name: args.name }),
-    });
-    return {
-      success: true,
-      message: `Generated and loaded ${loader} sample on track ${args.track}`,
-      artifacts: result.artifacts,
-      data: {
-        loader,
-        track: args.track,
-        artifactId: artifact.id,
-        seed,
-        duration,
-      },
-    };
-  }
-
-  if (result.status === "queued") {
-    return {
-      success: true,
-      message: `Queued ${loader} sample for track ${args.track}`,
-      data: {
-        loader,
-        track: args.track,
-        promptId: result.promptId,
-        note: result.note,
-        seed,
-        duration,
-      },
-    };
-  }
-
-  return {
-    success: false,
-    message: result.error ?? "Sample generation failed",
-    error: result.error,
-  };
-}
-
-function executeLiveBpm(
-  args: LiveBpmArgs,
-  ctx: ExecutorContext,
-): ToolExecutionResult {
-  publishLiveEvent(ctx, "live.bpm", { bpm: args.bpm });
-  return { success: true, message: `Set BPM to ${args.bpm}` };
 }
 
 /**

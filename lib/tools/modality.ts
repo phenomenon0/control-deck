@@ -19,7 +19,6 @@ export type ToolModality =
   | "embedding" // vector store/search/ingest
   | "code" // execute_code + friends
   | "native" // desktop automation
-  | "live" // music / live
   | "other";
 
 interface Rule {
@@ -29,7 +28,6 @@ interface Rule {
 
 const RULES: Rule[] = [
   { modality: "native", test: (n) => n.startsWith("native_") },
-  { modality: "live", test: (n) => n.startsWith("live_") },
   { modality: "embedding", test: (n) => n.startsWith("vector_") },
   { modality: "code", test: (n) => n === "execute_code" || n.startsWith("code_") },
   { modality: "vision", test: (n) => n === "analyze_image" },
@@ -54,7 +52,7 @@ export const MODALITY_LABEL: Record<ToolModality, string> = {
   text: "Text / web",
   vision: "Vision",
   "image-gen": "Image",
-  "audio-gen": "Audio",
+  "audio-gen": "Music/SFX",
   tts: "TTS",
   stt: "STT",
   "3d-gen": "3D",
@@ -62,7 +60,6 @@ export const MODALITY_LABEL: Record<ToolModality, string> = {
   embedding: "Embedding",
   code: "Code",
   native: "Native automation",
-  live: "Live music",
   other: "Other",
 };
 
@@ -79,6 +76,5 @@ export const MODALITY_ORDER: ToolModality[] = [
   "embedding",
   "code",
   "native",
-  "live",
   "other",
 ];

@@ -16,7 +16,6 @@ import {
   NewsWidget,
   SportsWidget,
   StocksWidget,
-  LiveTransportWidget,
 } from "@/components/widgets";
 
 export default function DeckPage() {
@@ -49,8 +48,6 @@ export default function DeckPage() {
         return <SportsWidget data={widgets.data.sports} isLoading={widgets.loading.sports} error={widgets.errors.sports} onRefresh={() => widgets.refresh("sports")} />;
       case "stocks":
         return <StocksWidget data={widgets.data.stocks} isLoading={widgets.loading.stocks} error={widgets.errors.stocks} onRefresh={() => widgets.refresh("stocks")} />;
-      case "live":
-        return <LiveTransportWidget />;
       default:
         return <div style={{ padding: 16, color: "var(--text-muted)" }}>Unknown widget: {widgetId}</div>;
     }
@@ -61,7 +58,7 @@ export default function DeckPage() {
       <header className="dashboard-head">
         <div className="label">Workspace</div>
         <h1>Control Deck</h1>
-        <p>System health, models, services, live transport, market data, and recent work in one operational view.</p>
+        <p>System health, models, services, market data, and recent work in one operational view.</p>
       </header>
       <DashboardGrid
         items={layout.items}

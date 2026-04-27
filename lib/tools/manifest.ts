@@ -152,15 +152,6 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
     timeoutMs: LONG_TIMEOUT_MS,
   },
 
-  // ── Live coding / audio engine — reversible at the engine layer
-  "live.play":            mkLive("low_write"),
-  "live.set_track":       mkLive("low_write"),
-  "live.apply_script":    mkLive("medium_write"),
-  "live.fx":              mkLive("low_write"),
-  "live.load_sample":     mkLive("low_write"),
-  "live.generate_sample": mkLive("medium_write"),
-  "live.bpm":             mkLive("low_write"),
-
   // ── Native automation (mouse / keyboard / window) — destructive surface for voice
   native_locate:          mkNativeRead(),
   native_tree:            mkNativeRead(),
@@ -191,18 +182,6 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
   workspace_list_panes:   { ...mkWorkspace("low_write"), risk: "read_only", sideEffect: "none" },
   workspace_pane_call:    mkWorkspace("medium_write"),
 };
-
-function mkLive(risk: RiskLevel): ToolManifestEntry {
-  return {
-    name: "live.*",
-    risk,
-    sideEffect: "reversible",
-    allowInVoice: true,
-    allowInMcp: true,
-    requiresApproval: risk === "medium_write",
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-  };
-}
 
 function mkNativeRead(): ToolManifestEntry {
   return {

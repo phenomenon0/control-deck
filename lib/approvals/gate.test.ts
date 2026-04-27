@@ -116,38 +116,6 @@ describe("gateToolCall — policy decisions", () => {
     expect(dbState.created).toHaveLength(1);
   });
 
-  test("mode=side-effect gates medium-write live tools but not low-write ones", async () => {
-    // The manifest classifies live.* tools by impact:
-    //   apply_script + generate_sample = medium_write (gated)
-    //   play / set_track / fx / load_sample / bpm = low_write (not gated)
-    // Previously the gate used a hardcoded over-aggressive list; now it
-    // delegates to the manifest so a single source of truth drives both
-    // the preflight policy and the runtime approval gate.
-    state.approval.defaultMode = "side-effect";
-    const gatedTools = ["live.apply_script", "live.generate_sample"];
-    const passthroughTools = [
-      "live.play",
-      "live.set_track",
-      "live.fx",
-      "live.load_sample",
-      "live.bpm",
-    ];
-
-    for (const toolName of gatedTools) {
-      dbState.nextStatus = ["approved"];
-      const verdict = await gateToolCall({ toolName, toolArgs: {} });
-      expect(verdict.decision).toBe("approved");
-    }
-    expect(dbState.created.map((row) => row.toolName)).toEqual(gatedTools);
-
-    for (const toolName of passthroughTools) {
-      const verdict = await gateToolCall({ toolName, toolArgs: {} });
-      expect(verdict.decision).toBe("approved");
-    }
-    // Passthrough tools should NOT have produced approval rows.
-    expect(dbState.created.map((row) => row.toolName)).toEqual(gatedTools);
-  });
-
   test("perTool override wins over default", async () => {
     state.approval.defaultMode = "never";
     state.approval.perTool = { execute_code: "ask" };

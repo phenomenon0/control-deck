@@ -1,16 +1,18 @@
 /**
  * Bridge tools — HTTP-POST callbacks to Control-Deck's `/api/tools/bridge`.
  *
- * Mirrors the bridge tool list in Agent-GO (`core/llm_client.go`):
- *   generate_image, edit_image, generate_audio, analyze_image, execute_code,
- *   image_to_3d, glyph_motif.
+ * The catalogue is discovered at run start from `/api/tools/catalog` so the
+ * agent automatically picks up workspace_*, native_*, live.*, vector_*, plus
+ * the original media/code-exec set without redeploying agent-ts. Each tool's
+ * `parameters` is the JSON Schema returned by the catalogue (cast to TSchema —
+ * pi-ai forwards parameters opaquely to the LLM tool spec).
  *
- * Each tool's `parameters` schema matches the JSON Schema Agent-GO ships to
- * the LLM. The actual server-side validation (Zod) lives in
- * `lib/tools/bridgeDispatch.ts`; we just pass args through.
+ * The dispatch contract is unchanged: POST {tool, args, ctx} → JSON response
+ * with success/message/artifacts/data. bridgeDispatch on the deck side runs
+ * the canonical Zod validation.
  */
 
-import { Type, type Static, type TSchema } from "typebox";
+import type { TSchema, Static } from "typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 
 interface BridgeArtifact {
@@ -28,115 +30,99 @@ interface BridgeResponse {
   error?: string;
 }
 
+interface CatalogTool {
+  name: string;
+  description: string;
+  parameters: unknown;
+}
+
+interface CatalogResponse {
+  tools?: CatalogTool[];
+}
+
 export interface BridgeContext {
+  /** Absolute URL of /api/tools/bridge (with bridge_token if needed). */
   bridgeUrl: string;
+  /** Absolute URL of /api/tools/catalog (auth via DECK_TOKEN header/query). */
+  catalogUrl?: string;
   threadId: string;
   runId: string;
 }
 
-type AnyTool = AgentTool<any, any>;
+type AnyTool = AgentTool<TSchema, unknown>;
 
-interface BridgeToolDef {
-  name: string;
-  label: string;
-  description: string;
-  schema: TSchema;
+const FALLBACK_SCHEMA: TSchema = {
+  type: "object",
+  properties: {},
+  additionalProperties: true,
+} as unknown as TSchema;
+
+/**
+ * Build the catalog URL from a known bridge URL by swapping the path.
+ * Lets callers pass only a bridge URL and still get a working catalog probe.
+ * Keeps `bridge_token` so middleware can reuse it as a catalog credential.
+ */
+export function deriveCatalogUrl(bridgeUrl: string): string {
+  try {
+    const u = new URL(bridgeUrl);
+    u.pathname = "/api/tools/catalog";
+    return u.toString();
+  } catch {
+    return bridgeUrl;
+  }
 }
 
-const BRIDGE_TOOL_DEFS: BridgeToolDef[] = [
-  {
-    name: "generate_image",
-    label: "Generate image",
-    description: "Generate an image from a text prompt.",
-    schema: Type.Object({
-      prompt: Type.String({ description: "Text description of the image to generate." }),
-      width: Type.Optional(Type.Integer({ description: "Image width in pixels (default 512).", default: 512 })),
-      height: Type.Optional(Type.Integer({ description: "Image height in pixels (default 512).", default: 512 })),
-      seed: Type.Optional(Type.Integer({ description: "Random seed for reproducibility." })),
-    }),
-  },
-  {
-    name: "edit_image",
-    label: "Edit image",
-    description: "Edit an existing image based on a natural-language instruction.",
-    schema: Type.Object({
-      image_id: Type.String({ description: "ID of the uploaded image to edit." }),
-      instruction: Type.String({ description: "Edit instruction." }),
-      seed: Type.Optional(Type.Integer({ description: "Random seed for reproducibility." })),
-    }),
-  },
-  {
-    name: "generate_audio",
-    label: "Generate audio",
-    description: "Generate audio from a text prompt.",
-    schema: Type.Object({
-      prompt: Type.String({ description: "Text description of the audio to generate." }),
-      duration: Type.Optional(Type.Integer({ description: "Duration seconds (default 10, max 30).", default: 10 })),
-      seed: Type.Optional(Type.Integer({ description: "Random seed for reproducibility." })),
-    }),
-  },
-  {
-    name: "analyze_image",
-    label: "Analyze image",
-    description: "Analyze an image and answer questions about it.",
-    schema: Type.Object({
-      image_id: Type.String({ description: "ID of the uploaded image to analyze." }),
-      question: Type.Optional(
-        Type.String({ description: "Question to answer (default: describe the image)." }),
-      ),
-    }),
-  },
-  {
-    name: "image_to_3d",
-    label: "Image → 3D",
-    description: "Convert a 2D image into a 3D mesh.",
-    schema: Type.Object({
-      image_id: Type.String({ description: "ID of the uploaded image to convert." }),
-      seed: Type.Optional(Type.Integer({ description: "Random seed for reproducibility." })),
-    }),
-  },
-  {
-    name: "glyph_motif",
-    label: "Glyph motif",
-    description: "Render a procedural glyph motif from a textual seed.",
-    schema: Type.Object({
-      prompt: Type.String({ description: "Glyph motif prompt." }),
-      seed: Type.Optional(Type.Integer({ description: "Random seed." })),
-    }),
-  },
-  {
-    name: "execute_code",
-    label: "Execute code",
-    description: "Execute code in a sandboxed environment (python, javascript, typescript, go, rust, bash).",
-    schema: Type.Object({
-      language: Type.String({ description: "Programming language." }),
-      code: Type.String({ description: "Source code to execute." }),
-      timeout: Type.Optional(
-        Type.Integer({ description: "Timeout in milliseconds (default 30000).", default: 30000 }),
-      ),
-    }),
-  },
-];
-
-export function bridgeTools(ctx: BridgeContext): AnyTool[] {
-  return BRIDGE_TOOL_DEFS.map((def) => buildBridgeTool(def, ctx) as AnyTool);
+/**
+ * Build the preflight URL by swapping the bridge path. The deck owns the
+ * canonical "may this tool run?" decision; agent-ts asks before executing.
+ */
+export function derivePreflightUrl(bridgeUrl: string): string {
+  try {
+    const u = new URL(bridgeUrl);
+    u.pathname = "/api/tools/preflight";
+    return u.toString();
+  } catch {
+    return bridgeUrl;
+  }
 }
 
-function buildBridgeTool(def: BridgeToolDef, ctx: BridgeContext) {
-  const schema = def.schema;
+export async function bridgeTools(ctx: BridgeContext): Promise<AnyTool[]> {
+  const catalogUrl = ctx.catalogUrl ?? deriveCatalogUrl(ctx.bridgeUrl);
+  let res: Response;
+  try {
+    res = await fetch(catalogUrl, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[agent-ts] bridge catalog fetch failed: ${msg}`);
+    return [];
+  }
+  if (!res.ok) {
+    console.warn(`[agent-ts] bridge catalog returned ${res.status}`);
+    return [];
+  }
+  const data = (await res.json().catch(() => ({}))) as CatalogResponse;
+  const tools = data.tools ?? [];
+  return tools.map((t) => buildBridgeTool(t, ctx));
+}
+
+function buildBridgeTool(meta: CatalogTool, ctx: BridgeContext): AnyTool {
+  const parameters = (meta.parameters as TSchema | undefined) ?? FALLBACK_SCHEMA;
   return {
-    name: def.name,
-    label: def.label,
-    description: def.description,
-    parameters: schema,
+    name: meta.name,
+    label: meta.name,
+    description: meta.description,
+    parameters,
     async execute(
       toolCallId: string,
-      args: Static<typeof schema>,
+      args: Static<TSchema>,
       signal?: AbortSignal,
     ): Promise<AgentToolResult<unknown>> {
       const body = {
-        tool: def.name,
-        args,
+        tool: meta.name,
+        args: args ?? {},
         ctx: {
           thread_id: ctx.threadId,
           run_id: ctx.runId,
@@ -154,7 +140,7 @@ function buildBridgeTool(def: BridgeToolDef, ctx: BridgeContext) {
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`bridge request failed (${def.name}): ${msg}`);
+        throw new Error(`bridge request failed (${meta.name}): ${msg}`);
       }
 
       const text = await res.text();
@@ -162,12 +148,14 @@ function buildBridgeTool(def: BridgeToolDef, ctx: BridgeContext) {
       try {
         parsed = JSON.parse(text) as BridgeResponse;
       } catch {
-        throw new Error(`bridge ${def.name} returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`);
+        throw new Error(
+          `bridge ${meta.name} returned non-JSON (status ${res.status}): ${text.slice(0, 200)}`,
+        );
       }
 
       if (!res.ok || !parsed.success) {
         const reason = parsed.error || `HTTP ${res.status}`;
-        throw new Error(`bridge ${def.name} failed: ${reason}`);
+        throw new Error(`bridge ${meta.name} failed: ${reason}`);
       }
 
       const lines: string[] = [];
@@ -179,12 +167,12 @@ function buildBridgeTool(def: BridgeToolDef, ctx: BridgeContext) {
           lines.push(`- ${art.name} (${art.mimeType}): ${art.url}`);
         }
       }
-      const out = lines.join("\n").trim() || `(${def.name} returned no message)`;
+      const out = lines.join("\n").trim() || `(${meta.name} returned no message)`;
 
       return {
         content: [{ type: "text", text: out }],
         details: {
-          tool: def.name,
+          tool: meta.name,
           artifacts: parsed.artifacts ?? [],
           data: parsed.data,
         },

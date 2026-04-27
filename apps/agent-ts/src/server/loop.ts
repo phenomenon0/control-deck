@@ -19,7 +19,8 @@ import { nowRFC3339 } from "../wire.js";
 import { resolveLLM } from "./llm.js";
 import { WorkspaceJail } from "../tools/jail.js";
 import { nativeTools } from "../tools/native.js";
-import { bridgeTools } from "../tools/bridge.js";
+import { bridgeTools, derivePreflightUrl } from "../tools/bridge.js";
+import { discoverMcpTools } from "../tools/mcp.js";
 import { readBootstrap } from "../context/bootstrap.js";
 import { skillsTools } from "../context/skills.js";
 import { domainSkillsTools } from "../context/domain-skills.js";
@@ -85,7 +86,9 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
       deps.bus.emit(handle.runId, ev);
     };
 
+    const resolveStartedAt = Date.now();
     const llm = await resolveLLM(req.llm);
+    const resolveMs = Date.now() - resolveStartedAt;
 
     emit("RunStarted", {
       model: llm.modelId,
@@ -95,21 +98,45 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
       },
     });
 
+    // Observability: which provider/model the run actually landed on plus
+    // how long resolution (catalog probe + key check) took. The deck UI
+    // surfaces this so traces have a cost-attributable model id and the
+    // user sees the concrete backend ("llama.cpp:Q4_K") not the abstract
+    // selector they typed.
+    emit("LLMResolved", {
+      provider: llm.model.provider,
+      modelId: llm.modelId,
+      label: llm.model.name,
+      local: isLocalBaseUrl(llm.baseUrl),
+      resolveMs,
+    });
+
     const messages = wireToPiMessages(req.messages, req.query, llm.model);
 
     const workspaceRoot = req.workspace_root ?? process.cwd();
     const jail = new WorkspaceJail(workspaceRoot);
-    const tools = [
-      ...nativeTools(jail),
-      ...skillsTools(jail),
-      ...domainSkillsTools(jail),
-      ...(req.tool_bridge_url
+    const [mcpToolsList, bridgeToolsList] = await Promise.all([
+      req.mcp_url
+        ? discoverMcpTools({
+            mcpUrl: req.mcp_url,
+            threadId: handle.threadId,
+            runId: handle.runId,
+          })
+        : Promise.resolve([]),
+      req.tool_bridge_url
         ? bridgeTools({
             bridgeUrl: req.tool_bridge_url,
             threadId: handle.threadId,
             runId: handle.runId,
           })
-        : []),
+        : Promise.resolve([]),
+    ]);
+    const tools = [
+      ...nativeTools(jail),
+      ...skillsTools(jail),
+      ...domainSkillsTools(jail),
+      ...bridgeToolsList,
+      ...mcpToolsList,
     ];
 
     const bootstrap = await readBootstrap(jail);
@@ -117,10 +144,17 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
       ? `${SYSTEM_PROMPT}\n\n${bootstrap.prefix}`
       : SYSTEM_PROMPT;
 
+    const bridgeToolNames = new Set(bridgeToolsList.map((t) => t.name));
+    const preflightUrl = req.tool_bridge_url
+      ? derivePreflightUrl(req.tool_bridge_url)
+      : undefined;
+
     const beforeToolCall = makeBeforeToolCall({
       broker: deps.broker,
       bus: deps.bus,
       handle,
+      preflightUrl,
+      bridgeToolNames,
     });
 
     const agent = new Agent({
@@ -243,8 +277,10 @@ function makeBeforeToolCall(args: {
   broker: ApprovalBroker;
   bus: EventBus;
   handle: RunHandle;
+  preflightUrl?: string;
+  bridgeToolNames?: Set<string>;
 }) {
-  const { broker, bus, handle } = args;
+  const { broker, bus, handle, preflightUrl, bridgeToolNames } = args;
   const { runId, threadId } = handle;
   return async (
     ctx: BeforeToolCallContext,
@@ -258,8 +294,34 @@ function makeBeforeToolCall(args: {
     }
 
     const toolName = ctx.toolCall.name;
-    const policy = approvalPolicy(toolName);
-    if (!policy.required) return undefined;
+
+    // For bridge tools, ask the deck first — it owns the canonical policy.
+    // Deck answers allow / approval_required / deny; we obey.
+    let deckRisk: RiskLevel | undefined;
+    let deckRequiresApproval = false;
+    const isBridgeTool = bridgeToolNames?.has(toolName) ?? false;
+    if (preflightUrl && isBridgeTool) {
+      const preflight = await runPreflight(
+        preflightUrl,
+        toolName,
+        ctx.args,
+        { threadId, runId, toolCallId: ctx.toolCall.id },
+        signal,
+      );
+      if (preflight.kind === "deny") {
+        return { block: true, reason: preflight.reason };
+      }
+      if (preflight.kind === "approval_required") {
+        deckRequiresApproval = true;
+        deckRisk = preflight.risk;
+      }
+      // allow → fall through; local agent-ts approval table is bypassed.
+    }
+
+    const localPolicy = approvalPolicy(toolName);
+    const requiresApproval = deckRequiresApproval || localPolicy.required;
+    if (!requiresApproval) return undefined;
+    const riskLevel: RiskLevel = deckRisk ?? localPolicy.riskLevel;
 
     const baseEvent = {
       threadId,
@@ -274,7 +336,7 @@ function makeBeforeToolCall(args: {
       toolCallId: ctx.toolCall.id,
       args: ctx.args,
       description: `Approval required for ${toolName}`,
-      riskLevel: policy.riskLevel,
+      riskLevel,
       signal,
     });
 
@@ -286,7 +348,7 @@ function makeBeforeToolCall(args: {
         approvalId: requestId,
         toolCallId: ctx.toolCall.id,
         toolName,
-        riskLevel: policy.riskLevel,
+        riskLevel,
         args: ctx.args,
       },
     });
@@ -323,6 +385,90 @@ function makeBeforeToolCall(args: {
       reason: outcome.reason ?? `${toolName} was denied by user`,
     };
   };
+}
+
+function isLocalBaseUrl(baseUrl: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[?::1\]?)(:\d+)?\b/i.test(baseUrl);
+}
+
+type PreflightResult =
+  | { kind: "allow" }
+  | { kind: "approval_required"; risk: RiskLevel; reason?: string }
+  | { kind: "deny"; reason: string };
+
+interface PreflightCtx {
+  threadId: string;
+  runId: string;
+  toolCallId: string;
+}
+
+/**
+ * Map the deck's policy risk strings to the local approval RiskLevel.
+ * The deck has six (read_only … dangerous); the broker only cares about
+ * the high vs medium split for UX surfacing.
+ */
+function mapDeckRisk(risk: string | undefined): RiskLevel {
+  if (risk === "dangerous" || risk === "sensitive") return "high";
+  return "medium";
+}
+
+async function runPreflight(
+  url: string,
+  toolName: string,
+  toolArgs: unknown,
+  ctx: PreflightCtx,
+  signal: AbortSignal | undefined,
+): Promise<PreflightResult> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool: toolName,
+        args: toolArgs ?? {},
+        ctx: {
+          thread_id: ctx.threadId,
+          run_id: ctx.runId,
+          tool_call_id: ctx.toolCallId,
+          source: "agent-ts",
+          modality: "text",
+        },
+      }),
+      signal,
+    });
+  } catch (err) {
+    // Fail open on network errors so the bridge re-decides at execute time.
+    // bridgeDispatch runs the same policy module — defence in depth.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[agent-ts] preflight ${toolName} request failed: ${msg}`);
+    return { kind: "allow" };
+  }
+  if (!res.ok) {
+    console.warn(`[agent-ts] preflight ${toolName} returned HTTP ${res.status}`);
+    return { kind: "allow" };
+  }
+  let body: { decision?: string; risk?: string; reason?: string };
+  try {
+    body = (await res.json()) as typeof body;
+  } catch {
+    console.warn(`[agent-ts] preflight ${toolName} returned non-JSON`);
+    return { kind: "allow" };
+  }
+  if (body.decision === "deny") {
+    return {
+      kind: "deny",
+      reason: body.reason ?? `tool '${toolName}' was denied by the deck`,
+    };
+  }
+  if (body.decision === "approval_required") {
+    return {
+      kind: "approval_required",
+      risk: mapDeckRisk(body.risk),
+      reason: body.reason,
+    };
+  }
+  return { kind: "allow" };
 }
 
 interface BridgeArtifact {

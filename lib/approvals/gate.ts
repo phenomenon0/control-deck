@@ -31,7 +31,7 @@ import {
 import { resolveSection } from "@/lib/settings/resolve";
 import type { ApprovalMode } from "@/lib/settings/schema";
 import { hub } from "@/lib/agui/hub";
-import type { ToolName } from "@/lib/tools/definitions";
+import { getManifest, hasManifestEntry } from "@/lib/tools/manifest";
 
 export interface GateOptions {
   toolName: string;
@@ -52,29 +52,28 @@ export interface GateVerdict {
 }
 
 /**
- * Tools whose effects are hard to roll back. The `side-effect` approval
- * mode gates exactly this set. Conservative by default — anything that
- * shells out, mutates the filesystem, or talks to native desktop is here.
+ * "Side-effect" gating delegates to the manifest's risk classification:
+ * anything strictly above `low_write` (i.e. medium_write, high_write,
+ * sensitive, dangerous) is treated as a side-effect tool. The manifest is
+ * the canonical risk table — see `lib/tools/manifest.ts`.
  */
-const SIDE_EFFECT_TOOLS = new Set<ToolName>([
-  "execute_code",
-  "native_click",
-  "native_type",
-  "native_key",
-  "native_screen_grab",
-  "native_focus_window",
-  "native_click_pixel",
-  "native_focus",
-  "vector_ingest",
-  "vector_store",
-  "live.play",
-  "live.set_track",
-  "live.apply_script",
-  "live.fx",
-  "live.load_sample",
-  "live.generate_sample",
-  "live.bpm",
-]);
+function isSideEffectTool(toolName: string): boolean {
+  // Tools without a manifest entry (e.g. agent-go native web_search) are
+  // not bridge-routed; the side-effect gate stays out of their way. The
+  // bridge re-decides via decideToolPolicy with the same fail-safe default.
+  if (!hasManifestEntry(toolName)) return false;
+  const m = getManifest(toolName);
+  if (m.requiresApproval) return true;
+  switch (m.risk) {
+    case "medium_write":
+    case "high_write":
+    case "sensitive":
+    case "dangerous":
+      return true;
+    default:
+      return false;
+  }
+}
 
 function randomId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 11)}`;
@@ -100,7 +99,7 @@ function shouldGate(
     case "cost":
       return (options.estimatedCostUsd ?? 0) >= costThreshold;
     case "side-effect":
-      return SIDE_EFFECT_TOOLS.has(options.toolName as ToolName);
+      return isSideEffectTool(options.toolName);
   }
 }
 

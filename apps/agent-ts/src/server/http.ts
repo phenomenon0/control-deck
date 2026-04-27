@@ -27,6 +27,29 @@ export interface HttpDeps {
     model: string;
     healthCheck: () => Promise<string>;
   };
+  /**
+   * Required token for non-/health routes. When unset, dev fall-through with
+   * a warning at startup. In production the entrypoint should fail closed.
+   */
+  authToken?: string;
+}
+
+/**
+ * Token check for non-/health routes. Mirrors DECK_TOKEN semantics:
+ *   - no token configured → permit (dev convenience).
+ *   - Authorization: Bearer <token> → permit.
+ *   - X-Agent-TS-Token: <token> → permit (for clients that can't set Authorization).
+ *   - ?token=<token> query param → permit (for SSE EventSource which can't set headers).
+ *   - anything else → 401.
+ */
+function checkToken(deps: HttpDeps, req: IncomingMessage, url: URL): boolean {
+  if (!deps.authToken) return true;
+  const auth = (req.headers["authorization"] ?? "") as string;
+  if (auth === `Bearer ${deps.authToken}`) return true;
+  const headerToken = req.headers["x-agent-ts-token"];
+  if (typeof headerToken === "string" && headerToken === deps.authToken) return true;
+  if (url.searchParams.get("token") === deps.authToken) return true;
+  return false;
 }
 
 export function createHandler(deps: HttpDeps) {
@@ -42,7 +65,15 @@ export function createHandler(deps: HttpDeps) {
     const path = url.pathname;
 
     try {
+      // /health is unauthenticated — the launcher polls it before the token
+      // is necessarily handed to the caller.
       if (path === "/health") return handleHealth(deps, res);
+
+      if (!checkToken(deps, req, url)) {
+        writeJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+
       if (path === "/runs" && req.method === "GET") return handleListRuns(deps, url, res);
       if (path === "/runs" && req.method === "POST") return await handleStartRun(deps, req, res);
 
@@ -55,6 +86,7 @@ export function createHandler(deps: HttpDeps) {
         if (sub === "/status") return handleRunStatus(deps, runId, res);
         if (sub === "/pause" && req.method === "POST") return handlePause(deps, runId, res);
         if (sub === "/resume" && req.method === "POST") return handleResume(deps, runId, res);
+        if (sub === "/cancel" && req.method === "POST") return handleCancel(deps, runId, res);
         if (sub === "/approve" && req.method === "POST")
           return await handleApprove(deps, runId, req, res);
         if (sub === "/reject" && req.method === "POST")
@@ -72,6 +104,8 @@ export function createHandler(deps: HttpDeps) {
     }
   };
 }
+
+export const __testHooks = { checkToken };
 
 function setCors(res: ServerResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -246,6 +280,18 @@ function handleResume(deps: HttpDeps, runId: string, res: ServerResponse) {
     run_id: runId,
     status: "queued",
     message: "Run queued for resumption",
+  });
+}
+
+function handleCancel(deps: HttpDeps, runId: string, res: ServerResponse) {
+  if (!deps.runs.cancel(runId)) {
+    writeJson(res, 404, { error: "run not found" });
+    return;
+  }
+  writeJson(res, 200, {
+    run_id: runId,
+    status: "cancelling",
+    message: "Run will abort at next step boundary",
   });
 }
 

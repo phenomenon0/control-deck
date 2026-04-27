@@ -7,6 +7,7 @@
  */
 
 import { BRIDGE_TOOLS, bridgeDispatch } from "@/lib/tools/bridgeDispatch";
+import { denyIfCrossOrigin } from "@/lib/security/originGuard";
 
 export { BRIDGE_TOOLS };
 
@@ -34,6 +35,13 @@ interface BridgeResponse {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  // Defense in depth: middleware enforces bridge_token, but a cross-origin
+  // browser request that has somehow learned the token still gets blocked
+  // here. agent-ts (the legitimate caller) does not send an Origin header
+  // from Node fetch, so it passes.
+  const denied = denyIfCrossOrigin(req);
+  if (denied) return denied;
+
   let body: BridgeRequest;
   try {
     body = await req.json();

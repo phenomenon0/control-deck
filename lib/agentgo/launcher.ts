@@ -34,6 +34,31 @@ export const AGENTGO_URL = USE_AGENT_TS
   ? (process.env.AGENT_TS_URL ?? process.env.AGENTGO_URL ?? AGENT_TS_DEFAULT_URL)
   : (process.env.AGENTGO_URL ?? AGENT_GO_DEFAULT_URL);
 
+/**
+ * The shared token Next uses to call agent-ts side-effect routes. agent-ts
+ * accepts either AGENT_TS_TOKEN or DECK_TOKEN as the auth source, so we look
+ * up the same precedence here. Returns "" when no token is configured —
+ * agent-ts falls through in dev when the token is absent.
+ */
+export function getAgentTsToken(): string {
+  return process.env.AGENT_TS_TOKEN ?? process.env.DECK_TOKEN ?? "";
+}
+
+/**
+ * Inject the agent-ts auth header into outbound requests when a token is
+ * configured. Safe to call when no token is set (returns the original headers
+ * untouched). Use for /runs, /runs/:id/approve, /reject, /pause, /resume,
+ * /cancel — anything except /health.
+ */
+export function withAgentTsAuth(headers: HeadersInit = {}): Headers {
+  const out = new Headers(headers);
+  const token = getAgentTsToken();
+  if (token && !out.has("Authorization") && !out.has("X-Agent-TS-Token")) {
+    out.set("Authorization", `Bearer ${token}`);
+  }
+  return out;
+}
+
 export const AGENTGO_DIR =
   process.env.AGENTGO_DIR ?? path.join(os.homedir(), "Documents", "Project", "Agent-GO");
 const AGENTGO_BINARY = "agentgo-server";
@@ -190,6 +215,11 @@ async function launchAgentTs(): Promise<LaunchResult> {
   }
 
   const port = process.env.AGENT_TS_PORT ?? process.env.AGENTGO_PORT ?? String(AGENT_TS_DEFAULT_PORT);
+  // Co-spawn with a known auth token so this process and the spawned child
+  // agree without an extra handshake. Default to DECK_TOKEN; agent-ts side
+  // accepts AGENT_TS_TOKEN OR DECK_TOKEN as the auth source.
+  const agentToken =
+    process.env.AGENT_TS_TOKEN ?? process.env.DECK_TOKEN ?? "";
   try {
     const child = spawn(cmd, argv, {
       cwd: REPO_ROOT,
@@ -199,6 +229,7 @@ async function launchAgentTs(): Promise<LaunchResult> {
         ...process.env,
         AGENTGO_PORT: port,
         AGENT_TS_PORT: port,
+        ...(agentToken ? { AGENT_TS_TOKEN: agentToken, DECK_TOKEN: agentToken } : {}),
       },
     });
     child.unref();

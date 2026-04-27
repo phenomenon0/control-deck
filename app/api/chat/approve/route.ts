@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAgentRunId } from "@/lib/agui/db";
-import { AGENTGO_URL } from "@/lib/agentgo/launcher";
+import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 export async function POST(req: Request) {
   let body: { runId?: string };
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
   try {
     const res = await fetch(`${AGENTGO_URL}/runs/${agentRunId}/approve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: withAgentTsAuth({ "Content-Type": "application/json" }),
     });
     const text = await res.text();
     return new NextResponse(text || "{}", {

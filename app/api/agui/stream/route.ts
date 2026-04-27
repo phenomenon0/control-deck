@@ -17,20 +17,26 @@ export async function GET(req: Request) {
         controller.enqueue(encoder.encode(data));
       };
 
-      // Subscribe to specific thread or all events
+      // Subscribe to specific thread or all events. Pass req.signal so the
+      // hub auto-removes the listener if the SSE consumer disconnects —
+      // avoids leaks when the client drops without a clean unsubscribe.
       const unsubscribe = threadId
-        ? hub.subscribe(threadId, send)
-        : hub.subscribeAll(send);
+        ? hub.subscribe(threadId, send, { signal: req.signal })
+        : hub.subscribeAll(send, { signal: req.signal });
 
       // Send initial connection event
       controller.enqueue(
         encoder.encode(`data: ${JSON.stringify({ type: "Connected", timestamp: new Date().toISOString() })}\n\n`)
       );
 
-      // Handle client disconnect
+      // Close the controller on disconnect; the hub already cleaned up via signal.
       req.signal.addEventListener("abort", () => {
         unsubscribe();
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Already closed
+        }
       });
     },
   });

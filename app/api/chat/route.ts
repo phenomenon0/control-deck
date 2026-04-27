@@ -47,12 +47,12 @@ import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
-import { buildToolBridgeUrl } from "@/lib/tools/bridge-url";
+import { buildToolBridgeUrl, buildMcpToolsUrl } from "@/lib/tools/bridge-url";
 // Agent runtime selection. Default is the TS implementation (apps/agent-ts)
 // on :4244; set AGENT_RUNTIME=go (or USE_AGENT_GO=1) to pin the legacy Go
 // binary. URL resolution lives in `lib/agentgo/launcher.ts` so launch + chat
 // + approve/reject stay aligned.
-import { AGENTGO_URL } from "@/lib/agentgo/launcher";
+import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
@@ -67,6 +67,19 @@ interface ChatRequestBody {
    * pins always win.
    */
   preset?: LocalPreset;
+  /**
+   * Voice provenance metadata. Present when this turn was originated from
+   * the audio dock / conductor. Lets the run ledger and downstream tool
+   * policy distinguish a typed turn from a spoken one.
+   */
+  voice?: {
+    turnId: string;
+    routeId: string;
+    mode: string;
+    surface: string;
+    source: string;
+    modality: "voice";
+  };
 }
 
 const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
@@ -79,6 +92,13 @@ interface AgentGOMessage {
 interface AgentGOStartRunRequest {
   messages: AgentGOMessage[];
   thread_id: string;
+  /**
+   * Canonical AG-UI run id. agent-ts honours it when present so all events
+   * downstream of /runs share the same id Next created here — replaces the
+   * legacy `setAgentRunId` reconciliation step (still kept as a fallback
+   * when older agent-ts builds ignore the field).
+   */
+  run_id?: string;
   workspace_root?: string;
   mode?: string;
   max_steps?: number;
@@ -88,6 +108,7 @@ interface AgentGOStartRunRequest {
     api_key?: string;
   };
   tool_bridge_url?: string;
+  mcp_url?: string;
 }
 
 interface AgentGOEvent {
@@ -334,7 +355,14 @@ export async function POST(req: Request) {
     uploadIds,
     systemPrompt: clientPrompt,
     preset: presetRaw,
+    voice,
   } = body;
+
+  if (voice) {
+    console.log(
+      `[Chat] voice turn ${voice.turnId} mode=${voice.mode} route=${voice.routeId} source=${voice.source} surface=${voice.surface}`,
+    );
+  }
 
   const preset: LocalPreset =
     presetRaw && VALID_PRESETS.has(presetRaw) ? presetRaw : "balanced";
@@ -489,6 +517,7 @@ export async function POST(req: Request) {
   const agentRequest: AgentGOStartRunRequest = {
     messages: agentMessages,
     thread_id: thread,
+    run_id: runId,
     workspace_root: process.env.WORKSPACE_ROOT ?? undefined,
     mode: "BUILD",
     max_steps: parseInt(process.env.AGENT_MAX_STEPS ?? "25", 10),
@@ -498,6 +527,7 @@ export async function POST(req: Request) {
       api_key: activeConfig.apiKey,
     },
     tool_bridge_url: buildToolBridgeUrl(req),
+    mcp_url: buildMcpToolsUrl(req),
   };
 
   // Create SSE streaming response
@@ -538,7 +568,7 @@ export async function POST(req: Request) {
       // the chat turn; 4xx still fails fast.
       const startResponse = await retryingFetch(`${AGENTGO_URL}/runs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: withAgentTsAuth({ "Content-Type": "application/json" }),
         body: JSON.stringify(agentRequest),
         signal: req.signal,
       });
@@ -559,7 +589,7 @@ export async function POST(req: Request) {
       const eventsResponse = await retryingFetch(
         `${AGENTGO_URL}/runs/${agentRunId}/events`,
         {
-          headers: { Accept: "text/event-stream" },
+          headers: withAgentTsAuth({ Accept: "text/event-stream" }),
           signal: req.signal,
         }
       );

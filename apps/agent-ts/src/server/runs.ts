@@ -35,7 +35,12 @@ export class RunManager {
   ) {}
 
   start(req: StartRunRequestWire): { runId: string; threadId: string } {
-    const runId = randomUUID();
+    // Honour caller-allocated run id when present (canonical AG-UI runId
+    // from Next). Validate shape so a malformed id can't poison the map.
+    const runId =
+      typeof req.run_id === "string" && /^[A-Za-z0-9_.\-:]{1,128}$/.test(req.run_id)
+        ? req.run_id
+        : randomUUID();
     const threadId = req.thread_id ?? randomUUID();
     const controller = new AbortController();
     const startedAt = new Date().toISOString();

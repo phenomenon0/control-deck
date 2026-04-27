@@ -7,6 +7,7 @@ import {
   isCostIncurred,
   isInterruptRequested,
   isInterruptResolved,
+  isLLMResolved,
   isRunError,
   isRunFinished,
   isRunStarted,
@@ -215,6 +216,11 @@ describe("type guards", () => {
       ["InterruptResolved", isInterruptResolved, { interruptId: "i" }],
       ["StepStarted", isStepStarted, { stepName: "s" }],
       ["StepFinished", isStepFinished, { stepName: "s" }],
+      [
+        "LLMResolved",
+        isLLMResolved,
+        { runId: "r", provider: "llamacpp", modelId: "qwen3-8b", local: true },
+      ],
     ];
 
     for (const [type, guard, extra] of matrix) {

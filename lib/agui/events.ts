@@ -182,6 +182,28 @@ export interface StepFinished extends AGUIBase {
   result?: DeckPayload;
 }
 
+/**
+ * LLMResolved — emitted once at the start of a run after the agent picks a
+ * concrete provider/model. Lets the UI display "thinking on llama.cpp:Q4_K"
+ * vs the abstract `req.llm` selector the user submitted, and gives traces
+ * a single point to attribute cost. Distinct from `RunStarted` because
+ * resolution can fail (provider down, missing key) before the run begins.
+ */
+export interface LLMResolved extends AGUIBase {
+  type: "LLMResolved";
+  runId: string;
+  /** Provider id, eg "llamacpp" | "anthropic" | "openai". */
+  provider: string;
+  /** Model id as understood by the provider. */
+  modelId: string;
+  /** Free-form label for the UI ("Llama-3.1-8B-Instruct-Q4_K"). */
+  label?: string;
+  /** Whether the resolution targeted a local runtime. */
+  local?: boolean;
+  /** Resolution latency in ms (catalog lookup + key probe). */
+  resolveMs?: number;
+}
+
 export type AGUIEvent =
   | RunStarted
   | RunFinished
@@ -197,7 +219,8 @@ export type AGUIEvent =
   | InterruptRequested
   | InterruptResolved
   | StepStarted
-  | StepFinished;
+  | StepFinished
+  | LLMResolved;
 
 export type AGUIEventType = AGUIEvent["type"];
 
@@ -348,4 +371,8 @@ export function isStepStarted(e: AGUIEvent): e is StepStarted {
 
 export function isStepFinished(e: AGUIEvent): e is StepFinished {
   return e.type === "StepFinished";
+}
+
+export function isLLMResolved(e: AGUIEvent): e is LLMResolved {
+  return e.type === "LLMResolved";
 }

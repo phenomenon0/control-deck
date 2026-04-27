@@ -19,6 +19,25 @@ import { RunStore, defaultStorePath } from "./store.js";
 const PORT = parseInt(process.env.AGENTGO_PORT ?? process.env.AGENT_TS_PORT ?? "4243", 10);
 const HOST = process.env.AGENTGO_HOST ?? process.env.AGENT_TS_HOST ?? "127.0.0.1";
 
+// Side-effect routes (/runs, /runs/:id/*) require AGENT_TS_TOKEN. When the
+// launcher co-spawns this process from Next, it injects the same token (or
+// reuses DECK_TOKEN) so the in-process Next routes can hit /runs without
+// extra config. /health is intentionally exempt — the launcher polls it
+// before any token has been minted.
+const AUTH_TOKEN = process.env.AGENT_TS_TOKEN ?? process.env.DECK_TOKEN ?? "";
+const IS_PROD = process.env.NODE_ENV === "production";
+if (!AUTH_TOKEN) {
+  if (IS_PROD) {
+    console.error(
+      "[agent-ts] AGENT_TS_TOKEN/DECK_TOKEN missing in production — /runs/* will be open. Set the env or fail closed at the launcher.",
+    );
+  } else {
+    console.warn(
+      "[agent-ts] AGENT_TS_TOKEN unset — /runs/* is unauthenticated (dev convenience; unsafe otherwise)",
+    );
+  }
+}
+
 // Default to llama.cpp's llama-server on :8080/v1 (OpenAI-compat). Ollama
 // at :11434 is still selectable via env. llama-server binds one model at
 // startup, so when LLM_MODEL is unset we resolve the active id from
@@ -52,6 +71,7 @@ const handler = createHandler({
   broker,
   bus,
   runs,
+  authToken: AUTH_TOKEN || undefined,
   llm: {
     base_url: LLM_BASE_URL,
     model: LLM_MODEL,

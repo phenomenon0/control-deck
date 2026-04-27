@@ -22,8 +22,36 @@ export function getDb(): Database.Database {
     db = new Database(DB_PATH);
     db.pragma("journal_mode = WAL");
     initSchema(db);
+    reconcileOnBoot(db);
   }
   return db;
+}
+
+/**
+ * Crash recovery: any approval still in `pending` an hour past its row's
+ * creation must have outlived the gate that was waiting on it. Mark them
+ * expired so the deck UI doesn't show ghosts left over from a previous
+ * process. Runs once per cold DB connection.
+ *
+ * The bound is intentionally generous (3600s) — the per-call timeout in
+ * `lib/approvals/gate.ts` is shorter, so a row this old definitely lost
+ * its waiter. Anything younger is left alone in case a still-running gate
+ * is mid-poll on it.
+ */
+function reconcileOnBoot(db: Database.Database) {
+  try {
+    const cutoff = new Date(Date.now() - 3600 * 1000).toISOString();
+    db.prepare(
+      `UPDATE approvals
+         SET status = 'expired',
+             decision_note = 'orphaned across restart',
+             decision_by = 'system',
+             decided_at = ?
+       WHERE status = 'pending' AND created_at < ?`,
+    ).run(new Date().toISOString(), cutoff);
+  } catch (e) {
+    console.warn("[approvals] boot reconcile failed:", e);
+  }
 }
 
 function initSchema(db: Database.Database) {
@@ -1059,6 +1087,38 @@ export function getApprovals(status?: ApprovalStatus, limit = 100): ApprovalRow[
   return db
     .prepare(`SELECT * FROM approvals ORDER BY created_at DESC LIMIT ?`)
     .all(limit) as ApprovalRow[];
+}
+
+/**
+ * Mark every pending approval older than `ageSeconds` as `expired`.
+ *
+ * Returns the number of rows touched. Used by:
+ *   - Server startup, to reconcile after a crash where the in-process gate
+ *     died mid-poll and the row was orphaned in `pending` forever.
+ *   - The list endpoint, as a passive sweeper so the approval queue UI
+ *     never shows weeks-old ghosts even if the user never opened the deck
+ *     while the timeout would have fired.
+ *
+ * Resolution is idempotent — already-decided rows are untouched by the
+ * `WHERE status = 'pending'` clause.
+ */
+export function expirePendingApprovals(
+  ageSeconds: number,
+  reason = "approval expired",
+): number {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - ageSeconds * 1000).toISOString();
+  const result = db
+    .prepare(
+      `UPDATE approvals
+         SET status = 'expired',
+             decision_note = ?,
+             decision_by = 'system',
+             decided_at = ?
+       WHERE status = 'pending' AND created_at < ?`,
+    )
+    .run(reason, new Date().toISOString(), cutoff);
+  return result.changes;
 }
 
 // ─── Invocations ───────────────────────────────────────────────────────────

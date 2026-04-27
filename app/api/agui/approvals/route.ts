@@ -15,17 +15,38 @@ import { NextResponse } from "next/server";
 import {
   createApproval,
   decideApproval,
+  expirePendingApprovals,
   getApprovals,
   type ApprovalStatus,
 } from "@/lib/agui/db";
+import { resolveSection } from "@/lib/settings/resolve";
 
 function parseStatus(raw: string | null): ApprovalStatus | undefined {
   if (raw === "pending" || raw === "approved" || raw === "denied" || raw === "expired") return raw;
   return undefined;
 }
 
+/**
+ * Resolve the timeout the gate would apply if it were waiting on this
+ * approval right now. Falls back to a generous default so a misconfigured
+ * settings file can never make ghost rows immortal.
+ */
+function approvalTimeoutSeconds(): number {
+  try {
+    const t = resolveSection("approval").timeoutSeconds;
+    if (typeof t === "number" && t > 0) return t;
+  } catch {
+    // Settings unavailable — fall through to default.
+  }
+  return 600;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  // Passive sweep: before returning the list, expire anything older than
+  // the configured timeout. Keeps the queue UI honest after restarts.
+  expirePendingApprovals(approvalTimeoutSeconds());
+
   const status = parseStatus(url.searchParams.get("status"));
   const limit = parseInt(url.searchParams.get("limit") ?? "100", 10);
   const approvals = getApprovals(status, limit);

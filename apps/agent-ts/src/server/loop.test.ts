@@ -221,7 +221,12 @@ test("preflight: deny from deck blocks the tool without consulting the broker", 
   }
 });
 
-test("preflight: approval_required from deck pauses on the broker", async () => {
+test("preflight: approval_required for a bridge tool defers to bridgeDispatch", async () => {
+  // The deck's gateToolCall (lib/approvals/gate.ts) is the canonical
+  // approval gate for bridge-routed tools — it persists the request in
+  // SQLite and surfaces it in the deck's approval queue UI. agent-ts must
+  // NOT also pause on its in-memory broker, otherwise the same tool call
+  // would need two independent decisions on two separate UIs.
   const broker = new ApprovalBroker();
   const bus = new EventBus();
   const handle = fakeHandle();
@@ -238,26 +243,49 @@ test("preflight: approval_required from deck pauses on the broker", async () => 
       bus,
       handle,
       preflightUrl: server.url,
-      // Important: vector_store is not in the local agent-ts SIDE_EFFECT_TOOLS
-      // table, so absent the deck signal it would pass through. The deck
-      // forcing approval_required must still trigger the broker.
       bridgeToolNames: new Set(["vector_store"]),
     });
 
     const events: AGUIEvent[] = [];
     bus.subscribe(handle.runId, 0, (ev) => events.push(ev), () => {});
 
-    const hookPromise = before(fakeCtx("vector_store"));
-    await new Promise((r) => setTimeout(r, 50));
-    const requested = events.find((e) => e.type === "InterruptRequested");
-    assert.ok(requested, "InterruptRequested should be emitted via deck signal");
-    const requestId = (requested.data as { approvalId: string }).approvalId;
-    broker.approve(requestId);
-    const out = await hookPromise;
-    assert.equal(out, undefined);
+    // Should resolve undefined immediately — no broker pause, the bridge
+    // call itself will block on the deck's persistent gate.
+    const result = await before(fakeCtx("vector_store"));
+    assert.equal(result, undefined);
+    const interruptCount = events.filter((e) => e.type === "InterruptRequested").length;
+    assert.equal(interruptCount, 0, "broker must not double-gate the bridge tool");
   } finally {
     await server.stop();
   }
+});
+
+test("non-bridge tools still gate on the in-memory broker", async () => {
+  // bash isn't routed via the bridge — agent-ts's broker is the only
+  // approval gate and the persistence path doesn't apply.
+  const broker = new ApprovalBroker();
+  const bus = new EventBus();
+  const handle = fakeHandle();
+
+  const before = hooks.makeBeforeToolCall({
+    broker,
+    bus,
+    handle,
+    // No preflight URL — even if there were one, bash isn't in bridgeToolNames.
+    bridgeToolNames: new Set(["execute_code"]),
+  });
+
+  const events: AGUIEvent[] = [];
+  bus.subscribe(handle.runId, 0, (ev) => events.push(ev), () => {});
+
+  const hookPromise = before(fakeCtx("bash"));
+  await new Promise((r) => setTimeout(r, 50));
+  const requested = events.find((e) => e.type === "InterruptRequested");
+  assert.ok(requested, "non-bridge bash should pause on the broker");
+  const requestId = (requested.data as { approvalId: string }).approvalId;
+  broker.approve(requestId);
+  const out = await hookPromise;
+  assert.equal(out, undefined);
 });
 
 test("preflight: allow lets the tool through (no broker pause)", async () => {

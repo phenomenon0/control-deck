@@ -294,12 +294,15 @@ function makeBeforeToolCall(args: {
     }
 
     const toolName = ctx.toolCall.name;
-
-    // For bridge tools, ask the deck first — it owns the canonical policy.
-    // Deck answers allow / approval_required / deny; we obey.
-    let deckRisk: RiskLevel | undefined;
-    let deckRequiresApproval = false;
     const isBridgeTool = bridgeToolNames?.has(toolName) ?? false;
+
+    // For bridge tools, the deck is the canonical approval authority.
+    // We preflight only to catch denies and obvious shape errors early —
+    // the persistent approval row is created inside bridgeDispatch's
+    // gateToolCall (lib/approvals/gate.ts), backed by SQLite, and resolved
+    // through the deck's approvals queue UI. Letting the broker also gate
+    // here would create a duplicate in-memory approval the deck UI can't
+    // see, and the user would have to resolve the same call twice.
     if (preflightUrl && isBridgeTool) {
       const preflight = await runPreflight(
         preflightUrl,
@@ -311,17 +314,14 @@ function makeBeforeToolCall(args: {
       if (preflight.kind === "deny") {
         return { block: true, reason: preflight.reason };
       }
-      if (preflight.kind === "approval_required") {
-        deckRequiresApproval = true;
-        deckRisk = preflight.risk;
-      }
-      // allow → fall through; local agent-ts approval table is bypassed.
+      // allow / approval_required → defer to bridgeDispatch's gate.
+      return undefined;
     }
 
+    // Non-bridge tools (native_*, skills/*) — the broker is the only gate.
     const localPolicy = approvalPolicy(toolName);
-    const requiresApproval = deckRequiresApproval || localPolicy.required;
-    if (!requiresApproval) return undefined;
-    const riskLevel: RiskLevel = deckRisk ?? localPolicy.riskLevel;
+    if (!localPolicy.required) return undefined;
+    const riskLevel: RiskLevel = localPolicy.riskLevel;
 
     const baseEvent = {
       threadId,

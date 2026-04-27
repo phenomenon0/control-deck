@@ -74,6 +74,7 @@ interface ChatRequestBody {
    */
   voice?: {
     turnId: string;
+    runId?: string;
     routeId: string;
     mode: string;
     surface: string;
@@ -435,7 +436,11 @@ export async function POST(req: Request) {
     (hasImages ? "llama3.2-vision:11b" : "llama3.2:3b");
 
   const thread = threadId ?? generateId();
-  const runId = generateId();
+  // Honour a client-supplied runId so the voice surface can target a
+  // specific run for cancel before the server has a chance to round-trip
+  // its own id back. agent-ts already accepts the same id we generate
+  // here, so the whole chain shares one runId.
+  const runId = voice?.runId ?? generateId();
   const messageId = generateId();
 
   // Probe Agent-GO up front. If it's down (common during local dev without
@@ -605,8 +610,9 @@ export async function POST(req: Request) {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let upstreamErrorMessage: string | null = null;
 
-      while (true) {
+      outer: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -632,16 +638,22 @@ export async function POST(req: Request) {
 
             // Write the AGUI event to the SSE response stream
             if (aguiEvent) {
-              if (!await safeWriteSSE(aguiEvent)) break;
+              if (!await safeWriteSSE(aguiEvent)) break outer;
             }
 
-            // Check for run completion
-            if (event.type === "RunFinished" || event.type === "RunError") {
-              break;
+            // Check for run completion. RunError must NOT fall through to
+            // the post-loop finishRun path — that would overwrite the
+            // error status with 'finished'.
+            if (event.type === "RunFinished") {
+              break outer;
+            }
+            if (event.type === "RunError") {
+              upstreamErrorMessage = event.error?.message ?? "agent error";
+              break outer;
             }
           } else if (line.startsWith("event: done")) {
             // Agent-GO signals completion
-            break;
+            break outer;
           }
         }
       }
@@ -653,29 +665,44 @@ export async function POST(req: Request) {
         updateRunPreview(runId, fullText.slice(0, 200));
       }
 
-      // Emit and stream TextMessageEnd
-      const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", thread, {
-        runId,
-        messageId,
-      });
-      saveEvent(msgEnd);
-      hub.publish(thread, msgEnd);
-      await safeWriteSSE(msgEnd);
+      if (upstreamErrorMessage !== null) {
+        // Agent-ts surfaced its own RunError (most commonly "aborted" after
+        // a /cancel). The event itself was already forwarded to the SSE
+        // stream and hub above; here we just persist the run row state.
+        errorRun(runId, upstreamErrorMessage);
+      } else {
+        // Emit and stream TextMessageEnd
+        const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", thread, {
+          runId,
+          messageId,
+        });
+        saveEvent(msgEnd);
+        hub.publish(thread, msgEnd);
+        await safeWriteSSE(msgEnd);
 
-      // Emit and stream RunFinished — include LLM-generated title (SURFACE.md §6.2)
-      const threadRow = getThread(thread);
-      const runFinished = createEvent<RunFinished>("RunFinished", thread, {
-        runId,
-        threadTitle: threadRow?.title || undefined,
-      });
-      finishRun(runId, 0, 0, 0);
-      saveEvent(runFinished);
-      hub.publish(thread, runFinished);
-      await safeWriteSSE(runFinished);
+        // Emit and stream RunFinished — include LLM-generated title (SURFACE.md §6.2)
+        const threadRow = getThread(thread);
+        const runFinished = createEvent<RunFinished>("RunFinished", thread, {
+          runId,
+          threadTitle: threadRow?.title || undefined,
+        });
+        finishRun(runId, 0, 0, 0);
+        saveEvent(runFinished);
+        hub.publish(thread, runFinished);
+        await safeWriteSSE(runFinished);
+      }
 
     } catch (error) {
       if (isAborted) {
         console.log("[Chat] Request aborted during Agent-GO proxy");
+        // Mark the run row aborted so the SQLite ledger doesn't leave it
+        // as 'running' forever when the user closes the tab or interrupts
+        // before /cancel can round-trip. Idempotent with the cancel route.
+        try {
+          errorRun(runId, "aborted");
+        } catch (dbErr) {
+          console.warn("[Chat] errorRun(aborted) failed:", dbErr);
+        }
       } else {
         const unavailable = error instanceof AgentGoUnavailableError;
         const errMsg = unavailable

@@ -22,7 +22,8 @@ import { useModelPull } from "@/lib/hooks/useModelPull";
 import { useVoiceLibrary } from "@/lib/hooks/useVoiceLibrary";
 import { useVoiceWorkspace } from "@/lib/hooks/useVoiceWorkspace";
 import { useVoiceSession } from "@/lib/voice/use-voice-session";
-import { VoiceSessionProvider } from "@/lib/voice/VoiceSessionContext";
+import { VoiceSessionProvider, useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
+import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 
 import { VoiceDeckBar } from "./VoiceDeckBar";
 import { VoiceStage } from "./VoiceStage";
@@ -94,7 +95,13 @@ function ModelPullStrip() {
 export function LiveVoiceSurface() {
   const workspace = useVoiceWorkspace();
   const library = useVoiceLibrary({ listDisabled: true, assetId: workspace.assetId || null });
-  const session = useVoiceSession();
+  // Reuse a session already provided up-tree (AudioDockProvider in DeckShell,
+  // or any VoiceSessionProvider) so we don't run two parallel mic + TTS
+  // pipelines for the same deck. Only when standalone do we own a session.
+  const sharedSession = useOptionalVoiceSession();
+  const dock = useOptionalAudioDock();
+  const ownSession = useVoiceSession({ enabled: !sharedSession && !dock });
+  const session = sharedSession ?? dock?.session ?? ownSession;
 
   const asset = library.detail?.asset ?? null;
   const activeVoiceLabel = asset ? asset.name : null;

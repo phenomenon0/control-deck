@@ -1,0 +1,9 @@
+Phase 1 verified: 2026-04-27
+
+Browser harness driving Chrome (CDP @ :9222) → Next dev (:3333) → voice-core (:4245).
+
+- Audio > Health pane shows: STT voice-core·moonshine-tiny, TTS voice-core·kokoro-82m, transport sidecar=ok mode=local-sidecar at ws://127.0.0.1:4245.
+- /api/voice/tts from page context: HTTP 200, 70.7KB WAV (audio/wav), X-TTS-Provider=voice-core, 371ms total.
+- Chat composer mic button: class composer-btn-icon--voice-active, disabled=false → voiceApiStatus=connected.
+
+No file changes in Phase 1.

@@ -200,7 +200,7 @@ async function checkTerminalService(url: string): Promise<ServiceStatus> {
 export async function GET() {
   const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434").replace("/v1", "");
   const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
-  const VOICE_URL = process.env.VOICE_API_URL ?? "http://localhost:8000";
+  const VOICE_URL = process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245";
   const VECTORDB_URL = process.env.VECTORDB_URL ?? "http://localhost:4242";
   const SEARXNG_URL = process.env.SEARXNG_URL ?? "http://localhost:8888";
   const TERMINAL_SERVICE_URL = process.env.TERMINAL_SERVICE_URL ?? "http://127.0.0.1:4010";
@@ -210,7 +210,7 @@ export async function GET() {
     getGpuStats(),
     checkService("Ollama", `${OLLAMA_URL}/api/tags`),
     checkService("ComfyUI", `${COMFY_URL}/system_stats`),
-    checkService("Voice API", `${VOICE_URL}/health`),
+    checkService("Voice Core", `${VOICE_URL}/health`),
     checkVectorDB(VECTORDB_URL),
     checkService("SearxNG", `${SEARXNG_URL}/healthz`),
     checkTerminalService(TERMINAL_SERVICE_URL),

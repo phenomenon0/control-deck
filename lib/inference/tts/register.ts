@@ -1,15 +1,14 @@
 /**
  * Text-to-speech providers.
  *
- * Preserves the existing VOICE_API_URL path (Piper / xtts / chatterbox
- * engines) as the default, and adds cloud providers for users who want
- * higher-quality voices than the local sidecar offers.
+ * voice-core hosts the local engines (Kokoro default, Chatterbox expressive,
+ * sherpa-tts). Cloud providers are opt-in via env.
  *
  * Env vars:
- *   TTS_PROVIDER          voice-api | elevenlabs | openai | cartesia | hume | inworld | deepgram | google
- *                         (default: voice-api — preserves existing behaviour)
+ *   TTS_PROVIDER          voice-core | elevenlabs | openai | cartesia | hume | inworld | deepgram | google
+ *                         (default: voice-core)
  *   TTS_VOICE             default voice id for the selected provider
- *   TTS_MODEL             default model id for the selected provider
+ *   TTS_MODEL             default engine id (e.g. kokoro-82m)
  *   ELEVENLABS_API_KEY    required for elevenlabs
  *   OPENAI_API_KEY        reused from the text-LLM slot, required for openai
  *   CARTESIA_API_KEY      required for cartesia
@@ -26,20 +25,20 @@ import type { InferenceProvider, Modality } from "../types";
 
 const PROVIDERS: InferenceProvider[] = [
   {
-    id: "voice-api",
-    name: "Voice API (local sidecar)",
+    id: "voice-core",
+    name: "voice-core (local sidecar)",
     description:
-      "Local TTS sidecars. Legacy engines (piper/xtts/chatterbox) route to " +
-      "VOICE_API_URL (port 8000). Tiered engines (kokoro-82m, orpheus-3b) " +
-      "route to the in-repo voice-engines sidecar (port 9101).",
+      "Local TTS engines hosted by voice-core (port 4245). sherpa-onnx VITS " +
+      "(Piper amy-medium) is the default — small, reliable, runs on CPU. " +
+      "Kokoro and Chatterbox stay available for higher quality / expressive output.",
     modalities: ["tts", "stt"],
     requiresApiKey: false,
-    defaultBaseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
+    defaultBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
     defaultModels: {
-      tts: ["kokoro-82m", "orpheus-3b", "piper", "xtts", "chatterbox"],
+      tts: ["sherpa-onnx-tts", "kokoro-82m", "chatterbox"],
     },
     listModels: async (_m, config) => {
-      const voices = await listTtsVoices("voice-api", config);
+      const voices = await listTtsVoices("voice-core", config);
       return voices.map((v) => v.id);
     },
   },
@@ -186,7 +185,7 @@ export function registerTtsProviders(): void {
 
   // Bind the default TTS slot from env so the route has something to fall
   // back to even before the Settings UI touches it.
-  const providerEnv = (process.env.TTS_PROVIDER ?? "voice-api").toLowerCase();
+  const providerEnv = (process.env.TTS_PROVIDER ?? "voice-core").toLowerCase();
   if (PROVIDERS.some((p) => p.id === providerEnv)) {
     bindSlot({
       modality: "tts",
@@ -197,8 +196,7 @@ export function registerTtsProviders(): void {
         model: process.env.TTS_MODEL,
         extras: {
           defaultVoiceId: process.env.TTS_VOICE,
-          // voice-api engine preserved for the current sidecar path
-          engine: process.env.TTS_ENGINE ?? "piper",
+          engine: process.env.TTS_ENGINE ?? "sherpa-onnx-tts",
         },
       },
     });

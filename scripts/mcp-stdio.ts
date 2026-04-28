@@ -27,6 +27,7 @@ async function main() {
   const server = createDeckMcpServer({
     name: "control-deck",
     threadIdForSession: `mcp:stdio:${process.pid}`,
+    bridgeUrl: process.env.CONTROL_DECK_TOOL_BRIDGE_URL ?? "http://localhost:3333/api/tools/bridge",
   });
   const transport = new StdioServerTransport();
   await server.connect(transport);

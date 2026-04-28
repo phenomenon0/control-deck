@@ -41,6 +41,7 @@
     "electron",
     ".electron-dist",
     "dist-electron",
-    "llama.cpp"
+    "llama.cpp",
+    "apps"
   ]
 }

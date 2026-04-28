@@ -98,6 +98,17 @@ describe("voice session machine", () => {
     expect(res.context.transcriptPartial).toBe("he");
   });
 
+  test("empty streaming STT final returns from transcribing to idle", () => {
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_EMPTY" },
+    ]);
+    expect(ctx.state).toBe("idle");
+    expect(ctx.transcriptFinal).toBe("");
+  });
+
   test("invalid transitions are ignored without throwing", () => {
     const res = reduceVoiceSession(initialContext(), { type: "VOICE_ENDED" });
     expect(res.changed).toBe(false);
@@ -121,5 +132,21 @@ describe("voice session machine", () => {
   test("read-aloud path: idle → speaking via AUDIO_STARTED without a run", () => {
     const ctx = run([{ type: "AUDIO_STARTED" }]);
     expect(ctx.state).toBe("speaking");
+  });
+
+  test("AUDIO_STOPPED in thinking exits to idle (no-audio assistant turn / watchdog)", () => {
+    // Thinking with no AUDIO_STARTED used to be a dead-end — only AUDIO_STARTED
+    // or INTERRUPT could move it. A text-only reply or a dropped TTS frame
+    // would freeze the orb forever. AUDIO_STOPPED now provides the escape.
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_FINAL", text: "ping" },
+      { type: "RUN_STARTED" },
+      { type: "AUDIO_STOPPED" }, // watchdog or text-only reply
+    ]);
+    expect(ctx.state).toBe("idle");
+    expect(ctx.turnId).toBe(1);
   });
 });

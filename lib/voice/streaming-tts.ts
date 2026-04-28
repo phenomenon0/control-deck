@@ -1,5 +1,5 @@
 /**
- * Streaming TTS client for the voice-engines sidecar's `WS /tts/stream`.
+ * Streaming TTS client for voice-core's `WS /tts/stream`.
  *
  * Wire protocol:
  *   client → server (text frames):
@@ -46,12 +46,14 @@ export class StreamingTtsClient {
   private connectPromise: Promise<void> | null = null;
   private currentSampleRate = 0;
   private currentUtteranceId: string | undefined;
+  private utteranceSeq = 0;
+  private pendingUtterances = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
 
   constructor(private readonly opts: StreamingTtsOptions = {}) {}
 
   connect(): Promise<void> {
     if (this.connectPromise) return this.connectPromise;
-    const base = this.opts.baseUrl ?? "ws://127.0.0.1:9101";
+    const base = this.opts.baseUrl ?? "ws://127.0.0.1:4245";
     const params = new URLSearchParams();
     if (this.opts.engine) params.set("engine", this.opts.engine);
     const url = `${base.replace(/\/$/, "")}/tts/stream${params.toString() ? `?${params}` : ""}`;
@@ -90,10 +92,12 @@ export class StreamingTtsClient {
               break;
             case "end":
               this.opts.onEnd?.({ utteranceId: payload.utteranceId });
+              this.resolvePending(payload.utteranceId);
               this.currentUtteranceId = undefined;
               break;
             case "error":
               this.opts.onError?.(payload.error ?? "unknown tts error");
+              this.rejectPending(new Error(payload.error ?? "unknown tts error"), payload.utteranceId);
               break;
           }
         } else if (e.data instanceof ArrayBuffer) {
@@ -111,6 +115,7 @@ export class StreamingTtsClient {
         }
       };
       ws.onclose = () => {
+        this.rejectPending(new Error("tts stream closed"));
         this.opts.onClose?.();
         this.ws = null;
         this.connectPromise = null;
@@ -124,18 +129,23 @@ export class StreamingTtsClient {
     if (!opts.text || !opts.text.trim()) return;
     await this.connect();
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const utteranceId = opts.utteranceId ?? `tts-${++this.utteranceSeq}`;
+    const done = new Promise<void>((resolve, reject) => {
+      this.pendingUtterances.set(utteranceId, { resolve, reject });
+    });
     const payload = {
       op: "speak",
       text: opts.text,
       voice: opts.voice ?? this.opts.voice,
       speed: opts.speed ?? this.opts.speed ?? 1.0,
-      utteranceId: opts.utteranceId,
+      utteranceId,
     };
     try {
       this.ws.send(JSON.stringify(payload));
     } catch {
-      /* socket closed mid-send */
+      this.rejectPending(new Error("tts stream send failed"), utteranceId);
     }
+    return done;
   }
 
   close(): void {
@@ -153,6 +163,29 @@ export class StreamingTtsClient {
     }
     this.ws = null;
     this.connectPromise = null;
+  }
+
+  private resolvePending(utteranceId?: string): void {
+    const id = utteranceId ?? this.pendingUtterances.keys().next().value;
+    if (!id) return;
+    const pending = this.pendingUtterances.get(id);
+    if (!pending) return;
+    this.pendingUtterances.delete(id);
+    pending.resolve();
+  }
+
+  private rejectPending(error: Error, utteranceId?: string): void {
+    if (utteranceId) {
+      const pending = this.pendingUtterances.get(utteranceId);
+      if (!pending) return;
+      this.pendingUtterances.delete(utteranceId);
+      pending.reject(error);
+      return;
+    }
+    for (const pending of this.pendingUtterances.values()) {
+      pending.reject(error);
+    }
+    this.pendingUtterances.clear();
   }
 }
 

@@ -20,7 +20,7 @@
  *   - Added Hume Octave (voice design from text description — unique in 2026).
  *   - Added ElevenLabs IVC alongside PVC so short-reference users have a path.
  *   - Left local OSS heavy-hitters (f5-tts, orpheus, cosyvoice-3, kokoro) in
- *     the catalogue as roadmap entries; implemented flips when the voice-api
+ *     the catalogue as roadmap entries; implemented flips when the voice-core
  *     sidecar gains support for them.
  */
 
@@ -103,14 +103,14 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
     minReferenceMinutes: 0,
     implemented: true,
   },
-  // ─── Local via voice-api sidecar (runnable today) ───────────────────────
+  // ─── Local via voice-core sidecar (runnable today) ───────────────────────
   {
     id: "xtts-v2",
     name: "XTTS v2",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["clone", "tts", "multilingual", "local"],
-    description: "Legacy Coqui XTTS-v2 via the local voice-api sidecar.",
+    description: "Legacy Coqui XTTS-v2 via the local voice-core sidecar.",
     tier: "silver",
     minReferenceMinutes: 0,
     implemented: true,
@@ -118,10 +118,10 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "chatterbox",
     name: "Chatterbox",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["tts", "local", "expressive"],
-    description: "Resemble Chatterbox on the local voice-api. Emotion-exaggeration scalar.",
+    description: "Resemble Chatterbox on the local voice-core. Emotion-exaggeration scalar.",
     tier: "silver",
     minReferenceMinutes: 0,
     implemented: true,
@@ -130,7 +130,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "chatterbox-turbo",
     name: "Chatterbox Turbo",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["tts", "local", "streaming", "expressive"],
     description: "6× real-time diffusion variant with paralinguistic tags. Sidecar support pending.",
@@ -141,7 +141,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "f5-tts",
     name: "F5-TTS v1",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["clone", "tts", "local"],
     description: "MIT flow-matching non-AR TTS. RTF ~0.15 on RTX 4090. Sidecar support pending.",
@@ -152,7 +152,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "orpheus",
     name: "Orpheus 3B (Canopy Labs)",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["clone", "tts", "local", "streaming", "expressive"],
     description: "Apache 2.0. Best OSS paralinguistic tags ([laugh], [sigh]). Lazy-loads ~6GB VRAM on first request.",
@@ -163,7 +163,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "cosyvoice-3",
     name: "CosyVoice 3",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["clone", "tts", "multilingual", "local", "streaming"],
     description: "Apache 2.0. 9 languages, 150ms first-packet. Sidecar support pending.",
@@ -174,7 +174,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "kokoro",
     name: "Kokoro 82M",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["tts", "local", "streaming"],
     description: "Apache 2.0, 82M ONNX. 50+ voices, ~200ms first chunk on GPU, very natural for size.",
@@ -185,7 +185,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "fish-speech-s2",
     name: "Fish Speech S2",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["clone", "tts", "multilingual", "streaming", "local", "expressive"],
     description: "Best short-clip clone similarity (3–10s). Sidecar support pending.",
@@ -197,7 +197,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "qwen3-tts",
     name: "Qwen3-TTS (Alibaba)",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["tts", "multilingual", "local", "streaming", "expressive"],
     description:
@@ -209,7 +209,7 @@ export const STUDIO_ENGINES: VoiceEngineDescriptor[] = [
   {
     id: "indextts-2",
     name: "IndexTTS 2 (Bilibili)",
-    providerId: "voice-api",
+    providerId: "voice-core",
     modalities: ["tts"],
     capabilities: ["clone", "tts", "multilingual", "local", "expressive"],
     description:
@@ -246,7 +246,7 @@ export const ASSISTANT_DEFAULTS: AssistantDefaults = {
   ttsQuality: { providerId: "google", model: "gemini-3.1-flash-preview-tts" },
   // Expressive / voice-design tier: Hume Octave 2.
   ttsExpressive: { providerId: "hume", model: "octave-2" },
-  offlineFallback: { providerId: "voice-api", engine: "piper" },
+  offlineFallback: { providerId: "voice-core", engine: "sherpa-onnx-tts" },
 };
 
 export function getStudioEngine(id: string): VoiceEngineDescriptor | undefined {

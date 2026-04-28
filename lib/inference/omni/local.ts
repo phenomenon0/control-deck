@@ -116,8 +116,8 @@ export function qwenOmniBinding(modality: Modality, modelDir = qwenOmniModelDir(
         localModel: true,
         e2eVoiceAssistant: true,
         sidecarUrl: qwenOmniSidecarUrl(),
-        fallbackProviderId: "voice-api",
-        fallbackBaseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
+        fallbackProviderId: "voice-core",
+        fallbackBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
       },
     },
   };

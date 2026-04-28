@@ -28,26 +28,24 @@ interface BindTierOpts {
 export function bindTier(tierId: TierId, opts: BindTierOpts = {}): void {
   const tier = getTier(tierId);
 
-  // STT primary → voice-api provider with the tier's STT engine id as model.
-  // The invoke layer routes the request to the right sidecar (port 8000 vs 9101)
-  // based on the model id.
+  // STT primary → voice-core provider with the tier's STT engine id as model.
   savePersistedBinding({
     modality: "stt",
     slotName: "primary",
-    providerId: "voice-api",
+    providerId: "voice-core",
     config: {
-      providerId: "voice-api",
+      providerId: "voice-core",
       model: tier.cascade.stt.id,
     },
   });
 
-  // TTS primary → voice-api provider with the tier's TTS engine id.
+  // TTS primary → voice-core provider with the tier's TTS engine id.
   savePersistedBinding({
     modality: "tts",
     slotName: "primary",
-    providerId: "voice-api",
+    providerId: "voice-core",
     config: {
-      providerId: "voice-api",
+      providerId: "voice-core",
       model: tier.cascade.tts.id,
       extras: { engine: tier.cascade.tts.id },
     },
@@ -71,10 +69,8 @@ export function bindTier(tierId: TierId, opts: BindTierOpts = {}): void {
         config: { providerId: QWEN_OMNI_PROVIDER_ID, model: tier.omni.modelId },
       });
     }
-    // Moshi (sidecar: voice-engines) doesn't yet have a registered provider
-    // — it's exposed via the same voice-engines sidecar as a special engine
-    // id. The Conductor surface checks `selectedTierOmni` to decide whether
-    // to open a WS to /omni instead of cascading through stt+tts.
+    // voice-core does not host omni S2S engines — Qwen-Omni keeps its own
+    // sidecar (sidecar: "qwen-omni"). Other omni engines aren't supported.
   }
 
   setSelectedTier(tierId, { omni: opts.omni });

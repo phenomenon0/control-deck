@@ -248,7 +248,7 @@ export type VoiceEngineFamily =
   | "hume-octave"
   // Cloud expressive TTS (SOTA 2026).
   | "gemini-tts"
-  // Local engines via the voice-api sidecar.
+  // Local engines via the voice-core sidecar.
   | "xtts-v2"
   | "chatterbox"
   | "chatterbox-turbo"

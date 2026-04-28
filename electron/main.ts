@@ -18,7 +18,7 @@ import {
   startTerminalService,
   getTerminalServiceConfig,
 } from "./services/terminal-service";
-import { startVoiceEnginesSupervisor } from "./services/voice-engines-supervisor";
+import { startVoiceCoreSupervisor } from "./services/voice-core-supervisor";
 
 const IS_DEV = !app.isPackaged;
 const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
@@ -116,7 +116,7 @@ let portalBridgeSecret: string | null = null;
 let themedBrowser: ThemedBrowserRegistry | null = null;
 let remoteDesktopClient: RemoteDesktopClient | null = null;
 let terminalService: { kill: () => void } | null = null;
-let voiceEnginesService: { kill: () => void } | null = null;
+let voiceCoreService: { kill: () => void } | null = null;
 
 function resolveRemoteDesktopHelper(): string {
   const candidates = [
@@ -739,9 +739,9 @@ app.whenReady().then(async () => {
     console.error("[electron] terminal service auto-spawn failed:", err);
   }
   try {
-    voiceEnginesService = startVoiceEnginesSupervisor();
+    voiceCoreService = startVoiceCoreSupervisor();
   } catch (err) {
-    console.error("[electron] voice-engines supervisor failed:", err);
+    console.error("[electron] voice-core supervisor failed:", err);
   }
   try {
     await createWindow();
@@ -782,9 +782,9 @@ app.on("before-quit", () => {
     try { terminalService.kill(); } catch { /* ignore */ }
     terminalService = null;
   }
-  if (voiceEnginesService) {
-    try { voiceEnginesService.kill(); } catch { /* ignore */ }
-    voiceEnginesService = null;
+  if (voiceCoreService) {
+    try { voiceCoreService.kill(); } catch { /* ignore */ }
+    voiceCoreService = null;
   }
   try {
     const handoff = portalHandoffPath();

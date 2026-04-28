@@ -313,9 +313,15 @@ interface Props {
   modality: ModalityId;
   onDetails?: (providerId: string) => void;
   refreshToken: number;
+  showOnlineModels: boolean;
 }
 
-export function ProviderCompareTable({ modality, onDetails, refreshToken }: Props) {
+export function ProviderCompareTable({
+  modality,
+  onDetails,
+  refreshToken,
+  showOnlineModels,
+}: Props) {
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [benchmarks, setBenchmarks] = useState<BenchmarkEntry[]>([]);
   const [bindings, setBindings] = useState<BindingsResponse | null>(null);
@@ -330,7 +336,7 @@ export function ProviderCompareTable({ modality, onDetails, refreshToken }: Prop
     try {
       const [p, b, bind] = await Promise.all([
         fetch(`/api/inference/providers?modality=${modality}`, { cache: "no-store" }),
-        fetch(`/api/inference/benchmarks?modality=${modality}`, { cache: "no-store" }),
+        fetch(`/api/inference/benchmarks?modality=${modality}${showOnlineModels ? "" : "&live=0"}`, { cache: "no-store" }),
         fetch(`/api/inference/bindings`, { cache: "no-store" }),
       ]);
       if (p.ok) {
@@ -345,7 +351,7 @@ export function ProviderCompareTable({ modality, onDetails, refreshToken }: Prop
     } finally {
       setLoading(false);
     }
-  }, [modality]);
+  }, [modality, showOnlineModels]);
 
   useEffect(() => {
     void load();
@@ -384,16 +390,21 @@ export function ProviderCompareTable({ modality, onDetails, refreshToken }: Prop
 
   const cols = useMemo(() => headlineCols(modality), [modality]);
 
+  const visibleProviders = useMemo(
+    () => (showOnlineModels ? providers : providers.filter((p) => !p.requiresApiKey)),
+    [providers, showOnlineModels],
+  );
+
   const rows: Row[] = useMemo(
     () =>
-      providers.map((p) => {
+      visibleProviders.map((p) => {
         const bench =
           benchmarks.find((b) => b.providerId === p.id && p.defaultModels.includes(b.model)) ??
           benchmarks.find((b) => b.providerId === p.id) ??
           null;
         return { provider: p, bench, bound: p.id === bound };
       }),
-    [providers, benchmarks, bound],
+    [visibleProviders, benchmarks, bound],
   );
 
   const sorted = useMemo(() => {
@@ -433,9 +444,14 @@ export function ProviderCompareTable({ modality, onDetails, refreshToken }: Prop
   return (
     <section className="inference-compare">
       <div className="inference-compare-head">
-        <div className="label">Compare · {providers.length} providers</div>
+        <div className="label">
+          Compare · {visibleProviders.length} {showOnlineModels ? "providers" : "local providers"}
+        </div>
         {msg && <span className="inference-compare-msg">{msg}</span>}
       </div>
+      {sorted.length === 0 ? (
+        <div className="inference-empty">No local providers registered for this modality.</div>
+      ) : (
       <div className="inference-compare-table-wrap">
         <table className="inference-compare-table">
           <thead>
@@ -522,6 +538,7 @@ export function ProviderCompareTable({ modality, onDetails, refreshToken }: Prop
           </tbody>
         </table>
       </div>
+      )}
     </section>
   );
 }

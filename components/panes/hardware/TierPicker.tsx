@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type SourceTag = "ollama" | "voice-engines" | "qwen-omni";
+type SourceTag = "ollama" | "voice-core" | "qwen-omni";
 
 interface BundleLane {
   id: string;
@@ -210,7 +210,7 @@ export function TierPicker() {
           Detected · {data.profile.backend.toUpperCase()}
           {data.profile.gpu?.name ? ` · ${data.profile.gpu.name}` : ""} · {data.profile.ramGb} GB RAM
           {!data.sidecar.reachable && (
-            <span className="tier-picker-warn"> · sidecar offline (port 9101)</span>
+            <span className="tier-picker-warn"> · sidecar offline (port 4245)</span>
           )}
         </span>
       </header>

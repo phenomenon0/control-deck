@@ -107,7 +107,7 @@ export function TerminalPanelAdapter(props: IDockviewPanelProps<TerminalParams>)
 
   return (
     <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", position: "relative" }}>
-      <TerminalPane ref={handleRef} onOutput={onOutput} />
+      <TerminalPane ref={handleRef} onOutput={onOutput} embedded />
       <div style={{
         position: "absolute",
         top: 6,

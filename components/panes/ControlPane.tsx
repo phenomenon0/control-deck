@@ -2,18 +2,18 @@
 
 /**
  * ControlPane — 5th surface, a tabbed dashboard unifying Runs, Tools,
- * UI Studio (née DoJo), AgentGo, and Models. The default tab is Runs,
+ * UI Studio (née DoJo), and AgentGo. The default tab is Runs,
  * which acts as a blended overview of activity across the other tabs.
  *
  * Tabs are URL-persisted via `?tab=`.
  */
 
-import { Suspense, useCallback, type ComponentType } from "react";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { Suspense, type ComponentType } from "react";
 import { RunsPane } from "@/components/panes/RunsPane";
 import { ToolsPane } from "@/components/panes/ToolsPane";
 import { DojoPane } from "@/components/dojo";
 import { AgentGoPane } from "@/components/panes/AgentGoPane";
+import { useUrlTab } from "@/lib/hooks/useUrlTab";
 
 type TabId = "runs" | "tools" | "studio" | "agentgo";
 
@@ -34,42 +34,25 @@ const TABS: readonly TabDef[] = [
 ];
 
 function ControlPaneInner() {
-  const params = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const raw = params.get("tab");
-  const active: TabId = (TABS.find((t) => t.id === raw)?.id ?? "runs");
-
-  const setTab = useCallback(
-    (id: TabId) => {
-      const sp = new URLSearchParams(params.toString());
-      if (id === "runs") {
-        sp.delete("tab");
-      } else {
-        sp.set("tab", id);
-      }
-      const qs = sp.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    },
-    [params, router, pathname]
-  );
-
+  const { active, setTab } = useUrlTab(TABS, "runs");
   const ActiveComponent = TABS.find((t) => t.id === active)!.Component;
 
   return (
     <div className="h-full flex flex-col">
       {/* Tab bar */}
-      <div className="control-tabbar">
+      <div className="control-tabbar" role="tablist" aria-label="Control sections">
         {TABS.map((tab) => {
           const isActive = tab.id === active;
           return (
             <button
               key={tab.id}
               type="button"
+              id={`control-tab-${tab.id}`}
+              role="tab"
+              aria-controls={`control-panel-${tab.id}`}
+              aria-selected={isActive}
               onClick={() => setTab(tab.id)}
               className={`control-tab${isActive ? " control-tab--active" : ""}`}
-              aria-pressed={isActive}
             >
               {tab.label}
             </button>
@@ -78,7 +61,12 @@ function ControlPaneInner() {
       </div>
 
       {/* Active tab content */}
-      <div className="flex-1 overflow-hidden">
+      <div
+        id={`control-panel-${active}`}
+        role="tabpanel"
+        aria-labelledby={`control-tab-${active}`}
+        className="flex-1 overflow-hidden"
+      >
         <ActiveComponent />
       </div>
     </div>

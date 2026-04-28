@@ -1,0 +1,76 @@
+[project]
+name = "voice-core"
+version = "0.1.0"
+description = "CONTROL DECK local audio inference sidecar (wake/VAD/STT/TTS/speaker/diarize)."
+requires-python = ">=3.11"
+
+# Core deps everyone needs. Engines are *optional* and gated at import-time so
+# a missing wheel reports `available: false` in /health rather than crashing.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "websockets>=13",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "scipy>=1.11",
+    "pydantic>=2.7",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# Default low-latency cascade (CPU-friendly). The onnxruntime upper bound is
+# locked at <1.25 because sherpa-onnx 1.12.x is ABI-compatible with the 1.24
+# series only (`VERS_1.24.4` symbol is missing in 1.25).
+cpu = [
+    "onnxruntime>=1.24.4,<1.25",
+    "useful-moonshine-onnx>=0.1.0",
+    "kokoro-onnx>=0.3.0",
+    "sherpa-onnx>=1.10.0",
+]
+
+# Apple Silicon — uses CoreML through whisper.cpp + Metal-backed onnxruntime.
+mac = [
+    "onnxruntime>=1.18",
+    "useful-moonshine-onnx>=0.1.0",
+    "kokoro-onnx>=0.3.0",
+    "sherpa-onnx>=1.10.0",
+    "pywhispercpp>=1.2.0",
+]
+
+# NVIDIA — CUDA accelerated paths.
+cuda = [
+    "onnxruntime-gpu>=1.18",
+    "kokoro-onnx>=0.3.0",
+    "sherpa-onnx>=1.10.0",
+    "nemo-toolkit[asr]>=2.0.0",
+    "faster-whisper>=1.0.0",
+]
+
+# Wake-word detection (openWakeWord pulls tflite-runtime which only has
+# cp310/cp311 wheels — keep it optional so STT/TTS installs work on cp312).
+wake = [
+    "openwakeword>=0.6.0",
+]
+
+# Extras — heavyweight optional engines.
+diarize = [
+    "pyannote.audio>=3.1.0",
+    "torch>=2.1",
+    "torchaudio>=2.1",
+]
+enhance = [
+    "noisereduce>=3.0",
+]
+
+[project.scripts]
+voice-core = "voice_core.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voice_core"]
+
+[tool.uv]
+package = true

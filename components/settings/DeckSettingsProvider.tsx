@@ -12,7 +12,7 @@ import React, {
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
 
-export type TTSEngine = "piper" | "xtts" | "chatterbox";
+export type TTSEngine = "kokoro-82m" | "chatterbox" | "sherpa-onnx-tts";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 export type ChatSurface = "safe" | "brave" | "radical";
@@ -56,6 +56,11 @@ export interface DeckPrefs {
   cloudProvider: CloudProviderId;
   /** Pinned cloud model id for the active cloud provider. */
   cloudModel: string;
+  /**
+   * Free/cloud routes and online provider catalogs are opt-in. When false,
+   * the app keeps model selection local-first and hides remote choices.
+   */
+  showOnlineModels: boolean;
   /**
    * User-editable system prompt, prepended to every chat turn (server-
    * side, after family-aware augmentation in lib/llm/systemPrompt.ts).
@@ -103,7 +108,7 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
   enabled: true,
   readAloud: false,
   mode: "vad",
-  ttsEngine: "piper",
+  ttsEngine: "sherpa-onnx-tts",
   silenceTimeoutMs: 1200,
   silenceThreshold: 0.14,
   audioInputId: null,
@@ -122,6 +127,7 @@ const DEFAULT_PREFS: DeckPrefs = {
   remoteModel: "",
   cloudProvider: "anthropic",
   cloudModel: "claude-sonnet-4-6",
+  showOnlineModels: false,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reduceMotion: false,
   chatContextRail: false,
@@ -133,6 +139,18 @@ const DEFAULT_PREFS: DeckPrefs = {
 const PREFS_KEY = "deck.prefs";
 const OLD_VOICE_KEY = "deck:voiceSettings";
 const OLD_THEME_KEY = "deck:theme";
+
+const VALID_TTS_ENGINES: ReadonlySet<TTSEngine> = new Set([
+  "kokoro-82m",
+  "chatterbox",
+  "sherpa-onnx-tts",
+]);
+
+function coerceTtsEngine(value: unknown): TTSEngine {
+  return typeof value === "string" && VALID_TTS_ENGINES.has(value as TTSEngine)
+    ? (value as TTSEngine)
+    : DEFAULT_VOICE_PREFS.ttsEngine;
+}
 
 function safeParse<T>(value: string | null): T | null {
   if (!value) return null;
@@ -150,6 +168,17 @@ const STALE_MODEL_DEFAULTS: ReadonlySet<string> = new Set([
   "qwen2",
   "qwen2:latest",
 ]);
+
+function enforceOnlineModelVisibility(prefs: DeckPrefs): DeckPrefs {
+  if (prefs.showOnlineModels || prefs.routeMode === "local") return prefs;
+  const remoteModel = prefs.routeMode === "free" ? prefs.model : prefs.remoteModel;
+  return {
+    ...prefs,
+    routeMode: "local",
+    remoteModel,
+    model: prefs.localModel,
+  };
+}
 
 function migratePrefs(): DeckPrefs {
   // Accept the old shape (with `freeMode: boolean`) so we don't wipe
@@ -172,7 +201,7 @@ function migratePrefs(): DeckPrefs {
     // If a stored routeMode already exists, respect it. Otherwise derive
     // from the legacy freeMode boolean.
     const routeMode: RouteMode =
-      rest.routeMode === "local" || rest.routeMode === "free"
+      rest.routeMode === "local" || rest.routeMode === "free" || rest.routeMode === "cloud"
         ? rest.routeMode
         : legacyFreeMode
           ? "free"
@@ -184,7 +213,7 @@ function migratePrefs(): DeckPrefs {
     // will proceed.
     const localModel = rest.localModel ?? (routeMode === "local" ? migratedModel : "");
     const remoteModel = rest.remoteModel ?? (routeMode === "free" ? migratedModel : "");
-    return {
+    const migrated: DeckPrefs = {
       ...DEFAULT_PREFS,
       ...rest,
       model: migratedModel,
@@ -192,8 +221,13 @@ function migratePrefs(): DeckPrefs {
       localModel,
       remoteModel,
       chatSurface: migratedSurface as ChatSurface,
-      voice: { ...DEFAULT_VOICE_PREFS, ...newPrefs.voice },
+      voice: {
+        ...DEFAULT_VOICE_PREFS,
+        ...newPrefs.voice,
+        ttsEngine: coerceTtsEngine(newPrefs.voice?.ttsEngine),
+      },
     };
+    return enforceOnlineModelVisibility(migrated);
   }
 
   // Migrate from old keys
@@ -212,7 +246,7 @@ function migratePrefs(): DeckPrefs {
           enabled: oldVoice.enabled ?? false,
           readAloud: oldVoice.autoSpeak ?? true,
           mode: "vad",
-          ttsEngine: oldVoice.engine ?? "chatterbox",
+          ttsEngine: coerceTtsEngine(oldVoice.engine),
           silenceTimeoutMs: DEFAULT_VOICE_PREFS.silenceTimeoutMs,
           silenceThreshold: DEFAULT_VOICE_PREFS.silenceThreshold,
         }
@@ -223,7 +257,7 @@ function migratePrefs(): DeckPrefs {
   localStorage.removeItem(OLD_VOICE_KEY);
   if (oldTheme) localStorage.removeItem(OLD_THEME_KEY);
 
-  return migrated;
+  return enforceOnlineModelVisibility(migrated);
 }
 
 function applyRootPrefs(reduceMotion: boolean) {
@@ -272,7 +306,7 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   // Note: mod+. (sidebar) is handled in Sidebar.tsx
 
   const updatePrefs = useCallback((partial: Partial<DeckPrefs>) => {
-    setPrefs((p) => ({ ...p, ...partial }));
+    setPrefs((p) => enforceOnlineModelVisibility({ ...p, ...partial }));
   }, []);
 
   const updateVoicePrefs = useCallback((partial: Partial<VoicePrefs>) => {
@@ -282,6 +316,7 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   const switchRouteMode = useCallback((target: RouteMode) => {
     setPrefs((p) => {
       if (p.routeMode === target) return p;
+      if (target !== "local" && !p.showOnlineModels) return p;
       // Stash current active model under the OLD mode, then restore the
       // target mode's remembered model as the active one. Cloud doesn't
       // participate in the `model` slot (it has cloudProvider+cloudModel)

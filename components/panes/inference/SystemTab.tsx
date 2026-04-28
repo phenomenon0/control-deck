@@ -61,11 +61,21 @@ interface InstalledModel {
   quantization?: string;
 }
 
-export function SystemTab({ refreshToken }: { refreshToken: number }) {
+export function SystemTab({
+  refreshToken,
+  showOnlineModels,
+}: {
+  refreshToken: number;
+  showOnlineModels: boolean;
+}) {
   const [profile, setProfile] = useState<SystemProfile | null>(null);
   const [installed, setInstalled] = useState<InstalledModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ViewMode>("runnable");
+
+  useEffect(() => {
+    if (!showOnlineModels && view === "cloud-sota") setView("runnable");
+  }, [showOnlineModels, view]);
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +102,14 @@ export function SystemTab({ refreshToken }: { refreshToken: number }) {
   const modalitiesToRender = useMemo(() => {
     return view === "cloud-sota" ? CLOUD_MODALITIES : LOCAL_CAPABLE_MODALITIES;
   }, [view]);
+
+  const visibleViews = useMemo(
+    () =>
+      (Object.keys(VIEW_LABELS) as ViewMode[]).filter(
+        (v) => showOnlineModels || v !== "cloud-sota",
+      ),
+    [showOnlineModels],
+  );
 
   if (loading && !profile) {
     return <div className="inference-empty">Probing hardware…</div>;
@@ -121,7 +139,7 @@ export function SystemTab({ refreshToken }: { refreshToken: number }) {
       <section className="system-suggestions">
         <div className="system-view-switcher">
           <div className="pill-group" role="tablist" aria-label="Suggestion view">
-            {(Object.keys(VIEW_LABELS) as ViewMode[]).map((v) => (
+            {visibleViews.map((v) => (
               <button
                 key={v}
                 type="button"

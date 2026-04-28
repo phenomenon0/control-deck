@@ -20,7 +20,10 @@ import { VoiceTranscript } from "./VoiceTranscript";
 import { VoiceToolResults } from "./VoiceToolResult";
 import { useVoiceSession } from "@/lib/voice/use-voice-session";
 import { useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
+import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { matchPhrase, isCancellation } from "@/lib/voice/voice-approval";
+import { VoiceApprovalCard } from "./VoiceApprovalCard";
 
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 
@@ -41,6 +44,7 @@ export function VoiceModeSheet({
 }: VoiceModeSheetProps) {
   const { prefs, updateVoicePrefs } = useDeckSettings();
   const mode: VoiceMode = prefs.voice.mode;
+  const dock = useOptionalAudioDock();
 
   // Reuse a shared session if one is in scope (e.g. LiveVoiceSurface);
   // otherwise own the runtime for standalone chat-page usage.
@@ -58,17 +62,36 @@ export function VoiceModeSheet({
     return session.attachThread(threadId);
   }, [isOpen, threadId, session]);
 
-  // Drive a turn whenever the session emits a final transcript.
+  // Drive a turn whenever the session emits a final transcript. While the
+  // FSM is in `confirming`, the same transcript is interpreted as the
+  // exact-phrase response to a pending approval rather than a new turn.
   useEffect(() => {
     const text = session.transcriptFinal.trim();
     if (!text || text === lastSubmittedRef.current) return;
     lastSubmittedRef.current = text;
+
+    if (session.state === "confirming" && session.pendingApproval) {
+      if (isCancellation(text)) {
+        void session.confirmApproval("rejected", "user-cancelled");
+      } else if (matchPhrase(session.pendingApproval, text)) {
+        void session.confirmApproval("approved");
+      }
+      // Non-matching speech in confirming state stays as ambient noise.
+      return;
+    }
+
     void session.runTurn(text, {
       threadId,
       model: selectedModel,
       onComplete: onMessageSent,
+      voice: {
+        routeId: dock?.routeId ?? "handsfree-chat",
+        mode: dock?.mode ?? "chat",
+        surface: "chat",
+        source: "manual",
+      },
     });
-  }, [session, session.transcriptFinal, threadId, selectedModel, onMessageSent]);
+  }, [session, session.transcriptFinal, threadId, selectedModel, onMessageSent, dock]);
 
   // Auto-start listening when sheet opens.
   useEffect(() => {
@@ -339,6 +362,8 @@ export function VoiceModeSheet({
               {phase === "speaking" && "Tap to interrupt"}
             </div>
           </div>
+
+          <VoiceApprovalCard />
 
           <VoiceToolResults
             artifacts={session.tools.artifacts}

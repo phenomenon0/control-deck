@@ -34,6 +34,17 @@ export async function POST() {
       { status: 409 },
     );
   }
+  if (status.sidecar.reachable !== true) {
+    return NextResponse.json(
+      {
+        error:
+          "Qwen Omni voice activation requires a reachable Omni sidecar. Keeping the current STT/TTS bindings active.",
+        status,
+        activation: activationSnapshot(status.modelDir),
+      },
+      { status: 409 },
+    );
+  }
 
   const bindings = QWEN_OMNI_SUPPORTED_MODALITIES.map((modality) =>
     qwenOmniBinding(modality, status.modelDir),

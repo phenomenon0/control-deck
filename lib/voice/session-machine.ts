@@ -19,6 +19,7 @@ export type VoiceSessionState =
   | "submitting" // transcript ready, dispatching to agent
   | "thinking" // agent running, no audio yet
   | "speaking" // assistant audio playing
+  | "confirming" // agent paused for an exact-phrase voice approval
   | "interrupted" // user cut the assistant; brief state before returning to listening
   | "reconnecting"
   | "error";
@@ -31,11 +32,15 @@ export type VoiceSessionEvent =
   | { type: "VOICE_ENDED" }
   | { type: "TRANSCRIPT_PARTIAL"; text: string }
   | { type: "TRANSCRIPT_FINAL"; text: string }
+  | { type: "TRANSCRIPT_EMPTY" }
   | { type: "RUN_STARTED" }
   | { type: "RUN_STREAMING" }
   | { type: "AUDIO_STARTED" }
   | { type: "AUDIO_STOPPED" }
   | { type: "INTERRUPT" }
+  | { type: "APPROVAL_CHALLENGE" }
+  | { type: "APPROVAL_GRANTED" }
+  | { type: "APPROVAL_REJECTED" }
   | { type: "NETWORK_LOST" }
   | { type: "NETWORK_RESTORED" }
   | { type: "FAIL"; error: string }
@@ -162,6 +167,13 @@ export function reduceVoiceSession(
       return ignore(ctx, `event ${event.type} ignored in listening`);
 
     case "transcribing":
+      if (event.type === "TRANSCRIPT_EMPTY") {
+        return transition(ctx, {
+          state: "idle",
+          transcriptPartial: "",
+          transcriptFinal: "",
+        });
+      }
       if (event.type === "TRANSCRIPT_FINAL") {
         return transition(ctx, {
           state: "submitting",
@@ -191,6 +203,15 @@ export function reduceVoiceSession(
       if (event.type === "INTERRUPT") {
         return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
       }
+      if (event.type === "APPROVAL_CHALLENGE") {
+        return transition(ctx, { state: "confirming" });
+      }
+      // No-audio assistant turn (text-only reply, sidecar dropped TTS, etc.).
+      // Watchdog can fire AUDIO_STOPPED to escape `thinking` cleanly without
+      // forcing the user to manually reset the session.
+      if (event.type === "AUDIO_STOPPED") {
+        return transition(ctx, { state: "idle", turnId: ctx.turnId + 1 });
+      }
       return ignore(ctx, `event ${event.type} ignored in thinking`);
 
     case "speaking":
@@ -200,11 +221,26 @@ export function reduceVoiceSession(
       if (event.type === "INTERRUPT") {
         return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
       }
+      if (event.type === "APPROVAL_CHALLENGE") {
+        return transition(ctx, { state: "confirming" });
+      }
       if (event.type === "MIC_REQUESTED") {
         // Starting to talk while assistant is speaking = barge-in.
         return transition(ctx, { state: "arming", error: null });
       }
       return ignore(ctx, `event ${event.type} ignored in speaking`);
+
+    case "confirming":
+      if (event.type === "APPROVAL_GRANTED") {
+        return transition(ctx, { state: "thinking" });
+      }
+      if (event.type === "APPROVAL_REJECTED") {
+        return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
+      }
+      if (event.type === "INTERRUPT") {
+        return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
+      }
+      return ignore(ctx, `event ${event.type} ignored in confirming`);
 
     case "reconnecting":
       return ignore(ctx, `event ${event.type} ignored while reconnecting`);
@@ -212,7 +248,7 @@ export function reduceVoiceSession(
 }
 
 export function isInterruptible(state: VoiceSessionState): boolean {
-  return state === "speaking" || state === "thinking";
+  return state === "speaking" || state === "thinking" || state === "confirming";
 }
 
 export function isListening(state: VoiceSessionState): boolean {
@@ -235,6 +271,8 @@ export function labelForState(state: VoiceSessionState): string {
       return "Thinking";
     case "speaking":
       return "Speaking";
+    case "confirming":
+      return "Awaiting confirmation";
     case "interrupted":
       return "Interrupted";
     case "reconnecting":

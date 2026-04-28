@@ -274,13 +274,13 @@ const TTS: BenchmarkEntry[] = [
     asOf: "2026-04",
   },
   {
-    providerId: "voice-api",
-    model: "piper",
+    providerId: "voice-core",
+    model: "kokoro-82m",
     modality: "tts",
-    metrics: { qualityMos: 3.6, timeToFirstMs: 180 },
+    metrics: { qualityMos: 4.1, timeToFirstMs: 200 },
     source: "Local sidecar",
     asOf: "2026-04",
-    note: "Local / free / offline. Jenny voice default.",
+    note: "Local / free / offline. Apache 2.0 Kokoro 82M ONNX, 50+ voices.",
   },
 ];
 
@@ -323,13 +323,13 @@ const STT: BenchmarkEntry[] = [
     asOf: "2026-04",
   },
   {
-    providerId: "voice-api",
-    model: "whisper",
+    providerId: "voice-core",
+    model: "whisper-large-v3-turbo-cpp",
     modality: "stt",
-    metrics: { qualityWer: 0.09 },
+    metrics: { qualityWer: 0.085 },
     source: "Local sidecar",
     asOf: "2026-04",
-    note: "Local Whisper via VOICE_API_URL; exact WER depends on model size.",
+    note: "Local whisper.cpp via VOICE_CORE_URL; exact WER depends on model size.",
   },
 ];
 

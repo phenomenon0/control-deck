@@ -2,7 +2,14 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 
-export type TTSEngine = "piper" | "xtts" | "chatterbox";
+import {
+  claimVoiceActivity,
+  createVoiceOwnerId,
+  hasExternalVoiceActivityOwner,
+  subscribeVoiceActivity,
+} from "@/lib/voice/activity-bus";
+
+export type TTSEngine = "kokoro-82m" | "chatterbox" | "sherpa-onnx-tts";
 export type VoiceInputMode = "push-to-talk" | "vad" | "toggle";
 
 // Pre-generated filler audio paths
@@ -14,16 +21,37 @@ const FILLER_PATHS = [
   "/audio/fillers/filler_4.wav", // "Good question."
 ];
 
-// WebSocket URL - dynamically determine based on current host
-const getWsUrl = () => {
-  if (typeof window === "undefined") return "ws://localhost:8000/ws";
-  const host = window.location.hostname;
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${host}:8000/ws`;
-};
-
 // Filler skip threshold - if first sentence ready within this time, skip filler
 const FILLER_SKIP_THRESHOLD_MS = 300;
+
+async function transcribeViaVoiceRoute(audio: Blob): Promise<string> {
+  const form = new FormData();
+  form.append("audio", audio, "speech.webm");
+  form.append("mimeType", audio.type || "audio/webm");
+
+  const res = await fetch("/api/voice/stt", {
+    method: "POST",
+    body: form,
+  });
+  const data = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
+  if (!res.ok) {
+    throw new Error(data?.error ?? `STT failed: ${res.status}`);
+  }
+  return data?.text ?? "";
+}
+
+async function synthesizeViaVoiceRoute(text: string, engine?: TTSEngine): Promise<ArrayBuffer> {
+  const res = await fetch("/api/voice/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, format: "wav", ...(engine ? { engine } : {}) }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? `TTS failed: ${res.status}`);
+  }
+  return res.arrayBuffer();
+}
 
 export interface UseVoiceChatOptions {
   onTranscript?: (text: string) => void;
@@ -63,6 +91,21 @@ export interface UseVoiceChatOptions {
    * client emits the final transcript via its own protocol.
    */
   suppressBlobStt?: boolean;
+  /**
+   * App-routed STT bridge. By default this uses `/api/voice/stt`, which follows
+   * the active deck binding (Qwen, voice-core fallback, or cloud).
+   */
+  transcribeAudio?: (audio: Blob) => Promise<string>;
+  /**
+   * App-routed TTS bridge. By default this uses `/api/voice/tts`, which follows
+   * the active deck binding (Qwen, voice-core fallback, or cloud).
+   */
+  synthesizeSpeech?: (text: string) => Promise<ArrayBuffer>;
+  /**
+   * Shared owner id for coordinated voice surfaces. useVoiceSession passes
+   * its own id so the primitive mic/playback hook does not interrupt it.
+   */
+  voiceOwnerId?: string;
 }
 
 export interface UseVoiceChatReturn {
@@ -165,7 +208,24 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     outputDeviceId = null,
     onMicFrame,
     suppressBlobStt = false,
+    transcribeAudio = transcribeViaVoiceRoute,
+    synthesizeSpeech,
+    ttsEngine,
+    voiceOwnerId,
   } = options;
+
+  // Latest-engine ref so the default synthesize closure picks up engine changes
+  // without churning the speech generation token.
+  const ttsEngineRef = useRef<TTSEngine | undefined>(ttsEngine);
+  useEffect(() => {
+    ttsEngineRef.current = ttsEngine;
+  }, [ttsEngine]);
+
+  const defaultSynthesize = useCallback(
+    (text: string) => synthesizeViaVoiceRoute(text, ttsEngineRef.current),
+    [],
+  );
+  const effectiveSynthesize = synthesizeSpeech ?? defaultSynthesize;
 
   // State
   const [isListening, setIsListening] = useState(false);
@@ -192,9 +252,17 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const micPcmSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   // Stable ref so the audio callback always sees the latest onMicFrame.
   const onMicFrameRef = useRef<typeof onMicFrame>(onMicFrame);
+  const transcribeAudioRef = useRef<typeof transcribeAudio>(transcribeAudio);
+  const synthesizeSpeechRef = useRef<typeof effectiveSynthesize>(effectiveSynthesize);
   useEffect(() => {
     onMicFrameRef.current = onMicFrame;
   }, [onMicFrame]);
+  useEffect(() => {
+    transcribeAudioRef.current = transcribeAudio;
+  }, [transcribeAudio]);
+  useEffect(() => {
+    synthesizeSpeechRef.current = effectiveSynthesize;
+  }, [effectiveSynthesize]);
 
   // Audio queue system
   const audioQueueRef = useRef<AudioBuffer[]>([]);
@@ -205,19 +273,16 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const utteranceEndTimeRef = useRef<number>(0);
   const waitResolversRef = useRef<Array<() => void>>([]);
   const firstSentenceQueuedRef = useRef(false);
+  const pendingSpeechJobsRef = useRef(0);
+  const speechFetchChainRef = useRef<Promise<void>>(Promise.resolve());
+  const speechGenerationTokenRef = useRef(0);
   
   // Ref to hold the playNext function to avoid stale closure in onended callback
   const playNextRef = useRef<() => void>(() => {});
   
-  // WebSocket refs
-  const wsRef = useRef<WebSocket | null>(null);
-  const wsReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const wsReconnectAttemptsRef = useRef(0);
-  const pendingSTTResolveRef = useRef<((text: string) => void) | null>(null);
-  const pendingSTTRejectRef = useRef<((error: Error) => void) | null>(null);
-  const sttTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const unmountedRef = useRef(false);
   const audioContextInitializingRef = useRef(false);
+  const ownerIdRef = useRef<string>(voiceOwnerId ?? createVoiceOwnerId("voice-chat"));
 
   // Output device routing — when an outputDeviceId is set we route the
   // processor through a MediaStreamDestinationNode + hidden <audio> element
@@ -313,161 +378,48 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     }
   }, []);
 
-  // WebSocket message handler
-  const handleWSMessage = useCallback(async (event: MessageEvent) => {
-    if (event.data instanceof Blob) {
-      // Binary data = audio chunk from TTS
-      try {
-        const arrayBuffer = await event.data.arrayBuffer();
-        
-        // Ensure audio context is initialized
-        let ctx = audioContextRef.current;
-        if (!ctx) {
-          console.log("[VoiceChat] Initializing audio context for TTS playback");
-          ctx = await initAudioContext();
+  const enqueueAudioArrayBuffer = useCallback(async (arrayBuffer: ArrayBuffer) => {
+    let ctx = audioContextRef.current;
+    if (!ctx) {
+      console.log("[VoiceChat] Initializing audio context for TTS playback");
+      ctx = await initAudioContext();
+    }
+    if (!ctx) {
+      throw new Error("Failed to initialize audio context");
+    }
+
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+
+    const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+    if (!firstSentenceQueuedRef.current && fillerPlayingRef.current) {
+      const timeSinceUtterance = Date.now() - utteranceEndTimeRef.current;
+      if (timeSinceUtterance < FILLER_SKIP_THRESHOLD_MS) {
+        if (audioSourceRef.current) {
+          try { audioSourceRef.current.stop(); } catch { /* already stopped */ }
+          audioSourceRef.current = null;
         }
-        if (!ctx) {
-          console.error("[VoiceChat] Failed to get audio context");
-          return;
-        }
-        
-        // Resume if suspended (browser autoplay policy)
-        if (ctx.state === "suspended") {
-          await ctx.resume();
-        }
-        
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-        
-        // Check if we should skip filler
-        if (!firstSentenceQueuedRef.current && fillerPlayingRef.current) {
-          const timeSinceUtterance = Date.now() - utteranceEndTimeRef.current;
-          if (timeSinceUtterance < FILLER_SKIP_THRESHOLD_MS) {
-            if (audioSourceRef.current) {
-              try { audioSourceRef.current.stop(); } catch { /* already stopped */ }
-              audioSourceRef.current = null;
-            }
-            fillerPlayingRef.current = false;
-          }
-        }
-        firstSentenceQueuedRef.current = true;
-        
-        // Add to queue
-        audioQueueRef.current.push(audioBuffer);
-        
-        // Start playback if not already playing
-        if (!isPlayingRef.current && !fillerPlayingRef.current) {
-          playNextRef.current();
-        }
-      } catch (e) {
-        console.error("[VoiceChat] Failed to decode audio chunk:", e);
+        fillerPlayingRef.current = false;
       }
-    } else if (typeof event.data === "string") {
-      // JSON message
-      try {
-        const msg = JSON.parse(event.data);
-        
-        switch (msg.type) {
-          case "tts_end":
-            setIsProcessingTTS(false);
-            break;
-          
-          case "stopped":
-            setIsProcessingTTS(false);
-            break;
-          
-          case "stt_result":
-            // Clear STT timeout to prevent memory leak
-            if (sttTimeoutRef.current) {
-              clearTimeout(sttTimeoutRef.current);
-              sttTimeoutRef.current = null;
-            }
-            setIsProcessingSTT(false);
-            if (pendingSTTResolveRef.current) {
-              pendingSTTResolveRef.current(msg.text || "");
-              pendingSTTResolveRef.current = null;
-              pendingSTTRejectRef.current = null;
-            }
-            break;
-          
-          case "error":
-            // Clear STT timeout on error
-            if (sttTimeoutRef.current) {
-              clearTimeout(sttTimeoutRef.current);
-              sttTimeoutRef.current = null;
-            }
-            const errorMsg = msg.message || "Voice API error";
-            setError(errorMsg);
-            setIsProcessingTTS(false);
-            setIsProcessingSTT(false);
-            if (pendingSTTRejectRef.current) {
-              pendingSTTRejectRef.current(new Error(errorMsg));
-              pendingSTTResolveRef.current = null;
-              pendingSTTRejectRef.current = null;
-            }
-            break;
-        }
-      } catch (e) {
-        console.error("[VoiceChat] Failed to parse WS message:", e);
-      }
+    }
+    firstSentenceQueuedRef.current = true;
+
+    audioQueueRef.current.push(audioBuffer);
+
+    if (!isPlayingRef.current && !fillerPlayingRef.current) {
+      playNextRef.current();
     }
   }, [initAudioContext]);
 
-  // Connect WebSocket
-  const connectWebSocket = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    // Clear any pending reconnect
-    if (wsReconnectTimeoutRef.current) {
-      clearTimeout(wsReconnectTimeoutRef.current);
-      wsReconnectTimeoutRef.current = null;
-    }
-
-    setVoiceApiStatus("checking");
-    const wsUrl = getWsUrl();
-    console.log("[VoiceChat] Connecting WebSocket to", wsUrl);
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("[VoiceChat] WebSocket connected");
-      wsReconnectAttemptsRef.current = 0;
-      setVoiceApiStatus("connected");
-    };
-
-    ws.onclose = (event) => {
-      console.log("[VoiceChat] WebSocket disconnected:", event.code);
-      wsRef.current = null;
-      
-      // Don't update state or reconnect if component unmounted
-      if (unmountedRef.current) return;
-      
-      setVoiceApiStatus("disconnected");
-
-      // Auto-reconnect if not intentionally closed
-      if (event.code !== 1000 && wsReconnectAttemptsRef.current < 5) {
-        wsReconnectAttemptsRef.current++;
-        console.log(`[VoiceChat] Reconnecting in 2s (attempt ${wsReconnectAttemptsRef.current})`);
-        wsReconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000);
-      }
-    };
-
-    ws.onerror = () => {
-      console.error("[VoiceChat] WebSocket error");
-      setError("Voice connection error");
-    };
-
-    ws.onmessage = handleWSMessage;
-  }, [handleWSMessage]);
-
-  // Check voice API / connect WebSocket
+  // Probe the deck-side voice route — when the bridge can reach voice-core,
+  // /api/voice/health returns ok=true. The result drives `voiceApiStatus`,
+  // which UI surfaces use to gate mic/playback buttons.
   const checkVoiceApi = useCallback(async (): Promise<boolean> => {
-    // First check HTTP health endpoint
+    setVoiceApiStatus("checking");
     try {
-      const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-      const res = await fetch(`http://${host}:8000/health`, {
+      const res = await fetch("/api/voice/health", {
         method: "GET",
         signal: AbortSignal.timeout(3000),
       });
@@ -475,15 +427,13 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         setVoiceApiStatus("disconnected");
         return false;
       }
+      setVoiceApiStatus("connected");
+      return true;
     } catch {
       setVoiceApiStatus("disconnected");
       return false;
     }
-    
-    // Then connect WebSocket
-    connectWebSocket();
-    return true;
-  }, [connectWebSocket]);
+  }, []);
 
   // Initialize on mount. Skip when disabled — a parent provides the runtime.
   useEffect(() => {
@@ -519,18 +469,6 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       // Resolve any pending waiters
       waitResolversRef.current.forEach(resolve => resolve());
       waitResolversRef.current = [];
-      // Clear STT timeout
-      if (sttTimeoutRef.current) {
-        clearTimeout(sttTimeoutRef.current);
-        sttTimeoutRef.current = null;
-      }
-      // Close WebSocket
-      if (wsReconnectTimeoutRef.current) {
-        clearTimeout(wsReconnectTimeoutRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close(1000, "Component unmount");
-      }
     };
   }, []);
 
@@ -542,11 +480,31 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     setError(null);
   }, []);
 
+  const resolveSpeechWaiters = useCallback(() => {
+    const resolvers = [...waitResolversRef.current];
+    waitResolversRef.current = [];
+    resolvers.forEach((resolve) => resolve());
+  }, []);
+
+  const maybeResolveSpeechWaiters = useCallback(() => {
+    if (
+      pendingSpeechJobsRef.current === 0 &&
+      audioQueueRef.current.length === 0 &&
+      !isPlayingRef.current &&
+      !fillerPlayingRef.current
+    ) {
+      resolveSpeechWaiters();
+    }
+  }, [resolveSpeechWaiters]);
+
   // Play next audio buffer from queue - using a stable function stored in ref
   useEffect(() => {
     const playNextFn = async () => {
       const ctx = audioContextRef.current;
-      if (!ctx) return;
+      if (!ctx) {
+        maybeResolveSpeechWaiters();
+        return;
+      }
 
       // Check if filler is still playing - wait for it to finish
       if (fillerPlayingRef.current) {
@@ -556,13 +514,14 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       // Get next buffer from queue
       const buffer = audioQueueRef.current.shift();
       if (!buffer) {
+        isPlayingRef.current = false;
+        if (pendingSpeechJobsRef.current > 0) {
+          return;
+        }
         // Queue empty - resolve all waiters
         console.log("[VoiceChat] Queue empty, resolving", waitResolversRef.current.length, "waiters");
-        isPlayingRef.current = false;
         setIsSpeaking(false);
-        const resolvers = [...waitResolversRef.current];
-        waitResolversRef.current = [];
-        resolvers.forEach((resolve) => resolve());
+        resolveSpeechWaiters();
         return;
       }
       console.log("[VoiceChat] Playing next buffer, queue remaining:", audioQueueRef.current.length);
@@ -592,7 +551,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     };
 
     playNextRef.current = playNextFn;
-  }, []);
+  }, [maybeResolveSpeechWaiters, resolveSpeechWaiters]);
 
   // Wrapper to call playNext via ref
   const playNext = useCallback(() => {
@@ -601,6 +560,10 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
   // Play a random filler - tracks timing for skip logic
   const playFiller = useCallback(async () => {
+    if (!enabled) return;
+    if (hasExternalVoiceActivityOwner(ownerIdRef.current)) return;
+    claimVoiceActivity(ownerIdRef.current, "speak");
+
     const ctx = await initAudioContext();
     if (ctx.state === "suspended") await ctx.resume();
 
@@ -641,34 +604,53 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     };
 
     source.start(0);
-  }, [initAudioContext]);
+  }, [enabled, initAudioContext]);
 
   // Queue speech for playback via WebSocket (non-blocking)
   const queueSpeech = useCallback((text: string) => {
-    if (!text.trim()) return;
-    
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn("[VoiceChat] WebSocket not connected, cannot speak");
-      setError("Voice not connected");
+    if (!enabled) return;
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (hasExternalVoiceActivityOwner(ownerIdRef.current)) {
+      console.info("[VoiceChat] Skipping passive speech; another voice surface is active");
       return;
     }
+    claimVoiceActivity(ownerIdRef.current, "speak");
 
+    const synthesize = synthesizeSpeechRef.current;
+    const token = speechGenerationTokenRef.current;
+    pendingSpeechJobsRef.current += 1;
     setIsProcessingTTS(true);
-    
-    // Send TTS request via WebSocket
-    // Audio chunks will arrive via handleWSMessage and be queued
-    wsRef.current.send(JSON.stringify({
-      type: "tts",
-      text,
-      voice: "jenny",
-    }));
-  }, []);
+
+    speechFetchChainRef.current = speechFetchChainRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (token !== speechGenerationTokenRef.current) return;
+        try {
+          const arrayBuffer = await synthesize(trimmed);
+          if (token !== speechGenerationTokenRef.current) return;
+          await enqueueAudioArrayBuffer(arrayBuffer);
+        } catch (err) {
+          if (token !== speechGenerationTokenRef.current) return;
+          const msg = err instanceof Error ? err.message : "TTS failed";
+          console.error("[VoiceChat] TTS error:", msg);
+          setError(msg);
+        } finally {
+          if (token === speechGenerationTokenRef.current) {
+            pendingSpeechJobsRef.current = Math.max(0, pendingSpeechJobsRef.current - 1);
+            if (pendingSpeechJobsRef.current === 0) setIsProcessingTTS(false);
+            maybeResolveSpeechWaiters();
+          }
+        }
+      });
+  }, [enabled, enqueueAudioArrayBuffer, maybeResolveSpeechWaiters]);
 
   // Clear the audio queue (for barge-in)
   const clearQueue = useCallback(() => {
     audioQueueRef.current = [];
     firstSentenceQueuedRef.current = false;
-  }, []);
+    maybeResolveSpeechWaiters();
+  }, [maybeResolveSpeechWaiters]);
 
   // Wait for all speech to finish
   const waitForSpeechEnd = useCallback((): Promise<void> => {
@@ -676,7 +658,12 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       console.log("[VoiceChat] waitForSpeechEnd called, isPlaying:", isPlayingRef.current, "fillerPlaying:", fillerPlayingRef.current, "queueLen:", audioQueueRef.current.length);
       
       // Check if already done
-      if (!isPlayingRef.current && !fillerPlayingRef.current && audioQueueRef.current.length === 0) {
+      if (
+        pendingSpeechJobsRef.current === 0 &&
+        !isPlayingRef.current &&
+        !fillerPlayingRef.current &&
+        audioQueueRef.current.length === 0
+      ) {
         console.log("[VoiceChat] Already done, resolving immediately");
         resolve();
         return;
@@ -684,7 +671,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       
       // Set up timeout first
       const timeoutId = setTimeout(() => {
-        console.warn("[VoiceChat] waitForSpeechEnd timeout (5s) - forcing resolve");
+        console.warn("[VoiceChat] waitForSpeechEnd timeout (30s) - forcing resolve");
         // Remove from waiters
         waitResolversRef.current = waitResolversRef.current.filter(r => r !== wrappedResolve);
         // Reset stuck state
@@ -692,7 +679,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         fillerPlayingRef.current = false;
         setIsSpeaking(false);
         resolve();
-      }, 5000);
+      }, 30000);
       
       // Create wrapped resolver that clears timeout
       const wrappedResolve = () => {
@@ -706,13 +693,11 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     });
   }, []);
 
-  // Stop speaking immediately (for barge-in) - now uses WebSocket
+  // Stop speaking immediately (for barge-in)
   const stopSpeaking = useCallback(() => {
-    // Send stop to server
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "stop" }));
-    }
-    
+    speechGenerationTokenRef.current += 1;
+    pendingSpeechJobsRef.current = 0;
+
     // Stop current audio source locally
     if (audioSourceRef.current) {
       try {
@@ -785,7 +770,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   }, []);
 
   const stopListeningInternal = useCallback(
-    async (autoSend: boolean = false) => {
+    async (autoSend: boolean = false, processAudio: boolean = true) => {
       if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
         return;
       }
@@ -824,6 +809,13 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
           const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
           audioChunksRef.current = [];
 
+          if (!processAudio) {
+            setIsProcessingSTT(false);
+            onListeningStopped?.();
+            resolve();
+            return;
+          }
+
           // Streaming-STT path: parent emits the final transcript via the
           // streaming client, so don't double-process the recorded blob.
           if (suppressBlobStt) {
@@ -842,38 +834,8 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
           setError(null);
 
           try {
-            // Use WebSocket for STT
-            if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-              throw new Error("Voice not connected");
-            }
-            
-            // Convert blob to base64 and send via WebSocket
-            const reader = new FileReader();
-            const textPromise = new Promise<string>((resolveText, rejectText) => {
-              pendingSTTResolveRef.current = resolveText;
-              pendingSTTRejectRef.current = rejectText;
-              
-              // Timeout after 30s (store ID so it can be cleared on success)
-              sttTimeoutRef.current = setTimeout(() => {
-                if (pendingSTTResolveRef.current) {
-                  rejectText(new Error("STT timeout"));
-                  pendingSTTResolveRef.current = null;
-                  pendingSTTRejectRef.current = null;
-                }
-                sttTimeoutRef.current = null;
-              }, 30000);
-            });
-            
-            reader.onloadend = () => {
-              const base64 = (reader.result as string).split(",")[1];
-              wsRef.current?.send(JSON.stringify({
-                type: "stt",
-                audio: base64,
-              }));
-            };
-            reader.readAsDataURL(audioBlob);
-            
-            const text = await textPromise;
+            const transcribe = transcribeAudioRef.current;
+            const text = await transcribe(audioBlob);
 
             if (text && text.trim()) {
               const trimmedText = text.trim();
@@ -908,8 +870,26 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     [onTranscript, onAutoSend, onListeningStopped, stopAudioLevelMonitoring, suppressBlobStt]
   );
 
+  // Latest-ref so we don't churn the BroadcastChannel subscription every time
+  // a parent-supplied callback (`onTranscript`, `onAutoSend`) gets a new
+  // identity — which used to leave stale closures racing to stop the mic.
+  const voiceActivityHandlerRef = useRef<() => void>(() => {});
+  voiceActivityHandlerRef.current = () => {
+    void stopListeningInternal(false, false);
+    stopSpeaking();
+    clearQueue();
+  };
+  useEffect(() => {
+    if (!enabled) return;
+    return subscribeVoiceActivity(ownerIdRef.current, () => {
+      voiceActivityHandlerRef.current();
+    });
+  }, [enabled]);
+
   const startListening = useCallback(async () => {
+    if (!enabled) return;
     console.log("[VoiceChat] startListening called, isSpeaking:", isSpeaking, "isPlaying:", isPlayingRef.current);
+    claimVoiceActivity(ownerIdRef.current, "listen");
     
     // Stop any ongoing TTS first (barge-in)
     if (isSpeaking || isPlayingRef.current || fillerPlayingRef.current) {
@@ -998,7 +978,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       setError(msg);
       setIsListening(false);
     }
-  }, [isSpeaking, stopSpeaking, clearQueue, startAudioLevelMonitoring, initAudioContext]);
+  }, [enabled, inputDeviceId, isSpeaking, stopSpeaking, clearQueue, startAudioLevelMonitoring, initAudioContext]);
 
   const stopListening = useCallback(async () => {
     await stopListeningInternal(true);
@@ -1007,6 +987,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   // Legacy speak function - for backwards compatibility (blocks until done)
   const speak = useCallback(
     async (text: string) => {
+      if (!enabled) return;
       if (!text.trim()) return;
 
       stopSpeaking();
@@ -1016,7 +997,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       queueSpeech(text);
       await waitForSpeechEnd();
     },
-    [stopSpeaking, clearQueue, queueSpeech, waitForSpeechEnd]
+    [enabled, stopSpeaking, clearQueue, queueSpeech, waitForSpeechEnd]
   );
 
   // Memoize the return value to prevent unnecessary re-renders in consumers

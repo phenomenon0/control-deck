@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
+
 /**
  * Voice subsystem health probe.
  *
@@ -10,7 +12,6 @@ import { NextResponse } from "next/server";
  *  - `detail` surfaces the first reachable response payload or error shape
  */
 
-const VOICE_API_URL = process.env.VOICE_API_URL || "http://localhost:8000";
 const PROBE_TIMEOUT_MS = 3000;
 
 interface ProviderHealth {
@@ -52,14 +53,14 @@ function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response
   return fetch(url, { ...init, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
 }
 
-async function probeVoiceApi(): Promise<ProviderHealth> {
+async function probeVoiceCore(): Promise<ProviderHealth> {
   const res = await probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
-    fetchWithTimeout(`${VOICE_API_URL}/health`).catch(() => null),
+    fetchWithTimeout(`${voiceCoreUrl()}/health`).catch(() => null),
   );
   return {
-    id: "voice-api",
+    id: "voice-core",
     modalities: ["tts", "stt"],
-    configured: Boolean(process.env.VOICE_API_URL) || true, // sidecar default always configured
+    configured: true, // local sidecar — always considered configured
     reachable: res.reachable,
     detail: res.detail,
     latencyMs: res.latencyMs,
@@ -228,7 +229,7 @@ async function probeAssemblyAi(): Promise<ProviderHealth> {
 
 export async function GET() {
   const providers = await Promise.all([
-    probeVoiceApi(),
+    probeVoiceCore(),
     probeElevenLabs(),
     probeOpenAi(),
     probeCartesia(),
@@ -246,7 +247,7 @@ export async function GET() {
   const unconfigured = providers.filter((p) => !p.configured).map((p) => p.id);
 
   // Back-compat: keep the existing `status` shape so older callers don't break.
-  const sidecar = providers.find((p) => p.id === "voice-api");
+  const sidecar = providers.find((p) => p.id === "voice-core");
   const anyReachable = reachable.length > 0;
   const status = anyReachable ? "ok" : "degraded";
 

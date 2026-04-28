@@ -103,15 +103,20 @@ function envApiKey(provider: Provider): string | undefined {
 }
 
 /**
- * Cache the model id we resolved from /v1/models for a given baseUrl. This
- * avoids hammering llama-server on every run; the inflight server only
- * binds one model per process so the answer is stable.
+ * Cache the served model list per baseUrl. llama-swap can route between a
+ * handful of models, so we keep the whole list and let callers pick. TTL
+ * is short so model swaps don't get masked.
  */
-const REMOTE_MODEL_CACHE = new Map<string, string>();
+interface ModelCacheEntry {
+  models: string[];
+  expiresAt: number;
+}
+const REMOTE_MODEL_CACHE = new Map<string, ModelCacheEntry>();
+const REMOTE_MODEL_TTL_MS = 30_000;
 
-async function fetchFirstModel(baseUrl: string, apiKey?: string): Promise<string | null> {
+async function fetchServedModels(baseUrl: string, apiKey?: string): Promise<string[]> {
   const cached = REMOTE_MODEL_CACHE.get(baseUrl);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > Date.now()) return cached.models;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 1500);
@@ -120,16 +125,18 @@ async function fetchFirstModel(baseUrl: string, apiKey?: string): Promise<string
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
       cache: "no-store",
     }).finally(() => clearTimeout(timer));
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const data = (await res.json()) as { data?: Array<{ id?: string }> };
-    const id = data?.data?.[0]?.id;
-    if (id) {
-      REMOTE_MODEL_CACHE.set(baseUrl, id);
-      return id;
-    }
-    return null;
+    const ids = (data?.data ?? [])
+      .map((row) => row?.id)
+      .filter((id): id is string => typeof id === "string");
+    REMOTE_MODEL_CACHE.set(baseUrl, {
+      models: ids,
+      expiresAt: Date.now() + REMOTE_MODEL_TTL_MS,
+    });
+    return ids;
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -153,12 +160,23 @@ export async function resolveLLM(override: LLMOverrideWire | undefined): Promise
   if (override?.api_key) apiKey = override.api_key;
   if (!apiKey) apiKey = envApiKey(provider);
 
-  // llama-server binds one model at startup. When the operator hasn't
-  // pinned LLM_MODEL, ask /v1/models for the live id so the request
-  // doesn't 400 with model="".
-  if (!modelId) {
-    const remote = await fetchFirstModel(baseUrl, apiKey);
-    if (remote) modelId = remote;
+  // Local LLM endpoints (llama-server, ollama, lm-studio) don't need an
+  // API key, but pi-ai's openai-completions client throws if it's empty.
+  // Detect localhost and inject a dummy key so the request actually goes
+  // out. The real OpenAI endpoint still requires OPENAI_API_KEY.
+  const isLocalHost =
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[?::1\]?)(:\d+)?\b/i.test(baseUrl);
+  if (!apiKey && isLocalHost) apiKey = "local-no-auth";
+
+  // llama-server binds one model at startup; llama-swap can route between
+  // a few. Either way, if the resolved id isn't in /v1/models we'd 400 on
+  // the first request. Snap to a served id so chat works even when the
+  // upstream caller forwards a stale default.
+  if (provider === "openai" || isLocalHost) {
+    const served = await fetchServedModels(baseUrl, apiKey);
+    if (served.length > 0 && (!modelId || !served.includes(modelId))) {
+      modelId = served[0];
+    }
   }
 
   const model: Model<"openai-completions"> = {

@@ -34,6 +34,8 @@ export class AgentOutput {
   private graphInput: GainNode | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
   private activeHandle: SpeechHandle | null = null;
+  /** FIFO of handles waiting for the active handle to drain. */
+  private handleQueue: SpeechHandle[] = [];
 
   /** When non-null we route through a MediaStream + <audio> for setSinkId. */
   private routedSink: {
@@ -138,9 +140,11 @@ export class AgentOutput {
     handle.buffers.push(buffer);
 
     if (this.activeHandle && this.activeHandle !== handle) {
-      // Another utterance is in flight — don't barge it; queue handles serially.
-      // Simplest behavior: ignore until the active one drains.
-      // Real session orchestration prevents two concurrent handles in practice.
+      // Another utterance is in flight. Queue this handle so it plays once the
+      // active one drains, instead of stranding its buffers forever.
+      if (!this.handleQueue.includes(handle)) {
+        this.handleQueue.push(handle);
+      }
       return;
     }
     if (!this.currentSource) {
@@ -159,9 +163,36 @@ export class AgentOutput {
       this.stopCurrentSource();
       this.activeHandle = null;
     }
+    // Drop the handle from the queue if it was waiting.
+    const idx = this.handleQueue.indexOf(handle);
+    if (idx !== -1) this.handleQueue.splice(idx, 1);
     handle.interrupt(reason);
     this.emit("speechEnd", { handle });
-    this.emit("drained", undefined);
+    // If a queued handle is now ready to play, start it; otherwise we're idle.
+    this.advanceQueue();
+  }
+
+  /**
+   * Mark a handle complete after the TTS stream has emitted all audio. If
+   * playback is currently waiting on more chunks, this nudges the queue to
+   * emit `speechEnd` once the existing buffers drain.
+   */
+  async finish(handle: SpeechHandle): Promise<void> {
+    handle.markDone();
+    const ctx = this.ctx ?? (handle.buffers.length > 0 ? await this.ensureReady() : null);
+    if (!this.activeHandle && handle.buffers.length > 0 && ctx) {
+      this.activeHandle = handle;
+      this.startNext(ctx);
+      return;
+    }
+    if (this.activeHandle === handle && !this.currentSource && ctx) {
+      this.startNext(ctx);
+      return;
+    }
+    if (!this.activeHandle && !this.currentSource && handle.buffers.length === 0) {
+      this.emit("speechEnd", { handle });
+      this.emit("drained", undefined);
+    }
   }
 
   /** Stop everything regardless of handle. Used for global mute / reset. */
@@ -173,6 +204,12 @@ export class AgentOutput {
       h.interrupt("stopAll");
       this.emit("speechEnd", { handle: h });
     }
+    // Drop every queued handle too.
+    for (const queued of this.handleQueue) {
+      queued.interrupt("stopAll");
+      this.emit("speechEnd", { handle: queued });
+    }
+    this.handleQueue = [];
     this.emit("drained", undefined);
   }
 
@@ -208,17 +245,17 @@ export class AgentOutput {
     const handle = this.activeHandle;
     if (!handle || handle.state === "interrupted") {
       this.activeHandle = null;
-      this.emit("drained", undefined);
+      this.advanceQueue();
       return;
     }
     const buffer = handle.buffers.shift();
     if (!buffer) {
       // Nothing more queued for this handle right now.
       if (handle.state === "done") {
-        const finished = this.activeHandle;
+        const finished = handle;
         this.activeHandle = null;
-        this.emit("speechEnd", { handle: finished! });
-        this.emit("drained", undefined);
+        this.emit("speechEnd", { handle: finished });
+        this.advanceQueue();
       }
       return;
     }
@@ -236,16 +273,45 @@ export class AgentOutput {
       if (handle.state === "interrupted") {
         if (this.activeHandle === handle) this.activeHandle = null;
         this.emit("speechEnd", { handle });
-        this.emit("drained", undefined);
+        this.advanceQueue();
         return;
       }
       this.startNext(ctx);
     };
 
     this.currentSource = source;
-    handle.markSpeaking();
-    this.emit("speechStart", { handle });
+    // markSpeaking is internally idempotent (only acts on "pending"). Emit
+    // speechStart only the first time the handle actually begins audio so
+    // subscribers don't see N speechStart events per utterance.
+    if (handle.state === "pending") {
+      handle.markSpeaking();
+      this.emit("speechStart", { handle });
+    }
     source.start(0);
+  }
+
+  /**
+   * Promote the next queued handle to active and start it, or emit `drained`
+   * if there's nothing waiting. Called whenever the active handle finishes,
+   * is interrupted, or is dropped.
+   */
+  private advanceQueue(): void {
+    if (this.activeHandle || this.currentSource) return;
+    // Skip any queued handles that were interrupted while waiting.
+    while (this.handleQueue.length > 0) {
+      const next = this.handleQueue.shift()!;
+      if (next.state === "interrupted") continue;
+      this.activeHandle = next;
+      const ctx = this.ctx;
+      if (!ctx) {
+        // No AudioContext yet; stay armed and let the next ensureReady() pick
+        // it up. In practice play() always lazily creates the context first.
+        return;
+      }
+      this.startNext(ctx);
+      return;
+    }
+    this.emit("drained", undefined);
   }
 
   private stopCurrentSource(): void {

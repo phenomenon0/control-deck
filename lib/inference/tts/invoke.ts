@@ -14,10 +14,7 @@ import {
   QWEN_OMNI_PROVIDER_ID,
   qwenOmniSidecarUrl,
 } from "../omni/local";
-import {
-  shouldRouteToVoiceEngines,
-  voiceEnginesSidecarUrl,
-} from "../voice-engines/sidecar-url";
+import { voiceCoreUrl } from "../voice-core/sidecar-url";
 
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 const OPENAI_BASE = "https://api.openai.com/v1";
@@ -27,16 +24,14 @@ const INWORLD_BASE = "https://api.inworld.ai/tts/v1";
 const DEEPGRAM_BASE = "https://api.deepgram.com/v1";
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-const VOICE_API_DEFAULT = process.env.VOICE_API_URL ?? "http://localhost:8000";
-
 export async function invokeTts(
   providerId: string,
   config: InferenceProviderConfig,
   args: TtsArgs,
 ): Promise<TtsResult> {
   switch (providerId) {
-    case "voice-api":
-      return invokeVoiceApi(config, args);
+    case "voice-core":
+      return invokeVoiceCore(config, args);
     case "elevenlabs":
       return invokeElevenLabs(config, args);
     case "openai":
@@ -72,11 +67,11 @@ async function invokeQwenOmniLocal(
       "qwen-omni-local: local generation runtime is required but no Omni sidecar is configured. Set OMNI_SIDECAR_URL or start a CUDA-capable runtime.",
     );
   }
-  const result = await invokeVoiceApi(
+  const result = await invokeVoiceCore(
     {
-      providerId: "voice-api",
-      baseURL: process.env.VOICE_API_URL ?? (config.extras?.fallbackBaseURL as string | undefined),
-      extras: { engine: "piper" },
+      providerId: "voice-core",
+      baseURL: config.extras?.fallbackBaseURL as string | undefined,
+      extras: { engine: "sherpa-onnx-tts" },
     },
     args,
   );
@@ -109,46 +104,42 @@ async function invokeQwenOmniSidecarTts(
 }
 
 /**
- * VOICE_API_URL sidecar — routes by model id.
- *
- * Legacy engines (`piper`, `xtts`, `chatterbox`) → port 8000 (the external
- * voice-api). Tiered engines declared in `hardware-tiers.ts` (`kokoro-82m`,
- * `orpheus-3b`) → the in-repo voice-engines sidecar at port 9101.
- *
- * The selector is `args.model ?? config.model ?? config.extras.engine` —
- * the model field carries the engine id when the bundle binds the slot.
+ * voice-core sidecar — POST /tts. Engine id comes from the bundle binding
+ * via `args.model`, falling back to `config.model` and `config.extras.engine`.
  */
-async function invokeVoiceApi(
+async function invokeVoiceCore(
   config: InferenceProviderConfig,
   args: TtsArgs,
 ): Promise<TtsResult> {
   const explicitEngine = (config.extras?.engine as string | undefined) ?? null;
-  const requestedModel = args.model ?? config.model ?? explicitEngine ?? null;
-  const useVoiceEngines = shouldRouteToVoiceEngines(requestedModel);
-  const base = useVoiceEngines
-    ? voiceEnginesSidecarUrl()
-    : (config.baseURL ?? VOICE_API_DEFAULT);
-  const engine = useVoiceEngines ? requestedModel! : (explicitEngine ?? "piper");
+  const engine = args.model ?? config.model ?? explicitEngine ?? "sherpa-onnx-tts";
+  const base = config.baseURL ?? voiceCoreUrl();
+  const configuredVoice = config.extras?.defaultVoiceId as string | undefined;
+  const requestedVoice = args.voice ?? configuredVoice;
+  const voice =
+    !requestedVoice || requestedVoice === "default"
+      ? engine === "kokoro-82m"
+        ? "af_sky"
+        : "default"
+      : requestedVoice;
   const res = await fetch(`${base}/tts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       text: args.text,
       engine,
-      voice: args.voice ?? (useVoiceEngines ? "default" : "jenny"),
+      voice,
       format: args.format ?? "wav",
       speed: args.speed ?? 1,
     }),
   });
   if (!res.ok) {
-    throw new Error(
-      `${useVoiceEngines ? "voice-engines" : "voice-api"} ${res.status}: ${await res.text()}`,
-    );
+    throw new Error(`voice-core ${res.status}: ${await res.text()}`);
   }
   return {
     audio: await res.arrayBuffer(),
     contentType: res.headers.get("content-type") ?? "audio/wav",
-    providerId: "voice-api",
+    providerId: "voice-core",
   };
 }
 
@@ -444,8 +435,8 @@ export async function listTtsVoices(
   config: InferenceProviderConfig,
 ): Promise<TtsVoice[]> {
   switch (providerId) {
-    case "voice-api": {
-      const base = config.baseURL ?? VOICE_API_DEFAULT;
+    case "voice-core": {
+      const base = config.baseURL ?? voiceCoreUrl();
       const res = await fetch(`${base}/voices`, { cache: "no-store" }).catch(() => null);
       if (!res || !res.ok) return [];
       const data = (await res.json()) as { voices?: Array<{ id?: string; name?: string }> };

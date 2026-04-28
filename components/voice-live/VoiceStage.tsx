@@ -118,6 +118,8 @@ function stateCopy(state: VoiceSessionApi["state"]): string {
       return "Thinking";
     case "speaking":
       return "Speaking";
+    case "confirming":
+      return "Confirm to proceed";
     case "interrupted":
       return "Interrupted";
     case "reconnecting":

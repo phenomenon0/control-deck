@@ -53,10 +53,10 @@ interface SidecarProbe {
 }
 
 async function probeVoiceSidecar(): Promise<SidecarProbe> {
-  // The sidecar speaks over WS on 8000 but also exposes /health on the same port.
+  // voice-core speaks over WS on 4245 and exposes /health on the same port.
   // Probe /health server-side using localhost since this endpoint runs in the
   // Next server process.
-  const base = process.env.VOICE_API_URL ?? "http://127.0.0.1:8000";
+  const base = process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245";
   try {
     const res = await fetch(`${base}/health`, {
       cache: "no-store",
@@ -78,7 +78,7 @@ function hintFor(runner: LocalRunner, installed: boolean, ollama: OllamaProbe, s
     case "voice-sidecar":
       return sidecar.reachable
         ? "Bundled with the local voice service. Launch the voice sidecar to enable."
-        : "Voice sidecar isn't running on :8000. Start the voice service to enable.";
+        : "voice-core isn't running on :4245. Start the voice service to enable.";
     case "unavailable":
       return "No local runner wired up yet. Cloud providers still work for this modality.";
     default:

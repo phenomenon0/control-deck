@@ -8,16 +8,26 @@
  * commands cheat-sheet; centre is the document with toolbar + foot;
  * right rail holds outline + artifacts + decisions log.
  *
- * The document model is local-only for now (no /api/voice/sessions wiring
- * yet) — this surface stages the UX so the agent can stream tokens into it
- * once the backend lands.
+ * Wired to backend:
+ *   - useVoiceSession → mic state, partial / final transcripts.
+ *   - Final transcripts are passed through a small voice-command parser
+ *     (`detectCommand`) before being dropped into the document model. The
+ *     command set mirrors the cheat-sheet ("new paragraph", "make that a
+ *     heading", "pull quote", "tighten this", "scratch that", "add photo").
+ *   - Tone selection (reporter / essay / tech / casual) is persisted and
+ *     surfaces as the document toolbar's tone label and as a `data-tone`
+ *     hook so future TTS routing can read it.
+ *   - Document state autosaves to localStorage so a refresh keeps the
+ *     in-flight draft. Decisions log is fed from real edits, not seed data.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useVoiceSession, type VoiceSessionApi } from "@/lib/voice/use-voice-session";
 import { isInterruptible } from "@/lib/voice/session-machine";
-import { VoiceSessionProvider } from "@/lib/voice/VoiceSessionContext";
+import { VoiceSessionProvider, useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
+import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
+import { FoldPanel } from "@/components/voice-shared/FoldPanel";
 
 type Tone = "reporter" | "essay" | "tech" | "casual";
 type MicMode = "PTT" | "VAD" | "Open-mic";
@@ -54,61 +64,36 @@ interface DecisionLog {
   live?: boolean;
 }
 
-const SEED_DOC: DocBlock[] = [
-  {
-    id: "intro",
-    kind: "p",
-    text:
-      "On a rainy Tuesday morning in East Portland, the line outside Moira's spilled past the bike rack and curled toward the bus stop. Nobody was checking a phone. Nobody was ordering through an app. They were, of all things, waiting.",
-  },
-  { id: "h-kept", kind: "h3", text: "What the owners kept" },
-  {
-    id: "ul-kept",
-    kind: "ul",
-    items: [
-      "Counter service, no table-runners.",
-      "A four-item breakfast menu, handwritten.",
-      "A house rule: coffee is free after the second refill.",
-    ],
-  },
-  {
-    id: "quote-nina",
-    kind: "quote",
-    text:
-      "We didn't set out to open a diner. We set out to open a room where people could sit for as long as they wanted.",
-    attrib: "Nina, co-owner",
-    ai: { kind: "Ai · quote", note: "You said “quote from Nina” — styled as a blockquote." },
-  },
-  {
-    id: "tell",
-    kind: "p",
-    text:
-      "The refill rule is the tell. It signals what the rest of the block eventually figured out — that a diner, done well, is infrastructure, not hospitality.",
-  },
-  {
-    id: "embed-storefront",
-    kind: "embed",
-    embedKind: "image",
-    embedAlt: "image · moira's storefront, rainy morning",
-    ai: { kind: "Ai · embed", note: "Dropped where you spoke it. Drag to reorder." },
-  },
-];
+interface ArtifactRow {
+  id: string;
+  kind: string;
+  title: string;
+  meta: string;
+}
 
-const SEED_LOG: DecisionLog[] = [
-  { id: "l1", t: "10:41", text: "session opened · reporter" },
-  { id: "l2", t: "10:42", text: "¶1 accepted" },
-  { id: "l3", t: "10:43", text: "“pull quote” → blockquote" },
-  { id: "l4", t: "10:44", text: "image · storefront" },
-];
+const SEED_DOC: DocBlock[] = [];
+const SEED_LOG: DecisionLog[] = [];
+const SEED_ARTIFACTS: ArtifactRow[] = [];
 
-const SEED_ARTIFACTS = [
-  { id: "a1", kind: "IMG", title: "Storefront photo",       meta: "generated · in-line" },
-  { id: "a2", kind: "MAP", title: "East Portland corridor", meta: "suggested · not placed" },
-  { id: "a3", kind: "♪",   title: "Nina quote · 0:12",       meta: "raw audio clip ▷" },
-];
+const STORAGE_KEY = "control-deck.newsroom.v1";
+
+interface PersistedDraft {
+  tone: Tone;
+  headline: string;
+  blocks: DocBlock[];
+  log: DecisionLog[];
+  artifacts: ArtifactRow[];
+  savedAt: string;
+}
 
 export function NewsroomSurface() {
-  const session = useVoiceSession();
+  // Reuse a session already provided up-tree (AudioDockProvider in DeckShell,
+  // or any VoiceSessionProvider) so we don't run two parallel mics + TTS
+  // pipelines for the same deck. Only when standalone do we own a session.
+  const sharedSession = useOptionalVoiceSession();
+  const dock = useOptionalAudioDock();
+  const ownSession = useVoiceSession({ enabled: !sharedSession && !dock });
+  const session = sharedSession ?? dock?.session ?? ownSession;
   return (
     <VoiceSessionProvider session={session}>
       <NewsroomInner session={session} />
@@ -117,33 +102,95 @@ export function NewsroomSurface() {
 }
 
 function NewsroomInner({ session }: { session: VoiceSessionApi }) {
-  const [tone, setTone] = useState<Tone>("reporter");
+  const persisted = useMemo(loadPersisted, []);
+  const [tone, setTone] = useState<Tone>(persisted?.tone ?? "reporter");
   const [micMode, setMicMode] = useState<MicMode>("VAD");
-  const [headline, setHeadline] = useState("The quiet return of the neighborhood diner");
-  const [doc] = useState<DocBlock[]>(SEED_DOC);
+  const [headline, setHeadline] = useState(persisted?.headline ?? "");
+  const [doc, setDoc] = useState<DocBlock[]>(persisted?.blocks ?? SEED_DOC);
+  const [log, setLog] = useState<DecisionLog[]>(persisted?.log ?? SEED_LOG);
+  const [artifacts, setArtifacts] = useState<ArtifactRow[]>(persisted?.artifacts ?? SEED_ARTIFACTS);
+  const [savedAt, setSavedAt] = useState<string | null>(persisted?.savedAt ?? null);
 
   const elapsedMs = useElapsedMs(session.isListening || session.state === "transcribing");
   const wordCount = useMemo(() => countWords(doc, headline), [doc, headline]);
-
   const liveText = session.transcriptPartial || (session.state === "thinking" ? session.transcriptFinal : "");
 
-  const log = useMemo<DecisionLog[]>(() => {
-    if (liveText) {
-      return [
-        ...SEED_LOG,
-        { id: "live", t: "now", text: "live dictation…", live: true },
-      ];
+  // Tone hot-keys (⌘1–⌘4) so the wireframe's kbd hints actually do something.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const t: Record<string, Tone> = { "1": "reporter", "2": "essay", "3": "tech", "4": "casual" };
+      const next = t[e.key];
+      if (!next) return;
+      e.preventDefault();
+      setTone(next);
+      pushLog(setLog, `tone → ${TONE_INFO[next].label.toLowerCase()}`);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Drive the document from final transcripts. A final transcript is either
+  // a voice command (handled here) or a paragraph/sentence to insert.
+  const lastTakenRef = useRef<string>("");
+  useEffect(() => {
+    const text = session.transcriptFinal.trim();
+    if (!text || text === lastTakenRef.current) return;
+    lastTakenRef.current = text;
+    const cmd = detectCommand(text);
+    if (cmd) {
+      applyCommand(cmd, { setDoc, setHeadline, setLog, setArtifacts, headline });
+      return;
     }
-    return SEED_LOG;
-  }, [liveText]);
+    const block: DocBlock = { id: blockId(), kind: "p", text };
+    setDoc((prev) => [...prev, block]);
+    pushLog(setLog, `¶ + "${truncate(text, 28)}"`);
+    if (!headline) {
+      const inferred = inferHeadlineFrom(text);
+      if (inferred) {
+        setHeadline(inferred);
+        pushLog(setLog, `headline inferred`);
+      }
+    }
+  }, [session.transcriptFinal, headline]);
+
+  // Autosave to localStorage on any document change. Throttled to 1s.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const draft: PersistedDraft = {
+        tone,
+        headline,
+        blocks: doc,
+        log,
+        artifacts,
+        savedAt: new Date().toISOString(),
+      };
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+        setSavedAt(draft.savedAt);
+      } catch { /* quota — ignore */ }
+    }, 1000);
+    return () => window.clearTimeout(id);
+  }, [tone, headline, doc, log, artifacts]);
 
   const onPickTone = useCallback((next: Tone) => {
     setTone(next);
+    pushLog(setLog, `tone → ${TONE_INFO[next].label.toLowerCase()}`);
     if (TONE_INFO[next].headlineDefault && !headline) setHeadline(TONE_INFO[next].headlineDefault);
   }, [headline]);
 
+  const liveLog = useMemo<DecisionLog[]>(() => {
+    if (liveText) {
+      return [
+        ...log.slice(-12),
+        { id: "live", t: "now", text: "live dictation…", live: true },
+      ];
+    }
+    return log.slice(-12);
+  }, [log, liveText]);
+
   return (
-    <div className="nr-root">
+    <div className="nr-root" data-tone={tone}>
       <aside className="nr-rail--left">
         <MicPanel
           session={session}
@@ -159,20 +206,185 @@ function NewsroomInner({ session }: { session: VoiceSessionApi }) {
       <DocFrame
         tone={tone}
         headline={headline}
-        onHeadlineChange={setHeadline}
+        onHeadlineChange={(next) => {
+          setHeadline(next);
+          pushLog(setLog, `headline edited`);
+        }}
         blocks={doc}
         liveText={liveText}
         wordCount={wordCount}
         elapsedMs={elapsedMs}
+        savedAt={savedAt}
+        onInsertImage={() => {
+          setArtifacts((prev) => [
+            ...prev,
+            { id: `a-${Date.now()}`, kind: "IMG", title: "Image placeholder", meta: "manual · in-line" },
+          ]);
+          setDoc((prev) => [
+            ...prev,
+            {
+              id: blockId(),
+              kind: "embed",
+              embedKind: "image",
+              embedAlt: "image placeholder — drop a file here",
+              ai: { kind: "Manual · embed", note: "Inserted by toolbar — drag to reorder." },
+            },
+          ]);
+          pushLog(setLog, `image · placeholder inserted`);
+        }}
+        onReadAloud={() => {
+          const wholeText = [headline, ...doc.map((b) => b.text ?? (b.items ?? []).join(". "))]
+            .filter(Boolean)
+            .join(". ");
+          if (!wholeText) return;
+          void session.speak(wholeText);
+          pushLog(setLog, `read aloud`);
+        }}
+        onExport={() => exportMarkdown(headline, doc)}
+        onPublish={() => pushLog(setLog, `publish requested`)}
       />
 
       <aside className="nr-rail--right">
         <OutlinePanel headline={headline} blocks={doc} liveText={liveText} />
-        <ArtifactsPanel />
-        <DecisionsPanel log={log} />
+        <ArtifactsPanel artifacts={artifacts} sessionArtifacts={session.tools.artifacts} />
+        <DecisionsPanel log={liveLog} onClear={() => setLog([])} />
       </aside>
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* Voice command parser                                                 */
+/* ------------------------------------------------------------------ */
+
+type Command =
+  | { kind: "newParagraph" }
+  | { kind: "makeHeading"; level: 2 | 3 }
+  | { kind: "pullQuote"; text?: string }
+  | { kind: "tighten" }
+  | { kind: "scratch" }
+  | { kind: "addPhoto"; subject: string }
+  | { kind: "newSection"; subject: string }
+  | { kind: "changeTitle"; text: string };
+
+function detectCommand(raw: string): Command | null {
+  const text = raw.trim().toLowerCase();
+  if (text === "new paragraph" || text === "new graph") return { kind: "newParagraph" };
+  if (text === "make that a heading" || text.startsWith("make that an h2")) return { kind: "makeHeading", level: 2 };
+  if (text.startsWith("make that an h3") || text === "subheading") return { kind: "makeHeading", level: 3 };
+  if (text === "pull quote" || text === "block quote") return { kind: "pullQuote" };
+  if (text === "tighten this" || text === "rewrite this") return { kind: "tighten" };
+  if (text === "scratch that" || text === "undo that" || text === "undo") return { kind: "scratch" };
+
+  const photoMatch = text.match(/^add\s+(a\s+)?(photo|image|picture)\s+of\s+(.+)$/);
+  if (photoMatch) return { kind: "addPhoto", subject: photoMatch[3]!.trim() };
+
+  if (text === "next section" || text === "accept suggestion") return { kind: "newSection", subject: "next section" };
+
+  const titleMatch = raw.trim().match(/^change\s+title\s+to\s+(.+)$/i);
+  if (titleMatch) return { kind: "changeTitle", text: titleMatch[1]! };
+
+  return null;
+}
+
+interface CommandCtx {
+  setDoc: React.Dispatch<React.SetStateAction<DocBlock[]>>;
+  setHeadline: React.Dispatch<React.SetStateAction<string>>;
+  setLog: React.Dispatch<React.SetStateAction<DecisionLog[]>>;
+  setArtifacts: React.Dispatch<React.SetStateAction<ArtifactRow[]>>;
+  headline: string;
+}
+
+function applyCommand(cmd: Command, ctx: CommandCtx) {
+  switch (cmd.kind) {
+    case "newParagraph":
+      ctx.setDoc((prev) => [...prev, { id: blockId(), kind: "p", text: "" }]);
+      pushLog(ctx.setLog, `¶ break`);
+      return;
+    case "makeHeading":
+      ctx.setDoc((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.kind === "p" && last.text) {
+          next[next.length - 1] = { ...last, kind: cmd.level === 2 ? "h2" : "h3" };
+        } else {
+          next.push({ id: blockId(), kind: cmd.level === 2 ? "h2" : "h3", text: "" });
+        }
+        return next;
+      });
+      pushLog(ctx.setLog, `H${cmd.level} promoted`);
+      return;
+    case "pullQuote":
+      ctx.setDoc((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.kind === "p" && last.text) {
+          next[next.length - 1] = { ...last, kind: "quote", ai: { kind: "Voice · quote", note: 'You said "pull quote" — styled as a blockquote.' } };
+        } else {
+          next.push({ id: blockId(), kind: "quote", text: "", ai: { kind: "Voice · quote", note: 'Empty pull quote — speak the line next.' } });
+        }
+        return next;
+      });
+      pushLog(ctx.setLog, `"pull quote" → blockquote`);
+      return;
+    case "tighten":
+      ctx.setDoc((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last && last.text) {
+          next[next.length - 1] = { ...last, text: tightenText(last.text) };
+        }
+        return next;
+      });
+      pushLog(ctx.setLog, `tightened ¶`);
+      return;
+    case "scratch":
+      ctx.setDoc((prev) => prev.slice(0, -1));
+      pushLog(ctx.setLog, `scratched last block`);
+      return;
+    case "addPhoto":
+      ctx.setArtifacts((prev) => [
+        ...prev,
+        { id: `a-${Date.now()}`, kind: "IMG", title: cmd.subject, meta: "voice · pending generation" },
+      ]);
+      ctx.setDoc((prev) => [
+        ...prev,
+        {
+          id: blockId(),
+          kind: "embed",
+          embedKind: "image",
+          embedAlt: `image · ${cmd.subject}`,
+          ai: { kind: "Voice · embed", note: `Dropped where you spoke "${truncate(cmd.subject, 24)}".` },
+        },
+      ]);
+      pushLog(ctx.setLog, `image · ${truncate(cmd.subject, 24)}`);
+      return;
+    case "newSection":
+      ctx.setDoc((prev) => [...prev, { id: blockId(), kind: "h3", text: cmd.subject }]);
+      pushLog(ctx.setLog, `next section accepted`);
+      return;
+    case "changeTitle":
+      ctx.setHeadline(cmd.text);
+      pushLog(ctx.setLog, `title → "${truncate(cmd.text, 24)}"`);
+      return;
+  }
+}
+
+function tightenText(text: string): string {
+  return text
+    .replace(/\b(very|really|just|actually|basically)\s+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferHeadlineFrom(text: string): string | null {
+  // Pull the first reasonably newsworthy clause, capped to ~80 chars.
+  const clean = text.replace(/^(so|well|um|uh|okay|alright)[,]?\s+/i, "").trim();
+  if (clean.length === 0) return null;
+  const cutoff = clean.search(/[.!?]/);
+  const first = (cutoff > 0 ? clean.slice(0, cutoff) : clean).trim();
+  if (first.length < 6) return null;
+  return first.slice(0, 80);
 }
 
 /* ------------------------------------------------------------------ */
@@ -273,8 +485,13 @@ function BylinePanel({ tone, onPick }: { tone: Tone; onPick: (t: Tone) => void }
 
 function CommandsPanel() {
   return (
-    <div className="au-panel au-panel--inset">
-      <span className="au-panel__label">Say to edit</span>
+    <FoldPanel
+      storageKey="control-deck.newsroom.fold.commands"
+      defaultOpen={false}
+      label="Say to edit"
+      counter="6"
+      className="au-panel--inset"
+    >
       <div className="cdt-cmds">
         <Cmd k='"new paragraph"'      v="break" />
         <Cmd k='"make that a heading"' v="H2" />
@@ -283,7 +500,7 @@ function CommandsPanel() {
         <Cmd k='"scratch that"'       v="undo" />
         <Cmd k='"add photo of X"'     v="image gen" />
       </div>
-    </div>
+    </FoldPanel>
   );
 }
 
@@ -308,6 +525,11 @@ function DocFrame({
   liveText,
   wordCount,
   elapsedMs,
+  savedAt,
+  onInsertImage,
+  onReadAloud,
+  onExport,
+  onPublish,
 }: {
   tone: Tone;
   headline: string;
@@ -316,6 +538,11 @@ function DocFrame({
   liveText: string;
   wordCount: number;
   elapsedMs: number;
+  savedAt: string | null;
+  onInsertImage: () => void;
+  onReadAloud: () => void;
+  onExport: () => void;
+  onPublish: () => void;
 }) {
   return (
     <div className="nr-doc">
@@ -333,11 +560,11 @@ function DocFrame({
           <button type="button" style={{ fontFamily: "var(--au-mono)", fontSize: 12 }}>{"{ }"}</button>
         </div>
         <div className="nr-doc__sep" />
-        <button type="button" className="au-btn au-btn--ghost">Insert image</button>
-        <button type="button" className="au-btn au-btn--ghost">Read aloud</button>
+        <button type="button" className="au-btn au-btn--ghost" onClick={onInsertImage}>Insert image</button>
+        <button type="button" className="au-btn au-btn--ghost" onClick={onReadAloud}>Read aloud</button>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <button type="button" className="au-btn au-btn--ghost">Export .md</button>
-          <button type="button" className="au-btn au-btn--primary">Publish</button>
+          <button type="button" className="au-btn au-btn--ghost" onClick={onExport}>Export .md</button>
+          <button type="button" className="au-btn au-btn--primary" onClick={onPublish}>Publish</button>
         </div>
       </div>
 
@@ -349,14 +576,20 @@ function DocFrame({
             suppressContentEditableWarning
             onBlur={(e) => onHeadlineChange(e.currentTarget.textContent || "")}
           >
-            {headline}
+            {headline || "Untitled draft"}
           </h2>
           <div className="nr-doc__inline-note" style={{ top: 10 }}>
             <span className="au-mono">Ai · headline</span>
-            Inferred from your first sentence. Say <em>“change title”</em> to override.
+            Inferred from your first sentence. Say <em>“change title to …”</em> to override.
           </div>
         </div>
         <p className="nr-doc__byline">Draft · {todayStamp()} · spoken in {formatClock(elapsedMs)}</p>
+
+        {blocks.length === 0 && !liveText ? (
+          <p style={{ color: "var(--au-ink-3)", fontStyle: "italic" }}>
+            Tap the orb on the left to begin. Speak in clean sentences — the page will format paragraphs, headings, and quotes as you go.
+          </p>
+        ) : null}
 
         {blocks.map((b) => (
           <DocNode key={b.id} block={b} />
@@ -369,9 +602,9 @@ function DocFrame({
 
       <div className="nr-doc__foot">
         <div className="nr-doc__status">
-          <span><span className="au-dot" />saving</span>
+          <span><span className="au-dot" />{savedAt ? "saved" : "draft"}</span>
           <span>{wordCount} words · {Math.max(1, Math.round(wordCount / 200))} min read</span>
-          <span>autosaved 4s ago</span>
+          <span>{savedAt ? `autosaved ${relativeTime(savedAt)}` : "not yet saved"}</span>
         </div>
         <div className="nr-doc__foot-meta">markdown · .md</div>
       </div>
@@ -412,7 +645,7 @@ function DocNode({ block }: { block: DocBlock }) {
           <div className="nr-doc__embed">
             <div className="nr-doc__embed-ph">{block.embedAlt}</div>
             <div className="nr-doc__embed-cap">
-              <span>Generated from “add a photo of the storefront”</span>
+              <span>{block.ai?.note ?? "Generated."}</span>
               <span className="au-mono">REGEN · ALT</span>
             </div>
           </div>
@@ -442,15 +675,17 @@ function OutlinePanel({
 }) {
   const subs = blocks.filter((b) => b.kind === "h2" || b.kind === "h3");
   return (
-    <div className="au-panel">
-      <span className="au-panel__label">
-        Outline <span className="au-panel__counter">auto</span>
-      </span>
+    <FoldPanel
+      storageKey="control-deck.newsroom.fold.outline"
+      defaultOpen={false}
+      label="Outline"
+      counter={subs.length || "auto"}
+    >
       <ul className="nr-outline">
         <li className="is-active"><span>{headline || "Untitled"}</span></li>
         {subs.map((s) => (
           <li key={s.id} className="is-sub">
-            <span>{s.text}</span>
+            <span>{s.text || "(empty)"}</span>
             <span className="au-mono">{s.kind.toUpperCase()}</span>
           </li>
         ))}
@@ -459,70 +694,152 @@ function OutlinePanel({
             <span className="nr-outline__hand">writing now…</span>
           </li>
         ) : null}
-        <li className="is-sub is-ghost">
-          <span>The refill economy</span>
-          <span className="au-mono">sugg</span>
-        </li>
-        <li className="is-sub is-ghost">
-          <span>What it asks of a block</span>
-          <span className="au-mono">sugg</span>
-        </li>
+        {subs.length === 0 && !liveText ? (
+          <li className="is-sub is-ghost">
+            <span>Sections appear as you speak headings</span>
+            <span className="au-mono">tip</span>
+          </li>
+        ) : null}
       </ul>
       <div className="au-rule au-rule--dash" />
       <div className="au-note">
         <span className="au-note__arrow">↳</span> say <em>“next section”</em> to accept a suggestion
       </div>
-    </div>
+    </FoldPanel>
   );
 }
 
-function ArtifactsPanel() {
+function ArtifactsPanel({
+  artifacts,
+  sessionArtifacts,
+}: {
+  artifacts: ArtifactRow[];
+  sessionArtifacts: VoiceSessionApi["tools"]["artifacts"];
+}) {
+  const merged: ArtifactRow[] = useMemo(() => {
+    const fromSession: ArtifactRow[] = sessionArtifacts.map((a) => ({
+      id: a.id,
+      kind: kindFromMime(a.mimeType),
+      title: a.name,
+      meta: "agent · in-line",
+    }));
+    return [...fromSession, ...artifacts];
+  }, [artifacts, sessionArtifacts]);
+
   return (
-    <div className="au-panel">
-      <span className="au-panel__label">
-        Artifacts <span className="au-panel__counter">{SEED_ARTIFACTS.length}</span>
-      </span>
+    <FoldPanel
+      storageKey="control-deck.newsroom.fold.artifacts"
+      defaultOpen={false}
+      label="Artifacts"
+      counter={merged.length}
+    >
       <div className="nr-artifacts">
-        {SEED_ARTIFACTS.map((a) => (
-          <div key={a.id} className="nr-artifacts__row">
-            <div className="nr-artifacts__ph">{a.kind}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="nr-artifacts__title">{a.title}</div>
-              <div className="nr-artifacts__meta">{a.meta}</div>
-            </div>
+        {merged.length === 0 ? (
+          <div style={{ fontStyle: "italic", color: "var(--au-ink-3)", fontSize: 12 }}>
+            Generated images and clips will appear here.
           </div>
-        ))}
+        ) : (
+          merged.map((a) => (
+            <div key={a.id} className="nr-artifacts__row">
+              <div className="nr-artifacts__ph">{a.kind}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="nr-artifacts__title">{a.title}</div>
+                <div className="nr-artifacts__meta">{a.meta}</div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
-    </div>
+    </FoldPanel>
   );
 }
 
-function DecisionsPanel({ log }: { log: DecisionLog[] }) {
+function DecisionsPanel({ log, onClear }: { log: DecisionLog[]; onClear: () => void }) {
   return (
-    <div className="au-panel">
-      <span className="au-panel__label">
-        Decisions <span className="au-panel__counter">log</span>
-      </span>
+    <FoldPanel
+      storageKey="control-deck.newsroom.fold.decisions"
+      defaultOpen={false}
+      label="Decisions"
+      counter={log.length || "log"}
+    >
       <div className="nr-hlog">
-        {log.map((row) => (
-          <div key={row.id}>
-            <span className="nr-hlog__t">{row.t}</span>
-            {row.live ? <span className="nr-hlog__live">{row.text}</span> : row.text}
-          </div>
-        ))}
+        {log.length === 0 ? (
+          <div style={{ fontStyle: "italic", color: "var(--au-ink-3)" }}>No decisions logged yet.</div>
+        ) : (
+          log.map((row) => (
+            <div key={row.id}>
+              <span className="nr-hlog__t">{row.t}</span>
+              {row.live ? <span className="nr-hlog__live">{row.text}</span> : row.text}
+            </div>
+          ))
+        )}
       </div>
       <div className="au-rule au-rule--dash" />
       <div style={{ display: "flex", gap: 6 }}>
-        <button type="button" className="au-btn au-btn--ghost">Rewind</button>
-        <button type="button" className="au-btn au-btn--ghost">Diff</button>
+        <button type="button" className="au-btn au-btn--ghost" onClick={onClear} disabled={log.length === 0}>
+          Clear
+        </button>
       </div>
-    </div>
+    </FoldPanel>
   );
 }
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                              */
 /* ------------------------------------------------------------------ */
+
+function blockId(): string {
+  return `b-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function pushLog(setLog: React.Dispatch<React.SetStateAction<DecisionLog[]>>, text: string) {
+  setLog((prev) => {
+    const next: DecisionLog = { id: `l-${Date.now()}-${Math.floor(Math.random() * 1000)}`, t: nowClock(), text };
+    return [...prev, next].slice(-40);
+  });
+}
+
+function loadPersisted(): PersistedDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedDraft;
+  } catch {
+    return null;
+  }
+}
+
+function exportMarkdown(headline: string, blocks: DocBlock[]) {
+  const md: string[] = [];
+  if (headline) md.push(`# ${headline}\n`);
+  for (const b of blocks) {
+    switch (b.kind) {
+      case "h2": md.push(`## ${b.text ?? ""}\n`); break;
+      case "h3": md.push(`### ${b.text ?? ""}\n`); break;
+      case "p":  md.push(`${b.text ?? ""}\n`); break;
+      case "ul": md.push((b.items ?? []).map((i) => `- ${i}`).join("\n") + "\n"); break;
+      case "quote": md.push(`> ${b.text ?? ""}\n${b.attrib ? `> — ${b.attrib}\n` : ""}`); break;
+      case "embed": md.push(`![${b.embedAlt ?? "image"}]()\n`); break;
+    }
+  }
+  const blob = new Blob([md.join("\n")], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(headline || "draft").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function kindFromMime(mime: string | null | undefined): string {
+  if (!mime) return "FILE";
+  if (mime.startsWith("image/")) return "IMG";
+  if (mime.startsWith("audio/")) return "♪";
+  if (mime.startsWith("video/")) return "VID";
+  if (mime.includes("json") || mime.includes("javascript")) return "{ }";
+  return "FILE";
+}
 
 function useElapsedMs(running: boolean): number {
   const [ms, setMs] = useState(0);
@@ -549,6 +866,11 @@ function formatClock(ms: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function nowClock(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 function countWords(blocks: DocBlock[], headline: string): number {
   const all = [
     headline,
@@ -563,4 +885,15 @@ function countWords(blocks: DocBlock[], headline: string): number {
 function todayStamp(): string {
   const d = new Date();
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 5000) return "just now";
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s ago`;
+  return `${Math.round(ms / 60_000)}m ago`;
 }

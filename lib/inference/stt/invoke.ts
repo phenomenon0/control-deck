@@ -8,10 +8,7 @@
 import type { InferenceProviderConfig } from "../types";
 import type { SttArgs, SttResult, SttWord } from "./types";
 import { QWEN_OMNI_PROVIDER_ID, qwenOmniSidecarUrl } from "../omni/local";
-import {
-  shouldRouteToVoiceEngines,
-  voiceEnginesSidecarUrl,
-} from "../voice-engines/sidecar-url";
+import { voiceCoreUrl } from "../voice-core/sidecar-url";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 const GROQ_BASE = "https://api.groq.com/openai/v1";
@@ -19,16 +16,14 @@ const DEEPGRAM_BASE = "https://api.deepgram.com/v1";
 const CARTESIA_BASE = "https://api.cartesia.ai";
 const ASSEMBLYAI_BASE = "https://api.assemblyai.com/v2";
 
-const VOICE_API_DEFAULT = process.env.VOICE_API_URL ?? "http://localhost:8000";
-
 export async function invokeStt(
   providerId: string,
   config: InferenceProviderConfig,
   args: SttArgs,
 ): Promise<SttResult> {
   switch (providerId) {
-    case "voice-api":
-      return invokeVoiceApi(config, args);
+    case "voice-core":
+      return invokeVoiceCore(config, args);
     case "openai":
       return invokeOpenAiStt(config, args);
     case "groq":
@@ -60,13 +55,9 @@ async function invokeQwenOmniLocal(
       "qwen-omni-local: local generation runtime is required but no Omni sidecar is configured. Set OMNI_SIDECAR_URL or start a CUDA-capable runtime.",
     );
   }
-  const result = await invokeVoiceApi(
-    {
-      providerId: "voice-api",
-      baseURL: process.env.VOICE_API_URL ?? (config.extras?.fallbackBaseURL as string | undefined),
-    },
-    args,
-  );
+  // No Omni runtime — fall back to voice-core's tier default (Moonshine on
+  // CPU, Parakeet on CUDA, whisper.cpp on Mac).
+  const result = await invokeVoiceCore({ providerId: "voice-core" }, args);
   return { ...result, providerId: QWEN_OMNI_PROVIDER_ID };
 }
 
@@ -107,33 +98,25 @@ async function invokeQwenOmniSidecarStt(
 }
 
 /**
- * VOICE_API_URL sidecar — routes by model id.
+ * voice-core sidecar — local STT for all engines registered in voice-core
+ * (Moonshine, whisper.cpp, Parakeet, sherpa-onnx streaming, faster-whisper).
  *
- * Legacy ids (`whisper-tiny`, `large-v3-turbo`, `large-v3`) → port 8000
- * (the external faster-whisper sidecar). Tiered ids declared in
- * `hardware-tiers.ts` (`whisper-large-v3-turbo-cpp`, `parakeet-tdt-0.6b-v2`,
- * `moonshine-tiny`) → the in-repo voice-engines sidecar at port 9101.
+ * The model id chosen by the slot binding becomes the `engine` form field.
+ * voice-core falls back to its tier default if the field is omitted.
  */
-async function invokeVoiceApi(
+async function invokeVoiceCore(
   config: InferenceProviderConfig,
   args: SttArgs,
 ): Promise<SttResult> {
   const requestedModel = args.model ?? config.model ?? null;
-  const useVoiceEngines = shouldRouteToVoiceEngines(requestedModel);
-  const base = useVoiceEngines
-    ? voiceEnginesSidecarUrl()
-    : (config.baseURL ?? VOICE_API_DEFAULT);
+  const base = config.baseURL ?? voiceCoreUrl();
   const form = new FormData();
   form.append("audio", args.audio);
-  if (useVoiceEngines && requestedModel) {
-    form.append("engine", requestedModel);
-    if (args.language) form.append("language", args.language);
-  }
+  if (requestedModel) form.append("engine", requestedModel);
+  if (args.language) form.append("language", args.language);
   const res = await fetch(`${base}/stt`, { method: "POST", body: form });
   if (!res.ok) {
-    throw new Error(
-      `${useVoiceEngines ? "voice-engines" : "voice-api"} ${res.status}: ${await res.text()}`,
-    );
+    throw new Error(`voice-core ${res.status}: ${await res.text()}`);
   }
   const data = (await res.json()) as {
     text?: string;
@@ -152,7 +135,7 @@ async function invokeVoiceApi(
     language: data.language,
     duration: data.duration,
     words,
-    providerId: "voice-api",
+    providerId: "voice-core",
   };
 }
 

@@ -6,7 +6,7 @@
  * 2-minute cache avoids re-hitting the route on tab flips.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type CatalogProvider = "nvidia" | "openrouter" | "hf";
 
@@ -42,6 +42,7 @@ export interface CatalogParams {
   q?: string;
   free?: boolean;
   limit?: number;
+  enabled?: boolean;
 }
 
 interface CatalogResult {
@@ -60,6 +61,13 @@ interface CachedEntry {
 
 const CACHE_TTL_MS = 120_000;
 const cache = new Map<string, CachedEntry>();
+const DISABLED_RESULT: CatalogResult = {
+  models: [],
+  total: 0,
+  providers: [],
+  loading: false,
+  error: null,
+};
 
 function buildQuery(params: CatalogParams): string {
   const p = new URLSearchParams();
@@ -86,18 +94,11 @@ async function fetchCatalog(key: string) {
 }
 
 export function useCatalog(params: CatalogParams): CatalogResult {
-  const key = useMemo(() => buildQuery(params), [
-    params.provider,
-    params.modality,
-    params.publisher,
-    params.family,
-    params.tag,
-    params.q,
-    params.free,
-    params.limit,
-  ]);
+  const enabled = params.enabled !== false;
+  const key = buildQuery(params);
 
   const [state, setState] = useState<CatalogResult>(() => {
+    if (!enabled) return DISABLED_RESULT;
     const cached = cache.get(key);
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
       return { ...cached.data, loading: false, error: null };
@@ -107,6 +108,12 @@ export function useCatalog(params: CatalogParams): CatalogResult {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!enabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const cached = cache.get(key);
     const fresh = cached && Date.now() - cached.at < CACHE_TTL_MS;
@@ -150,7 +157,7 @@ export function useCatalog(params: CatalogParams): CatalogResult {
     return () => {
       cancelled = true;
     };
-  }, [key]);
+  }, [enabled, key]);
 
-  return state;
+  return enabled ? state : DISABLED_RESULT;
 }

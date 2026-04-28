@@ -19,6 +19,7 @@ import { callBridgeToolForMcp } from "./dispatch";
 
 export interface RegisterBridgeToolsOptions {
   threadIdForSession?: string;
+  bridgeUrl?: string;
 }
 
 export function registerBridgeTools(
@@ -45,6 +46,7 @@ export function registerBridgeTools(
     const handler = async (args: Record<string, unknown> | undefined) => {
       return callBridgeToolForMcp(toolName, args ?? {}, {
         threadId: opts.threadIdForSession,
+        bridgeUrl: opts.bridgeUrl,
       });
     };
 

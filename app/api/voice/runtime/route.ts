@@ -6,12 +6,17 @@ import {
   getSlot,
   listProvidersForModality,
 } from "@/lib/inference/bootstrap";
+import { applyPersistedBindings } from "@/lib/inference/persistence";
 import { listVoiceSessions } from "@/lib/voice/store";
 import {
   getQwenOmniStatusAsync,
   QWEN_OMNI_PROVIDER_ID,
   type QwenOmniStatus,
 } from "@/lib/inference/omni/local";
+import {
+  shouldRouteToVoiceCore,
+  voiceCoreUrl,
+} from "@/lib/inference/voice-core/sidecar-url";
 import {
   resolveVoiceRoute,
   VOICE_ROUTE_PRESETS,
@@ -22,7 +27,6 @@ import type { SlotBinding } from "@/lib/inference/types";
 
 export const runtime = "nodejs";
 
-const VOICE_API_URL = process.env.VOICE_API_URL || "http://localhost:8000";
 const PROBE_TIMEOUT_MS = 1500;
 
 /**
@@ -48,9 +52,9 @@ function providerConfigured(id: string, omniReady: boolean): boolean {
   return Boolean(process.env[envKey]);
 }
 
-async function probeSidecar(): Promise<boolean> {
+async function probeHttpHealth(baseURL: string): Promise<boolean> {
   try {
-    const res = await fetch(`${VOICE_API_URL}/health`, {
+    const res = await fetch(`${baseURL.replace(/\/+$/, "")}/health`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     return res.ok;
@@ -71,45 +75,47 @@ function buildAvailability(modality: "stt" | "tts", omniReady: boolean): Provide
     configured: providerConfigured(p.id, omniReady),
     reachable: null as boolean | null,
   }));
-  // Always include the local sidecar even though it isn't in the inference
-  // registry — it's the offline fallback and must always be considered.
-  if (!list.some((p) => p.id === "voice-api")) {
-    list.push({ id: "voice-api", name: "Local voice · offline-capable", configured: true, reachable: null });
+  // Always include voice-core even when no provider was registered for the
+  // current modality — it's the local fallback and must always be considered.
+  if (!list.some((p) => p.id === "voice-core")) {
+    list.push({ id: "voice-core", name: "voice-core · local", configured: true, reachable: null });
   }
   return list;
 }
 
 export async function GET(req: NextRequest) {
   ensureBootstrap();
+  applyPersistedBindings();
 
   const preset = normalizePreset(req.nextUrl.searchParams.get("preset"));
-  const [sidecarOk, omni] = await Promise.all([
-    probeSidecar(),
+  const voiceCoreBase = voiceCoreUrl();
+  const [voiceCoreOk, omni] = await Promise.all([
+    probeHttpHealth(voiceCoreBase),
     getQwenOmniStatusAsync({ probeRuntime: true, probeSidecar: true }),
   ]);
 
   const sttAvailability = buildAvailability("stt", omni.ready).map((p) =>
-    withLocalReachability(p, sidecarOk, omni),
+    withLocalReachability(p, voiceCoreOk, omni),
   );
   const ttsAvailability = buildAvailability("tts", omni.ready).map((p) =>
-    withLocalReachability(p, sidecarOk, omni),
+    withLocalReachability(p, voiceCoreOk, omni),
   );
 
   const resolved = resolveVoiceRoute({
     preset,
     sttProviders: sttAvailability,
     ttsProviders: ttsAvailability,
-    sidecarReachable: sidecarOk,
+    sidecarReachable: voiceCoreOk,
   });
   const route = applyBoundVoiceSlots(resolved, omni);
+  const routeUsesVoiceCore =
+    shouldRouteToVoiceCore(route.stt?.model) || shouldRouteToVoiceCore(route.tts?.model);
+  const activeWsUrl = routeUsesVoiceCore ? voiceCoreBase.replace(/^http/, "ws") : null;
 
-  // Transport: browser never talks to :8000 directly. It always hits /api/voice/*.
-  // When the sidecar is absent we still return the URL so Health can display it,
-  // but the transport mode tells the client which lane to use.
   const transport = {
     mode: route.usesSidecar ? "local-sidecar" : resolved.transport.mode,
-    wsUrl: route.usesSidecar ? `${VOICE_API_URL.replace(/^http/, "ws")}/ws` : null,
-    sidecar: (sidecarOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
+    wsUrl: route.usesSidecar ? activeWsUrl : null,
+    sidecar: (voiceCoreOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
   };
 
   // Provider matrix for the Health pane: one row per provider per role.
@@ -120,7 +126,7 @@ export async function GET(req: NextRequest) {
       role: "stt" as const,
       configured: p.configured,
       reachable: p.reachable === true,
-      detail: p.id === "voice-api" ? VOICE_API_URL : p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
+      detail: p.id === "voice-core" ? voiceCoreBase : p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
     })),
     ...ttsAvailability.map((p) => ({
       id: p.id,
@@ -128,7 +134,7 @@ export async function GET(req: NextRequest) {
       role: "tts" as const,
       configured: p.configured,
       reachable: p.reachable === true,
-      detail: p.id === "voice-api" ? VOICE_API_URL : p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
+      detail: p.id === "voice-core" ? voiceCoreBase : p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
     })),
   ];
 
@@ -160,7 +166,7 @@ function withLocalReachability(
   sidecarOk: boolean,
   omni: QwenOmniStatus,
 ): ProviderAvailability {
-  if (provider.id === "voice-api") return { ...provider, reachable: sidecarOk };
+  if (provider.id === "voice-core") return { ...provider, reachable: sidecarOk };
   if (provider.id === QWEN_OMNI_PROVIDER_ID) return { ...provider, reachable: omni.generationReady };
   return provider;
 }
@@ -177,8 +183,8 @@ function applyBoundVoiceSlots(
     stt?.providerId === QWEN_OMNI_PROVIDER_ID || tts?.providerId === QWEN_OMNI_PROVIDER_ID;
   const omniSidecarOk = omni.sidecar.reachable === true;
   const usesSidecar =
-    stt?.providerId === "voice-api" ||
-    tts?.providerId === "voice-api" ||
+    stt?.providerId === "voice-core" ||
+    tts?.providerId === "voice-core" ||
     (qwenActive && !omni.generationReady);
   const rationale = qwenActive
     ? omni.cudaAvailable === true
@@ -200,8 +206,8 @@ function bindingToResolved(binding: SlotBinding, modality: "stt" | "tts") {
 }
 
 function engineFor(binding: SlotBinding): string | null {
-  if (binding.providerId === "voice-api") {
-    return (binding.config.extras?.engine as string | undefined) ?? "piper";
+  if (binding.providerId === "voice-core") {
+    return (binding.config.extras?.engine as string | undefined) ?? "sherpa-onnx-tts";
   }
   return null;
 }

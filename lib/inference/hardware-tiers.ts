@@ -37,8 +37,8 @@ export interface TierLaneOmni {
   engineId: string;
   /** Human label shown on the card. */
   label: string;
-  /** Sidecar that hosts this engine — `qwen-omni` (existing) or `voice-engines` (new). */
-  sidecar: "qwen-omni" | "voice-engines";
+  /** Sidecar that hosts this engine — `qwen-omni` (existing) or `voice-core` (new). */
+  sidecar: "qwen-omni" | "voice-core";
   /** Model identifier the sidecar's `/pull` endpoint understands (HF repo id usually). */
   modelId: string;
   /** Rough disk footprint, MB. */
@@ -68,34 +68,36 @@ export interface TierBundle {
 }
 
 // ---------------------------------------------------------------------------
-// Model identifiers introduced by the tiered system.
-//
-// These ids must agree with the ones the new `voice-engines-sidecar.py`
-// understands (see `scripts/voice-engines-sidecar.py`). Keep in sync.
+// Model identifiers served by voice-core (apps/voice-core/, port 4245).
+// Keep in sync with `voice_core.engines.register_all()`.
 
 export const VOICE_ENGINE_IDS = {
   // STT
   WHISPER_TURBO_CPP: "whisper-large-v3-turbo-cpp", // whisper.cpp Metal/CoreML on Mac
   PARAKEET_TDT_V2: "parakeet-tdt-0.6b-v2",         // NeMo CUDA
   MOONSHINE_TINY: "moonshine-tiny",                // ONNX, CPU-streaming
+  SHERPA_STREAMING: "sherpa-onnx-streaming",       // endpoint-aware live ASR
+  FASTER_WHISPER: "faster-whisper",                // CTranslate2 final correction
   // TTS
-  KOKORO_82M: "kokoro-82m",                        // Apache 2.0, all tiers
-  ORPHEUS_3B: "orpheus-3b",                        // expressive, CUDA-only
+  KOKORO_82M: "kokoro-82m",                        // Apache 2.0, default voice
+  CHATTERBOX: "chatterbox",                        // expressive prosody
+  SHERPA_TTS: "sherpa-onnx-tts",                   // lightweight VITS
   // Omni
-  MOSHI_7B_INT4: "moshi-7b-int4",                  // MLX, Mac
-  QWEN_OMNI_7B_AWQ: "qwen2.5-omni-7b-awq",         // existing qwen-omni-sidecar
+  QWEN_OMNI_7B_AWQ: "qwen2.5-omni-7b-awq",         // separate qwen-omni-sidecar
 } as const;
 
 export type VoiceEngineId = (typeof VOICE_ENGINE_IDS)[keyof typeof VOICE_ENGINE_IDS];
 
-/** Model ids served by the new in-repo voice-engines-sidecar (port 9101). */
+/** Engine ids served by voice-core (port 4245). */
 export const VOICE_ENGINES_SIDECAR_IDS: ReadonlySet<string> = new Set([
   VOICE_ENGINE_IDS.WHISPER_TURBO_CPP,
   VOICE_ENGINE_IDS.PARAKEET_TDT_V2,
   VOICE_ENGINE_IDS.MOONSHINE_TINY,
+  VOICE_ENGINE_IDS.SHERPA_STREAMING,
+  VOICE_ENGINE_IDS.FASTER_WHISPER,
   VOICE_ENGINE_IDS.KOKORO_82M,
-  VOICE_ENGINE_IDS.ORPHEUS_3B,
-  VOICE_ENGINE_IDS.MOSHI_7B_INT4,
+  VOICE_ENGINE_IDS.CHATTERBOX,
+  VOICE_ENGINE_IDS.SHERPA_TTS,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     rationale:
       "Whisper-turbo runs on the Apple Neural Engine via whisper.cpp + CoreML, " +
       "so STT cost is near-zero. Kokoro is the smallest natural-sounding TTS in " +
-      "the open-source ladder. Optional Moshi omni gives full-duplex feel.",
+      "the open-source ladder.",
     defaultPreset: "balanced",
     cascade: {
       stt: {
@@ -136,14 +138,6 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
         note: "Default text brain — strong open-weight chat + tool use.",
       },
     },
-    omni: {
-      engineId: "moshi-mlx",
-      label: "Moshi 7B (int4 / MLX)",
-      sidecar: "voice-engines",
-      modelId: VOICE_ENGINE_IDS.MOSHI_7B_INT4,
-      sizeMb: 4200,
-      note: "Full-duplex S2S, ~200 ms TTFA on M-series. CC-BY-4.0.",
-    },
     fits({ backend, ramGb }) {
       if (backend === "metal" && ramGb >= 14) return 100;
       if (backend === "metal") return 60; // 8 GB Mac — works but tight
@@ -158,7 +152,7 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     rationale:
       "Parakeet TDT is the current Open-ASR-Leaderboard leader at 600 M params " +
       "and ~RTF 0.06 on a single mid-range NVIDIA card. Kokoro covers the daily " +
-      "TTS, Orpheus is a one-toggle upgrade for expressive output. Optional " +
+      "TTS, Chatterbox is a one-toggle upgrade for expressive output. Optional " +
       "Qwen2.5-Omni-7B (already in-repo) supplies the omni lane.",
     defaultPreset: "quality",
     cascade: {
@@ -173,10 +167,10 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
       tts: {
         runner: "voice-sidecar",
         id: VOICE_ENGINE_IDS.KOKORO_82M,
-        label: "Kokoro 82M (toggle Orpheus 3B for expressive)",
+        label: "Kokoro 82M (toggle Chatterbox for expressive)",
         sizeMb: 330,
         expectedP50Ms: 90,
-        note: "<100 ms first chunk on CUDA. Orpheus 3B available as upgrade.",
+        note: "<100 ms first chunk on CUDA. Chatterbox available as upgrade.",
       },
       llm: {
         runner: "ollama",
@@ -209,26 +203,27 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     hardwareMatch: "No usable dGPU · 16 GB RAM",
     rationale:
       "End-to-end omni doesn't run on CPU at conversational latency — this tier " +
-      "is cascade-only. Moonshine-Tiny is purpose-built for CPU streaming ASR; " +
-      "Kokoro ONNX runs in ~400 ms first chunk on a modern laptop. Llama-3.2-3B " +
-      "is the LLM ceiling that still feels responsive.",
+      "is cascade-only. sherpa-onnx Zipformer is endpoint-aware streaming ASR " +
+      "that boots cleanly on CPU; sherpa-onnx VITS (Piper amy-medium) gives a " +
+      "natural English voice with a tiny footprint. Llama-3.2-3B is the LLM " +
+      "ceiling that still feels responsive.",
     defaultPreset: "quick",
     cascade: {
       stt: {
         runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.MOONSHINE_TINY,
-        label: "Moonshine-Tiny (ONNX, CPU)",
-        sizeMb: 200,
-        expectedP50Ms: 60,
-        note: "Apache-2.0, ~60 ms first partial on laptop CPUs, true streaming.",
+        id: VOICE_ENGINE_IDS.SHERPA_STREAMING,
+        label: "sherpa-onnx streaming (Zipformer EN)",
+        sizeMb: 320,
+        expectedP50Ms: 90,
+        note: "Endpoint-aware streaming transducer. Reliable on CPU, ~90 ms partials.",
       },
       tts: {
         runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.KOKORO_82M,
-        label: "Kokoro 82M (ONNX, CPU)",
-        sizeMb: 330,
-        expectedP50Ms: 450,
-        note: "~400–600 ms first chunk on CPU. Tolerable for short turns.",
+        id: VOICE_ENGINE_IDS.SHERPA_TTS,
+        label: "sherpa-onnx VITS (Piper amy-medium)",
+        sizeMb: 90,
+        expectedP50Ms: 250,
+        note: "Lightweight VITS via sherpa-onnx — instant first chunk, natural English voice.",
       },
       llm: {
         runner: "ollama",

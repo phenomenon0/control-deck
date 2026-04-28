@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ensureBootstrap, getProvider, getSlot } from "@/lib/inference/bootstrap";
+import { applyPersistedBindings } from "@/lib/inference/persistence";
 import { invokeStt } from "@/lib/inference/stt/invoke";
 import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { withMetrics } from "@/lib/inference/metrics";
@@ -11,21 +12,22 @@ const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
 interface SttBinding {
   providerId: string;
   config: InferenceProviderConfig;
-  /** True when the resolver fell through to the untyped voice-api default. */
+  /** True when the resolver fell through to the voice-core default. */
   isFallback: boolean;
 }
 
 function resolveSttBinding(): SttBinding {
   ensureBootstrap();
+  applyPersistedBindings();
   const bound = getSlot("stt", "primary");
   if (bound) {
     return { providerId: bound.providerId, config: bound.config, isFallback: false };
   }
   return {
-    providerId: "voice-api",
+    providerId: "voice-core",
     config: {
-      providerId: "voice-api",
-      baseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
+      providerId: "voice-core",
+      baseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
     },
     isFallback: true,
   };
@@ -57,7 +59,7 @@ export async function POST(req: Request) {
   // to before; if it honours it, preset=quick gets a smaller Whisper.
   const model =
     modelParam ??
-    (isFallback && providerId === "voice-api"
+    (isFallback && providerId === "voice-core"
       ? defaultFor("stt", preset).id ?? undefined
       : undefined);
 

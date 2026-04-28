@@ -8,9 +8,10 @@
  * demux it into per-row progress bars (mirroring `useModelPull`'s schema).
  *
  * Sources:
- *   - "ollama"        → /api/ollama/tags POST internal call
- *   - "voice-engines" → port 9101 /pull (kokoro, moonshine, whisper.cpp, parakeet, orpheus, moshi)
- *   - "qwen-omni"     → out-of-band; we surface install status only
+ *   - "ollama"     → /api/ollama/tags POST internal call
+ *   - "voice-core" → port 4245 /pull (kokoro, moonshine, whisper.cpp, parakeet,
+ *                                     sherpa-onnx, faster-whisper, chatterbox)
+ *   - "qwen-omni"  → out-of-band; we surface install status only
  *
  * On success the route persists the tier choice and binds the cascade slots
  * via `bindTier()` so the rest of the app immediately routes through the new
@@ -32,8 +33,8 @@ import {
   getSelectedTier,
   readPersistedBindings,
 } from "@/lib/inference/persistence";
-import { bindTier } from "@/lib/inference/voice-engines/bind-tier";
-import { voiceEnginesSidecarUrl } from "@/lib/inference/voice-engines/sidecar-url";
+import { bindTier } from "@/lib/inference/voice-core/bind-tier";
+import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 import {
   getQwenOmniStatusAsync,
   QWEN_OMNI_PROVIDER_ID,
@@ -51,7 +52,7 @@ interface OllamaTagsResponse {
   models?: Array<{ name?: string; model?: string }>;
 }
 
-interface VoiceEnginesHealth {
+interface VoiceCoreHealth {
   ok?: boolean;
   tier?: string | null;
   engines?: Record<string, { available?: boolean; loaded?: boolean }>;
@@ -70,7 +71,7 @@ export async function GET() {
 
   const [ollamaModels, sidecarHealth, omniStatus] = await Promise.all([
     fetchOllamaModels(),
-    fetchVoiceEnginesHealth(),
+    fetchVoiceCoreHealth(),
     getQwenOmniStatusAsync({ probeRuntime: false, probeSidecar: false }).catch(
       () => null,
     ),
@@ -121,7 +122,7 @@ export async function GET() {
     selected,
     tiers,
     sidecar: {
-      url: voiceEnginesSidecarUrl(),
+      url: voiceCoreUrl(),
       reachable: Boolean(sidecarHealth?.ok),
     },
   });
@@ -199,14 +200,14 @@ export async function POST(req: Request) {
 
           const tasks: Array<Promise<void>> = [
             pullOllama(tier.cascade.llm.id, emit, abort),
-            pullVoiceEngines(tier.cascade.stt.id, emit, abort),
-            pullVoiceEngines(tier.cascade.tts.id, emit, abort),
+            pullVoiceCore(tier.cascade.stt.id, emit, abort),
+            pullVoiceCore(tier.cascade.tts.id, emit, abort),
           ];
 
           if (wantOmni && tier.omni) {
-            if (tier.omni.sidecar === "voice-engines") {
-              tasks.push(pullVoiceEngines(tier.omni.modelId, emit, abort));
-            } else if (tier.omni.sidecar === "qwen-omni") {
+            // voice-core does not host omni S2S engines — only Qwen-Omni keeps
+            // its own sidecar. Other omni sidecars aren't supported.
+            if (tier.omni.sidecar === "qwen-omni") {
               tasks.push(checkQwenOmni(tier, emit));
             }
           }
@@ -297,13 +298,13 @@ async function pullOllama(modelId: string, emit: EmitFn, abort: AbortSignal): Pr
   emit({ source: "ollama", model: modelId, status: "success" });
 }
 
-async function pullVoiceEngines(
+async function pullVoiceCore(
   modelId: string,
   emit: EmitFn,
   abort: AbortSignal,
 ): Promise<void> {
-  emit({ source: "voice-engines", model: modelId, status: "queued" });
-  const url = `${voiceEnginesSidecarUrl()}/pull`;
+  emit({ source: "voice-core", model: modelId, status: "queued" });
+  const url = `${voiceCoreUrl()}/pull`;
   let res: Response;
   try {
     res = await fetch(url, {
@@ -314,22 +315,22 @@ async function pullVoiceEngines(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    emit({ source: "voice-engines", model: modelId, error: msg });
-    throw new Error(`voice-engines ${modelId}: ${msg}`);
+    emit({ source: "voice-core", model: modelId, error: msg });
+    throw new Error(`voice-core ${modelId}: ${msg}`);
   }
 
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => "");
-    const msg = text || `voice-engines returned ${res.status}`;
-    emit({ source: "voice-engines", model: modelId, error: msg });
-    throw new Error(`voice-engines ${modelId}: ${msg}`);
+    const msg = text || `voice-core returned ${res.status}`;
+    emit({ source: "voice-core", model: modelId, error: msg });
+    throw new Error(`voice-core ${modelId}: ${msg}`);
   }
 
   await pipeNdjson(res.body, abort, (line) => {
-    const tagged = { source: "voice-engines", model: modelId, ...line };
+    const tagged = { source: "voice-core", model: modelId, ...line };
     emit(tagged);
     if (line.error) {
-      throw new Error(`voice-engines ${modelId}: ${line.error}`);
+      throw new Error(`voice-core ${modelId}: ${line.error}`);
     }
   });
 }
@@ -437,18 +438,20 @@ async function fetchOllamaModels(): Promise<Set<string>> {
   }
 }
 
-async function fetchVoiceEnginesHealth(): Promise<VoiceEnginesHealth | null> {
+async function fetchVoiceCoreHealth(): Promise<VoiceCoreHealth | null> {
   try {
-    const res = await fetch(`${voiceEnginesSidecarUrl()}/health`, {
+    const res = await fetch(`${voiceCoreUrl()}/health`, {
       cache: "no-store",
       signal: AbortSignal.timeout(1500),
     });
     if (!res.ok) return null;
-    return (await res.json()) as VoiceEnginesHealth;
+    return (await res.json()) as VoiceCoreHealth;
   } catch {
     return null;
   }
 }
+
+
 
 interface LaneSpec {
   id: string;
@@ -457,7 +460,7 @@ interface LaneSpec {
   note?: string | null;
 }
 
-function laneEntry(spec: LaneSpec, health: VoiceEnginesHealth | null) {
+function laneEntry(spec: LaneSpec, health: VoiceCoreHealth | null) {
   const engine = health?.engines?.[spec.id];
   return {
     id: spec.id,
@@ -492,13 +495,10 @@ function hasOllamaModel(installed: Set<string>, modelId: string): boolean {
 
 function omniInstalled(
   tier: TierBundle,
-  health: VoiceEnginesHealth | null,
+  _health: VoiceCoreHealth | null,
   qwen: { ready: boolean } | null,
 ): boolean {
   if (!tier.omni) return false;
-  if (tier.omni.sidecar === "voice-engines") {
-    return Boolean(health?.engines?.[tier.omni.modelId]?.available);
-  }
   if (tier.omni.sidecar === "qwen-omni") {
     return Boolean(qwen?.ready);
   }
@@ -515,8 +515,8 @@ function tierIsBoundAsPrimary(
   // Either both lanes are pointed at the cascade engines, or both at the omni
   // provider. Anything else means the tier isn't currently primary.
   const cascadeMatch =
-    stt.providerId === "voice-api" &&
-    tts.providerId === "voice-api" &&
+    stt.providerId === "voice-core" &&
+    tts.providerId === "voice-core" &&
     stt.config?.model === tier.cascade.stt.id &&
     tts.config?.model === tier.cascade.tts.id;
   const omniMatch =

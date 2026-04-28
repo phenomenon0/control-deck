@@ -42,9 +42,11 @@ type ModalityId =
 export function ModalityTab({
   modality,
   refreshToken,
+  showOnlineModels,
 }: {
   modality: ModalityId;
   refreshToken: number;
+  showOnlineModels: boolean;
 }) {
   const [detailsProviderId, setDetailsProviderId] = useState<string | null>(null);
 
@@ -58,11 +60,12 @@ export function ModalityTab({
         <LocalSuggestionsStrip modality={modality} limit={3} refreshToken={refreshToken} />
       )}
 
-      <LeaderboardStrip modality={modality} />
+      <LeaderboardStrip modality={modality} showOnlineModels={showOnlineModels} />
 
       <ProviderCompareTable
         modality={modality}
         refreshToken={refreshToken}
+        showOnlineModels={showOnlineModels}
         onDetails={setDetailsProviderId}
       />
 
@@ -71,6 +74,7 @@ export function ModalityTab({
       <ProviderInspector
         modality={modality}
         providerId={detailsProviderId}
+        showOnlineModels={showOnlineModels}
         onClose={() => setDetailsProviderId(null)}
       />
     </div>

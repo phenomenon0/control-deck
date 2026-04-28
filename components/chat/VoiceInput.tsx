@@ -215,13 +215,13 @@ export function VoiceInput({
         </button>
       )}
 
-      {/* Voice API offline warning */}
+      {/* voice-core offline warning */}
       {isApiOffline && (
         <div className="text-xs text-[var(--text-muted)] bg-[var(--bg-tertiary)] rounded-lg px-4 py-2 max-w-[300px] text-center">
-          Voice API not running.
+          voice-core not running.
           <br />
           <code className="text-[var(--accent)]">
-            cd ~/Documents/INIT/voice-api && ./run.sh
+            bun run voice:core
           </code>
         </div>
       )}

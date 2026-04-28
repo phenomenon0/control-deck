@@ -1,0 +1,15 @@
+Phase 2 verified: 2026-04-27
+
+Engine picker → request body → invokeVoiceCore now connected.
+
+Bug found: persisted binding's config.model = "kokoro-82m" was masking per-request engine overrides because invokeVoiceCore line 115 priority is `args.model ?? config.model ?? extras.engine`. Route only set extras.engine, so config.model always won.
+
+Fix: app/api/voice/tts/route.ts:71-83 — when overriding engine, set BOTH effectiveConfig.model and extras.engine.
+
+Also wired: lib/hooks/useVoiceChat.ts — `synthesizeViaVoiceRoute` now accepts an optional engine, and the hook builds a default closure that captures the latest `ttsEngine` option via ref.
+
+Files modified: 2
+- app/api/voice/tts/route.ts
+- lib/hooks/useVoiceChat.ts
+
+Verified: in-page A/B test of kokoro-82m vs sherpa-onnx-tts shows different responses (kokoro: 94KB WAV, X-TTS-Provider=voice-core, status 200; sherpa: 502 from voice-core's VITS frontend init bug — out of scope, voice-core engine config issue).

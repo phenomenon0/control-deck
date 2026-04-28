@@ -77,10 +77,12 @@ interface MetricsSummary {
 export function ProviderInspector({
   modality,
   providerId,
+  showOnlineModels,
   onClose,
 }: {
   modality: ModalityId;
   providerId: string | null;
+  showOnlineModels: boolean;
   onClose: () => void;
 }) {
   const [provider, setProvider] = useState<ProviderEntry | null>(null);
@@ -98,7 +100,7 @@ export function ProviderInspector({
       try {
         const [p, b, m] = await Promise.all([
           fetch(`/api/inference/providers?modality=${modality}`, { cache: "no-store" }),
-          fetch(`/api/inference/benchmarks?modality=${modality}`, { cache: "no-store" }),
+          fetch(`/api/inference/benchmarks?modality=${modality}${showOnlineModels ? "" : "&live=0"}`, { cache: "no-store" }),
           fetch("/api/inference/metrics", { cache: "no-store" }),
         ]);
         if (!alive) return;
@@ -124,7 +126,7 @@ export function ProviderInspector({
     return () => {
       alive = false;
     };
-  }, [providerId, modality]);
+  }, [providerId, modality, showOnlineModels]);
 
   useEffect(() => {
     if (!open) return;

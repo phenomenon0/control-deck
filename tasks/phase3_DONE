@@ -1,0 +1,19 @@
+Phase 3 verified: 2026-04-27
+
+Cosmetic rename: lib/inference/voice-engines/ → lib/inference/voice-core/
+
+Aligns the TS-side directory name with the Python sidecar package (apps/voice-core) and the providerId used everywhere else (voice-core).
+
+- git mv lib/inference/voice-engines lib/inference/voice-core (2 files moved: bind-tier.ts, sidecar-url.ts)
+- sed-rewrote 6 import sites across:
+  - app/api/voice/runtime/route.ts
+  - app/api/voice/health/route.ts
+  - app/api/voice/bundles/route.ts
+  - lib/inference/stt/invoke.ts
+  - lib/inference/tts/invoke.ts
+  - lib/voice/use-voice-session.ts
+
+Verified: pnpm exec tsc --noEmit -p tsconfig.json — clean, no output.
+No `voice-engines` directory remains under lib/inference/.
+
+Files modified: 8 (2 moved + 6 imports updated)

@@ -1,88 +1,125 @@
 "use client";
 
 /**
- * AudioPane — Audio surface.
+ * AudioPane — visible workspace switcher for every audio surface.
  *
- * Tabs: Conductor (orb live talk wired to /api/voice/omni/respond), Voices
- * (library), Studio (cloning workflow), Health (diagnostics). The earlier
- * wireframe-only Newsroom/Stage/Tape/Forum tabs were dropped — they were
- * unwired scaffolds with no model behind them.
- *
- * Active tab + asset + job are URL-persisted via `useVoiceWorkspace`. Old
- * `?tab=live` / `?tab=assistant` redirect to `conductor`; `?tab=library`
- * redirects to `voices`. Old `?tab=newsroom|stage|tape|forum` also redirect
- * to `conductor` so deep-links don't 404.
+ * Conductor stays the default live orb, but the older workspace UIs remain
+ * addressable through `?tab=` so they do not disappear behind corner cards.
  */
 
-import dynamic from "next/dynamic";
 import {
   Suspense,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type ComponentType,
   type ReactNode,
 } from "react";
+import dynamic from "next/dynamic";
 import { ConductorSurface } from "@/components/voice-conductor/ConductorSurface";
 import { useVoiceWorkspace, type VoiceTab } from "@/lib/hooks/useVoiceWorkspace";
 
+// Secondary surfaces stay lazy so the Conductor path remains light.
+const NewsroomSurface = dynamic(
+  () => import("@/components/voice-newsroom/NewsroomSurface").then((m) => m.NewsroomSurface),
+  { ssr: false, loading: () => <SurfaceLoading label="Newsroom" /> },
+);
+const LiveVoiceSurface = dynamic(
+  () => import("@/components/voice-live/LiveVoiceSurface").then((m) => m.LiveVoiceSurface),
+  { ssr: false, loading: () => <SurfaceLoading label="Live" /> },
+);
 const StudioPane = dynamic(
   () => import("@/components/voice-studio/StudioPane").then((m) => m.StudioPane),
-  { ssr: false, loading: () => <div className="p-6 text-sm text-[var(--text-muted)]">Loading…</div> },
+  { ssr: false, loading: () => <SurfaceLoading label="Studio" /> },
 );
-
 const LibraryPane = dynamic(
   () => import("@/components/voice-library/LibraryPane").then((m) => m.LibraryPane),
-  { ssr: false, loading: () => <div className="p-6 text-sm text-[var(--text-muted)]">Loading…</div> },
+  { ssr: false, loading: () => <SurfaceLoading label="Voices" /> },
 );
-
 const VoiceHealthPane = dynamic(
   () => import("@/components/voice-health/VoiceHealthPane").then((m) => m.VoiceHealthPane),
-  { ssr: false, loading: () => <div className="p-6 text-sm text-[var(--text-muted)]">Loading…</div> },
+  { ssr: false, loading: () => <SurfaceLoading label="Health" /> },
+);
+const StageSurface = dynamic(
+  () => import("@/components/voice-stage/StageSurface").then((m) => m.StageSurface),
+  { ssr: false, loading: () => <SurfaceLoading label="Stage" /> },
+);
+const TapeSurface = dynamic(
+  () => import("@/components/voice-tape/TapeSurface").then((m) => m.TapeSurface),
+  { ssr: false, loading: () => <SurfaceLoading label="Tape" /> },
+);
+const ForumSurface = dynamic(
+  () => import("@/components/voice-forum/ForumSurface").then((m) => m.ForumSurface),
+  { ssr: false, loading: () => <SurfaceLoading label="Forum" /> },
 );
 
-interface TabDef {
-  id: VoiceTab;
-  label: string;
-  Component: ComponentType;
-}
-
-const TABS: readonly TabDef[] = [
-  { id: "conductor", label: "Conductor", Component: ConductorSurface },
-  { id: "voices",    label: "Voices",    Component: LibraryPane      },
-  { id: "studio",    label: "Studio",    Component: StudioPane       },
-  { id: "health",    label: "Health",    Component: VoiceHealthPane  },
+const AUDIO_TABS: readonly { id: VoiceTab; label: string }[] = [
+  { id: "conductor", label: "Conductor" },
+  { id: "live", label: "Live" },
+  { id: "newsroom", label: "Newsroom" },
+  { id: "voices", label: "Voices" },
+  { id: "studio", label: "Studio" },
+  { id: "health", label: "Health" },
+  { id: "stage", label: "Stage" },
+  { id: "tape", label: "Tape" },
+  { id: "forum", label: "Forum" },
 ];
 
+function SurfaceLoading({ label }: { label: string }) {
+  return (
+    <div className="p-6 text-sm text-[var(--text-muted)]">Loading {label}…</div>
+  );
+}
+
 function AudioPaneInner() {
-  const { tab, setTab } = useVoiceWorkspace();
-  const ActiveComponent = TABS.find((t) => t.id === tab)?.Component ?? ConductorSurface;
+  const workspace = useVoiceWorkspace();
 
   return (
     <div className="h-full flex flex-col">
-      <div className="control-tabbar">
-        {TABS.map((t) => {
-          const isActive = t.id === tab;
+      <OmniActivationStrip />
+      <div className="control-tabbar" role="tablist" aria-label="Audio workspaces">
+        {AUDIO_TABS.map((tab) => {
+          const isActive = workspace.tab === tab.id;
           return (
             <button
-              key={t.id}
+              key={tab.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              id={`audio-tab-${tab.id}`}
+              role="tab"
+              aria-controls={`audio-panel-${tab.id}`}
+              aria-selected={isActive}
               className={`control-tab${isActive ? " control-tab--active" : ""}`}
-              aria-pressed={isActive}
+              onClick={() => workspace.setTab(tab.id)}
             >
-              {t.label}
+              {tab.label}
             </button>
           );
         })}
       </div>
-      <OmniActivationStrip />
       <div className="flex-1 overflow-hidden">
-        <ActiveComponent />
+        <div
+          id={`audio-panel-${workspace.tab}`}
+          role="tabpanel"
+          aria-labelledby={`audio-tab-${workspace.tab}`}
+          className="h-full"
+        >
+          <ActiveAudioSurface tab={workspace.tab} />
+        </div>
       </div>
     </div>
   );
+}
+
+function ActiveAudioSurface({ tab }: { tab: VoiceTab }) {
+  if (tab === "live") return <LiveVoiceSurface />;
+  if (tab === "newsroom") return <NewsroomSurface />;
+  if (tab === "studio") return <StudioPane />;
+  if (tab === "voices") return <LibraryPane />;
+  if (tab === "health") return <VoiceHealthPane />;
+  if (tab === "stage") return <StageSurface />;
+  if (tab === "tape") return <TapeSurface />;
+  if (tab === "forum") return <ForumSurface />;
+  return <ConductorSurface />;
 }
 
 export function AudioPane() {
@@ -124,64 +161,65 @@ function OmniActivationStrip() {
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const autoStartedRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  const load = useCallback(async () => {
-    setError(null);
-    const res = await fetch("/api/voice/omni", { cache: "no-store" });
-    const data = (await res.json().catch(() => null)) as OmniResponse | null;
-    if (!res.ok || !data) throw new Error(data && "status" in data ? "Omni status failed" : `Omni status ${res.status}`);
-    setSnapshot(data);
-    return data;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
-  const activate = useCallback(async () => {
-    setActivating(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/voice/omni", { method: "POST" });
-      const data = (await res.json().catch(() => null)) as OmniResponse | { error?: string } | null;
-      if (!res.ok) {
-        const msg = data && "error" in data && data.error ? data.error : `Omni activation ${res.status}`;
-        throw new Error(msg);
-      }
-      setSnapshot(data as OmniResponse);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Omni activation failed");
-    } finally {
-      setActivating(false);
-    }
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch("/api/voice/omni", { cache: "no-store", signal });
+    return readOmniResponse(res, "Omni status");
+  }, []);
+
+  const activate = useCallback(async (signal?: AbortSignal) => {
+    const res = await fetch("/api/voice/omni", { method: "POST", signal });
+    return readOmniResponse(res, "Omni activation");
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let alive = true;
     (async () => {
       try {
         setLoading(true);
-        const data = await load();
+        setError(null);
+        const data = await load(controller.signal);
         if (!alive) return;
-        if (data.status.ready && !data.activation.active && !autoStartedRef.current) {
-          autoStartedRef.current = true;
-          await activate();
-        }
+        setSnapshot(data);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : "Omni status failed");
+        if (alive && !controller.signal.aborted) {
+          setError(e instanceof Error ? e.message : "Omni status failed");
+        }
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [activate, load]);
 
-  if (loading && !snapshot) {
-    return (
-      <div className="border-b border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2 text-xs text-[var(--text-muted)]">
-        Checking local Omni audio model...
-      </div>
-    );
-  }
+  const activateNow = useCallback(async () => {
+    setActivating(true);
+    setError(null);
+    try {
+      const data = await activate();
+      if (!mountedRef.current) return;
+      setSnapshot(data);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setError(e instanceof Error ? e.message : "Omni activation failed");
+    } finally {
+      if (mountedRef.current) setActivating(false);
+    }
+  }, [activate]);
+
+  if (loading && !snapshot) return null;
 
   if (!snapshot) {
     return (
@@ -195,7 +233,25 @@ function OmniActivationStrip() {
   const { status, activation: activationState } = snapshot;
   const active = activationState.active;
   const tone = status.ready && active ? (status.generationReady ? "ok" : "warn") : status.ready ? "warn" : "err";
-  const modalities = status.supportedModalities.map(labelForModality).join(", ");
+  const displayedModalities = active
+    ? activationState.activeModalities
+    : status.supportedModalities;
+  const modalities = displayedModalities.length > 0
+    ? displayedModalities.map(labelForModality).join(", ")
+    : "no modalities";
+  const activeCopy = activationState.activeModalities.length > 0
+    ? `Bound across ${modalities}.`
+    : "Active, but no modalities are currently bound.";
+  const readyCopy = status.supportedModalities.length > 0
+    ? `Click Audio auto-binds ${modalities}.`
+    : "No Omni modalities are currently advertised.";
+
+  // Stay quiet when the model is fully ready, active, and generating — the
+  // Health corner already surfaces this. Only render when the user needs to
+  // act (activate, install, or repair).
+  if (status.ready && active && status.generationReady && status.issues.length === 0 && !error) {
+    return null;
+  }
 
   return (
     <OmniStripShell tone={tone}>
@@ -205,9 +261,9 @@ function OmniActivationStrip() {
         </span>
         <span className="truncate text-[var(--text-muted)]">
           {active
-            ? `Bound across ${modalities}.`
+            ? activeCopy
             : status.ready
-              ? `Click Audio auto-binds ${modalities}.`
+              ? readyCopy
               : `Install or repair the local snapshot at ${status.modelDir}.`}
           {" "}
           {status.weightsBytes > 0 ? `${formatGiB(status.weightsBytes)} GiB on disk.` : ""}
@@ -222,7 +278,7 @@ function OmniActivationStrip() {
           type="button"
           className="inference-action-btn"
           disabled={activating}
-          onClick={() => void activate()}
+          onClick={() => void activateNow()}
         >
           {activating ? "Activating..." : "Activate"}
         </button>
@@ -256,6 +312,34 @@ function OmniStripShell({
       {children}
     </div>
   );
+}
+
+async function readOmniResponse(res: Response, label: string): Promise<OmniResponse> {
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(extractApiError(data, `${label} ${res.status}`));
+  }
+  if (!isOmniResponse(data)) {
+    throw new Error(`${label} returned an invalid response`);
+  }
+  return data;
+}
+
+function isOmniResponse(data: unknown): data is OmniResponse {
+  if (!data || typeof data !== "object") return false;
+  const candidate = data as {
+    status?: unknown;
+    activation?: unknown;
+  };
+  return Boolean(candidate.status && candidate.activation);
+}
+
+function extractApiError(data: unknown, fallback: string): string {
+  if (data && typeof data === "object" && "error" in data) {
+    const value = (data as { error?: unknown }).error;
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return fallback;
 }
 
 function labelForModality(id: string): string {

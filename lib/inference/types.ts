@@ -59,8 +59,8 @@ export const MODALITIES: Record<Modality, ModalityMeta> = {
   },
   "audio-gen": {
     id: "audio-gen",
-    name: "Audio generation",
-    description: "Text-to-audio, music, SFX",
+    name: "Music / SFX",
+    description: "Text-to-audio music and sound effects; speech lives under STT/TTS",
     slots: ["primary"],
   },
   tts: {

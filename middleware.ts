@@ -56,6 +56,26 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  // Same shortcut for the MCP tools surface (agent-ts only sees a URL).
+  if (req.nextUrl.pathname === "/api/mcp/tools") {
+    if (req.nextUrl.searchParams.get("token") === token) {
+      return NextResponse.next();
+    }
+  }
+
+  // And for the bridge tool catalog, which agent-ts derives from the bridge URL.
+  if (req.nextUrl.pathname === "/api/tools/catalog") {
+    if (req.nextUrl.searchParams.get("token") === token) {
+      return NextResponse.next();
+    }
+    // Also accept a bridge_token (lets `deriveCatalogUrl` reuse the bridge URL
+    // without re-injecting a separate token query).
+    const bridgeToken = process.env.TOOL_BRIDGE_TOKEN || token;
+    if (req.nextUrl.searchParams.get("bridge_token") === bridgeToken) {
+      return NextResponse.next();
+    }
+  }
+
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 

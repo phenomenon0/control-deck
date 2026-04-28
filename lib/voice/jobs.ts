@@ -17,7 +17,7 @@
  *   - elevenlabs (IVC + PVC) — POST /v1/voices/add, returns voice_id
  *   - cartesia                — POST /voices with reference file
  *   - inworld                 — POST /voices/clone (IVC path)
- *   - voice-api               — POST /clone on the local sidecar if supported
+ *   - voice-core               — POST /clone on the local sidecar if supported
  */
 
 import { randomUUID } from "crypto";
@@ -276,8 +276,8 @@ export async function runCloneJob(jobId: string): Promise<VoiceJob> {
           audio: audioBlobs[0],
         });
         break;
-      case "voice-api":
-        providerVoiceId = await cloneVoiceApi(config, {
+      case "voice-core":
+        providerVoiceId = await cloneVoiceCore(config, {
           name: asset.name,
           engineId: engineDescriptor.id,
           audio: audioBlobs[0],
@@ -503,22 +503,22 @@ async function cloneInworld(
   return data.voiceId;
 }
 
-async function cloneVoiceApi(
+async function cloneVoiceCore(
   config: InferenceProviderConfig,
   opts: { name: string; engineId: string; audio: { blob: Blob; filename: string } },
 ): Promise<string> {
-  const base = config.baseURL ?? (process.env.VOICE_API_URL ?? "http://localhost:8000");
+  const base = config.baseURL ?? (process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245");
   const form = new FormData();
   form.append("audio", opts.audio.blob, opts.audio.filename);
   form.append("name", opts.name);
   form.append("engine", opts.engineId);
   const res = await fetch(`${base}/clone`, { method: "POST", body: form });
   if (!res.ok) {
-    throw new Error(`voice-api-clone ${res.status}: ${await res.text()}`);
+    throw new Error(`voice-core-clone ${res.status}: ${await res.text()}`);
   }
   const data = (await res.json()) as { voice_id?: string; id?: string };
   const id = data.voice_id ?? data.id;
-  if (!id) throw new Error("voice-api-clone: response missing voice_id");
+  if (!id) throw new Error("voice-core-clone: response missing voice_id");
   return id;
 }
 
@@ -574,7 +574,7 @@ async function persistAudio(opts: {
 function isEngineRunnable(providerId: string | undefined): boolean {
   if (!providerId) return false;
   return [
-    "voice-api",
+    "voice-core",
     "elevenlabs",
     "openai",
     "cartesia",

@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { openInThemedBrowser } from "@/lib/open-in-browser";
+import { isLocalProviderId } from "./provider-origin";
 
 type ModalityId =
   | "text"
@@ -49,21 +50,6 @@ interface BenchmarkEntry {
   asOf: string;
   note?: string;
 }
-
-// Providers that are distinctly LOCAL — everything else we treat as cloud-
-// served. Matches the ids used in lib/inference/*/register.ts.
-const LOCAL_PROVIDERS = new Set([
-  "ollama",
-  "voice-api",
-  "comfyui",
-  "lite-onnx",
-  "llama_server",
-  "vllm",
-  "lmstudio",
-  "custom",
-  "bge",
-  "vectordb-internal",
-]);
 
 /** Headline metric selection per modality — same logic as LeaderboardStrip. */
 const HEADLINE: Record<
@@ -118,7 +104,7 @@ export function CloudSuggestionsStrip({
   }, [modality]);
 
   const def = HEADLINE[modality];
-  const cloud = entries.filter((e) => !LOCAL_PROVIDERS.has(e.providerId));
+  const cloud = entries.filter((e) => !isLocalProviderId(e.providerId));
   const ranked = [...cloud]
     .filter((e) => e.metrics[def.key] !== undefined)
     .sort((a, b) => {

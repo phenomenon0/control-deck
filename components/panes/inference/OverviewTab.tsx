@@ -64,9 +64,10 @@ interface MetricsResponse {
 interface OverviewTabProps {
   refreshToken: number;
   onNavigate: (tabId: ModalityId) => void;
+  showOnlineModels: boolean;
 }
 
-export function OverviewTab({ refreshToken, onNavigate }: OverviewTabProps) {
+export function OverviewTab({ refreshToken, onNavigate, showOnlineModels }: OverviewTabProps) {
   const [providers, setProviders] = useState<ProvidersResponse | null>(null);
   const [bindings, setBindings] = useState<BindingsResponse | null>(null);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
@@ -119,9 +120,14 @@ export function OverviewTab({ refreshToken, onNavigate }: OverviewTabProps) {
       </div>
       {providers.modalities.map((meta) => {
         const bound = bindings.effective[`${meta.id}::primary`] ?? null;
-        const boundProvider = providers.providers[meta.id]?.find(
+        const allProviders = providers.providers[meta.id] ?? [];
+        const visibleProviders = showOnlineModels
+          ? allProviders
+          : allProviders.filter((p) => !p.requiresApiKey);
+        const boundProvider = allProviders.find(
           (p) => p.id === bound?.providerId,
         );
+        const boundHidden = Boolean(boundProvider?.requiresApiKey && !showOnlineModels);
         const modalityMetrics = (metrics?.summary ?? []).filter(
           (s) => s.modality === meta.id,
         );
@@ -143,7 +149,9 @@ export function OverviewTab({ refreshToken, onNavigate }: OverviewTabProps) {
               <span className="inference-modality-desc">{meta.description}</span>
             </div>
             <div>
-              {bound ? (
+              {boundHidden ? (
+                <span className="inference-binding inference-binding--unbound">online hidden</span>
+              ) : bound ? (
                 <span className="inference-binding">
                   <span className="inference-dot inference-dot--ok" />
                   <span>{boundProvider?.name ?? bound.providerId}</span>
@@ -152,8 +160,8 @@ export function OverviewTab({ refreshToken, onNavigate }: OverviewTabProps) {
                 <span className="inference-binding inference-binding--unbound">unbound</span>
               )}
             </div>
-            <div className="inference-mono">{bound?.config.model ?? "—"}</div>
-            <div className="inference-col-right">{providers.providers[meta.id]?.length ?? 0}</div>
+            <div className="inference-mono">{boundHidden ? "—" : bound?.config.model ?? "—"}</div>
+            <div className="inference-col-right">{visibleProviders.length}</div>
             <div className="inference-col-right inference-mono">{totalCalls || "—"}</div>
             <div className="inference-col-right inference-mono">
               {p95 !== null ? `${Math.round(p95)}ms` : "—"}

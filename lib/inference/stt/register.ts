@@ -1,14 +1,12 @@
 /**
- * Speech-to-text providers. Mirrors the tts register pattern: preserves
- * the existing VOICE_API_URL sidecar as the default, offers cloud
- * alternates for users who want Groq's free-tier Whisper-large-v3-turbo or
- * Deepgram's Nova for low-latency streaming-style transcription.
+ * Speech-to-text providers. Mirrors the tts register pattern: voice-core is
+ * the local sidecar default; cloud providers are opt-in via env.
  *
  * Env vars:
- *   STT_PROVIDER         voice-api | openai | groq | deepgram | cartesia | assemblyai
- *                        (default: voice-api — zero regression)
- *   STT_MODEL            default model id
- *   STT_LANGUAGE         optional BCP-47 hint for all requests
+ *   STT_PROVIDER         voice-core | openai | groq | deepgram | cartesia | assemblyai
+ *                        (default: voice-core)
+ *   STT_MODEL            default engine id (e.g. moonshine-tiny)
+ *   STT_LANGUAGE         optional BCP-47 hint
  *   GROQ_API_KEY         required for groq
  *   DEEPGRAM_API_KEY     required for deepgram
  *   OPENAI_API_KEY       reused from text slot, required for openai
@@ -31,22 +29,20 @@ interface ProviderSeed {
 
 const SEEDS: ProviderSeed[] = [
   {
-    id: "voice-api",
-    name: "Voice API (local sidecar)",
+    id: "voice-core",
+    name: "voice-core (local sidecar)",
     description:
-      "Local STT sidecars. Legacy ids (whisper-tiny / large-v3-turbo / large-v3) " +
-      "route to VOICE_API_URL (port 8000). Tiered ids (whisper-large-v3-turbo-cpp / " +
-      "parakeet-tdt-0.6b-v2 / moonshine-tiny) route to the in-repo voice-engines " +
-      "sidecar (port 9101).",
+      "Local STT engines hosted by voice-core (port 4245). Includes Moonshine " +
+      "(CPU streaming), whisper.cpp (Mac/Metal), Parakeet (CUDA), sherpa-onnx " +
+      "streaming, and faster-whisper for final correction.",
     requiresApiKey: false,
-    defaultBaseURL: process.env.VOICE_API_URL ?? "http://localhost:8000",
+    defaultBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
     defaultModels: [
+      "sherpa-onnx-streaming",
+      "moonshine-tiny",
       "whisper-large-v3-turbo-cpp",
       "parakeet-tdt-0.6b-v2",
-      "moonshine-tiny",
-      "large-v3-turbo",
-      "whisper-tiny",
-      "large-v3",
+      "faster-whisper",
     ],
   },
   {
@@ -116,7 +112,7 @@ export function registerSttProviders(): void {
 
   // Bind default slot from env so the STT route has a provider even before
   // the Settings UI writes one.
-  const providerEnv = (process.env.STT_PROVIDER ?? "voice-api").toLowerCase();
+  const providerEnv = (process.env.STT_PROVIDER ?? "voice-core").toLowerCase();
   if (SEEDS.some((s) => s.id === providerEnv)) {
     bindSlot({
       modality: "stt",

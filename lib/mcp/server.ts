@@ -29,7 +29,10 @@ export function createDeckMcpServer(
     },
   );
 
-  registerBridgeTools(server, { threadIdForSession: opts.threadIdForSession });
+  registerBridgeTools(server, {
+    threadIdForSession: opts.threadIdForSession,
+    bridgeUrl: opts.bridgeUrl,
+  });
 
   return server;
 }

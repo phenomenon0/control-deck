@@ -40,7 +40,7 @@ describe("runtime", () => {
   });
 
   test("bindSlot overwrites on re-bind", () => {
-    bindSlot(binding("tts", "primary", "voice-api"));
+    bindSlot(binding("tts", "primary", "voice-core"));
     bindSlot(binding("tts", "primary", "openai"));
     expect(getSlot("tts", "primary")?.providerId).toBe("openai");
   });

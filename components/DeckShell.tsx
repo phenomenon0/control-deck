@@ -17,6 +17,8 @@ import { ThreadSidebar } from "./chat/ThreadSidebar";
 import { Icon } from "@/components/warp/Icons";
 import { useDeckSettings } from "./settings/DeckSettingsProvider";
 import { PreflightGate } from "./preflight/PreflightGate";
+import { AudioDockProvider } from "./audio/AudioDockProvider";
+import { GlobalAudioDock } from "./audio/GlobalAudioDock";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -132,6 +134,7 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <SettingsDrawer />
+      <GlobalAudioDock />
     </div>
   );
 }
@@ -161,7 +164,9 @@ export function DeckShell({ children }: { children: React.ReactNode }) {
           <CanvasKeyboardHandler>
             <ChatInspectorProvider>
               <PreflightGate>
-                <DeckShellInner>{children}</DeckShellInner>
+                <AudioDockProvider>
+                  <DeckShellInner>{children}</DeckShellInner>
+                </AudioDockProvider>
               </PreflightGate>
             </ChatInspectorProvider>
           </CanvasKeyboardHandler>

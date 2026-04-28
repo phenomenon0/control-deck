@@ -4,19 +4,26 @@ import { useState } from "react";
 import { useVoiceChat, type TTSEngine, type VoiceInputMode } from "@/lib/hooks/useVoiceChat";
 import { AudioLevelIndicator } from "@/components/chat/AudioLevelIndicator";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import Link from "next/link";
 
 const ENGINES: { id: TTSEngine; name: string; description: string }[] = [
-  { id: "piper", name: "Piper", description: "Fast, robotic" },
-  { id: "xtts", name: "XTTS v2", description: "Human-like, 58 voices" },
-  { id: "chatterbox", name: "Chatterbox", description: "Most expressive" },
+  { id: "sherpa-onnx-tts", name: "Sherpa ONNX VITS", description: "Default — Piper amy-medium, runs on CPU" },
+  { id: "kokoro-82m", name: "Kokoro 82M", description: "Apache 2.0, 50+ voices (heavier)" },
+  { id: "chatterbox", name: "Chatterbox", description: "Most expressive (lazy-load)" },
 ];
 
 export function VoicePane() {
-  const [engine, setEngine] = useState<TTSEngine>("chatterbox");
+  const [engine, setEngine] = useState<TTSEngine>("sherpa-onnx-tts");
   const [text, setText] = useState("");
   const [mode, setMode] = useState<VoiceInputMode>("push-to-talk");
   const { prefs } = useDeckSettings();
+  // The deck-wide AudioDock already owns a mic + TTS pipeline. Spinning up a
+  // second useVoiceChat in this pane would race with it (duplicate STT
+  // streams, doubled TTS playback). When the dock is present we disable our
+  // own loop and surface a notice so the user knows where voice is running.
+  const dock = useOptionalAudioDock();
+  const dockOwnsVoice = dock !== null;
 
   const {
     isListening,
@@ -34,6 +41,7 @@ export function VoicePane() {
     checkVoiceApi,
     clearError,
   } = useVoiceChat({
+    enabled: !dockOwnsVoice,
     ttsEngine: engine,
     inputDeviceId: prefs.voice.audioInputId ?? null,
     outputDeviceId: prefs.voice.audioOutputId ?? null,
@@ -90,6 +98,18 @@ export function VoicePane() {
       </header>
 
       <div className="space-y-6">
+        {dockOwnsVoice && (
+          <div className="card bg-[var(--bg-tertiary)] border-[var(--border)]">
+            <div className="text-sm">
+              <strong className="text-[var(--text-primary)]">Voice owned by dock.</strong>{" "}
+              <span className="text-[var(--text-muted)]">
+                The deck-wide audio dock is already running a session, so this
+                pane's mic and TTS are paused to avoid two parallel pipelines.
+                Use the dock controls or close it to drive voice from here.
+              </span>
+            </div>
+          </div>
+        )}
         {/* Live Chat Mode Link */}
         <div className="card bg-[var(--accent)]/10 border-[var(--accent)]/30">
           <div className="flex items-center justify-between">
@@ -270,8 +290,8 @@ export function VoicePane() {
         {/* Info */}
         <div className="card bg-[var(--bg-primary)]">
           <div className="text-xs text-[var(--text-muted)] space-y-2">
-            <p>Voice API must be running on port 8000 for STT/TTS to work.</p>
-            <p>Run: <code className="text-[var(--accent)]">cd ~/Documents/INIT/voice-api && ./run.sh</code></p>
+            <p>voice-core must be running on port 4245 for STT/TTS to work.</p>
+            <p>Run: <code className="text-[var(--accent)]">bun run voice:core</code></p>
             {voiceApiStatus === "disconnected" && (
               <button
                 onClick={checkVoiceApi}

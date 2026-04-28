@@ -1,32 +1,47 @@
 "use client";
 
 /**
- * Shared workspace state for the Audio surface (Live / Voices / Studio / Health).
+ * Shared workspace state for the Audio surface.
  *
  * Backed by URL search params so links deep-link into any pane and keep the
  * active asset / job highlight in sync across reloads. Cross-pane nav helpers
  * (`jumpToStudio`, `jumpToVoices`, `jumpToLive`, `jumpToHealth`) set the right
  * params in one call so a button in one pane can deep-link into another.
  *
- * Back-compat: old `?tab=assistant` → live, old `?tab=library` → voices,
- * old `?tab=voice` → live. Callers can still use jumpToAssistant/jumpToLibrary
+ * Back-compat: old `?tab=assistant` / `?tab=voice` → conductor,
+ * old `?tab=library` → voices. Callers can still use jumpToAssistant/jumpToLibrary
  * aliases so embedding code that hasn't migrated keeps working.
  */
 
 import { useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-export type VoiceTab = "conductor" | "voices" | "studio" | "health";
+export type VoiceTab =
+  | "conductor"
+  | "live"
+  | "newsroom"
+  | "voices"
+  | "studio"
+  | "health"
+  | "stage"
+  | "tape"
+  | "forum";
 
-const TAB_IDS: ReadonlySet<string> = new Set(["conductor", "voices", "studio", "health"]);
-
-// Old wireframe tabs that no longer exist — collapse to conductor.
-const RETIRED_TABS: ReadonlySet<string> = new Set(["newsroom", "stage", "tape", "forum"]);
+const TAB_IDS: ReadonlySet<string> = new Set([
+  "conductor",
+  "live",
+  "newsroom",
+  "voices",
+  "studio",
+  "health",
+  "stage",
+  "tape",
+  "forum",
+]);
 
 function normalizeTab(raw: string | null): VoiceTab {
-  if (raw === "assistant" || raw === "voice" || raw === "live") return "conductor";
+  if (raw === "assistant" || raw === "voice") return "conductor";
   if (raw === "library") return "voices";
-  if (raw && RETIRED_TABS.has(raw)) return "conductor";
   if (raw && TAB_IDS.has(raw)) return raw as VoiceTab;
   return "conductor";
 }
@@ -39,10 +54,14 @@ export interface VoiceWorkspace {
   setAssetId: (id: string) => void;
   setJobId: (id: string) => void;
   jumpToConductor: (opts?: { assetId?: string }) => void;
+  jumpToNewsroom: () => void;
   jumpToVoices: (opts?: { assetId?: string }) => void;
   jumpToStudio: (opts?: { assetId?: string; jobId?: string }) => void;
   jumpToHealth: () => void;
-  /** @deprecated use jumpToConductor */
+  jumpToStage: () => void;
+  jumpToTape: () => void;
+  jumpToForum: () => void;
+  /** Voice + chat surface. */
   jumpToLive: (opts?: { assetId?: string }) => void;
   /** @deprecated use jumpToConductor */
   jumpToAssistant: (opts?: { assetId?: string }) => void;
@@ -77,6 +96,8 @@ export function useVoiceWorkspace(): VoiceWorkspace {
   return useMemo<VoiceWorkspace>(() => {
     const jumpToConductor = (opts?: { assetId?: string }) =>
       replace({ tab: "conductor", asset: opts?.assetId ?? null, job: null });
+    const jumpToLive = (opts?: { assetId?: string }) =>
+      replace({ tab: "live", asset: opts?.assetId ?? assetId ?? null, job: null });
     const jumpToVoices = (opts?: { assetId?: string }) =>
       replace({ tab: "voices", asset: opts?.assetId ?? assetId ?? null, job: null });
     return {
@@ -87,6 +108,7 @@ export function useVoiceWorkspace(): VoiceWorkspace {
       setAssetId: (id) => replace({ asset: id }),
       setJobId: (id) => replace({ job: id }),
       jumpToConductor,
+      jumpToNewsroom: () => replace({ tab: "newsroom", asset: null, job: null }),
       jumpToVoices,
       jumpToStudio: (opts) =>
         replace({
@@ -95,7 +117,10 @@ export function useVoiceWorkspace(): VoiceWorkspace {
           job: opts?.jobId ?? null,
         }),
       jumpToHealth: () => replace({ tab: "health", asset: null, job: null }),
-      jumpToLive: jumpToConductor,
+      jumpToStage: () => replace({ tab: "stage", asset: null, job: null }),
+      jumpToTape: () => replace({ tab: "tape", asset: null, job: null }),
+      jumpToForum: () => replace({ tab: "forum", asset: null, job: null }),
+      jumpToLive,
       jumpToAssistant: jumpToConductor,
       jumpToLibrary: jumpToVoices,
     };

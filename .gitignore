@@ -1,6 +1,12 @@
 # dependencies (bun install)
 node_modules
 
+# Python virtualenvs (uv / venv)
+**/.venv/
+
+# Vendored upstream repos (managed as separate clones, not subtrees)
+llama.cpp/
+
 # non-bun lockfiles (this project uses bun.lock)
 package-lock.json
 yarn.lock

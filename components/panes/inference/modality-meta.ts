@@ -2,7 +2,7 @@ export const MODALITY_LABELS = {
   text: "Text",
   vision: "Vision",
   "image-gen": "Image generation",
-  "audio-gen": "Audio generation",
+  "audio-gen": "Music / SFX",
   tts: "Text-to-speech",
   stt: "Speech-to-text",
   embedding: "Embeddings",

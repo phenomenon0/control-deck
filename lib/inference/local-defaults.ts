@@ -14,9 +14,9 @@
  * ## Runner types
  * - `ollama` — pullable from this app via POST /api/ollama/tags. Status
  *   comes from /api/ollama/ps + /api/ollama/tags (GET).
- * - `voice-sidecar` — bundled with the local voice-api service (port 8000).
- *   The app can't pull these directly; it reports whether the sidecar is up
- *   and whether the engine/model is the one the runtime resolver picked.
+ * - `voice-sidecar` — engines hosted by the in-repo voice-core service
+ *   (port 4245). The app can't pull these directly; it reports whether the
+ *   sidecar is up and whether the engine is the one the resolver picked.
  * - `unavailable` — no local runner wired up today. The UI should show the
  *   modality greyed with a "cloud-only for now" hint.
  */
@@ -170,27 +170,27 @@ export const LOCAL_DEFAULTS: Record<Modality, LocalModalityEntry> = {
     defaults: {
       quick: {
         runner: "voice-sidecar",
-        id: "whisper-tiny",
-        label: "faster-whisper tiny (CUDA)",
-        sizeMb: 75,
-        expectedP50Ms: 80,
-        note: "Tiny distil on CUDA. ~100× realtime on a 3090; good for fast partials.",
+        id: "sherpa-onnx-streaming",
+        label: "sherpa-onnx streaming (Zipformer EN)",
+        sizeMb: 320,
+        expectedP50Ms: 90,
+        note: "Endpoint-aware streaming transducer. Reliable on CPU; default for laptops.",
       },
       balanced: {
         runner: "voice-sidecar",
-        id: "large-v3-turbo",
-        label: "faster-whisper large-v3-turbo",
-        sizeMb: 1600,
-        expectedP50Ms: 180,
-        note: "CTranslate2 fp16 on CUDA. ~40× realtime, beats old Whisper base on accuracy.",
+        id: "sherpa-onnx-streaming",
+        label: "sherpa-onnx streaming",
+        sizeMb: 350,
+        expectedP50Ms: 90,
+        note: "Endpoint-aware streaming transducer. Strong for live partials on CPU/CUDA.",
       },
       quality: {
         runner: "voice-sidecar",
-        id: "large-v3",
-        label: "faster-whisper large-v3",
-        sizeMb: 3100,
-        expectedP50Ms: 280,
-        note: "Full large-v3, best open-weight accents + noise. ~20× realtime on a 3090.",
+        id: "parakeet-tdt-0.6b-v2",
+        label: "NVIDIA Parakeet TDT 0.6B v2",
+        sizeMb: 1300,
+        expectedP50Ms: 90,
+        note: "Open-ASR-Leaderboard #1 (CUDA). Used as final-correction pass.",
       },
     },
   },
@@ -202,27 +202,27 @@ export const LOCAL_DEFAULTS: Record<Modality, LocalModalityEntry> = {
     defaults: {
       quick: {
         runner: "voice-sidecar",
-        id: "piper",
-        label: "Piper",
-        sizeMb: 60,
-        expectedP50Ms: 60,
-        note: "CPU ONNX, ~50ms. Robotic but instant — perfect for fillers and short replies.",
+        id: "sherpa-onnx-tts",
+        label: "sherpa-onnx VITS",
+        sizeMb: 90,
+        expectedP50Ms: 80,
+        note: "Lightweight VITS via sherpa-onnx. Robotic but instant.",
       },
       balanced: {
         runner: "voice-sidecar",
-        id: "kokoro",
-        label: "Kokoro-82M",
-        sizeMb: 330,
+        id: "sherpa-onnx-tts",
+        label: "sherpa-onnx VITS (Piper amy-medium)",
+        sizeMb: 90,
         expectedP50Ms: 180,
-        note: "2026 breakthrough: 82M ONNX, natural voices, ~200ms first chunk on GPU.",
+        note: "Default — clear English voice, runs on CPU, ~180 ms first chunk.",
       },
       quality: {
         runner: "voice-sidecar",
-        id: "orpheus",
-        label: "Orpheus 3B",
-        sizeMb: 6200,
-        expectedP50Ms: 450,
-        note: "Canopy Labs. Expressive + streaming. Lazy-loads (~6GB VRAM) on first request.",
+        id: "chatterbox",
+        label: "Chatterbox (expressive)",
+        sizeMb: 1200,
+        expectedP50Ms: 350,
+        note: "Expressive prosody for longer narration turns. Lazy-loads on first request.",
       },
     },
   },
@@ -296,7 +296,7 @@ export const LOCAL_DEFAULTS: Record<Modality, LocalModalityEntry> = {
 
   "audio-gen": {
     modality: "audio-gen",
-    name: "Audio generation",
+    name: "Music / SFX",
     description: "Music + sound-effect synthesis",
     defaults: {
       quick: {

@@ -86,7 +86,7 @@ export interface ResolvedRoute {
   rationale: string;
 }
 
-const SIDECAR_ID = "voice-api";
+const SIDECAR_ID = "voice-core";
 
 /** Preference order per preset. Earlier entries win if available. */
 const STT_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
@@ -169,7 +169,7 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
         providerId: ttsPick.provider.id,
         providerName: ttsPick.provider.name,
         model: MODEL_DEFAULTS[ttsPick.provider.id] ?? null,
-        engine: ttsPick.provider.id === SIDECAR_ID ? "piper" : null,
+        engine: ttsPick.provider.id === SIDECAR_ID ? "sherpa-onnx-tts" : null,
       }
     : null;
 

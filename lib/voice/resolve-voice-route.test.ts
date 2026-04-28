@@ -10,12 +10,12 @@ describe("resolveVoiceRoute", () => {
   test("offline preset picks sidecar when reachable", () => {
     const r = resolveVoiceRoute({
       preset: "offline",
-      sttProviders: [avail("voice-api", "Sidecar")],
-      ttsProviders: [avail("voice-api", "Sidecar")],
+      sttProviders: [avail("voice-core", "Sidecar")],
+      ttsProviders: [avail("voice-core", "Sidecar")],
       sidecarReachable: true,
     });
-    expect(r.stt?.providerId).toBe("voice-api");
-    expect(r.tts?.providerId).toBe("voice-api");
+    expect(r.stt?.providerId).toBe("voice-core");
+    expect(r.tts?.providerId).toBe("voice-core");
     expect(r.transport.usesSidecar).toBe(true);
     expect(r.fallbacksApplied).toEqual([]);
   });
@@ -23,8 +23,8 @@ describe("resolveVoiceRoute", () => {
   test("offline preset returns nothing when sidecar is down", () => {
     const r = resolveVoiceRoute({
       preset: "offline",
-      sttProviders: [avail("voice-api", "Sidecar")],
-      ttsProviders: [avail("voice-api", "Sidecar")],
+      sttProviders: [avail("voice-core", "Sidecar")],
+      ttsProviders: [avail("voice-core", "Sidecar")],
       sidecarReachable: false,
     });
     expect(r.stt).toBeNull();
@@ -36,11 +36,11 @@ describe("resolveVoiceRoute", () => {
     const r = resolveVoiceRoute({
       preset: "fast",
       sttProviders: [
-        avail("voice-api", "Sidecar"),
+        avail("voice-core", "Sidecar"),
         avail("groq", "Groq", true),
       ],
       ttsProviders: [
-        avail("voice-api", "Sidecar"),
+        avail("voice-core", "Sidecar"),
         avail("cartesia", "Cartesia", true),
       ],
       sidecarReachable: true,
@@ -54,18 +54,18 @@ describe("resolveVoiceRoute", () => {
     const r = resolveVoiceRoute({
       preset: "fast",
       sttProviders: [
-        avail("voice-api", "Sidecar"),
+        avail("voice-core", "Sidecar"),
         avail("groq", "Groq", false),
         avail("deepgram", "Deepgram", false),
       ],
       ttsProviders: [
-        avail("voice-api", "Sidecar"),
+        avail("voice-core", "Sidecar"),
         avail("cartesia", "Cartesia", false),
       ],
       sidecarReachable: true,
     });
-    expect(r.stt?.providerId).toBe("voice-api");
-    expect(r.tts?.providerId).toBe("voice-api");
+    expect(r.stt?.providerId).toBe("voice-core");
+    expect(r.tts?.providerId).toBe("voice-core");
     expect(r.fallbacksApplied).toEqual(["stt", "tts"]);
     expect(r.rationale.toLowerCase()).toContain("fell back");
   });
@@ -73,10 +73,10 @@ describe("resolveVoiceRoute", () => {
   test("quality preset picks elevenlabs TTS when configured", () => {
     const r = resolveVoiceRoute({
       preset: "quality",
-      sttProviders: [avail("assemblyai", "AssemblyAI", true), avail("voice-api", "Sidecar")],
+      sttProviders: [avail("assemblyai", "AssemblyAI", true), avail("voice-core", "Sidecar")],
       ttsProviders: [
         avail("elevenlabs", "ElevenLabs", true),
-        avail("voice-api", "Sidecar"),
+        avail("voice-core", "Sidecar"),
       ],
       sidecarReachable: true,
     });
@@ -98,7 +98,7 @@ describe("resolveVoiceRoute", () => {
     const r = resolveVoiceRoute({
       preset: "fast",
       sttProviders: [avail("groq", "Groq", true, false), avail("deepgram", "Deepgram", true, true)],
-      ttsProviders: [avail("voice-api", "Sidecar")],
+      ttsProviders: [avail("voice-core", "Sidecar")],
       sidecarReachable: true,
     });
     expect(r.stt?.providerId).toBe("deepgram");

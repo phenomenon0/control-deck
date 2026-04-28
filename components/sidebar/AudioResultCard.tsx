@@ -23,7 +23,7 @@ export function AudioResultCard({ tool }: AudioResultCardProps) {
   const text = tool.args?.text as string || tool.args?.prompt as string || "";
   const artifact = tool.artifacts?.[0];
   const audioUrl: string | undefined = artifact?.url || (tool.result?.data as Record<string, unknown>)?.url as string | undefined;
-  const engine = (tool.result?.data as Record<string, unknown>)?.engine as string || tool.args?.engine as string || "piper";
+  const engine = (tool.result?.data as Record<string, unknown>)?.engine as string || tool.args?.engine as string || "kokoro-82m";
 
   // Load audio and generate waveform
   useEffect(() => {

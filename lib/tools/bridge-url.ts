@@ -37,3 +37,19 @@ export function buildToolBridgeUrl(req: Request): string {
 
   return url.toString();
 }
+
+/**
+ * Build the absolute URL agent-ts should use for MCP discovery + dispatch.
+ * Mirrors the bridge URL pattern: derive from the inbound request origin so
+ * Electron's dynamic port still works, and append DECK_TOKEN as a bearer
+ * header would be ignored across loopback (we pass it as ?token instead).
+ */
+export function buildMcpToolsUrl(req: Request): string {
+  const origin = requestOrigin(req);
+  const url = new URL("/api/mcp/tools", origin);
+  const token = process.env.DECK_TOKEN;
+  if (token && !url.searchParams.has("token")) {
+    url.searchParams.set("token", token);
+  }
+  return url.toString();
+}

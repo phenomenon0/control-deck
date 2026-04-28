@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Terminal, useTerminal } from "@wterm/react";
+import { Terminal, useTerminal, type WTerm } from "@wterm/react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { useTerminalSessions } from "@/lib/hooks/useTerminalSessions";
 import { getTerminalWebSocketUrl } from "@/lib/terminal/client";
@@ -42,12 +42,19 @@ export interface TerminalPaneHandle {
 
 export interface TerminalPaneProps {
   onOutput?: (data: string) => void;
+  /**
+   * Docked workspace panes need the actual terminal, not the full terminal app
+   * chrome. The full topbar/tabs/status/rail eat most of a small split pane and
+   * make terminal text nearly unreadable.
+   */
+  embedded?: boolean;
 }
 
 const OUTPUT_BUFFER_MAX = 64_000;
 
 export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   function TerminalPane(props, handleRef) {
+    const embedded = props.embedded ?? false;
   const {
     sessions,
     health,
@@ -393,7 +400,26 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     [activeSessionId, deleteSession],
   );
 
-  const handleTerminalReady = () => {
+  const handleTerminalReady = (wt?: WTerm) => {
+    // @wterm generates terminal host responses (notably CPR, ESC[row;colR,
+    // after a shell prompt sends ESC[6n) during its async render pass. That
+    // delay lets zsh/prompt probes time out, so the CPR response arrives at the
+    // shell as visible typed text like ^[[5;1R. Flush responses immediately
+    // after writes instead; getResponse() is consuming, so the later render
+    // pass won't resend the same bytes.
+    if (wt && !(wt as WTerm & { __deckImmediateResponses?: boolean }).__deckImmediateResponses) {
+      const patched = wt as WTerm & { __deckImmediateResponses?: boolean };
+      const originalWrite = wt.write.bind(wt);
+      wt.write = (data: string | Uint8Array) => {
+        originalWrite(data);
+        const response = wt.bridge?.getResponse();
+        if (response && socketRef.current?.readyState === WebSocket.OPEN) {
+          socketRef.current.send(JSON.stringify({ type: "input", data: response }));
+        }
+      };
+      patched.__deckImmediateResponses = true;
+    }
+
     terminalReadyRef.current = true;
     for (const chunk of pendingOutputRef.current) write(chunk);
     pendingOutputRef.current = [];
@@ -515,6 +541,16 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       error={friendlyErrorNotice}
     />
   );
+
+  if (embedded) {
+    return (
+      <section className="tp2-stage tp2-stage--embedded">
+        <div className="tp2-body tp2-body--embedded">
+          <div className="tp2-screen-wrap tp2-screen-wrap--embedded">{screen}</div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="tp2-stage">

@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 
 import { openInThemedBrowser } from "@/lib/open-in-browser";
+import { isLocalProviderId } from "./provider-origin";
 
 type ModalityId =
   | "text"
@@ -71,7 +72,13 @@ const HEADLINE_METRIC: Record<
   "video-gen": { key: "latencyP95Ms", label: "p95", format: (v) => `${(v / 1000).toFixed(0)}s`, sortDir: "asc" },
 };
 
-export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
+export function LeaderboardStrip({
+  modality,
+  showOnlineModels,
+}: {
+  modality: ModalityId;
+  showOnlineModels: boolean;
+}) {
   const [entries, setEntries] = useState<BenchmarkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState<string>("—");
@@ -81,7 +88,7 @@ export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
     setLoading(true);
     (async () => {
       try {
-        const res = await fetch(`/api/inference/benchmarks?modality=${modality}`, {
+        const res = await fetch(`/api/inference/benchmarks?modality=${modality}${showOnlineModels ? "" : "&live=0"}`, {
           cache: "no-store",
         });
         if (!res.ok) return;
@@ -96,7 +103,7 @@ export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
     return () => {
       alive = false;
     };
-  }, [modality]);
+  }, [modality, showOnlineModels]);
 
   if (loading && entries.length === 0) {
     return <div className="inference-leaderboard-empty">Loading leaderboard…</div>;
@@ -106,7 +113,10 @@ export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
   }
 
   const metricDef = HEADLINE_METRIC[modality];
-  const ranked = [...entries]
+  const visibleEntries = showOnlineModels
+    ? entries
+    : entries.filter((e) => isLocalProviderId(e.providerId));
+  const ranked = [...visibleEntries]
     .filter((e) => e.metrics[metricDef.key] !== undefined)
     .sort((a, b) => {
       const av = a.metrics[metricDef.key] ?? 0;
@@ -115,10 +125,14 @@ export function LeaderboardStrip({ modality }: { modality: ModalityId }) {
     })
     .slice(0, 3);
 
+  if (ranked.length === 0) return null;
+
   return (
     <section className="inference-leaderboard">
       <div className="inference-leaderboard-head">
-        <div className="label">Leaderboard · {metricDef.label}</div>
+        <div className="label">
+          {showOnlineModels ? "Leaderboard" : "Local leaderboard"} · {metricDef.label}
+        </div>
         <div className="inference-leaderboard-meta">
           {ranked.length} top entries · as of {asOf}
         </div>

@@ -12,7 +12,7 @@
  * by the router / provider registry.
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import { Gauge, Check, Sparkles, Cloud, Cpu, AlertTriangle, Search } from "lucide-react";
 import { VramEstimator } from "@/components/models/VramEstimator";
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
@@ -62,11 +62,19 @@ interface FreeStatus {
 }
 
 type TabId = "local" | "free" | "cloud";
+type ModeTab = { id: TabId; label: string; icon: ReactNode };
 
 export function ModelsPane() {
   const { prefs, updatePrefs, switchRouteMode } = useDeckSettings();
+  const showOnlineModels = prefs.showOnlineModels;
   const [tab, setTab] = useState<TabId>(
-    prefs.routeMode === "free" ? "free" : prefs.routeMode === "cloud" ? "cloud" : "local",
+    showOnlineModels
+      ? prefs.routeMode === "free"
+        ? "free"
+        : prefs.routeMode === "cloud"
+          ? "cloud"
+          : "local"
+      : "local",
   );
 
   // --- Local/Ollama state (was the whole pane before) ---
@@ -92,6 +100,10 @@ export function ModelsPane() {
     fetchOllama();
   }, [fetchOllama]);
 
+  useEffect(() => {
+    if (!showOnlineModels && tab !== "local") setTab("local");
+  }, [showOnlineModels, tab]);
+
   // --- Free-tier state ---
   const [freeStatus, setFreeStatus] = useState<FreeStatus | null>(null);
   const [refreshingFree, setRefreshingFree] = useState(false);
@@ -102,8 +114,8 @@ export function ModelsPane() {
   }, []);
 
   useEffect(() => {
-    if (tab === "free") fetchFree();
-  }, [tab, fetchFree]);
+    if (showOnlineModels && tab === "free") fetchFree();
+  }, [showOnlineModels, tab, fetchFree]);
 
   const huntFree = useCallback(async () => {
     setRefreshingFree(true);
@@ -188,16 +200,37 @@ export function ModelsPane() {
   const tabCounts = useMemo(
     () => ({
       local: models.length,
-      free: freeStatus?.catalog.length ?? 0,
-      cloud: CLOUD_PROVIDERS.reduce((sum, p) => sum + p.models.length, 0),
+      free: showOnlineModels ? freeStatus?.catalog.length ?? 0 : 0,
+      cloud: showOnlineModels ? CLOUD_PROVIDERS.reduce((sum, p) => sum + p.models.length, 0) : 0,
     }),
-    [models.length, freeStatus?.catalog.length],
+    [models.length, freeStatus?.catalog.length, showOnlineModels],
   );
 
   // --- Catalog browse state ---
   const [catalogQ, setCatalogQ] = useState("");
-  const freeCatalog = useCatalog({ provider: "openrouter", free: true, limit: 120, q: catalogQ || undefined });
-  const nvidiaCatalog = useCatalog({ provider: "nvidia", limit: 250, q: catalogQ || undefined });
+  const freeCatalog = useCatalog({
+    provider: "openrouter",
+    free: true,
+    limit: 120,
+    q: catalogQ || undefined,
+    enabled: showOnlineModels && tab === "free",
+  });
+  const nvidiaCatalog = useCatalog({
+    provider: "nvidia",
+    limit: 250,
+    q: catalogQ || undefined,
+    enabled: showOnlineModels && tab === "free",
+  });
+  const modeTabs = useMemo<ModeTab[]>(() => {
+    const tabs: ModeTab[] = [{ id: "local", label: "Local", icon: <Cpu size={14} /> }];
+    if (showOnlineModels) {
+      tabs.push(
+        { id: "free", label: "Free tier", icon: <Sparkles size={14} /> },
+        { id: "cloud", label: "Cloud", icon: <Cloud size={14} /> },
+      );
+    }
+    return tabs;
+  }, [showOnlineModels]);
 
   return (
     <div className="models-stage">
@@ -215,6 +248,14 @@ export function ModelsPane() {
             <span className="pill--mono">
               active: {prefs.routeMode === "cloud" ? prefs.cloudModel : prefs.model || "—"}
             </span>
+            <button
+              type="button"
+              className="btn btn-secondary text-xs"
+              onClick={() => updatePrefs({ showOnlineModels: !showOnlineModels })}
+              title={showOnlineModels ? "Hide free and cloud models" : "Show free and cloud models"}
+            >
+              {showOnlineModels ? "Hide online" : "Show online"}
+            </button>
           </div>
         </div>
       </header>
@@ -226,11 +267,7 @@ export function ModelsPane() {
 
       {/* Mode tabs */}
       <div className="flex gap-2 mb-5">
-        {([
-          { id: "local", label: "Local", icon: <Cpu size={14} /> },
-          { id: "free", label: "Free tier", icon: <Sparkles size={14} /> },
-          { id: "cloud", label: "Cloud", icon: <Cloud size={14} /> },
-        ] as const).map((t) => (
+        {modeTabs.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -356,7 +393,7 @@ export function ModelsPane() {
       )}
 
       {/* FREE TAB */}
-      {tab === "free" && (
+      {showOnlineModels && tab === "free" && (
         <>
           <div className="flex items-center gap-3 mb-5">
             <span className="text-xs text-[var(--text-muted)]">
@@ -454,7 +491,7 @@ export function ModelsPane() {
       )}
 
       {/* CLOUD TAB */}
-      {tab === "cloud" && (
+      {showOnlineModels && tab === "cloud" && (
         <div className="flex flex-col gap-6">
           {CLOUD_PROVIDERS.map((provider) => (
             <section key={provider.id}>

@@ -5578,6 +5578,30 @@ textarea.input:focus {
   height: 100%;
 }
 
+.tp2-stage--embedded {
+  background: #050505;
+}
+
+.tp2-body--embedded {
+  height: 100%;
+}
+
+.tp2-screen-wrap--embedded {
+  padding: 0;
+  gap: 0;
+  background: #050505;
+}
+
+.tp2-stage--embedded .tp2-screen {
+  border: 0;
+  border-radius: 0;
+  background: #050505;
+}
+
+.tp2-stage--embedded .tp2-empty {
+  transform: scale(0.9);
+}
+
 /* ── Workspace rail (classic) ─────────────────────────────────── */
 
 .tp2-rail {

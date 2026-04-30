@@ -47,10 +47,13 @@ export function VoiceModeSheet({
   const dock = useOptionalAudioDock();
 
   // Reuse a shared session if one is in scope (e.g. LiveVoiceSurface);
-  // otherwise own the runtime for standalone chat-page usage.
+  // otherwise own the runtime for standalone chat-page usage. The `!dock`
+  // guard mirrors Conductor and Newsroom — without it, a future render
+  // outside DeckShell but with an audio-dock available would spawn two
+  // parallel mic+TTS pipelines for one deck.
   const sharedSession = useOptionalVoiceSession();
-  const ownSession = useVoiceSession({ enabled: !sharedSession });
-  const session = sharedSession ?? ownSession;
+  const ownSession = useVoiceSession({ enabled: !sharedSession && !dock });
+  const session = sharedSession ?? dock?.session ?? ownSession;
   const { voiceChat } = session;
 
   const autoStartedRef = useRef(false);

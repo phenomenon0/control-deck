@@ -29,7 +29,25 @@ describe("voice session machine", () => {
       { type: "AUDIO_STOPPED" },
     ]);
     expect(ctx.state).toBe("idle");
-    expect(ctx.transcriptFinal).toBe("hello");
+    // turn-end clears the transcript so a remounting surface cannot read
+    // a stale transcriptFinal and re-fire runTurn (ghost-turn bug).
+    expect(ctx.transcriptFinal).toBe("");
+    expect(ctx.transcriptPartial).toBe("");
+    expect(ctx.turnId).toBe(1);
+  });
+
+  test("AUDIO_STOPPED from thinking (text-only turn) also clears transcripts", () => {
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_FINAL", text: "what time is it" },
+      { type: "RUN_STARTED" },
+      { type: "AUDIO_STOPPED" },
+    ]);
+    expect(ctx.state).toBe("idle");
+    expect(ctx.transcriptFinal).toBe("");
+    expect(ctx.transcriptPartial).toBe("");
     expect(ctx.turnId).toBe(1);
   });
 

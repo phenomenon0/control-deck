@@ -198,8 +198,11 @@ export function VoiceInput({
         )}
       </div>
 
-      {/* Transcript preview (when listening) */}
-      {isListening && transcript && (
+      {/* Transcript preview — shown while listening AND during the brief
+          processing window before the next turn starts. The trailing clear
+          inside useVoiceChat used to wipe this in the same React batch as
+          the autoSend, so the italic preview never painted. */}
+      {(isListening || isProcessingSTT) && transcript && (
         <div className="text-[var(--text-secondary)] text-base italic max-w-[400px] text-center">
           "{transcript}"
         </div>
@@ -241,6 +244,7 @@ export function VoiceInputCompact({
   const {
     isListening,
     isProcessingSTT,
+    transcript,
     audioLevel,
     voiceApiStatus,
     startListening,
@@ -275,42 +279,61 @@ export function VoiceInputCompact({
 
   const isApiOffline = voiceApiStatus === "disconnected";
 
+  // Show a floating chip while processing or briefly after the transcript
+  // lands so the user can see what was just heard before it auto-sends.
+  // Cleared on next listen-start (useVoiceChat.ts:902).
+  const chipText = isProcessingSTT
+    ? transcript || "Transcribing…"
+    : !isListening && transcript
+      ? transcript
+      : null;
+
   return (
-    <button
-      onMouseDown={handleMicClick}
-      onMouseUp={handleMicRelease}
-      onMouseLeave={handleMicRelease}
-      onTouchStart={handleMicClick}
-      onTouchEnd={handleMicRelease}
-      disabled={disabled || isApiOffline || isProcessingSTT}
-      className={`
-        relative p-2 rounded-full transition-all duration-200 
-        ${disabled || isApiOffline ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-[var(--bg-tertiary)]"}
-        ${isListening ? "bg-[var(--accent)]" : ""}
-        ${className}
-      `}
-      title={
-        isApiOffline
-          ? "Voice API offline"
-          : isListening
-          ? "Release to send"
-          : mode === "push-to-talk"
-          ? "Hold to talk"
-          : "Click to talk"
-      }
-      aria-label={isListening ? "Stop recording" : "Start recording"}
-    >
-      {isProcessingSTT ? (
-        <LoadingSpinner size={18} />
-      ) : (
-        <AudioLevelIndicator
-          level={audioLevel}
-          isActive={isListening}
-          size="sm"
-          variant="pulse"
-        />
-      )}
-    </button>
+    <div className={`relative ${className}`}>
+      {chipText ? (
+        <div
+          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-primary)] text-xs whitespace-nowrap max-w-[320px] overflow-hidden text-ellipsis shadow-lg border border-[var(--border)] pointer-events-none z-10"
+          role="status"
+          aria-live="polite"
+        >
+          {chipText}
+        </div>
+      ) : null}
+      <button
+        onMouseDown={handleMicClick}
+        onMouseUp={handleMicRelease}
+        onMouseLeave={handleMicRelease}
+        onTouchStart={handleMicClick}
+        onTouchEnd={handleMicRelease}
+        disabled={disabled || isApiOffline || isProcessingSTT}
+        className={`
+          relative p-2 rounded-full transition-all duration-200
+          ${disabled || isApiOffline ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-[var(--bg-tertiary)]"}
+          ${isListening ? "bg-[var(--accent)]" : ""}
+        `}
+        title={
+          isApiOffline
+            ? "Voice API offline"
+            : isListening
+            ? "Release to send"
+            : mode === "push-to-talk"
+            ? "Hold to talk"
+            : "Click to talk"
+        }
+        aria-label={isListening ? "Stop recording" : "Start recording"}
+      >
+        {isProcessingSTT ? (
+          <LoadingSpinner size={18} />
+        ) : (
+          <AudioLevelIndicator
+            level={audioLevel}
+            isActive={isListening}
+            size="sm"
+            variant="pulse"
+          />
+        )}
+      </button>
+    </div>
   );
 }
 

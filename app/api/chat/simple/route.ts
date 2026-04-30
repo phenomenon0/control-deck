@@ -33,6 +33,7 @@ import {
 } from "@/lib/agui/db";
 import { resolveProviderUrl } from "@/lib/hardware/settings";
 import { prepareForModel } from "@/lib/llm/systemPrompt";
+import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
 
 interface SimpleChatBody {
   messages?: Array<{ role: string; content: string }>;
@@ -93,13 +94,34 @@ export async function POST(req: Request) {
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "messages array required" }, { status: 400 });
   }
+
+  // Resolve target backend from the inference binding so /chat/simple
+  // honors "swap LLM provider in Modalities". Falls back to the legacy
+  // llamacpp URL when no text binding is set, preserving existing
+  // behavior for fresh installs that haven't bound anything yet.
+  // Normalize to a `<base>/v1` shape so it doesn't matter whether the
+  // configured base URL already has `/v1` or not.
+  const textBinding = resolveTextProviderFromBinding();
+  const rawTarget =
+    textBinding?.baseURL ?? resolveProviderUrl("llamacpp");
+  const trimmed = rawTarget.replace(/\/+$/, "");
+  const targetUrl = trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
+  const targetIsLlamaCpp =
+    !textBinding || textBinding.provider === "llama_server";
+
   const requested =
     model ??
+    textBinding?.model ??
     process.env.LLAMACPP_MODEL ??
     process.env.LLM_MODEL ??
     process.env.OLLAMA_MODEL ??
     "";
-  const selectedModel = (await resolveServedModel(requested)) || "default";
+  // llama-server runs one GGUF and surfaces it under a path-shaped id, so
+  // we resolve the served name. Ollama (and any other multi-model server)
+  // takes the requested name verbatim.
+  const selectedModel = targetIsLlamaCpp
+    ? (await resolveServedModel(requested)) || "default"
+    : requested || "default";
   // llama-server is OpenAI-compatible, so `prepared.system` will be null
   // and `prepared.messages` carries role:"system". Using prepareForModel
   // keeps this route identically shaped to the agent path and makes
@@ -156,8 +178,7 @@ export async function POST(req: Request) {
       await writeSSE(runStarted);
       await writeSSE(msgStart);
 
-      const llamacppUrl = resolveProviderUrl("llamacpp");
-      const res = await fetch(`${llamacppUrl}/v1/chat/completions`, {
+      const res = await fetch(`${targetUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

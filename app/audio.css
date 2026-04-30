@@ -1452,3 +1452,286 @@
 .ad-diagnostics__when { color: var(--au-ink-3, var(--text-muted)); }
 .ad-diagnostics__what { color: var(--au-ink, var(--text-primary)); }
 .ad-diagnostics__empty { color: var(--au-ink-3, var(--text-muted)); font-style: italic; }
+
+/* ================================================================== */
+/* Newsroom — block editor + hover toolbar + AI preview + outline       */
+/* ================================================================== */
+
+.nr-mic__hint {
+  font-size: 11px;
+  color: var(--au-ink-3, var(--text-muted));
+  text-align: center;
+  margin-top: 6px;
+  font-family: var(--au-mono, monospace);
+}
+
+.nr-mic__orb[data-mic-mode="PTT"] {
+  /* Hint that the orb is a press-and-hold target. */
+  cursor: grab;
+}
+.nr-mic__orb[data-mic-mode="PTT"]:active {
+  cursor: grabbing;
+  transform: scale(0.97);
+}
+
+/* Each block gets a soft shell so we can show selection / hover state. */
+.nr-block {
+  position: relative;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.nr-block:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.nr-block[data-selected="true"] {
+  background-color: rgba(255, 255, 255, 0.04);
+  border-color: rgba(120, 180, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.18);
+}
+.nr-block[data-editing="true"] {
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 200, 90, 0.5);
+  box-shadow: 0 0 0 1px rgba(255, 200, 90, 0.25);
+}
+.nr-block--flash {
+  animation: nr-flash 1.0s ease-out;
+}
+@keyframes nr-flash {
+  0%   { background-color: rgba(255, 220, 120, 0.25); }
+  100% { background-color: transparent; }
+}
+
+/* Hover toolbar — floats above the block, only visible on hover/select. */
+.nr-block__toolbar {
+  position: absolute;
+  top: -34px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--au-bg-2, #1a1a1a);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+  transform: translateY(4px);
+  z-index: 5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  flex-wrap: wrap;
+}
+.nr-block:hover > .nr-block__toolbar,
+.nr-block[data-selected="true"] > .nr-block__toolbar,
+.nr-block[data-editing="true"] > .nr-block__toolbar,
+.nr-block:focus-within > .nr-block__toolbar {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.nr-block__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+.nr-block__sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 2px;
+}
+.nr-block__btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--au-ink-2, #ddd);
+  font-size: 11px;
+  font-family: var(--au-mono, monospace);
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 24px;
+  line-height: 1.3;
+}
+.nr-block__btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--au-ink, #fff);
+}
+.nr-block__btn.is-on {
+  background: rgba(120, 180, 255, 0.18);
+  border-color: rgba(120, 180, 255, 0.45);
+  color: var(--au-ink, #fff);
+}
+.nr-block__btn.is-primary {
+  background: rgba(255, 200, 90, 0.18);
+  border-color: rgba(255, 200, 90, 0.4);
+}
+.nr-block__btn.nr-block__btn--danger:hover {
+  background: rgba(255, 90, 90, 0.18);
+  border-color: rgba(255, 90, 90, 0.4);
+  color: #ff8a8a;
+}
+.nr-block__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.nr-block__ai-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--au-bg-2, #1a1a1a);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 130px;
+  z-index: 6;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.nr-block__ai-menu button {
+  background: transparent;
+  border: none;
+  color: var(--au-ink-2, #ddd);
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.nr-block__ai-menu button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--au-ink, #fff);
+}
+
+.nr-block__ai-custom {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  display: flex;
+  gap: 4px;
+  background: var(--au-bg-2, #1a1a1a);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 6;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.nr-block__ai-custom input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--au-ink, #fff);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: 220px;
+}
+.nr-block__ai-custom button {
+  background: rgba(120, 180, 255, 0.18);
+  border: 1px solid rgba(120, 180, 255, 0.4);
+  color: var(--au-ink, #fff);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Streaming AI preview — appears below the block while a rewrite is in flight. */
+.nr-block__ai-preview {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: rgba(255, 200, 90, 0.05);
+  border-left: 2px solid rgba(255, 200, 90, 0.5);
+  border-radius: 0 4px 4px 0;
+  font-style: italic;
+  color: var(--au-ink-2, #ddd);
+}
+.nr-block__ai-preview-label {
+  display: inline-block;
+  font-family: var(--au-mono, monospace);
+  font-size: 10px;
+  color: rgba(255, 200, 90, 0.9);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.nr-block__ai-preview p { margin: 0; }
+.nr-block__ai-preview p::after {
+  content: "▍";
+  display: inline-block;
+  margin-left: 2px;
+  animation: nr-cursor-blink 1s steps(2) infinite;
+  color: rgba(255, 200, 90, 0.7);
+}
+
+.nr-block__ai-note {
+  margin-top: 4px;
+  font-size: 10px;
+  font-family: var(--au-mono, monospace);
+  color: var(--au-ink-3, var(--text-muted));
+  letter-spacing: 0.04em;
+}
+.nr-block__ai-note .au-mono { color: rgba(255, 200, 90, 0.85); }
+
+/* Editor outline / cursor in edit mode. */
+.nr-block__edit:focus {
+  outline: none;
+}
+.nr-block__edit {
+  display: inline;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.nr-block__body {
+  margin: 0;
+  /* Inherit the existing nr-doc__body typography so blocks look the same as
+     the prior read-only render. */
+}
+.nr-block__body--code {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--au-mono, ui-monospace, monospace);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.nr-block__body--h1 { font-size: 26px; font-weight: 600; line-height: 1.2; margin: 14px 0 6px; }
+.nr-block__body--h2 { font-size: 22px; font-weight: 600; line-height: 1.25; margin: 12px 0 6px; }
+.nr-block__body--h3 { font-size: 18px; font-weight: 500; line-height: 1.3; margin: 10px 0 4px; }
+.nr-block__body--quote {
+  border-left: 3px solid rgba(255, 255, 255, 0.18);
+  padding-left: 14px;
+  margin: 8px 0;
+  font-style: italic;
+  color: var(--au-ink-2, #ddd);
+}
+.nr-block__body--p { line-height: 1.55; margin: 6px 0; }
+
+.nr-doc__embed-img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+}
+
+/* Outline rows: clickable rows get a hover background + cursor. */
+.nr-outline li.is-clickable { cursor: pointer; transition: color 100ms ease; }
+.nr-outline li.is-clickable:hover { color: var(--au-ink, #fff); background: rgba(255, 255, 255, 0.03); }
+.nr-outline li.is-h3 { padding-left: 28px; }
+
+@keyframes nr-cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Top doc toolbar — slightly tightened for the now-larger format kit. */
+.nr-doc__fmt button:disabled { opacity: 0.35; cursor: not-allowed; }

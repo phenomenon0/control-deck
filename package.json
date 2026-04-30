@@ -13,6 +13,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:voice": "bun test tests/voice-harness/integration/ lib/voice/test-harness/",
+    "test:voice:e2e": "playwright test --config tests/voice-harness/e2e/playwright.config.ts",
+    "test:voice:batch": "bun tests/voice-harness/run-batch.ts",
     "postinstall": "node scripts/copy-vad-assets.cjs",
     "terminal-service": "tsx scripts/terminal-service.ts",
     "omni:sidecar": ".venv-omni/bin/python scripts/qwen-omni-sidecar.py",
@@ -72,6 +75,7 @@
   "devDependencies": {
     "@electron/fuses": "^1.8.0",
     "@electron/rebuild": "^4.0.3",
+    "@playwright/test": "^1.59.1",
     "@stryker-mutator/core": "^9.6.1",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/better-sqlite3": "^7.6.13",

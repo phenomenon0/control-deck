@@ -53,6 +53,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.websockets import WebSocketState
 
 from voice_core import __version__, audio_utils, registry
 from voice_core.config import Settings
@@ -340,28 +341,51 @@ def build_app(settings: Settings) -> FastAPI:
                 try:
                     if isinstance(instance, StreamingTts):
                         for chunk in instance.stream(text, voice=voice, speed=speed):
+                            # Client may have closed the socket mid-stream
+                            # (interrupt / barge-in). Bail quietly instead of
+                            # blowing up with "Cannot call send once close
+                            # has been sent".
+                            if ws.application_state != WebSocketState.CONNECTED:
+                                return
                             await ws.send_bytes(chunk)
                     else:
+                        if ws.application_state != WebSocketState.CONNECTED:
+                            return
                         await ws.send_bytes(
                             instance.synthesise(text, voice=voice, speed=speed)
                         )
-                    await ws.send_text(
-                        json.dumps({"type": "end", "utteranceId": utterance_id})
-                    )
+                    if ws.application_state == WebSocketState.CONNECTED:
+                        await ws.send_text(
+                            json.dumps({"type": "end", "utteranceId": utterance_id})
+                        )
                 except Exception as exc:  # noqa: BLE001
                     LOG.exception("tts synth failure")
                     _record_error("tts-stream", str(exc))
-                    await ws.send_text(
-                        json.dumps(
-                            {"type": "error", "error": str(exc), "utteranceId": utterance_id}
-                        )
-                    )
+                    # Reporting the error back is best-effort; if the socket
+                    # is already gone the secondary send raises RuntimeError
+                    # which we swallow to keep the loop alive for the next
+                    # speak op.
+                    if ws.application_state == WebSocketState.CONNECTED:
+                        try:
+                            await ws.send_text(
+                                json.dumps(
+                                    {"type": "error", "error": str(exc), "utteranceId": utterance_id}
+                                )
+                            )
+                        except RuntimeError:
+                            return
         except WebSocketDisconnect:
+            return
+        except RuntimeError as exc:
+            # Common cause: send-after-close race. Surface as a debug log
+            # rather than an exception trace that scares people in the log.
+            LOG.debug("tts stream send-after-close race: %s", exc)
             return
         except Exception as exc:  # noqa: BLE001
             LOG.exception("tts stream failure")
             _record_error("tts-stream", str(exc))
-            await _ws_error(ws, str(exc))
+            if ws.application_state == WebSocketState.CONNECTED:
+                await _ws_error(ws, str(exc))
         finally:
             _ACTIVE_STREAMS["tts"] = max(0, _ACTIVE_STREAMS["tts"] - 1)
 

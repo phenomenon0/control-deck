@@ -137,7 +137,12 @@ export const PROVIDERS: Record<ProviderType, ProviderInfo> = {
     requiresApiKey: false,
     defaultBaseURL: "http://localhost:11434/v1",
     modelsEndpoint: "/models",
-    defaultModels: ["llama3.2:3b", "qwen2.5:7b", "mistral:7b", "codellama:13b"],
+    // Order matters: defaultModels[0] is the system-wide fallback whenever
+    // no explicit slot.model is configured. Put broadly-installed Ollama
+    // models first. qwen3:0.6b is tiny (~520 MB) and ships with the T1_MAC
+    // hardware-tier bundle, making it the most likely-to-already-be-cached
+    // default. llama3.2:3b kept as a deeper fallback for tier-3 setups.
+    defaultModels: ["qwen3:0.6b", "qwen3:8b", "llama3.2:3b", "qwen2.5:7b", "mistral:7b", "codellama:13b"],
   },
   llama_server: {
     id: "llama_server",

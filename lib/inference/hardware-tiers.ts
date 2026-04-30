@@ -73,7 +73,8 @@ export interface TierBundle {
 
 export const VOICE_ENGINE_IDS = {
   // STT
-  WHISPER_TURBO_CPP: "whisper-large-v3-turbo-cpp", // whisper.cpp Metal/CoreML on Mac
+  WHISPER_TURBO_CPP: "whisper-large-v3-turbo-cpp", // whisper.cpp Metal on Mac, accuracy
+  WHISPER_BASE_EN_CPP: "whisper-base-en-cpp",      // whisper.cpp Metal on Mac, fast correction
   PARAKEET_TDT_V2: "parakeet-tdt-0.6b-v2",         // NeMo CUDA
   MOONSHINE_TINY: "moonshine-tiny",                // ONNX, CPU-streaming
   SHERPA_STREAMING: "sherpa-onnx-streaming",       // endpoint-aware live ASR
@@ -91,6 +92,7 @@ export type VoiceEngineId = (typeof VOICE_ENGINE_IDS)[keyof typeof VOICE_ENGINE_
 /** Engine ids served by voice-core (port 4245). */
 export const VOICE_ENGINES_SIDECAR_IDS: ReadonlySet<string> = new Set([
   VOICE_ENGINE_IDS.WHISPER_TURBO_CPP,
+  VOICE_ENGINE_IDS.WHISPER_BASE_EN_CPP,
   VOICE_ENGINE_IDS.PARAKEET_TDT_V2,
   VOICE_ENGINE_IDS.MOONSHINE_TINY,
   VOICE_ENGINE_IDS.SHERPA_STREAMING,

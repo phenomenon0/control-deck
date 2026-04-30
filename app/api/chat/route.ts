@@ -41,6 +41,7 @@ import {
   type MessageMetadata,
 } from "@/lib/agui/db";
 import { getDefaultModel, getProviderConfig } from "@/lib/llm";
+import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
 import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
@@ -51,6 +52,38 @@ import { buildToolBridgeUrl, buildMcpToolsUrl } from "@/lib/tools/bridge-url";
 // binary. URL resolution lives in `lib/agentgo/launcher.ts` so launch + chat
 // + approve/reject stay aligned.
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
+
+// Module-level health cache. The probe at the top of POST() is a 400ms
+// blocking fetch on every chat request; on voice turns this directly
+// inflates first-token latency. Cache positive and negative results so
+// the probe runs at most once per TTL window.
+//
+// TTL split: positive cached for 30s (agent-go is stable once up), negative
+// cached for 5s only (so a freshly-started agent is picked up quickly
+// without forcing the user to restart Next).
+let agentgoHealthCache: { alive: boolean; checkedAt: number } | null = null;
+const AGENTGO_HEALTH_TTL_OK_MS = 30_000;
+const AGENTGO_HEALTH_TTL_DOWN_MS = 5_000;
+
+async function probeAgentGoHealth(): Promise<boolean> {
+  const now = Date.now();
+  if (agentgoHealthCache) {
+    const ttl = agentgoHealthCache.alive
+      ? AGENTGO_HEALTH_TTL_OK_MS
+      : AGENTGO_HEALTH_TTL_DOWN_MS;
+    if (now - agentgoHealthCache.checkedAt < ttl) {
+      return agentgoHealthCache.alive;
+    }
+  }
+  const alive = await fetch(`${AGENTGO_URL}/health`, {
+    signal: AbortSignal.timeout(400),
+    cache: "no-store",
+  })
+    .then((r) => r.ok)
+    .catch(() => false);
+  agentgoHealthCache = { alive, checkedAt: now };
+  return alive;
+}
 
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
@@ -382,6 +415,15 @@ export async function POST(req: Request) {
   // Get provider config for LLM settings
   const systemProfile = getSystemProfile();
   const providerCfg = getProviderConfig();
+  // Inference-bindings overlay: when the user has explicitly bound
+  // `text::primary` via the Modalities panel (or PUT /api/inference/bindings),
+  // that intent should drive every chat request. Without this overlay the
+  // chat route silently ignores the slot bindings, so "swap LLM provider in
+  // settings" does nothing for the typed surface.
+  const textBinding = resolveTextProviderFromBinding();
+  if (textBinding) {
+    providerCfg.primary = textBinding;
+  }
   const hasImages = hasImageContent(messages);
 
   const clientSlot = hasImages && providerCfg.vision ? "vision" : "primary";
@@ -419,6 +461,9 @@ export async function POST(req: Request) {
 
   const selectedModel =
     model ??
+    // Binding's pinned model — fired when the user picked one in Modalities.
+    // Sits above getDefaultModel so a binding always wins over env defaults.
+    textBinding?.model ??
     getDefaultModel(clientSlot) ??
     (clientSlot !== "primary" ? getDefaultModel("primary") : undefined) ??
     presetLocalModel ??
@@ -435,15 +480,9 @@ export async function POST(req: Request) {
 
   // Probe Agent-GO up front. If it's down (common during local dev without
   // the Go binary), fall through to /api/chat/simple so chat still works.
-  // The probe is non-blocking at 400ms — Agent-GO's /health is an instant
-  // response when alive, so this adds essentially zero latency to the
-  // healthy path.
-  const agentgoAlive = await fetch(`${AGENTGO_URL}/health`, {
-    signal: AbortSignal.timeout(400),
-    cache: "no-store",
-  })
-    .then((r) => r.ok)
-    .catch(() => false);
+  // Cached at the module level so voice turns don't pay the 400ms timeout
+  // on every utterance — see probeAgentGoHealth() above.
+  const agentgoAlive = await probeAgentGoHealth();
 
   // Chat is local-only. Cloud + free-tier branches were retired — the
   // chat surface ships no online sources. The agent runtime selection

@@ -24,6 +24,7 @@ def register_all() -> None:
     # STT
     registry.register_stt("moonshine-tiny", moonshine.factory)
     registry.register_stt("whisper-large-v3-turbo-cpp", whisper_cpp.factory)
+    registry.register_stt("whisper-base-en-cpp", whisper_cpp.factory_base_en)
     registry.register_stt("parakeet-tdt-0.6b-v2", parakeet.factory)
     registry.register_stt("sherpa-onnx-streaming", sherpa_streaming.factory)
     registry.register_stt("faster-whisper", faster_whisper.factory)

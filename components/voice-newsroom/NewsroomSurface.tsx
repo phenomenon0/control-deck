@@ -28,8 +28,26 @@ import { isInterruptible } from "@/lib/voice/session-machine";
 import { VoiceSessionProvider, useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
 import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import { FoldPanel } from "@/components/voice-shared/FoldPanel";
+import {
+  applyDocAction,
+  applyTranscriptToDoc,
+  SWITCHABLE_KINDS,
+  type ArtifactRow,
+  type BlockKind,
+  type DecisionLog,
+  type DocAction,
+  type DocBlock,
+  type DocState,
+  type Tone,
+} from "./newsroom-doc";
+import { BlockShell } from "./BlockShell";
+import { aiKindLabel, rewriteText, type RewriteInstruction } from "./rewrite-client";
 
-type Tone = "reporter" | "essay" | "tech" | "casual";
+declare global {
+  // eslint-disable-next-line no-var
+  var __voiceProbe: { mark(name: string, meta?: Record<string, unknown>): void } | undefined;
+}
+
 type MicMode = "PTT" | "VAD" | "Open-mic";
 
 const TONE_INFO: Record<Tone, {
@@ -45,31 +63,6 @@ const TONE_INFO: Record<Tone, {
 };
 
 const MIC_MODES: MicMode[] = ["PTT", "VAD", "Open-mic"];
-
-interface DocBlock {
-  id: string;
-  kind: "h2" | "h3" | "p" | "quote" | "ul" | "embed";
-  text?: string;
-  items?: string[];
-  attrib?: string;
-  embedKind?: "image" | "map" | "audio";
-  embedAlt?: string;
-  ai?: { kind: string; note: string };
-}
-
-interface DecisionLog {
-  id: string;
-  t: string;
-  text: string;
-  live?: boolean;
-}
-
-interface ArtifactRow {
-  id: string;
-  kind: string;
-  title: string;
-  meta: string;
-}
 
 const SEED_DOC: DocBlock[] = [];
 const SEED_LOG: DecisionLog[] = [];
@@ -102,14 +95,38 @@ export function NewsroomSurface() {
 }
 
 function NewsroomInner({ session }: { session: VoiceSessionApi }) {
-  const persisted = useMemo(loadPersisted, []);
-  const [tone, setTone] = useState<Tone>(persisted?.tone ?? "reporter");
+  // Initial state is always the seed values so the SSR pass and the client
+  // hydration agree. The persisted draft is loaded by a post-mount useEffect
+  // (see below) so localStorage access never happens during render.
+  const [tone, setTone] = useState<Tone>("reporter");
   const [micMode, setMicMode] = useState<MicMode>("VAD");
-  const [headline, setHeadline] = useState(persisted?.headline ?? "");
-  const [doc, setDoc] = useState<DocBlock[]>(persisted?.blocks ?? SEED_DOC);
-  const [log, setLog] = useState<DecisionLog[]>(persisted?.log ?? SEED_LOG);
-  const [artifacts, setArtifacts] = useState<ArtifactRow[]>(persisted?.artifacts ?? SEED_ARTIFACTS);
-  const [savedAt, setSavedAt] = useState<string | null>(persisted?.savedAt ?? null);
+  const [headline, setHeadline] = useState("");
+  const [doc, setDoc] = useState<DocBlock[]>(SEED_DOC);
+  const [log, setLog] = useState<DecisionLog[]>(SEED_LOG);
+  const [artifacts, setArtifacts] = useState<ArtifactRow[]>(SEED_ARTIFACTS);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const [aiBusyBlockId, setAiBusyBlockId] = useState<string | null>(null);
+  const [aiPreview, setAiPreview] = useState<string>("");
+  const aiAbortRef = useRef<AbortController | null>(null);
+
+  // Hydrate from localStorage post-mount. Suppresses the autosave effect
+  // until the load completes — otherwise the empty seed state would clobber
+  // the persisted draft on first render.
+  useEffect(() => {
+    const persisted = loadPersisted();
+    if (persisted) {
+      setTone(persisted.tone);
+      setHeadline(persisted.headline);
+      setDoc(persisted.blocks);
+      setLog(persisted.log);
+      setArtifacts(persisted.artifacts);
+      setSavedAt(persisted.savedAt);
+    }
+    setHydrated(true);
+  }, []);
 
   const elapsedMs = useElapsedMs(session.isListening || session.state === "transcribing");
   const wordCount = useMemo(() => countWords(doc, headline), [doc, headline]);
@@ -130,32 +147,129 @@ function NewsroomInner({ session }: { session: VoiceSessionApi }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Drive the document from final transcripts. A final transcript is either
-  // a voice command (handled here) or a paragraph/sentence to insert.
+  // The transcript-effect closure used to read state from React's render
+  // closure, which goes stale across rapid back-to-back finals. We mirror
+  // each piece of state into a ref so the effect always applies the reducer
+  // to a fresh snapshot — append-only writes never lose a turn.
+  const stateRef = useRef<{
+    blocks: DocBlock[];
+    headline: string;
+    log: DecisionLog[];
+    artifacts: ArtifactRow[];
+  }>({ blocks: SEED_DOC, headline: "", log: SEED_LOG, artifacts: SEED_ARTIFACTS });
+  useEffect(() => {
+    stateRef.current = { blocks: doc, headline, log, artifacts };
+  }, [doc, headline, log, artifacts]);
+
+  // Single dispatch entry-point for manual block ops (toolbar + hover toolbar
+  // + outline). Reads from the ref so back-to-back actions never trample each
+  // other, then propagates the next state out via the matching setters.
+  const dispatch = useCallback((action: DocAction) => {
+    const cur = stateRef.current;
+    const next = applyDocAction(cur, action);
+    if (next === cur) return;
+    stateRef.current = next;
+    if (next.blocks !== cur.blocks) setDoc(next.blocks);
+    if (next.headline !== cur.headline) setHeadline(next.headline);
+    if (next.log !== cur.log) setLog(next.log);
+    if (next.artifacts !== cur.artifacts) setArtifacts(next.artifacts);
+  }, []);
+
+  // Streaming AI rewrite. Starts an aborted-on-unmount fetch; previews each
+  // delta in `aiPreview` so the UI shows the rewrite materializing, then
+  // dispatches REWRITE_BLOCK with the final text on completion.
+  const runRewrite = useCallback(
+    async (blockId: string, instruction: RewriteInstruction, custom?: string) => {
+      const cur = stateRef.current;
+      const block = cur.blocks.find((b) => b.id === blockId);
+      if (!block || !block.text) return;
+      // Cancel any in-flight rewrite — only one at a time.
+      aiAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      aiAbortRef.current = ctrl;
+      setAiBusyBlockId(blockId);
+      setAiPreview("");
+      try {
+        const result = await rewriteText({
+          text: block.text,
+          instruction,
+          tone,
+          custom,
+          signal: ctrl.signal,
+          onChunk: (_delta, accumulated) => {
+            setAiPreview(accumulated);
+          },
+        });
+        if (ctrl.signal.aborted) return;
+        const cleaned = result.text.trim();
+        if (cleaned && cleaned !== block.text) {
+          dispatch({
+            type: "REWRITE_BLOCK",
+            blockId,
+            text: cleaned,
+            aiKind: aiKindLabel(instruction),
+            aiNote: customNoteFor(instruction, custom),
+          });
+        }
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        const message = err instanceof Error ? err.message : String(err);
+        pushLog(setLog, `AI rewrite failed: ${message}`);
+      } finally {
+        if (aiAbortRef.current === ctrl) aiAbortRef.current = null;
+        setAiBusyBlockId(null);
+        setAiPreview("");
+      }
+    },
+    [dispatch, tone],
+  );
+
+  useEffect(() => () => aiAbortRef.current?.abort(), []);
+
+  // Drive the document from final transcripts via the pure reducer in
+  // `./newsroom-doc.ts`. The reducer is exported and Bun-tested directly so
+  // the doc-mutation logic stays verifiable without React. The dedup guard
+  // is text-based but resets whenever the session clears the transcript
+  // between turns — that way a user repeating the same sentence still
+  // produces two paragraphs.
   const lastTakenRef = useRef<string>("");
   useEffect(() => {
     const text = session.transcriptFinal.trim();
-    if (!text || text === lastTakenRef.current) return;
-    lastTakenRef.current = text;
-    const cmd = detectCommand(text);
-    if (cmd) {
-      applyCommand(cmd, { setDoc, setHeadline, setLog, setArtifacts, headline });
+    if (!text) {
+      lastTakenRef.current = "";
       return;
     }
-    const block: DocBlock = { id: blockId(), kind: "p", text };
-    setDoc((prev) => [...prev, block]);
-    pushLog(setLog, `¶ + "${truncate(text, 28)}"`);
-    if (!headline) {
-      const inferred = inferHeadlineFrom(text);
-      if (inferred) {
-        setHeadline(inferred);
-        pushLog(setLog, `headline inferred`);
-      }
+    if (text === lastTakenRef.current) return;
+    lastTakenRef.current = text;
+
+    const cur = stateRef.current;
+    const next = applyTranscriptToDoc(cur, text);
+    if (next.headline !== cur.headline) setHeadline(next.headline);
+    if (next.blocks !== cur.blocks) {
+      // Update the ref synchronously so a back-to-back final that arrives
+      // before React commits sees the just-appended block, not the stale
+      // pre-append snapshot. Without this, two rapid finals can each read
+      // the same `cur.blocks` and the second turn replaces instead of
+      // appending — the "deletes words" symptom.
+      stateRef.current = { ...cur, blocks: next.blocks };
+      setDoc(next.blocks);
     }
-  }, [session.transcriptFinal, headline]);
+    if (next.log !== cur.log) setLog(next.log);
+    if (next.artifacts !== cur.artifacts) setArtifacts(next.artifacts);
+    if (next.blocks.length > cur.blocks.length) {
+      globalThis.__voiceProbe?.mark("doc_block_appended", { count: next.blocks.length, last: text.slice(0, 80) });
+    }
+  }, [session.transcriptFinal]);
+
+  useEffect(() => {
+    if (liveText) globalThis.__voiceProbe?.mark("live_text_painted", { len: liveText.length });
+  }, [liveText]);
 
   // Autosave to localStorage on any document change. Throttled to 1s.
+  // Skip until post-mount hydration completes — otherwise the empty seed
+  // state would overwrite the persisted draft on first render.
   useEffect(() => {
+    if (!hydrated) return;
     const id = window.setTimeout(() => {
       const draft: PersistedDraft = {
         tone,
@@ -171,7 +285,7 @@ function NewsroomInner({ session }: { session: VoiceSessionApi }) {
       } catch { /* quota — ignore */ }
     }, 1000);
     return () => window.clearTimeout(id);
-  }, [tone, headline, doc, log, artifacts]);
+  }, [hydrated, tone, headline, doc, log, artifacts]);
 
   const onPickTone = useCallback((next: Tone) => {
     setTone(next);
@@ -190,7 +304,7 @@ function NewsroomInner({ session }: { session: VoiceSessionApi }) {
   }, [log, liveText]);
 
   return (
-    <div className="nr-root" data-tone={tone}>
+    <div className="nr-root" data-tone={tone} data-testid="newsroom-root">
       <aside className="nr-rail--left">
         <MicPanel
           session={session}
@@ -206,31 +320,40 @@ function NewsroomInner({ session }: { session: VoiceSessionApi }) {
       <DocFrame
         tone={tone}
         headline={headline}
-        onHeadlineChange={(next) => {
-          setHeadline(next);
-          pushLog(setLog, `headline edited`);
-        }}
+        onHeadlineChange={(next) => dispatch({ type: "SET_HEADLINE", text: next })}
         blocks={doc}
         liveText={liveText}
         wordCount={wordCount}
         elapsedMs={elapsedMs}
         savedAt={savedAt}
-        onInsertImage={() => {
-          setArtifacts((prev) => [
-            ...prev,
-            { id: `a-${Date.now()}`, kind: "IMG", title: "Image placeholder", meta: "manual · in-line" },
-          ]);
-          setDoc((prev) => [
-            ...prev,
-            {
-              id: blockId(),
-              kind: "embed",
-              embedKind: "image",
-              embedAlt: "image placeholder — drop a file here",
-              ai: { kind: "Manual · embed", note: "Inserted by toolbar — drag to reorder." },
-            },
-          ]);
-          pushLog(setLog, `image · placeholder inserted`);
+        selectedBlockId={selectedBlockId}
+        editingBlockId={editingBlockId}
+        aiBusyBlockId={aiBusyBlockId}
+        aiPreview={aiPreview}
+        onSelectBlock={setSelectedBlockId}
+        onStartEdit={setEditingBlockId}
+        onCancelEdit={() => setEditingBlockId(null)}
+        onCommitEdit={(blockId, text) => {
+          dispatch({ type: "EDIT_BLOCK_TEXT", blockId, text });
+          setEditingBlockId(null);
+        }}
+        onSetKind={(blockId, kind) => dispatch({ type: "SET_BLOCK_KIND", blockId, kind })}
+        onMoveBlock={(blockId, direction) => dispatch({ type: "MOVE_BLOCK", blockId, direction })}
+        onDeleteBlock={(blockId) => {
+          dispatch({ type: "DELETE_BLOCK", blockId });
+          if (selectedBlockId === blockId) setSelectedBlockId(null);
+          if (editingBlockId === blockId) setEditingBlockId(null);
+        }}
+        onCopyBlock={(blockId) => {
+          const b = doc.find((x) => x.id === blockId);
+          if (!b?.text) return;
+          void navigator.clipboard?.writeText(b.text);
+          pushLog(setLog, `copied "${b.text.slice(0, 24)}…"`);
+        }}
+        onRewriteBlock={(blockId, instruction, custom) => runRewrite(blockId, instruction, custom)}
+        onInsertImageFile={(file) => {
+          const url = URL.createObjectURL(file);
+          dispatch({ type: "INSERT_IMAGE_BLOCK", src: url, alt: file.name });
         }}
         onReadAloud={() => {
           const wholeText = [headline, ...doc.map((b) => b.text ?? (b.items ?? []).join(". "))]
@@ -245,146 +368,25 @@ function NewsroomInner({ session }: { session: VoiceSessionApi }) {
       />
 
       <aside className="nr-rail--right">
-        <OutlinePanel headline={headline} blocks={doc} liveText={liveText} />
+        <OutlinePanel
+          headline={headline}
+          blocks={doc}
+          liveText={liveText}
+          onJump={(blockId) => {
+            setSelectedBlockId(blockId);
+            const el = document.querySelector(`[data-testid="newsroom-block-${blockId}"]`);
+            if (el) {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.classList.add("nr-block--flash");
+              window.setTimeout(() => el.classList.remove("nr-block--flash"), 1200);
+            }
+          }}
+        />
         <ArtifactsPanel artifacts={artifacts} sessionArtifacts={session.tools.artifacts} />
         <DecisionsPanel log={liveLog} onClear={() => setLog([])} />
       </aside>
     </div>
   );
-}
-
-/* ------------------------------------------------------------------ */
-/* Voice command parser                                                 */
-/* ------------------------------------------------------------------ */
-
-type Command =
-  | { kind: "newParagraph" }
-  | { kind: "makeHeading"; level: 2 | 3 }
-  | { kind: "pullQuote"; text?: string }
-  | { kind: "tighten" }
-  | { kind: "scratch" }
-  | { kind: "addPhoto"; subject: string }
-  | { kind: "newSection"; subject: string }
-  | { kind: "changeTitle"; text: string };
-
-function detectCommand(raw: string): Command | null {
-  const text = raw.trim().toLowerCase();
-  if (text === "new paragraph" || text === "new graph") return { kind: "newParagraph" };
-  if (text === "make that a heading" || text.startsWith("make that an h2")) return { kind: "makeHeading", level: 2 };
-  if (text.startsWith("make that an h3") || text === "subheading") return { kind: "makeHeading", level: 3 };
-  if (text === "pull quote" || text === "block quote") return { kind: "pullQuote" };
-  if (text === "tighten this" || text === "rewrite this") return { kind: "tighten" };
-  if (text === "scratch that" || text === "undo that" || text === "undo") return { kind: "scratch" };
-
-  const photoMatch = text.match(/^add\s+(a\s+)?(photo|image|picture)\s+of\s+(.+)$/);
-  if (photoMatch) return { kind: "addPhoto", subject: photoMatch[3]!.trim() };
-
-  if (text === "next section" || text === "accept suggestion") return { kind: "newSection", subject: "next section" };
-
-  const titleMatch = raw.trim().match(/^change\s+title\s+to\s+(.+)$/i);
-  if (titleMatch) return { kind: "changeTitle", text: titleMatch[1]! };
-
-  return null;
-}
-
-interface CommandCtx {
-  setDoc: React.Dispatch<React.SetStateAction<DocBlock[]>>;
-  setHeadline: React.Dispatch<React.SetStateAction<string>>;
-  setLog: React.Dispatch<React.SetStateAction<DecisionLog[]>>;
-  setArtifacts: React.Dispatch<React.SetStateAction<ArtifactRow[]>>;
-  headline: string;
-}
-
-function applyCommand(cmd: Command, ctx: CommandCtx) {
-  switch (cmd.kind) {
-    case "newParagraph":
-      ctx.setDoc((prev) => [...prev, { id: blockId(), kind: "p", text: "" }]);
-      pushLog(ctx.setLog, `¶ break`);
-      return;
-    case "makeHeading":
-      ctx.setDoc((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.kind === "p" && last.text) {
-          next[next.length - 1] = { ...last, kind: cmd.level === 2 ? "h2" : "h3" };
-        } else {
-          next.push({ id: blockId(), kind: cmd.level === 2 ? "h2" : "h3", text: "" });
-        }
-        return next;
-      });
-      pushLog(ctx.setLog, `H${cmd.level} promoted`);
-      return;
-    case "pullQuote":
-      ctx.setDoc((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.kind === "p" && last.text) {
-          next[next.length - 1] = { ...last, kind: "quote", ai: { kind: "Voice · quote", note: 'You said "pull quote" — styled as a blockquote.' } };
-        } else {
-          next.push({ id: blockId(), kind: "quote", text: "", ai: { kind: "Voice · quote", note: 'Empty pull quote — speak the line next.' } });
-        }
-        return next;
-      });
-      pushLog(ctx.setLog, `"pull quote" → blockquote`);
-      return;
-    case "tighten":
-      ctx.setDoc((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.text) {
-          next[next.length - 1] = { ...last, text: tightenText(last.text) };
-        }
-        return next;
-      });
-      pushLog(ctx.setLog, `tightened ¶`);
-      return;
-    case "scratch":
-      ctx.setDoc((prev) => prev.slice(0, -1));
-      pushLog(ctx.setLog, `scratched last block`);
-      return;
-    case "addPhoto":
-      ctx.setArtifacts((prev) => [
-        ...prev,
-        { id: `a-${Date.now()}`, kind: "IMG", title: cmd.subject, meta: "voice · pending generation" },
-      ]);
-      ctx.setDoc((prev) => [
-        ...prev,
-        {
-          id: blockId(),
-          kind: "embed",
-          embedKind: "image",
-          embedAlt: `image · ${cmd.subject}`,
-          ai: { kind: "Voice · embed", note: `Dropped where you spoke "${truncate(cmd.subject, 24)}".` },
-        },
-      ]);
-      pushLog(ctx.setLog, `image · ${truncate(cmd.subject, 24)}`);
-      return;
-    case "newSection":
-      ctx.setDoc((prev) => [...prev, { id: blockId(), kind: "h3", text: cmd.subject }]);
-      pushLog(ctx.setLog, `next section accepted`);
-      return;
-    case "changeTitle":
-      ctx.setHeadline(cmd.text);
-      pushLog(ctx.setLog, `title → "${truncate(cmd.text, 24)}"`);
-      return;
-  }
-}
-
-function tightenText(text: string): string {
-  return text
-    .replace(/\b(very|really|just|actually|basically)\s+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function inferHeadlineFrom(text: string): string | null {
-  // Pull the first reasonably newsworthy clause, capped to ~80 chars.
-  const clean = text.replace(/^(so|well|um|uh|okay|alright)[,]?\s+/i, "").trim();
-  if (clean.length === 0) return null;
-  const cutoff = clean.search(/[.!?]/);
-  const first = (cutoff > 0 ? clean.slice(0, cutoff) : clean).trim();
-  if (first.length < 6) return null;
-  return first.slice(0, 80);
 }
 
 /* ------------------------------------------------------------------ */
@@ -411,10 +413,24 @@ function MicPanel({
       : "idle";
 
   const onClick = useCallback(async () => {
+    // PTT is handled by pointer events below; clicks fall through to no-op.
+    if (micMode === "PTT") return;
     if (canInterrupt) { await session.interrupt(); return; }
     if (session.isListening) { await session.stopListening(); return; }
     await session.startListening();
-  }, [canInterrupt, session]);
+  }, [canInterrupt, micMode, session]);
+
+  // Push-to-talk: hold to record, release to stop. Pointer events cover
+  // mouse, pen, and touch with a single handler.
+  const onPointerDown = useCallback(async () => {
+    if (micMode !== "PTT") return;
+    if (session.isListening || session.state === "arming") return;
+    await session.startListening();
+  }, [micMode, session]);
+  const onPointerUp = useCallback(async () => {
+    if (micMode !== "PTT") return;
+    if (session.isListening) await session.stopListening();
+  }, [micMode, session]);
 
   const live = session.isListening || session.state === "transcribing";
 
@@ -427,8 +443,14 @@ function MicPanel({
       <button
         type="button"
         onClick={onClick}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
         className={`nr-mic__orb nr-mic--${orbState}`}
-        aria-label={live ? "Stop dictation" : "Start dictation"}
+        aria-label={micMode === "PTT" ? "Hold to dictate" : (live ? "Stop dictation" : "Start dictation")}
+        data-testid="newsroom-mic-orb"
+        data-state={orbState}
+        data-mic-mode={micMode}
       >
         <div className="nr-mic__wave">
           <span /><span /><span /><span /><span />
@@ -443,14 +465,22 @@ function MicPanel({
             type="button"
             className={m === micMode ? "is-on" : ""}
             onClick={() => onMicMode(m)}
+            title={MIC_MODE_HINT[m]}
           >
             {m}
           </button>
         ))}
       </div>
+      <div className="nr-mic__hint">{MIC_MODE_HINT[micMode]}</div>
     </div>
   );
 }
+
+const MIC_MODE_HINT: Record<MicMode, string> = {
+  PTT: "Hold the orb to record",
+  VAD: "Tap to start; auto-stops on silence",
+  "Open-mic": "Tap to start; manual stop only",
+};
 
 function BylinePanel({ tone, onPick }: { tone: Tone; onPick: (t: Tone) => void }) {
   const order: Tone[] = ["reporter", "essay", "tech", "casual"];
@@ -517,20 +547,7 @@ function Cmd({ k, v }: { k: string; v: string }) {
 /* Centre — document                                                   */
 /* ------------------------------------------------------------------ */
 
-function DocFrame({
-  tone,
-  headline,
-  onHeadlineChange,
-  blocks,
-  liveText,
-  wordCount,
-  elapsedMs,
-  savedAt,
-  onInsertImage,
-  onReadAloud,
-  onExport,
-  onPublish,
-}: {
+interface DocFrameProps {
   tone: Tone;
   headline: string;
   onHeadlineChange: (next: string) => void;
@@ -539,72 +556,141 @@ function DocFrame({
   wordCount: number;
   elapsedMs: number;
   savedAt: string | null;
-  onInsertImage: () => void;
+  selectedBlockId: string | null;
+  editingBlockId: string | null;
+  aiBusyBlockId: string | null;
+  aiPreview: string;
+  onSelectBlock: (blockId: string | null) => void;
+  onStartEdit: (blockId: string) => void;
+  onCancelEdit: () => void;
+  onCommitEdit: (blockId: string, text: string) => void;
+  onSetKind: (blockId: string, kind: BlockKind) => void;
+  onMoveBlock: (blockId: string, direction: "up" | "down") => void;
+  onDeleteBlock: (blockId: string) => void;
+  onCopyBlock: (blockId: string) => void;
+  onRewriteBlock: (blockId: string, instruction: RewriteInstruction, custom?: string) => void;
+  onInsertImageFile: (file: File) => void;
   onReadAloud: () => void;
   onExport: () => void;
   onPublish: () => void;
-}) {
+}
+
+function DocFrame(p: DocFrameProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Resolve the block the toolbar's format buttons act on. Selected wins;
+  // otherwise the last block (most useful default for voice flow).
+  const targetBlock: DocBlock | undefined = useMemo(() => {
+    if (p.selectedBlockId) return p.blocks.find((b) => b.id === p.selectedBlockId);
+    return p.blocks[p.blocks.length - 1];
+  }, [p.selectedBlockId, p.blocks]);
+
+  const setTargetKind = useCallback((kind: BlockKind) => {
+    if (!targetBlock) return;
+    p.onSetKind(targetBlock.id, kind);
+  }, [targetBlock, p]);
+
   return (
-    <div className="nr-doc">
+    <div
+      className="nr-doc"
+      onClick={(e) => {
+        // Click outside any block deselects.
+        if (!(e.target as HTMLElement).closest(".nr-block")) p.onSelectBlock(null);
+      }}
+    >
       <div className="nr-doc__toolbar">
         <span className="au-pill au-pill--accent"><span className="au-dot" />Live</span>
         <span style={{ fontFamily: "var(--au-mono)", fontSize: 10, color: "var(--au-ink-3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-          {TONE_INFO[tone].label} · Juno
+          {TONE_INFO[p.tone].label} · Juno
         </span>
         <div className="nr-doc__sep" />
-        <div className="nr-doc__fmt">
-          <button type="button">H1</button>
-          <button type="button" className="is-on">H2</button>
-          <button type="button" style={{ fontStyle: "italic" }}>“</button>
-          <button type="button">•</button>
-          <button type="button" style={{ fontFamily: "var(--au-mono)", fontSize: 12 }}>{"{ }"}</button>
+        <div className="nr-doc__fmt" role="toolbar" aria-label="Block format">
+          {SWITCHABLE_KINDS.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              className={targetBlock?.kind === kind ? "is-on" : undefined}
+              onClick={() => setTargetKind(kind)}
+              disabled={!targetBlock}
+              title={`Set ${kind.toUpperCase()}${p.selectedBlockId ? " (on selected block)" : " (on last block)"}`}
+            >
+              {kind === "p" ? "P" : kind === "quote" ? "“" : kind === "code" ? "{ }" : kind.toUpperCase()}
+            </button>
+          ))}
         </div>
         <div className="nr-doc__sep" />
-        <button type="button" className="au-btn au-btn--ghost" onClick={onInsertImage}>Insert image</button>
-        <button type="button" className="au-btn au-btn--ghost" onClick={onReadAloud}>Read aloud</button>
+        <button
+          type="button"
+          className="au-btn au-btn--ghost"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          Insert image
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) p.onInsertImageFile(file);
+            e.target.value = "";
+          }}
+        />
+        <button type="button" className="au-btn au-btn--ghost" onClick={p.onReadAloud}>Read aloud</button>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-          <button type="button" className="au-btn au-btn--ghost" onClick={onExport}>Export .md</button>
-          <button type="button" className="au-btn au-btn--primary" onClick={onPublish}>Publish</button>
+          <button type="button" className="au-btn au-btn--ghost" onClick={p.onExport}>Export .md</button>
+          <button type="button" className="au-btn au-btn--primary" onClick={p.onPublish}>Publish</button>
         </div>
       </div>
 
-      <div className="nr-doc__body">
+      <div className="nr-doc__body" data-testid="newsroom-doc-body">
         <div className="nr-doc__anchor">
-          <h2
-            className="nr-doc__title"
-            contentEditable
-            suppressContentEditableWarning
-            onBlur={(e) => onHeadlineChange(e.currentTarget.textContent || "")}
-          >
-            {headline || "Untitled draft"}
-          </h2>
+          <HeadlineEditor headline={p.headline} onChange={p.onHeadlineChange} />
           <div className="nr-doc__inline-note" style={{ top: 10 }}>
             <span className="au-mono">Ai · headline</span>
             Inferred from your first sentence. Say <em>“change title to …”</em> to override.
           </div>
         </div>
-        <p className="nr-doc__byline">Draft · {todayStamp()} · spoken in {formatClock(elapsedMs)}</p>
+        <p className="nr-doc__byline">Draft · {todayStamp()} · spoken in {formatClock(p.elapsedMs)}</p>
 
-        {blocks.length === 0 && !liveText ? (
+        {p.blocks.length === 0 && !p.liveText ? (
           <p style={{ color: "var(--au-ink-3)", fontStyle: "italic" }}>
             Tap the orb on the left to begin. Speak in clean sentences — the page will format paragraphs, headings, and quotes as you go.
           </p>
         ) : null}
 
-        {blocks.map((b) => (
-          <DocNode key={b.id} block={b} />
+        {p.blocks.map((b, i) => (
+          <BlockShell
+            key={b.id}
+            block={b}
+            index={i}
+            total={p.blocks.length}
+            selected={p.selectedBlockId === b.id}
+            editing={p.editingBlockId === b.id}
+            rewritingPreview={p.aiBusyBlockId === b.id ? p.aiPreview : null}
+            onSelect={() => p.onSelectBlock(b.id)}
+            onStartEdit={() => p.onStartEdit(b.id)}
+            onCommitEdit={(text) => p.onCommitEdit(b.id, text)}
+            onCancelEdit={p.onCancelEdit}
+            onSetKind={(kind) => p.onSetKind(b.id, kind)}
+            onDelete={() => p.onDeleteBlock(b.id)}
+            onMove={(direction) => p.onMoveBlock(b.id, direction)}
+            onCopy={() => p.onCopyBlock(b.id)}
+            onRewrite={(instruction, custom) => p.onRewriteBlock(b.id, instruction, custom)}
+          />
         ))}
 
-        {liveText ? (
-          <p className="is-live">{liveText}</p>
+        {p.liveText ? (
+          <p className="is-live" data-testid="newsroom-live-transcript">{p.liveText}</p>
         ) : null}
       </div>
 
       <div className="nr-doc__foot">
         <div className="nr-doc__status">
-          <span><span className="au-dot" />{savedAt ? "saved" : "draft"}</span>
-          <span>{wordCount} words · {Math.max(1, Math.round(wordCount / 200))} min read</span>
-          <span>{savedAt ? `autosaved ${relativeTime(savedAt)}` : "not yet saved"}</span>
+          <span><span className="au-dot" />{p.savedAt ? "saved" : "draft"}</span>
+          <span>{p.wordCount} words · {Math.max(1, Math.round(p.wordCount / 200))} min read</span>
+          <span>{p.savedAt ? `autosaved ${relativeTime(p.savedAt)}` : "not yet saved"}</span>
         </div>
         <div className="nr-doc__foot-meta">markdown · .md</div>
       </div>
@@ -612,52 +698,36 @@ function DocFrame({
   );
 }
 
-function DocNode({ block }: { block: DocBlock }) {
-  switch (block.kind) {
-    case "h2":
-      return <h2 className="nr-doc__title">{block.text}</h2>;
-    case "h3":
-      return <h3>{block.text}</h3>;
-    case "p":
-      return <p>{block.text}</p>;
-    case "ul":
-      return (
-        <ul>
-          {block.items?.map((it, i) => <li key={i}>{it}</li>)}
-        </ul>
-      );
-    case "quote":
-      return (
-        <div className="nr-doc__anchor">
-          <blockquote>{block.text}</blockquote>
-          {block.attrib ? <p className="nr-doc__attrib">— {block.attrib}</p> : null}
-          {block.ai ? (
-            <div className="nr-doc__inline-note" style={{ top: -4 }}>
-              <span className="au-mono">{block.ai.kind}</span>
-              {block.ai.note}
-            </div>
-          ) : null}
-        </div>
-      );
-    case "embed":
-      return (
-        <div className="nr-doc__anchor">
-          <div className="nr-doc__embed">
-            <div className="nr-doc__embed-ph">{block.embedAlt}</div>
-            <div className="nr-doc__embed-cap">
-              <span>{block.ai?.note ?? "Generated."}</span>
-              <span className="au-mono">REGEN · ALT</span>
-            </div>
-          </div>
-          {block.ai ? (
-            <div className="nr-doc__inline-note" style={{ top: 12 }}>
-              <span className="au-mono">{block.ai.kind}</span>
-              {block.ai.note}
-            </div>
-          ) : null}
-        </div>
-      );
-  }
+/**
+ * Headline editor — contentEditable that's driven imperatively (DOM owns the
+ * text while focused) so React doesn't fight the user's typing.
+ */
+function HeadlineEditor({ headline, onChange }: { headline: string; onChange: (next: string) => void }) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  // Sync DOM ↔ prop when not focused. While focused, DOM is the source of truth.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (document.activeElement === el) return;
+    if (el.textContent !== headline) el.textContent = headline || "Untitled draft";
+  }, [headline]);
+
+  return (
+    <h2
+      ref={ref}
+      className="nr-doc__title"
+      contentEditable
+      suppressContentEditableWarning
+      onBlur={(e) => {
+        const next = (e.currentTarget.textContent || "").trim();
+        if (next === "Untitled draft" || next === headline) return;
+        onChange(next);
+      }}
+      data-testid="newsroom-headline"
+    >
+      {headline || "Untitled draft"}
+    </h2>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -668,12 +738,14 @@ function OutlinePanel({
   headline,
   blocks,
   liveText,
+  onJump,
 }: {
   headline: string;
   blocks: DocBlock[];
   liveText: string;
+  onJump: (blockId: string) => void;
 }) {
-  const subs = blocks.filter((b) => b.kind === "h2" || b.kind === "h3");
+  const subs = blocks.filter((b) => b.kind === "h1" || b.kind === "h2" || b.kind === "h3");
   return (
     <FoldPanel
       storageKey="control-deck.newsroom.fold.outline"
@@ -684,7 +756,14 @@ function OutlinePanel({
       <ul className="nr-outline">
         <li className="is-active"><span>{headline || "Untitled"}</span></li>
         {subs.map((s) => (
-          <li key={s.id} className="is-sub">
+          <li
+            key={s.id}
+            className={`is-sub is-clickable${s.kind === "h3" ? " is-h3" : ""}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => onJump(s.id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onJump(s.id); } }}
+          >
             <span>{s.text || "(empty)"}</span>
             <span className="au-mono">{s.kind.toUpperCase()}</span>
           </li>
@@ -703,7 +782,7 @@ function OutlinePanel({
       </ul>
       <div className="au-rule au-rule--dash" />
       <div className="au-note">
-        <span className="au-note__arrow">↳</span> say <em>“next section”</em> to accept a suggestion
+        <span className="au-note__arrow">↳</span> click a heading to jump
       </div>
     </FoldPanel>
   );
@@ -815,12 +894,14 @@ function exportMarkdown(headline: string, blocks: DocBlock[]) {
   if (headline) md.push(`# ${headline}\n`);
   for (const b of blocks) {
     switch (b.kind) {
+      case "h1": md.push(`## ${b.text ?? ""}\n`); break;
       case "h2": md.push(`## ${b.text ?? ""}\n`); break;
       case "h3": md.push(`### ${b.text ?? ""}\n`); break;
       case "p":  md.push(`${b.text ?? ""}\n`); break;
       case "ul": md.push((b.items ?? []).map((i) => `- ${i}`).join("\n") + "\n"); break;
       case "quote": md.push(`> ${b.text ?? ""}\n${b.attrib ? `> — ${b.attrib}\n` : ""}`); break;
-      case "embed": md.push(`![${b.embedAlt ?? "image"}]()\n`); break;
+      case "code": md.push("```" + (b.codeLang ?? "") + "\n" + (b.text ?? "") + "\n```\n"); break;
+      case "embed": md.push(`![${b.embedAlt ?? "image"}](${b.embedSrc ?? ""})\n`); break;
     }
   }
   const blob = new Blob([md.join("\n")], { type: "text/markdown" });
@@ -830,6 +911,16 @@ function exportMarkdown(headline: string, blocks: DocBlock[]) {
   a.download = `${(headline || "draft").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.md`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function customNoteFor(instruction: RewriteInstruction, custom?: string): string {
+  switch (instruction) {
+    case "tighten": return "Filler stripped, phrasing tightened.";
+    case "polish":  return "Grammar + punctuation cleaned, voice preserved.";
+    case "expand":  return "Added a sentence of context.";
+    case "tone-shift": return "Recast in selected byline tone.";
+    case "custom":  return custom?.trim() ? `Custom: ${custom.trim().slice(0, 60)}` : "Custom rewrite.";
+  }
 }
 
 function kindFromMime(mime: string | null | undefined): string {
@@ -885,10 +976,6 @@ function countWords(blocks: DocBlock[], headline: string): number {
 function todayStamp(): string {
   const d = new Date();
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
 function relativeTime(iso: string): string {

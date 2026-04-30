@@ -45,6 +45,7 @@ import {
   subscribeVoiceActivity,
 } from "@/lib/voice/activity-bus";
 import { shouldRouteToVoiceCore } from "@/lib/inference/voice-core/sidecar-url";
+import { isNoiseTranscript } from "@/lib/voice/noise-filter";
 import type { VoiceRoutePreset } from "@/lib/voice/resolve-voice-route";
 import type { Artifact } from "@/lib/types/chat";
 import { newVoiceTurn, type VoiceTurn, type VoiceTurnSource, type AudioSurface } from "@/lib/voice/turn";
@@ -279,8 +280,20 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     if (!model) return null;
     let client = streamingSttRef.current;
     if (client) return client;
+    // Two-stage correction: when the streaming engine is the lightweight
+    // sherpa Zipformer, run buffered audio through whisper.cpp large-v3-turbo
+    // on Mac for the strongest possible finals. ~1.6 GB on disk, RTF ~0.4 with
+    // Metal (no CoreML in pywhispercpp pip wheel), so a 6 s utterance takes
+    // ~2.5 s to correct — slower than base.en but more robust on noisy mic
+    // audio, accents, jargon, and proper nouns. The sherpa partials still
+    // give the live-feel; turbo lands the cleanup beat after end of speech.
+    // On T2_CUDA we'd want faster-whisper here instead.
+    const correctionEngine = model === "sherpa-onnx-streaming"
+      ? "whisper-large-v3-turbo-cpp"
+      : undefined;
     client = new StreamingSttClient({
       engine: model,
+      correctionEngine,
       onPartial: (text) => {
         if (text) dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
       },
@@ -356,7 +369,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     inputDeviceId,
     outputDeviceId,
     onMicFrame: handleMicFrame,
-    suppressBlobStt: useStreamingStt,
+    // Pass the ref (not the React state) so the blob-vs-streaming decision
+    // inside mediaRecorder.onstop reads the freshest value. The state lags
+    // one render and produced a double-TRANSCRIPT_FINAL race when STT mode
+    // flipped between mic-down and mic-up.
+    suppressBlobStt: useStreamingSttRef,
     transcribeAudio: transcribeViaVoiceRoute,
     synthesizeSpeech: synthesizeViaVoiceRoute,
     voiceOwnerId: voiceOwnerIdRef.current,
@@ -631,6 +648,27 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const attachThread = useCallback((threadId: string) => {
     if (typeof window === "undefined" || !threadId) return () => {};
+
+    // Hydrate conversation history so voice turns share context with typed
+    // turns. Without this, voice runs are blind to prior typed messages in
+    // the same thread, manifesting as the LLM "forgetting" the conversation.
+    let cancelled = false;
+    void fetch(`/api/threads?id=${encodeURIComponent(threadId)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { messages?: Array<{ role: string; content: string }> } | null) => {
+        if (cancelled || !data?.messages) return;
+        // Only seed if no live turn has appended yet — avoids clobbering an
+        // in-flight conversation that started before the fetch returned.
+        if (conversationRef.current.length === 0) {
+          conversationRef.current = data.messages
+            .filter((m) => (m.role === "user" || m.role === "assistant") && m.content)
+            .map((m) => ({ role: m.role, content: m.content }));
+        }
+      })
+      .catch(() => {
+        /* non-fatal: voice turn just runs with no prior context */
+      });
+
     const eventSource = new EventSource(`/api/agui/stream?threadId=${threadId}`);
     eventSource.onmessage = (e) => {
       try {
@@ -708,13 +746,25 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     eventSource.onerror = () => {
       // EventSource auto-reconnects; nothing to do here.
     };
-    return () => eventSource.close();
+    return () => {
+      cancelled = true;
+      eventSource.close();
+    };
   }, []);
 
   const runTurn = useCallback(
     async (text: string, opts: RunTurnOptions) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      // Filter noise transcripts (filler words, single tokens, repeated
+      // characters) before they reach the LLM. Sherpa-streaming and other
+      // VAD-fronted engines hallucinate fillers like "you", "uh", "the"
+      // on background noise — submitting those wastes tokens and confuses
+      // the model.
+      if (isNoiseTranscript(trimmed)) {
+        console.log("[useVoiceSession] dropping noise transcript:", trimmed);
+        return;
+      }
       claimVoiceActivity(voiceOwnerIdRef.current, "turn");
 
       // Drop any in-flight turn before starting a new one.
@@ -786,6 +836,14 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         { id: userId, role: "user", content: trimmed },
         { id: assistantId, role: "assistant", content: "", isStreaming: true },
       ]);
+      // Drop a trailing user message left over from a turn that was
+      // interrupted before its assistant push could land. Without this,
+      // rapid utterances accumulate `[user, user, ...]` runs in
+      // conversationRef and the LLM gets a malformed transcript.
+      const lastEntry = conversationRef.current[conversationRef.current.length - 1];
+      if (lastEntry?.role === "user") {
+        conversationRef.current.pop();
+      }
       conversationRef.current.push({ role: "user", content: trimmed });
 
       let fullResponse = "";

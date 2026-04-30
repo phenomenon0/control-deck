@@ -22,6 +22,11 @@
 
 import { downsamplePcmFloat32To16k, float32ToInt16Bytes } from "@/lib/voice/audio-input";
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __voiceProbe: { mark(name: string, meta?: Record<string, unknown>): void } | undefined;
+}
+
 export interface StreamingSttOptions {
   /** Base URL like `ws://127.0.0.1:4245`. Defaults to the local voice-core sidecar. */
   baseUrl?: string;
@@ -40,11 +45,39 @@ export interface StreamingSttOptions {
    * the most recent speech survives a slow handshake.
    */
   preopenFrameCapBytes?: number;
+  /**
+   * Two-stage correction. When set, every PCM chunk pushed is also accumulated
+   * locally; on the streaming engine's final, the buffered audio is POSTed to
+   * `correctionUrl` with `engine` / `model` form fields equal to this value
+   * and `onFinal` fires with the corrected text instead of the streaming
+   * text. Falls back silently to the streaming text on timeout, HTTP error,
+   * or any network failure (does NOT call `onError` — correction is
+   * best-effort polish, not a session-fatal path).
+   *
+   * Set to e.g. `"whisper-base-en-cpp"` to upgrade rough sherpa finals to
+   * Whisper-quality finals on Mac.
+   */
+  correctionEngine?: string;
+  /**
+   * URL the correction call POSTs to. Defaults to `/api/voice/stt` — the
+   * Next.js proxy that side-steps CORS by forwarding server-side to the
+   * voice-core sidecar. Tests / non-browser callers should pass an absolute
+   * URL like `http://127.0.0.1:4245/stt`.
+   */
+  correctionUrl?: string;
+  /** Max ms to wait for the correction round-trip. Default 5000. */
+  correctionTimeoutMs?: number;
+  /** Hard cap on accumulated correction-buffer bytes. Default 30 s @ 16 kHz Int16 = ~960 KB. */
+  correctionBufferCapBytes?: number;
+  /** Fires after each final with timing + which path emitted (corrected or fallback). */
+  onCorrectionLatency?: (info: { latencyMs: number; corrected: boolean; bufferBytes: number }) => void;
 }
 
 type Op = "flush" | "final" | "reset";
 
 const DEFAULT_PREOPEN_CAP_BYTES = 96 * 1024;
+const DEFAULT_CORRECTION_TIMEOUT_MS = 5000;
+const DEFAULT_CORRECTION_BUFFER_CAP_BYTES = 30 * 16_000 * 2; // 30 s @ 16 kHz Int16 mono
 
 export class StreamingSttClient {
   private ws: WebSocket | null = null;
@@ -57,10 +90,20 @@ export class StreamingSttClient {
   private pendingFramesBytes = 0;
   private pendingOps: Op[] = [];
 
+  /** Per-utterance PCM buffer used by the correction pass. Empty when correctionEngine is unset. */
+  private utterancePcm: Uint8Array[] = [];
+  private utterancePcmBytes = 0;
+  /** Monotonic counter; lets us discard a correction response if a reset/close happened mid-flight. */
+  private utteranceSeq = 0;
+
   private readonly preopenCap: number;
+  private readonly correctionTimeoutMs: number;
+  private readonly correctionBufferCap: number;
 
   constructor(private readonly opts: StreamingSttOptions = {}) {
     this.preopenCap = opts.preopenFrameCapBytes ?? DEFAULT_PREOPEN_CAP_BYTES;
+    this.correctionTimeoutMs = opts.correctionTimeoutMs ?? DEFAULT_CORRECTION_TIMEOUT_MS;
+    this.correctionBufferCap = opts.correctionBufferCapBytes ?? DEFAULT_CORRECTION_BUFFER_CAP_BYTES;
   }
 
   /** Open the WS and resolve when the server emits `ready`. Idempotent. */
@@ -74,9 +117,13 @@ export class StreamingSttClient {
     const url = `${base.replace(/\/$/, "")}/stt/stream${params.toString() ? `?${params}` : ""}`;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       let resolved = false;
+      let sawPartial = false;
       const ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";
       this.ws = ws;
+      ws.onopen = () => {
+        globalThis.__voiceProbe?.mark("ws_open", { url });
+      };
       ws.onmessage = (e) => {
         if (typeof e.data !== "string") return;
         let payload: { type?: string; text?: string; error?: string; engine?: string; sampleRate?: number };
@@ -89,6 +136,7 @@ export class StreamingSttClient {
           case "ready":
             this.ready = true;
             this.drainPending();
+            globalThis.__voiceProbe?.mark("stt_ready", { engine: payload.engine, sampleRate: payload.sampleRate });
             this.opts.onReady?.({
               engine: payload.engine ?? "",
               sampleRate: payload.sampleRate ?? 16000,
@@ -99,10 +147,16 @@ export class StreamingSttClient {
             }
             break;
           case "partial":
+            if (!sawPartial) {
+              sawPartial = true;
+              globalThis.__voiceProbe?.mark("stt_partial_first", { text: payload.text });
+            }
+            globalThis.__voiceProbe?.mark("stt_partial", { text: payload.text });
             this.opts.onPartial?.(payload.text ?? "");
             break;
           case "final":
-            this.opts.onFinal?.(payload.text ?? "");
+            globalThis.__voiceProbe?.mark("stt_final", { text: payload.text });
+            this.handleStreamFinal(payload.text ?? "");
             break;
           case "error":
             this.opts.onError?.(payload.error ?? "unknown error");
@@ -160,6 +214,7 @@ export class StreamingSttClient {
   /** Drop the server-side buffer without emitting anything. */
   reset(): void {
     this.sendOp("reset");
+    this.dropUtteranceBuffer();
   }
 
   close(): void {
@@ -177,6 +232,7 @@ export class StreamingSttClient {
     this.pendingFrames = [];
     this.pendingFramesBytes = 0;
     this.pendingOps = [];
+    this.dropUtteranceBuffer();
   }
 
   /** Test/visibility hook. */
@@ -186,6 +242,7 @@ export class StreamingSttClient {
 
   private sendBinary(buf: ArrayBuffer): void {
     if (this.closed) return;
+    this.captureForCorrection(buf);
     if (this.ready && this.ws?.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(buf);
@@ -238,4 +295,143 @@ export class StreamingSttClient {
     }
     this.pendingOps = [];
   }
+
+  private captureForCorrection(buf: ArrayBuffer): void {
+    if (!this.opts.correctionEngine) return;
+    const view = new Uint8Array(buf.slice(0));
+    this.utterancePcm.push(view);
+    this.utterancePcmBytes += view.byteLength;
+    while (this.utterancePcmBytes > this.correctionBufferCap && this.utterancePcm.length > 1) {
+      const dropped = this.utterancePcm.shift();
+      if (dropped) this.utterancePcmBytes -= dropped.byteLength;
+    }
+  }
+
+  private dropUtteranceBuffer(): void {
+    this.utterancePcm = [];
+    this.utterancePcmBytes = 0;
+    this.utteranceSeq += 1;
+  }
+
+  private handleStreamFinal(roughText: string): void {
+    if (!this.opts.correctionEngine || this.utterancePcmBytes === 0) {
+      this.opts.onFinal?.(roughText);
+      this.dropUtteranceBuffer();
+      return;
+    }
+    const seq = this.utteranceSeq;
+    const pcm = this.consumeUtteranceBuffer();
+    void this.runCorrection(pcm, roughText, seq);
+  }
+
+  private consumeUtteranceBuffer(): Uint8Array {
+    const total = this.utterancePcmBytes;
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of this.utterancePcm) {
+      out.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    this.utterancePcm = [];
+    this.utterancePcmBytes = 0;
+    this.utteranceSeq += 1;
+    return out;
+  }
+
+  private async runCorrection(pcm: Uint8Array, roughText: string, seq: number): Promise<void> {
+    const engine = this.opts.correctionEngine!;
+    // Default to the Next.js proxy so browser callers don't hit CORS posting
+    // directly to the voice-core sidecar.
+    const url = this.opts.correctionUrl ?? "/api/voice/stt";
+    const wav = wrapPcm16AsWav(pcm, 16000);
+    const t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    let corrected: string | null = null;
+    try {
+      const fd = new FormData();
+      // Cast around the TS 5.7 Uint8Array<ArrayBufferLike> vs BufferSource mismatch.
+      const blob = new Blob([wav as BlobPart], { type: "audio/wav" });
+      fd.append("audio", blob, "utterance.wav");
+      // Send both: voice-core's /stt reads `engine`, the Next.js proxy reads
+      // `model`. FastAPI ignores unknown form fields, so dual-tagging is safe.
+      fd.append("engine", engine);
+      fd.append("model", engine);
+      fd.append("mimeType", "audio/wav");
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), this.correctionTimeoutMs);
+      try {
+        const res = await fetch(url, { method: "POST", body: fd, signal: ctrl.signal });
+        if (!res.ok) throw new Error(`correction HTTP ${res.status}`);
+        const json = (await res.json()) as { text?: string };
+        corrected = (json.text ?? "").trim();
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      // Correction is best-effort polish. A failure here must NOT crash the
+      // session — fall back to the rough streaming final and log only.
+      const msg = err instanceof Error ? err.message : String(err);
+      globalThis.__voiceProbe?.mark("stt_correction_error", { error: msg });
+      if (typeof console !== "undefined") {
+        console.warn("[streaming-stt] correction failed; using rough final:", msg);
+      }
+    }
+    // If a reset/close happened mid-flight, the seq advanced; drop the result.
+    if (this.closed || seq + 1 !== this.utteranceSeq) {
+      // The post-consume bump made seq+1 the "current" until something else mutates it.
+      // If anything has since changed, abandon — the corrected text would land out of order.
+      return;
+    }
+    const elapsed = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
+    const usedCorrection = !!corrected;
+    const finalText = corrected || roughText;
+    globalThis.__voiceProbe?.mark("stt_final_corrected", {
+      latencyMs: Math.round(elapsed),
+      corrected: usedCorrection,
+      roughText,
+      finalText,
+    });
+    this.opts.onCorrectionLatency?.({
+      latencyMs: Math.round(elapsed),
+      corrected: usedCorrection,
+      bufferBytes: pcm.byteLength,
+    });
+    this.opts.onFinal?.(finalText);
+  }
+
+  private httpBase(): string {
+    const base = (this.opts.baseUrl ?? "ws://127.0.0.1:4245").replace(/\/$/, "");
+    if (base.startsWith("wss://")) return "https://" + base.slice("wss://".length);
+    if (base.startsWith("ws://")) return "http://" + base.slice("ws://".length);
+    return base;
+  }
+}
+
+/** Wrap raw little-endian Int16 PCM bytes as a minimal RIFF/WAVE container. */
+export function wrapPcm16AsWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcm.byteLength;
+  const headerSize = 44;
+  const out = new Uint8Array(headerSize + dataSize);
+  const dv = new DataView(out.buffer);
+  // RIFF header
+  out[0] = 0x52; out[1] = 0x49; out[2] = 0x46; out[3] = 0x46; // "RIFF"
+  dv.setUint32(4, 36 + dataSize, true);
+  out[8] = 0x57; out[9] = 0x41; out[10] = 0x56; out[11] = 0x45; // "WAVE"
+  // fmt subchunk
+  out[12] = 0x66; out[13] = 0x6d; out[14] = 0x74; out[15] = 0x20; // "fmt "
+  dv.setUint32(16, 16, true);            // subchunk1 size
+  dv.setUint16(20, 1, true);             // audio format = PCM
+  dv.setUint16(22, numChannels, true);
+  dv.setUint32(24, sampleRate, true);
+  dv.setUint32(28, byteRate, true);
+  dv.setUint16(32, blockAlign, true);
+  dv.setUint16(34, bitsPerSample, true);
+  // data subchunk
+  out[36] = 0x64; out[37] = 0x61; out[38] = 0x74; out[39] = 0x61; // "data"
+  dv.setUint32(40, dataSize, true);
+  out.set(pcm, headerSize);
+  return out;
 }

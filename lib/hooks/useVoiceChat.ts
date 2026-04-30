@@ -89,8 +89,13 @@ export interface UseVoiceChatOptions {
    * When true, the post-stop "blob → legacy WS STT" path is skipped. Set
    * by useVoiceSession when streaming STT is active, since the streaming
    * client emits the final transcript via its own protocol.
+   *
+   * Pass a `RefObject<boolean>` instead when the value can flip during
+   * an in-flight utterance — the boolean form is captured at hook-call
+   * time and lags one render behind, which causes a double TRANSCRIPT_FINAL
+   * race when STT mode switches between mic-down and mic-up.
    */
-  suppressBlobStt?: boolean;
+  suppressBlobStt?: boolean | { readonly current: boolean };
   /**
    * App-routed STT bridge. By default this uses `/api/voice/stt`, which follows
    * the active deck binding (Qwen, voice-core fallback, or cloud).
@@ -254,6 +259,14 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const onMicFrameRef = useRef<typeof onMicFrame>(onMicFrame);
   const transcribeAudioRef = useRef<typeof transcribeAudio>(transcribeAudio);
   const synthesizeSpeechRef = useRef<typeof effectiveSynthesize>(effectiveSynthesize);
+  // Route the parent-supplied callbacks through refs too — mediaRecorder.onstop
+  // can fire 50–200 ms after stop() is called, by which time React may have
+  // re-rendered and given us new callback identities. The previous closure
+  // captured them directly and ran the *old* identities, leaking turns to
+  // stale handlers.
+  const onTranscriptRef = useRef<typeof onTranscript>(onTranscript);
+  const onAutoSendRef = useRef<typeof onAutoSend>(onAutoSend);
+  const onListeningStoppedRef = useRef<typeof onListeningStopped>(onListeningStopped);
   useEffect(() => {
     onMicFrameRef.current = onMicFrame;
   }, [onMicFrame]);
@@ -263,6 +276,15 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   useEffect(() => {
     synthesizeSpeechRef.current = effectiveSynthesize;
   }, [effectiveSynthesize]);
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  }, [onTranscript]);
+  useEffect(() => {
+    onAutoSendRef.current = onAutoSend;
+  }, [onAutoSend]);
+  useEffect(() => {
+    onListeningStoppedRef.current = onListeningStopped;
+  }, [onListeningStopped]);
 
   // Audio queue system
   const audioQueueRef = useRef<AudioBuffer[]>([]);
@@ -811,15 +833,23 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
           if (!processAudio) {
             setIsProcessingSTT(false);
-            onListeningStopped?.();
+            onListeningStoppedRef.current?.();
             resolve();
             return;
           }
 
           // Streaming-STT path: parent emits the final transcript via the
           // streaming client, so don't double-process the recorded blob.
-          if (suppressBlobStt) {
-            onListeningStopped?.();
+          // Read via the ref so the freshest value wins even if the prop
+          // flipped between mic-down and mic-up — otherwise both the
+          // streaming and blob paths fire TRANSCRIPT_FINAL and runTurn
+          // gets called twice for the same utterance.
+          const suppressNow =
+            typeof suppressBlobStt === "boolean"
+              ? suppressBlobStt
+              : Boolean(suppressBlobStt?.current);
+          if (suppressNow) {
+            onListeningStoppedRef.current?.();
             resolve();
             return;
           }
@@ -840,13 +870,18 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
             if (text && text.trim()) {
               const trimmedText = text.trim();
               setTranscript(trimmedText);
-              onTranscript?.(trimmedText);
+              onTranscriptRef.current?.(trimmedText);
 
-              if (autoSend && onAutoSend) {
+              const autoSendCb = onAutoSendRef.current;
+              if (autoSend && autoSendCb) {
                 // Record utterance end time for filler skip logic
                 utteranceEndTimeRef.current = Date.now();
-                onAutoSend(trimmedText);
-                setTranscript("");
+                autoSendCb(trimmedText);
+                // Don't clear transcript here — leave it visible so the user
+                // can see what was just sent. It's cleared when the next
+                // startListening() fires (around line 902). Clearing it
+                // synchronously caused a one-frame flash where the preview
+                // never painted.
               }
             } else {
               console.log("[VoiceChat] No speech detected");
@@ -859,7 +894,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
           } finally {
             setIsProcessingSTT(false);
             // Always notify that listening stopped (for continuous mode restart)
-            onListeningStopped?.();
+            onListeningStoppedRef.current?.();
             resolve();
           }
         };
@@ -867,7 +902,11 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         mediaRecorderRef.current.stop();
       });
     },
-    [onTranscript, onAutoSend, onListeningStopped, stopAudioLevelMonitoring, suppressBlobStt]
+    // Callbacks read via *Ref.current inside onstop, so they don't need to
+    // be deps. Keeping `suppressBlobStt` in deps because boolean form needs
+    // the closure to re-bind when it changes (ref form is no-op on this
+    // dep but kept for symmetry).
+    [stopAudioLevelMonitoring, suppressBlobStt]
   );
 
   // Latest-ref so we don't churn the BroadcastChannel subscription every time

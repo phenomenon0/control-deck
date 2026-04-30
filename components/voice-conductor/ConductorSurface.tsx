@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import { useVoiceSession, type VoiceSessionApi } from "@/lib/voice/use-voice-session";
+import { matchPhrase, isCancellation } from "@/lib/voice/voice-approval";
 import { useVoiceLibrary, type VoiceAssetSummary } from "@/lib/hooks/useVoiceLibrary";
 import { useVoiceWorkspace } from "@/lib/hooks/useVoiceWorkspace";
 import { isInterruptible } from "@/lib/voice/session-machine";
@@ -102,12 +103,27 @@ function ConductorInner({ session }: { session: VoiceSessionApi }) {
   const attachThread = session.attachThread;
   useEffect(() => attachThread(threadId), [attachThread, threadId]);
 
-  // Drive a turn whenever the session emits a final transcript.
+  // Drive a turn whenever the session emits a final transcript. While the
+  // FSM is in `confirming`, the same transcript is interpreted as the
+  // exact-phrase response to a pending approval rather than a new turn —
+  // mirrors VoiceModeSheet:68-81 so speaking the approval phrase doesn't
+  // also fire a new chat turn.
   const lastSubmittedRef = useRef<string>("");
   useEffect(() => {
     const text = session.transcriptFinal.trim();
     if (!text || text === lastSubmittedRef.current) return;
     lastSubmittedRef.current = text;
+
+    if (session.state === "confirming" && session.pendingApproval) {
+      if (isCancellation(text)) {
+        void session.confirmApproval("rejected", "user-cancelled");
+      } else if (matchPhrase(session.pendingApproval, text)) {
+        void session.confirmApproval("approved");
+      }
+      // Non-matching speech in confirming state stays as ambient noise.
+      return;
+    }
+
     void session.runTurn(text, {
       threadId,
       model: selectedModel,

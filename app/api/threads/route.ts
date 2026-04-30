@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
 import { createProviderClient, getProviderConfig, getDefaultModel } from "@/lib/llm";
+import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
 import {
   getThreads,
   getThread,
@@ -20,9 +21,20 @@ import {
 async function generateTitle(userMessage: string): Promise<string> {
   try {
     const slots = getProviderConfig();
-    const slot = slots.fast ?? slots.primary;
+    // Inference-bindings overlay — the user-pinned text provider should
+    // drive title-gen too, otherwise the title-gen will quietly use a
+    // different model than what the user picked for their chat.
+    const textBinding = resolveTextProviderFromBinding();
+    const slot = slots.fast ?? textBinding ?? slots.primary;
     const client = createProviderClient(slot);
-    const model = slot.model ?? getDefaultModel(slots.fast ? "fast" : "primary") ?? "qwen2.5:1.5b";
+    // Hardcoded fallback aligned with T1_MAC tier (which ships qwen3:0.6b
+    // for fast jobs like title generation). qwen2.5:1.5b is older and not
+    // installed by the bundle path, so it would 404 silently.
+    const model =
+      slot.model ??
+      textBinding?.model ??
+      getDefaultModel(slots.fast ? "fast" : "primary") ??
+      "qwen3:0.6b";
 
     const { text } = await generateText({
       model: client(model) as Parameters<typeof generateText>[0]["model"],

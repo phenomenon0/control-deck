@@ -106,10 +106,17 @@ function ignore(ctx: VoiceSessionContext, reason: string): TransitionResult {
   return { context: ctx, changed: false, reason };
 }
 
+declare global {
+  // eslint-disable-next-line no-var
+  var __voiceProbe: { mark(name: string, meta?: Record<string, unknown>): void } | undefined;
+}
+
 export function reduceVoiceSession(
   ctx: VoiceSessionContext,
   event: VoiceSessionEvent,
 ): TransitionResult {
+  if (event.type === "TRANSCRIPT_PARTIAL") globalThis.__voiceProbe?.mark("session_partial_dispatched", { text: event.text });
+  else if (event.type === "TRANSCRIPT_FINAL") globalThis.__voiceProbe?.mark("session_final_dispatched", { text: event.text });
   // Global events that apply from any state.
   if (event.type === "RESET") {
     return transition(ctx, {
@@ -210,13 +217,23 @@ export function reduceVoiceSession(
       // Watchdog can fire AUDIO_STOPPED to escape `thinking` cleanly without
       // forcing the user to manually reset the session.
       if (event.type === "AUDIO_STOPPED") {
-        return transition(ctx, { state: "idle", turnId: ctx.turnId + 1 });
+        return transition(ctx, {
+          state: "idle",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
       }
       return ignore(ctx, `event ${event.type} ignored in thinking`);
 
     case "speaking":
       if (event.type === "AUDIO_STOPPED") {
-        return transition(ctx, { state: "idle", turnId: ctx.turnId + 1 });
+        return transition(ctx, {
+          state: "idle",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
       }
       if (event.type === "INTERRUPT") {
         return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });

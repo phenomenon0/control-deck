@@ -95,6 +95,14 @@ export class StreamingSttClient {
   private utterancePcmBytes = 0;
   /** Monotonic counter; lets us discard a correction response if a reset/close happened mid-flight. */
   private utteranceSeq = 0;
+  /**
+   * Latches `true` after the first unambiguous "engine not available" response
+   * (HTTP 404 / 503). The sidecar tells us the correction engine isn't loaded
+   * on this host — typical on non-Mac tiers where whisper.cpp isn't installed.
+   * From that point on we skip the buffer build + HTTP round-trip entirely
+   * and emit the streaming final unmodified.
+   */
+  private correctionDisabled = false;
 
   private readonly preopenCap: number;
   private readonly correctionTimeoutMs: number;
@@ -297,7 +305,7 @@ export class StreamingSttClient {
   }
 
   private captureForCorrection(buf: ArrayBuffer): void {
-    if (!this.opts.correctionEngine) return;
+    if (!this.opts.correctionEngine || this.correctionDisabled) return;
     const view = new Uint8Array(buf.slice(0));
     this.utterancePcm.push(view);
     this.utterancePcmBytes += view.byteLength;
@@ -314,7 +322,7 @@ export class StreamingSttClient {
   }
 
   private handleStreamFinal(roughText: string): void {
-    if (!this.opts.correctionEngine || this.utterancePcmBytes === 0) {
+    if (!this.opts.correctionEngine || this.correctionDisabled || this.utterancePcmBytes === 0) {
       this.opts.onFinal?.(roughText);
       this.dropUtteranceBuffer();
       return;
@@ -360,7 +368,17 @@ export class StreamingSttClient {
       const timer = setTimeout(() => ctrl.abort(), this.correctionTimeoutMs);
       try {
         const res = await fetch(url, { method: "POST", body: fd, signal: ctrl.signal });
-        if (!res.ok) throw new Error(`correction HTTP ${res.status}`);
+        if (!res.ok) {
+          // 404 / 503 from the sidecar means the correction engine isn't
+          // available on this host (typical on non-Mac tiers — whisper.cpp
+          // not installed). Latch off so subsequent utterances skip the
+          // round-trip entirely and don't pay for repeated 503s.
+          if (res.status === 404 || res.status === 503) {
+            this.correctionDisabled = true;
+            this.dropUtteranceBuffer();
+          }
+          throw new Error(`correction HTTP ${res.status}`);
+        }
         const json = (await res.json()) as { text?: string };
         corrected = (json.text ?? "").trim();
       } finally {

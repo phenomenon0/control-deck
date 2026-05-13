@@ -252,14 +252,18 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
         }
         case "close_pane": {
           const a = cmd.args as { paneId: string };
-          const panel = api.getPanel(a.paneId) ?? api.panels.find((p) => p.id === a.paneId);
+          // Bus handles use '<type>:<instanceId>'; Dockview panel ids use
+          // '<type>-<instanceId>'. The colon is unique so the swap is unambiguous.
+          const dockviewId = a.paneId.replace(":", "-");
+          const panel = api.getPanel(dockviewId);
           try { panel?.api.close(); }
           catch (err) { console.warn("[workspace.relay] close_pane failed:", err); }
           break;
         }
         case "focus_pane": {
           const a = cmd.args as { paneId: string };
-          const panel = api.getPanel(a.paneId) ?? api.panels.find((p) => p.id === a.paneId);
+          const dockviewId = a.paneId.replace(":", "-");
+          const panel = api.getPanel(dockviewId);
           try { panel?.api.setActive(); }
           catch (err) { console.warn("[workspace.relay] focus_pane failed:", err); }
           break;

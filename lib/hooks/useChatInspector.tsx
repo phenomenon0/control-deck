@@ -14,16 +14,16 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import type { ToolCallData, Artifact } from "@/lib/types/chat";
 
-export type ChatRoute = "local" | "free" | "cloud";
+export type ChatRoute = "local";
 
 export interface ChatInspectorData {
   threadId: string | null;
   model: string;
   /**
-   * Where the active turn was routed. "local" = Ollama / simple /
-   * Agent-GO (all local-ish paths from the user's perspective). "free"
-   * = free-tier roulette (OpenRouter/NVIDIA). "cloud" is reserved for
-   * Stage 2's explicit cloud-provider path and unused today.
+   * Where the active turn was routed. Only "local" today — chat ships
+   * exclusively through agent-ts (pi-agent-core) talking to local
+   * inference (llama.cpp / Ollama). Kept as a union to leave room for
+   * future runtimes without breaking the wire.
    */
   route: ChatRoute;
   isLoading: boolean;

@@ -426,7 +426,7 @@ export default function ChatSurface() {
       }));
     // Truth-tell: prefer the server-confirmed model from RunStarted over
     // the composer's requested model. They match except when the server
-    // substituted (free-tier roulette, resolver snap) — in which case
+    // snapped the resolver to a different installed model — in which case
     // the rail should show what actually answered.
     const resolvedModel = agentRun.state.resolvedModel;
     updateInspector({

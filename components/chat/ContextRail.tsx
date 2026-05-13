@@ -38,10 +38,9 @@ function toolStatusLabel(tool: ToolCallData): string {
 }
 
 export function ContextRail() {
-  const { model, route, isLoading, toolCalls, artifacts } = useChatInspectorData();
+  const { model, isLoading, toolCalls, artifacts } = useChatInspectorData();
   const { prefs, setSettingsOpen } = useDeckSettings();
-  const routeLabel =
-    route === "free" ? "free-tier route" : route === "cloud" ? "cloud route" : "local route";
+  const routeLabel = "local route";
   const trimmedPrompt = prefs.systemPrompt.trim();
   const promptState: "default" | "custom" | "off" =
     !trimmedPrompt ? "off" : trimmedPrompt === DEFAULT_SYSTEM_PROMPT.trim() ? "default" : "custom";

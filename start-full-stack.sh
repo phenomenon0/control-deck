@@ -1,25 +1,25 @@
 #!/bin/bash
 # =============================================================================
-# Control Deck + Agent-GO Full Stack Startup Script
+# Control Deck full-stack startup
 # =============================================================================
-# Starts both servers for full agent capabilities:
-# - Agent-GO server (port 4243) - LLM orchestration, tools, agent loop
-# - Control Deck (port 3333) - Web UI
+# Starts the three processes the chat surface needs:
+#   - Inference backend (Ollama by default, Atlas optional)  :11434
+#   - agent-ts (pi-agent-core runtime)                       :4244
+#   - Control Deck (Next.js UI)                              :3333
 #
 # Usage:
-#   ./start-full-stack.sh           # Start both servers
-#   ./start-full-stack.sh stop      # Stop both servers
-#   ./start-full-stack.sh restart   # Restart both servers
-#   ./start-full-stack.sh status    # Check server status
+#   ./start-full-stack.sh           # Start everything
+#   ./start-full-stack.sh stop      # Stop everything
+#   ./start-full-stack.sh restart   # Restart everything
+#   ./start-full-stack.sh status    # Show status
 # =============================================================================
 
 set -e
 
 # Configuration — override any path via env var before invoking this script
-AGENTGO_DIR="${AGENTGO_DIR:-$HOME/Documents/Project/Agent-GO}"
 CONTROLDECK_DIR="${CONTROLDECK_DIR:-$HOME/Documents/INIT/control-deck}"
 ATLAS_DIR="${ATLAS_DIR:-$HOME/Documents/Project/Agent-GO/atlas-runtime}"
-AGENTGO_PORT="${AGENTGO_PORT:-4243}"
+AGENT_TS_PORT="${AGENT_TS_PORT:-4244}"
 CONTROLDECK_PORT="${CONTROLDECK_PORT:-3333}"
 LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/control-deck}"
 mkdir -p "$LOG_DIR"
@@ -29,17 +29,12 @@ mkdir -p "$LOG_DIR"
 # =============================================================================
 INFERENCE_BACKEND="ollama"  # <-- CHANGE THIS TO SWAP: "atlas" or "ollama"
 
-# LLM Configuration
-export AGENTGO_LLM_PROVIDER="ollama"  # Agent-GO uses ollama-compatible API
+# LLM model that agent-ts will request from the inference backend
 if [ "$INFERENCE_BACKEND" = "atlas" ]; then
     export OLLAMA_MODEL="llama-3.2-3b-instruct-q4_k_m"
 else
-    export OLLAMA_MODEL="qwen2"  # Use qwen2 for Ollama
+    export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2}"
 fi
-# Other models:
-# export OLLAMA_MODEL="llama3.2:3b"      # Fast, lightweight
-# export OLLAMA_MODEL="deepseek-r1:14b"  # Reasoning model
-# export OLLAMA_MODEL="mistral-small:24b" # High quality
 
 # Colors
 RED='\033[0;31m'
@@ -48,29 +43,13 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-print_status() {
-    echo -e "${BLUE}[*]${NC} $1"
-}
-
-print_success() {
-    echo -e "${GREEN}[✓]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[✗]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[!]${NC} $1"
-}
+print_status()  { echo -e "${BLUE}[*]${NC} $1"; }
+print_success() { echo -e "${GREEN}[\xE2\x9C\x93]${NC} $1"; }
+print_error()   { echo -e "${RED}[\xE2\x9C\x97]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
 
 check_inference() {
-    if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-        print_success "$INFERENCE_BACKEND is running on :11434"
-        return 0
-    else
-        return 1
-    fi
+    curl -s http://localhost:11434/api/tags > /dev/null 2>&1
 }
 
 start_inference() {
@@ -82,16 +61,11 @@ start_inference() {
     if [ "$INFERENCE_BACKEND" = "atlas" ]; then
         print_status "Starting Atlas inference server (GPU FULL RESIDENT)..."
         cd "$ATLAS_DIR"
-        # Use Llama 3.2 3B - fits fully in GPU with KV cache
         MODEL_PATH="${ATLAS_MODEL_PATH:-$HOME/.cache/atlas/models/llama-3.2-3b-instruct-q4_k_m.gguf}"
-        # For 8B model, disable GPU_FULL_RESIDENT or use hybrid mode
-
-        # GPU settings for maximum performance
-        export ATLAS_GPU_FULL_RESIDENT=1  # Load all weights to GPU
-        export ATLAS_GPU_LAYERS=999       # All layers on GPU
-
+        export ATLAS_GPU_FULL_RESIDENT=1
+        export ATLAS_GPU_LAYERS=999
         nohup ./atlas serve -p 11434 -m "$MODEL_PATH" > "$LOG_DIR/atlas.log" 2>&1 &
-        sleep 8  # GPU full resident needs more time
+        sleep 8
         if check_inference; then
             print_success "Atlas started on port 11434 (GPU)"
         else
@@ -116,49 +90,41 @@ stop_inference() {
     fi
 }
 
-check_agentgo() {
-    if curl -s http://localhost:$AGENTGO_PORT/health > /dev/null 2>&1; then
-        return 0
-    else
-        return 1
-    fi
+check_agent_ts() {
+    curl -s http://localhost:$AGENT_TS_PORT/health > /dev/null 2>&1
 }
 
 check_controldeck() {
-    if curl -s http://localhost:$CONTROLDECK_PORT > /dev/null 2>&1; then
-        return 0
-    else
-        return 1
-    fi
+    curl -s http://localhost:$CONTROLDECK_PORT > /dev/null 2>&1
 }
 
 start_servers() {
-    print_status "Starting Control Deck Full Stack (backend: $INFERENCE_BACKEND)..."
+    print_status "Starting Control Deck full stack (backend: $INFERENCE_BACKEND)..."
     echo ""
 
-    # Start/check inference backend
     if ! start_inference; then
         exit 1
     fi
-    
-    # Start Agent-GO
-    print_status "Starting Agent-GO server..."
-    if check_agentgo; then
-        print_warning "Agent-GO already running on port $AGENTGO_PORT"
-    else
-        cd "$AGENTGO_DIR"
-        nohup ./agentgo-server > "$LOG_DIR/agentgo.log" 2>&1 &
-        sleep 2
 
-        if check_agentgo; then
-            print_success "Agent-GO started on port $AGENTGO_PORT (model: $OLLAMA_MODEL)"
+    # Start agent-ts (pi-agent-core runtime)
+    print_status "Starting agent-ts..."
+    if check_agent_ts; then
+        print_warning "agent-ts already running on port $AGENT_TS_PORT"
+    else
+        cd "$CONTROLDECK_DIR"
+        AGENT_TS_PORT="$AGENT_TS_PORT" \
+        nohup npx tsx apps/agent-ts/src/server/main.ts > "$LOG_DIR/agent-ts.log" 2>&1 &
+        sleep 3
+
+        if check_agent_ts; then
+            print_success "agent-ts started on port $AGENT_TS_PORT (model: $OLLAMA_MODEL)"
         else
-            print_error "Failed to start Agent-GO"
-            cat "$LOG_DIR/agentgo.log"
+            print_error "Failed to start agent-ts"
+            tail -40 "$LOG_DIR/agent-ts.log"
             exit 1
         fi
     fi
-    
+
     # Start Control Deck
     print_status "Starting Control Deck..."
     if check_controldeck; then
@@ -176,16 +142,16 @@ start_servers() {
             exit 1
         fi
     fi
-    
+
     echo ""
     print_success "Full stack is running!"
     echo ""
     echo -e "  ${GREEN}Control Deck:${NC}  http://localhost:$CONTROLDECK_PORT/deck/chat"
-    echo -e "  ${GREEN}Agent-GO API:${NC}  http://localhost:$AGENTGO_PORT"
+    echo -e "  ${GREEN}agent-ts:${NC}      http://localhost:$AGENT_TS_PORT"
     echo -e "  ${GREEN}LLM Model:${NC}     $OLLAMA_MODEL"
     echo ""
     echo "Logs:"
-    echo "  Agent-GO:      tail -f $LOG_DIR/agentgo.log"
+    echo "  agent-ts:      tail -f $LOG_DIR/agent-ts.log"
     echo "  Control Deck:  tail -f $LOG_DIR/controldeck.log"
     echo ""
 }
@@ -193,21 +159,18 @@ start_servers() {
 stop_servers() {
     print_status "Stopping servers..."
 
-    # Stop Control Deck
     if pkill -f "next dev.*3333" 2>/dev/null; then
         print_success "Control Deck stopped"
     else
         print_warning "Control Deck was not running"
     fi
 
-    # Stop Agent-GO
-    if pkill -f "agentgo-server" 2>/dev/null; then
-        print_success "Agent-GO stopped"
+    if pkill -f "apps/agent-ts/src/server/main.ts" 2>/dev/null; then
+        print_success "agent-ts stopped"
     else
-        print_warning "Agent-GO was not running"
+        print_warning "agent-ts was not running"
     fi
 
-    # Stop inference backend (Atlas only - Ollama managed by systemd)
     stop_inference
 
     echo ""
@@ -219,49 +182,34 @@ show_status() {
     echo "=== Control Deck Stack Status (backend: $INFERENCE_BACKEND) ==="
     echo ""
 
-    # Inference backend
     if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
         models=$(curl -s http://localhost:11434/api/tags | grep -o '"name":"[^"]*"' | head -5 | tr '\n' ', ')
         echo -e "$INFERENCE_BACKEND:    ${GREEN}RUNNING${NC} (models: ${models%,})"
     else
         echo -e "$INFERENCE_BACKEND:    ${RED}STOPPED${NC}"
     fi
-    
-    # Agent-GO
-    if check_agentgo; then
-        health=$(curl -s http://localhost:$AGENTGO_PORT/health)
-        model=$(echo "$health" | grep -o '"model":"[^"]*"' | cut -d'"' -f4)
-        echo -e "Agent-GO:      ${GREEN}RUNNING${NC} on :$AGENTGO_PORT (model: $model)"
+
+    if check_agent_ts; then
+        health=$(curl -s http://localhost:$AGENT_TS_PORT/health)
+        echo -e "agent-ts:      ${GREEN}RUNNING${NC} on :$AGENT_TS_PORT ($health)"
     else
-        echo -e "Agent-GO:      ${RED}STOPPED${NC}"
+        echo -e "agent-ts:      ${RED}STOPPED${NC}"
     fi
-    
-    # Control Deck
+
     if check_controldeck; then
         echo -e "Control Deck:  ${GREEN}RUNNING${NC} on :$CONTROLDECK_PORT"
     else
         echo -e "Control Deck:  ${RED}STOPPED${NC}"
     fi
-    
+
     echo ""
 }
 
-# Main
 case "${1:-start}" in
-    start)
-        start_servers
-        ;;
-    stop)
-        stop_servers
-        ;;
-    restart)
-        stop_servers
-        sleep 2
-        start_servers
-        ;;
-    status)
-        show_status
-        ;;
+    start)   start_servers ;;
+    stop)    stop_servers ;;
+    restart) stop_servers; sleep 2; start_servers ;;
+    status)  show_status ;;
     *)
         echo "Usage: $0 {start|stop|restart|status}"
         exit 1

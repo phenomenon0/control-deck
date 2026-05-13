@@ -1,11 +1,14 @@
 /**
- * Chat API Route - Agent-GO Backend Integration
- * 
- * Proxies chat requests to Agent-GO server which handles:
- * - LLM orchestration with tool loop
+ * Chat API Route — agent-ts (pi-agent-core) backend.
+ *
+ * Proxies chat requests to the agent-ts runtime on :4244 which handles:
+ * - LLM orchestration with tool loop (pi-mono)
  * - Native tools (workspace, web_search, memory)
  * - Tool bridge for UI tools (image gen, etc.)
- * 
+ *
+ * One runtime, no fallback. If pi-mono is unreachable we surface the
+ * error to the user instead of silently switching to a tool-less path.
+ *
  * Returns a single SSE event stream; also republishes AG-UI events to local hub.
  */
 
@@ -47,43 +50,10 @@ import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
 import { buildToolBridgeUrl, buildMcpToolsUrl } from "@/lib/tools/bridge-url";
-// Agent runtime selection. Default is the TS implementation (apps/agent-ts)
-// on :4244; set AGENT_RUNTIME=go (or USE_AGENT_GO=1) to pin the legacy Go
-// binary. URL resolution lives in `lib/agentgo/launcher.ts` so launch + chat
-// + approve/reject stay aligned.
+// Agent runtime: agent-ts (apps/agent-ts) on :4244. pi-agent-core wrapped
+// in the AG-UI/SSE wire contract. URL resolution lives in
+// `lib/agentgo/launcher.ts` so launch + chat + approve/reject stay aligned.
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
-
-// Module-level health cache. The probe at the top of POST() is a 400ms
-// blocking fetch on every chat request; on voice turns this directly
-// inflates first-token latency. Cache positive and negative results so
-// the probe runs at most once per TTL window.
-//
-// TTL split: positive cached for 30s (agent-go is stable once up), negative
-// cached for 5s only (so a freshly-started agent is picked up quickly
-// without forcing the user to restart Next).
-let agentgoHealthCache: { alive: boolean; checkedAt: number } | null = null;
-const AGENTGO_HEALTH_TTL_OK_MS = 30_000;
-const AGENTGO_HEALTH_TTL_DOWN_MS = 5_000;
-
-async function probeAgentGoHealth(): Promise<boolean> {
-  const now = Date.now();
-  if (agentgoHealthCache) {
-    const ttl = agentgoHealthCache.alive
-      ? AGENTGO_HEALTH_TTL_OK_MS
-      : AGENTGO_HEALTH_TTL_DOWN_MS;
-    if (now - agentgoHealthCache.checkedAt < ttl) {
-      return agentgoHealthCache.alive;
-    }
-  }
-  const alive = await fetch(`${AGENTGO_URL}/health`, {
-    signal: AbortSignal.timeout(400),
-    cache: "no-store",
-  })
-    .then((r) => r.ok)
-    .catch(() => false);
-  agentgoHealthCache = { alive, checkedAt: now };
-  return alive;
-}
 
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
@@ -478,31 +448,7 @@ export async function POST(req: Request) {
   const runId = voice?.runId ?? generateId();
   const messageId = generateId();
 
-  // Probe Agent-GO up front. If it's down (common during local dev without
-  // the Go binary), fall through to /api/chat/simple so chat still works.
-  // Cached at the module level so voice turns don't pay the 400ms timeout
-  // on every utterance — see probeAgentGoHealth() above.
-  const agentgoAlive = await probeAgentGoHealth();
-
-  // Chat is local-only. Cloud + free-tier branches were retired — the
-  // chat surface ships no online sources. The agent runtime selection
-  // still lives in `lib/agentgo/launcher.ts` (TS by default, Go opt-in).
-  if (!agentgoAlive) {
-    console.log(`[Chat] Agent-GO unreachable at ${AGENTGO_URL}; falling back to /api/chat/simple`);
-    // Invoke the simple route's handler directly instead of HTTP self-fetch.
-    // Next's dev server can buffer or serialize recursive same-origin fetches,
-    // which manifested as a hung SSE stream during testing.
-    const { POST: simplePost } = await import("./simple/route");
-    const fallbackReq = new Request(new URL("/api/chat/simple", req.url), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, model: selectedModel, threadId: thread, systemPrompt }),
-      signal: req.signal,
-    });
-    return simplePost(fallbackReq);
-  }
-
-  console.log(`[Chat] Starting run via Agent-GO: thread=${thread}, model=${selectedModel}`);
+  console.log(`[Chat] Starting run via agent-ts: thread=${thread}, model=${selectedModel}`);
 
   // Emit local RunStarted (for immediate UI feedback)
   const lastMessage = messages[messages.length - 1]?.content;
@@ -524,7 +470,7 @@ export async function POST(req: Request) {
   saveEvent(msgStart);
   hub.publish(thread, msgStart);
 
-  // Prepare Agent-GO request — strip fake patterns from assistant messages
+  // Prepare agent-ts request — strip fake patterns from assistant messages
   // to prevent the LLM from learning to fake tool calls (SURFACE.md §4.3)
   const agentMessagesRaw: AgentGOMessage[] = messages
     .map(m => {
@@ -597,8 +543,8 @@ export async function POST(req: Request) {
       await safeWriteSSE(runStarted);
       await safeWriteSSE(msgStart);
 
-      // Start run on Agent-GO. retryingFetch handles network errors + 5xx
-      // with exponential backoff so a brief Agent-GO hiccup doesn't break
+      // Start run on agent-ts. retryingFetch handles network errors + 5xx
+      // with exponential backoff so a brief runtime hiccup doesn't break
       // the chat turn; 4xx still fails fast.
       const startResponse = await retryingFetch(`${AGENTGO_URL}/runs`, {
         method: "POST",
@@ -609,12 +555,12 @@ export async function POST(req: Request) {
 
       if (!startResponse.ok) {
         const errorText = await startResponse.text();
-        throw new Error(`Agent-GO returned ${startResponse.status}: ${errorText}`);
+        throw new Error(`agent-ts returned ${startResponse.status}: ${errorText}`);
       }
 
       const startData = await startResponse.json();
       agentRunId = startData.run_id;
-      console.log(`[Chat] Agent-GO run started: ${agentRunId}`);
+      console.log(`[Chat] agent-ts run started: ${agentRunId}`);
       // Canonical-runId invariant: agent-ts must echo back the run_id we
       // sent in agentRequest. A divergence here means an agent-ts build
       // ignored req.run_id and allocated its own — the legacy reconcile
@@ -625,7 +571,7 @@ export async function POST(req: Request) {
         );
       }
 
-      // Stream events from Agent-GO. Retry the initial connect; mid-stream
+      // Stream events from agent-ts. Retry the initial connect; mid-stream
       // reconnect would need server seq coordination, so we accept that a
       // dropped SSE connection ends the run.
       const eventsResponse = await retryingFetch(
@@ -637,12 +583,12 @@ export async function POST(req: Request) {
       );
 
       if (!eventsResponse.ok) {
-        throw new Error(`Agent-GO events returned ${eventsResponse.status}`);
+        throw new Error(`agent-ts events returned ${eventsResponse.status}`);
       }
 
       const reader = eventsResponse.body?.getReader();
       if (!reader) {
-        throw new Error("No response body from Agent-GO");
+        throw new Error("No response body from agent-ts");
       }
 
       const decoder = new TextDecoder();
@@ -731,7 +677,7 @@ export async function POST(req: Request) {
 
     } catch (error) {
       if (isAborted) {
-        console.log("[Chat] Request aborted during Agent-GO proxy");
+        console.log("[Chat] Request aborted during agent-ts proxy");
         // Mark the run row aborted so the SQLite ledger doesn't leave it
         // as 'running' forever when the user closes the tab or interrupts
         // before /cancel can round-trip. Idempotent with the cancel route.
@@ -743,15 +689,15 @@ export async function POST(req: Request) {
       } else {
         const unavailable = error instanceof AgentGoUnavailableError;
         const errMsg = unavailable
-          ? `Agent-GO at ${AGENTGO_URL} is unreachable (tried ${error.attempts}×). Start it with ./start-full-stack.sh or set AGENTGO_URL.`
+          ? `agent-ts at ${AGENTGO_URL} is unreachable (tried ${error.attempts}×). Start it with ./start-full-stack.sh or set AGENT_TS_URL.`
           : error instanceof Error
             ? error.message
             : "Unknown error";
-        console.error("[Chat] Agent-GO proxy error:", error);
+        console.error("[Chat] agent-ts proxy error:", error);
 
         const runError = createEvent<RunError>("RunError", thread, {
           runId,
-          error: { message: errMsg, code: unavailable ? "AGENTGO_UNAVAILABLE" : undefined },
+          error: { message: errMsg, code: unavailable ? "AGENT_TS_UNAVAILABLE" : undefined },
         });
         errorRun(runId, errMsg);
         saveEvent(runError);

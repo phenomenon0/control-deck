@@ -52,6 +52,18 @@ export interface TerminalPaneProps {
 
 const OUTPUT_BUFFER_MAX = 64_000;
 
+/**
+ * POSIX shell quoting: wrap in single quotes; escape any single quote inside
+ * by closing the quote, inserting a literal `'`, and reopening. Good enough
+ * for paths dropped from a file manager (no shell-special handling needed
+ * since the whole thing is single-quoted).
+ */
+function shellQuote(path: string): string {
+  if (path === "") return "''";
+  if (/^[A-Za-z0-9_\-+=:,.\/@%]+$/.test(path)) return path;
+  return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
 export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   function TerminalPane(props, handleRef) {
     const embedded = props.embedded ?? false;
@@ -73,6 +85,14 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const pendingOutputRef = useRef<string[]>([]);
   const outputBufferRef = useRef<string>("");
   const chunkCountRef = useRef(0);
+  const pendingStatChunksRef = useRef(0);
+  const lastChunkAtRef = useRef<number | null>(null);
+  const statsFlushRafRef = useRef<number | null>(null);
+  // Per-session UTF-8 byte cursor. Sent as `?since=` on WS upgrade so the
+  // sidecar can resume replay from the tail instead of replaying full history
+  // (which redraws TUI alt-screens and looks like a refresh).
+  const receivedBytesRef = useRef<Map<string, number>>(new Map());
+  const byteEncoderRef = useRef<TextEncoder | null>(null);
 
   const onOutputRef = useRef(props.onOutput);
   useEffect(() => { onOutputRef.current = props.onOutput; }, [props.onOutput]);
@@ -108,6 +128,36 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
   const [meta, setMeta] = useState<SessionMetaState>({});
   const [lastChunkAt, setLastChunkAt] = useState<number | null>(null);
   const [chunkCount, setChunkCount] = useState(0);
+
+  const flushTerminalStats = useCallback(() => {
+    statsFlushRafRef.current = null;
+    if (pendingStatChunksRef.current === 0) return;
+    pendingStatChunksRef.current = 0;
+    setChunkCount(chunkCountRef.current);
+    setLastChunkAt(lastChunkAtRef.current);
+  }, []);
+
+  const scheduleTerminalStatsFlush = useCallback(() => {
+    if (typeof window === "undefined") {
+      flushTerminalStats();
+      return;
+    }
+    if (typeof window.requestAnimationFrame !== "function") {
+      flushTerminalStats();
+      return;
+    }
+    if (statsFlushRafRef.current !== null) return;
+    statsFlushRafRef.current = window.requestAnimationFrame(flushTerminalStats);
+  }, [flushTerminalStats]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && statsFlushRafRef.current !== null) {
+        window.cancelAnimationFrame(statsFlushRafRef.current);
+        statsFlushRafRef.current = null;
+      }
+    };
+  }, []);
 
   const [modeOverride, setModeOverride] = useState<TerminalMode | null>(() => {
     if (typeof window === "undefined") return null;
@@ -194,18 +244,25 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     terminalReadyRef.current = false;
     pendingOutputRef.current = [];
     chunkCountRef.current = 0;
+    pendingStatChunksRef.current = 0;
+    lastChunkAtRef.current = null;
+    if (typeof window !== "undefined" && statsFlushRafRef.current !== null) {
+      window.cancelAnimationFrame(statsFlushRafRef.current);
+      statsFlushRafRef.current = null;
+    }
     setChunkCount(0);
     setLastChunkAt(null);
+    const snapshot = activeSessionRef.current;
     setMeta(
-      activeSession
+      snapshot
         ? {
-            cwd: activeSession.cwd,
-            pid: activeSession.pid,
-            label: activeSession.label,
-            profile: activeSession.profile,
-            status: activeSession.status,
-            exitCode: activeSession.exitCode,
-            error: activeSession.error,
+            cwd: snapshot.cwd,
+            pid: snapshot.pid,
+            label: snapshot.label,
+            profile: snapshot.profile,
+            status: snapshot.status,
+            exitCode: snapshot.exitCode,
+            error: snapshot.error,
           }
         : {},
     );
@@ -233,7 +290,8 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
     (async () => {
       let wsUrl: string;
       try {
-        wsUrl = await getTerminalWebSocketUrl(activeSessionId);
+        const since = receivedBytesRef.current.get(activeSessionId) ?? 0;
+        wsUrl = await getTerminalWebSocketUrl(activeSessionId, { since });
       } catch (err) {
         if (cancelled) return;
         setSocketState("error");
@@ -277,12 +335,29 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
           onOutputRef.current?.(message.data);
           aguiRef.current.emit(activeSessionId, sessionProfileForBridge, message.data);
 
+          if (!byteEncoderRef.current) byteEncoderRef.current = new TextEncoder();
+          const bytes = byteEncoderRef.current.encode(message.data).length;
+          const prev = receivedBytesRef.current.get(activeSessionId) ?? 0;
+          receivedBytesRef.current.set(activeSessionId, prev + bytes);
+
           chunkCountRef.current += 1;
-          setChunkCount(chunkCountRef.current);
-          setLastChunkAt(Date.now());
+          pendingStatChunksRef.current += 1;
+          lastChunkAtRef.current = Date.now();
+          scheduleTerminalStatsFlush();
 
           if (terminalReadyRef.current) write(message.data);
           else pendingOutputRef.current.push(message.data);
+          return;
+        }
+        if (message.type === "reset") {
+          // Sidecar can't honor our `?since=` cursor (session restart or
+          // history rotated past it). Clear xterm + scrollback so the chunks
+          // that follow paint cleanly.
+          outputBufferRef.current = "";
+          receivedBytesRef.current.set(activeSessionId, 0);
+          const clear = "\x1b[2J\x1b[H\x1b[3J";
+          if (terminalReadyRef.current) write(clear);
+          else pendingOutputRef.current.push(clear);
           return;
         }
         if (message.type === "meta") {
@@ -339,7 +414,7 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       if (activeSessionId) aguiRef.current.end(activeSessionId);
       socket?.close();
     };
-  }, [activeSessionId, refresh, serviceOnline, write]);
+  }, [activeSessionId, refresh, scheduleTerminalStatsFlush, serviceOnline, write]);
 
   const handleLaunch = useCallback(
     async (profile: TerminalProfile) => {
@@ -509,16 +584,94 @@ export const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(
       ? "read-only"
       : "all";
 
+  const [dropOver, setDropOver] = useState(false);
+  const dragDepthRef = useRef(0);
+
+  const handleScreenDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      dragDepthRef.current = 0;
+      setDropOver(false);
+      const dt = event.dataTransfer;
+      if (!dt) return;
+
+      const paths: string[] = [];
+      const resolver = typeof window !== "undefined" ? window.deck?.getFilePath : undefined;
+      if (dt.files && dt.files.length > 0) {
+        for (let i = 0; i < dt.files.length; i++) {
+          const f = dt.files.item(i);
+          if (!f) continue;
+          const path =
+            (resolver ? resolver(f) : null) ?? (f as File & { path?: string }).path ?? null;
+          if (path) paths.push(path);
+        }
+      }
+
+      if (paths.length === 0) {
+        const uriList = dt.getData("text/uri-list");
+        if (uriList) {
+          for (const line of uriList.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith("#")) continue;
+            try {
+              const url = new URL(trimmed);
+              if (url.protocol === "file:") paths.push(decodeURIComponent(url.pathname));
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+
+      let payload: string;
+      if (paths.length > 0) {
+        payload = paths.map(shellQuote).join(" ") + " ";
+      } else {
+        const text = dt.getData("text/plain");
+        if (!text) return;
+        payload = text;
+      }
+      sendInput(payload);
+      focusTerminalSoon(0);
+    },
+    [focusTerminalSoon],
+  );
+
   // Inject the terminal screen into whichever layout is active. The screen
   // node itself (Terminal + WebSocket) must not remount when mode toggles —
   // both layouts receive the same memoized node.
   const screen = activeSession ? (
     <div
-      className="tp2-screen"
+      className={`tp2-screen${dropOver ? " tp2-screen--drop-over" : ""}`}
       data-hotkeys-ignore="true"
       onMouseDownCapture={() => focusTerminalSoon(0)}
       onClick={() => focusTerminalSoon(0)}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer?.types?.length) return;
+        const hasFile = e.dataTransfer.types.includes("Files") || e.dataTransfer.types.includes("text/uri-list");
+        if (!hasFile) return;
+        e.preventDefault();
+        dragDepthRef.current += 1;
+        setDropOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDropOver(false);
+      }}
+      onDrop={handleScreenDrop}
     >
+      {dropOver && (
+        <div className="tp2-drop-overlay" aria-hidden>
+          <span className="tp2-drop-overlay-mark">⇣</span>
+          <span className="tp2-drop-overlay-text">Drop to paste path</span>
+        </div>
+      )}
       <Terminal
         key={activeSessionKey}
         ref={ref}

@@ -64,6 +64,25 @@ export function describeAudioMode(mode: AudioMode): string {
   }
 }
 
+export function promptForAudioMode(mode: AudioMode): string | null {
+  switch (mode) {
+    case "chat":
+      return [
+        "Voice live mode: the assistant reply will be spoken aloud.",
+        "Keep the reply short enough for speech: one to three brief sentences by default.",
+        "Lead with the answer. Avoid markdown, tables, long lists, and code blocks unless the user explicitly asks.",
+      ].join("\n");
+    case "control":
+      return [
+        "Voice control mode: the assistant reply will be spoken aloud.",
+        "Keep responses short, action-oriented, and easy to interrupt.",
+        "For risky or ambiguous actions, ask one concise confirmation question.",
+      ].join("\n");
+    default:
+      return null;
+  }
+}
+
 /** Mic should be active in any non-off mode. */
 export function modeAllowsMic(mode: AudioMode): boolean {
   return mode !== "off";

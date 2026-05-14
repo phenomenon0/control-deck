@@ -30,7 +30,7 @@ function resolveTtsBinding(): TtsBinding {
     config: {
       providerId: "voice-core",
       baseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
-      extras: { engine: "sherpa-onnx-tts" },
+      extras: { engine: "kokoro-82m", defaultVoiceId: "af_sky" },
     },
     isFallback: true,
   };
@@ -58,12 +58,12 @@ export async function POST(req: Request) {
 
   // Preset → sidecar engine when caller sent nothing explicit AND we fell
   // through to the voice-core default. The manifest maps
-  // quick=sherpa-onnx-tts, balanced=kokoro-82m, quality=chatterbox — falls
-  // back to "sherpa-onnx-tts" if the manifest entry lacks an id (Kokoro is
-  // unreliable in some setups; sherpa-onnx VITS is the safe default).
+  // quick=sherpa-onnx-tts, balanced/quality=kokoro-82m. Chatterbox remains
+  // selectable, but is not auto-bound for chat because it has a heavier load
+  // profile than Kokoro.
   const presetEngine =
     isFallback && providerId === "voice-core" && !body.engine
-      ? defaultFor("tts", preset).id ?? "sherpa-onnx-tts"
+      ? defaultFor("tts", preset).id ?? "kokoro-82m"
       : body.engine;
 
   // Per-request engine override (voice-core only) — keeps the settings UI's

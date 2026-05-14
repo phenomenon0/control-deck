@@ -526,9 +526,9 @@ export function SettingsDrawer() {
                       updateVoicePrefs({ ttsEngine: v as TTSEngine })
                     }
                     options={[
+                      { value: "kokoro-82m", label: "Kokoro 82M (default)" },
                       { value: "sherpa-onnx-tts", label: "Sherpa ONNX (fast)" },
-                      { value: "kokoro-82m", label: "Kokoro 82M (balanced)" },
-                      { value: "chatterbox", label: "Chatterbox (expressive)" },
+                      { value: "chatterbox", label: "Chatterbox (optional)" },
                     ]}
                   />
                 </SettingRow>

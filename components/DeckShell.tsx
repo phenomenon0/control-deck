@@ -18,11 +18,13 @@ import { Icon } from "@/components/warp/Icons";
 import { useDeckSettings } from "./settings/DeckSettingsProvider";
 import { PreflightGate } from "./preflight/PreflightGate";
 import { AudioDockProvider } from "./audio/AudioDockProvider";
-import { GlobalAudioDock } from "./audio/GlobalAudioDock";
+import { AudioDiagnosticsDrawer } from "./audio/AudioDiagnosticsDrawer";
+import { ApprovalPeek } from "./approvals/ApprovalPeek";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const isChat = pathname === "/deck/chat" || pathname.startsWith("/deck/chat/");
@@ -44,6 +46,17 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     enabled: inspectorOpen,
     priority: 20,
     label: "Close inspector",
+  });
+
+  useShortcut("mod+shift+d", () => setDiagnosticsOpen((o) => !o), {
+    when: "no-input",
+    label: "Toggle audio diagnostics",
+  });
+
+  useShortcut("escape", () => setDiagnosticsOpen(false), {
+    enabled: diagnosticsOpen,
+    priority: 20,
+    label: "Close audio diagnostics",
   });
 
   useShortcut("1", () => router.push("/deck/chat"), {
@@ -134,7 +147,13 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <SettingsDrawer />
-      <GlobalAudioDock />
+      <ErrorBoundary name="audio-diagnostics">
+        <AudioDiagnosticsDrawer
+          open={diagnosticsOpen}
+          onClose={() => setDiagnosticsOpen(false)}
+        />
+      </ErrorBoundary>
+      <ApprovalPeek />
     </div>
   );
 }

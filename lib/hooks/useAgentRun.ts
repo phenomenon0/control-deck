@@ -12,6 +12,20 @@ import type {
 } from "@/lib/types/agentRun";
 import { INITIAL_AGENT_RUN_STATE } from "@/lib/types/agentRun";
 
+export interface VoiceRunMetadata {
+  turnId: string;
+  runId?: string;
+  routeId: string;
+  mode: string;
+  surface: string;
+  source: string;
+  modality: "voice";
+}
+
+export interface AgentRunSendHooks {
+  onTextDelta?: (delta: string) => void;
+}
+
 let _segmentCounter = 0;
 function nextSegmentId(): string {
   return `seg_${Date.now()}_${++_segmentCounter}`;
@@ -516,6 +530,8 @@ export interface UseAgentRunReturn {
       uploadIds?: string[];
       systemPrompt?: string;
       preset?: LocalPreset;
+      voice?: VoiceRunMetadata;
+      hooks?: AgentRunSendHooks;
     }
   ) => Promise<SendResult>;
   /** Stop the current run */
@@ -564,6 +580,8 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         uploadIds?: string[];
         systemPrompt?: string;
         preset?: LocalPreset;
+        voice?: VoiceRunMetadata;
+        hooks?: AgentRunSendHooks;
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
@@ -594,6 +612,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             uploadIds: opts.uploadIds,
             systemPrompt: opts.systemPrompt,
             preset: opts.preset,
+            voice: opts.voice,
           }),
           signal: controller.signal,
         });
@@ -633,6 +652,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
               // Track full text for message persistence
               if (event.type === "TextMessageContent" && event.delta) {
                 fullText += event.delta;
+                opts.hooks?.onTextDelta?.(event.delta);
               }
 
               // Handle interrupt events via callbacks (not reducer state)

@@ -207,7 +207,7 @@ function bindingToResolved(binding: SlotBinding, modality: "stt" | "tts") {
 
 function engineFor(binding: SlotBinding): string | null {
   if (binding.providerId === "voice-core") {
-    return (binding.config.extras?.engine as string | undefined) ?? "sherpa-onnx-tts";
+    return (binding.config.extras?.engine as string | undefined) ?? "kokoro-82m";
   }
   return null;
 }

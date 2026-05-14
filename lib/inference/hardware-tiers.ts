@@ -206,9 +206,9 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     rationale:
       "End-to-end omni doesn't run on CPU at conversational latency — this tier " +
       "is cascade-only. sherpa-onnx Zipformer is endpoint-aware streaming ASR " +
-      "that boots cleanly on CPU; sherpa-onnx VITS (Piper amy-medium) gives a " +
-      "natural English voice with a tiny footprint. Llama-3.2-3B is the LLM " +
-      "ceiling that still feels responsive.",
+      "that boots cleanly on CPU; Kokoro 82M gives the most natural local voice " +
+      "we already have installed without paying the Chatterbox load cost. " +
+      "Llama-3.2-3B is the LLM ceiling that still feels responsive.",
     defaultPreset: "quick",
     cascade: {
       stt: {
@@ -221,11 +221,11 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
       },
       tts: {
         runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.SHERPA_TTS,
-        label: "sherpa-onnx VITS (Piper amy-medium)",
-        sizeMb: 90,
-        expectedP50Ms: 250,
-        note: "Lightweight VITS via sherpa-onnx — instant first chunk, natural English voice.",
+        id: VOICE_ENGINE_IDS.KOKORO_82M,
+        label: "Kokoro 82M",
+        sizeMb: 338,
+        expectedP50Ms: 180,
+        note: "Natural local chat voice on CPU. Sherpa remains the fast fallback.",
       },
       llm: {
         runner: "ollama",

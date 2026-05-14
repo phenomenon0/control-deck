@@ -1,26 +1,57 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Wrench, Search, Code, Image, Volume2, Sparkles, Check, Play } from "lucide-react";
+import {
+  ChevronDown,
+  Wrench,
+  Search,
+  Code,
+  Image,
+  Volume2,
+  Sparkles,
+  Check,
+  Play,
+  Terminal as TerminalIcon,
+  FileText,
+  FileEdit,
+  FolderOpen,
+  Mouse,
+  Globe,
+} from "lucide-react";
 import type { ActivityStep, AgentActivitySegment } from "@/lib/types/agentRun";
 import { formatDuration } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
 
 const TOOL_ICONS: Record<string, { icon: typeof Wrench; label: string }> = {
   generate_image: { icon: Image, label: "Image" },
-  edit_image: { icon: Image, label: "Edit Image" },
+  edit_image: { icon: Image, label: "Edit image" },
   generate_audio: { icon: Volume2, label: "Audio" },
-  image_to_3d: { icon: Play, label: "3D Model" },
+  image_to_3d: { icon: Play, label: "3D model" },
   analyze_image: { icon: Image, label: "Vision" },
-  web_search: { icon: Search, label: "Search" },
+  web_search: { icon: Globe, label: "Search" },
   glyph_motif: { icon: Sparkles, label: "Glyph" },
-  execute_code: { icon: Code, label: "Code" },
+  execute_code: { icon: Code, label: "Run code" },
   vector_search: { icon: Search, label: "Lookup" },
   vector_store: { icon: Search, label: "Store" },
+  bash: { icon: TerminalIcon, label: "Shell" },
+  sh: { icon: TerminalIcon, label: "Shell" },
+  read: { icon: FileText, label: "Read" },
+  write: { icon: FileEdit, label: "Write" },
+  edit: { icon: FileEdit, label: "Edit" },
+  glob: { icon: FolderOpen, label: "Glob" },
+  grep: { icon: Search, label: "Grep" },
+  skill_view: { icon: Sparkles, label: "Skill" },
+  workspace_list_panes: { icon: FolderOpen, label: "Panes" },
+  workspace_pane_call: { icon: Mouse, label: "Pane" },
+  workspace_open_pane: { icon: FolderOpen, label: "Open pane" },
+  workspace_focus_pane: { icon: Mouse, label: "Focus pane" },
 };
 
 function getToolConfig(toolName: string) {
-  return TOOL_ICONS[toolName] ?? { icon: Wrench, label: toolName };
+  if (TOOL_ICONS[toolName]) return TOOL_ICONS[toolName];
+  if (toolName.startsWith("native_")) return { icon: Mouse, label: toolName.replace("native_", "") };
+  if (toolName.startsWith("workspace_")) return { icon: FolderOpen, label: toolName.replace("workspace_", "") };
+  return { icon: Wrench, label: toolName };
 }
 
 function StepStatusBadge({ status }: { status: ActivityStep["status"] }) {
@@ -34,10 +65,10 @@ function StepStatusBadge({ status }: { status: ActivityStep["status"] }) {
   );
 }
 
-function ActivityStepRow({ step }: { step: ActivityStep }) {
+function ActivityStepRow({ step, count }: { step: ActivityStep; count?: number }) {
   const config = getToolConfig(step.toolName);
   const Icon = config.icon;
-  const mainArg = step.args ? getMainArg(step.args) : null;
+  const detail = step.args ? getStepDetail(step.toolName, step.args) : null;
 
   const iconClass = `activity-step-icon${
     step.status === "running" ? " activity-step-icon--running" :
@@ -48,9 +79,12 @@ function ActivityStepRow({ step }: { step: ActivityStep }) {
     <div className="activity-step">
       <Icon size={14} className={iconClass} />
       <span className="activity-step-label">{config.label}</span>
-      {mainArg && (
-        <span className="activity-step-arg">
-          &ldquo;{truncate(mainArg, 50)}&rdquo;
+      {count && count > 1 && (
+        <span className="activity-step-count">×{count}</span>
+      )}
+      {detail && (
+        <span className={`activity-step-arg${detail.mono ? " activity-step-arg--mono" : ""}`}>
+          {detail.text.length > 60 ? truncate(detail.text, 60) : detail.text}
         </span>
       )}
       <span className="activity-step-meta">
@@ -111,8 +145,12 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
       {/* Step list — uses CSS grid trick for smooth height animation (BEHAVIOR.md §3.4) */}
       <div className={`activity-grid-collapse ${isExpanded ? "expanded" : ""}`}>
         <div>
-          {steps.map((step) => (
-            <ActivityStepRow key={step.toolCallId} step={step} />
+          {collapseRepeats(steps).map((entry) => (
+            <ActivityStepRow
+              key={entry.step.toolCallId}
+              step={entry.step}
+              count={entry.count}
+            />
           ))}
         </div>
       </div>
@@ -120,14 +158,53 @@ export function AgentActivityBlock({ segment }: AgentActivityBlockProps) {
   );
 }
 
-const PROMPT_KEYS = ["prompt", "query", "instruction", "code", "text", "question", "message"];
+// Order matters: most-specific first.
+const PROMPT_KEYS = [
+  "command",      // bash/sh
+  "file_path",    // read/edit/write
+  "path",         // alt path
+  "prompt", "query", "instruction", "code", "text", "question", "message",
+  "url",
+  "capability",   // workspace_pane_call
+  "pattern",      // grep
+  "name",         // native_locate
+];
 
-function getMainArg(args: Record<string, unknown>): string | null {
+const MONO_KEYS = new Set(["command", "file_path", "path", "url", "pattern"]);
+
+function getStepDetail(
+  toolName: string,
+  args: Record<string, unknown>,
+): { text: string; mono: boolean } | null {
   for (const key of PROMPT_KEYS) {
-    if (args[key] && typeof args[key] === "string") {
-      return args[key] as string;
+    const v = args[key];
+    if (typeof v === "string" && v.trim()) {
+      return { text: v, mono: MONO_KEYS.has(key) || toolName === "execute_code" };
     }
   }
   return null;
+}
+
+/**
+ * Collapse consecutive identical (same tool + same status + same detail) rows
+ * into one row with a "×N" count. Stops the "bash done · bash done · bash
+ * done" stack when the agent fires the same surface call repeatedly.
+ */
+function collapseRepeats(steps: ActivityStep[]): { step: ActivityStep; count: number }[] {
+  const out: { step: ActivityStep; count: number }[] = [];
+  for (const step of steps) {
+    const last = out[out.length - 1];
+    const sameTool = last && last.step.toolName === step.toolName;
+    const sameStatus = last && last.step.status === step.status;
+    const lastDetail = last?.step.args ? getStepDetail(last.step.toolName, last.step.args)?.text : null;
+    const thisDetail = step.args ? getStepDetail(step.toolName, step.args)?.text : null;
+    const sameDetail = lastDetail === thisDetail;
+    if (sameTool && sameStatus && sameDetail) {
+      last!.count += 1;
+    } else {
+      out.push({ step, count: 1 });
+    }
+  }
+  return out;
 }
 

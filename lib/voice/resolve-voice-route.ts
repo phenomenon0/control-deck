@@ -169,7 +169,7 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
         providerId: ttsPick.provider.id,
         providerName: ttsPick.provider.name,
         model: MODEL_DEFAULTS[ttsPick.provider.id] ?? null,
-        engine: ttsPick.provider.id === SIDECAR_ID ? "sherpa-onnx-tts" : null,
+        engine: ttsPick.provider.id === SIDECAR_ID ? "kokoro-82m" : null,
       }
     : null;
 

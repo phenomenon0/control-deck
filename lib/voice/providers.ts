@@ -246,7 +246,7 @@ export const ASSISTANT_DEFAULTS: AssistantDefaults = {
   ttsQuality: { providerId: "google", model: "gemini-3.1-flash-preview-tts" },
   // Expressive / voice-design tier: Hume Octave 2.
   ttsExpressive: { providerId: "hume", model: "octave-2" },
-  offlineFallback: { providerId: "voice-core", engine: "sherpa-onnx-tts" },
+  offlineFallback: { providerId: "voice-core", engine: "kokoro-82m" },
 };
 
 export function getStudioEngine(id: string): VoiceEngineDescriptor | undefined {

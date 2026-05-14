@@ -45,12 +45,13 @@ function looksUnspoken(text: string): boolean {
 }
 
 export class PhraseConductor {
-  private splitter = createPhraseSplitter();
+  private splitter: ReturnType<typeof createPhraseSplitter>;
   private seq = 0;
   private opts: PhraseConductorOptions;
 
   constructor(opts: PhraseConductorOptions = {}) {
     this.opts = opts;
+    this.splitter = createPhraseSplitter({ maxBufferedChars: opts.maxChars });
   }
 
   setIds(opts: { runId?: string; turnId?: string }) {
@@ -96,7 +97,7 @@ export class PhraseConductor {
   }
 
   reset() {
-    this.splitter = createPhraseSplitter();
+    this.splitter = createPhraseSplitter({ maxBufferedChars: this.opts.maxChars });
     this.seq = 0;
   }
 }

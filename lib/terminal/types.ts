@@ -62,11 +62,22 @@ export interface TerminalExitMessage {
   signal?: string;
 }
 
+// Sent at the start of a WS attach when the client's `?since=` cursor can't
+// be honored from history — either the session was restarted under the same
+// id (cursor is past the new tail) or history rotated past the cursor and
+// we have to replay current history anyway. The client should clear its
+// xterm before processing the chunks that follow so they paint cleanly.
+export interface TerminalResetMessage {
+  type: "reset";
+  reason: "history-truncated" | "session-restart";
+}
+
 export type TerminalServerMessage =
   | TerminalOutputMessage
   | TerminalStatusMessage
   | TerminalMetaMessage
-  | TerminalExitMessage;
+  | TerminalExitMessage
+  | TerminalResetMessage;
 
 export interface TerminalInputMessage {
   type: "input";

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from voice_core import registry
 from voice_core.engines.stt import moonshine, parakeet, sherpa_streaming, whisper_cpp, faster_whisper
-from voice_core.engines.tts import chatterbox, kokoro, sherpa_tts
+from voice_core.engines.tts import chatterbox, f5, kokoro, sherpa_tts
 from voice_core.engines.vad import silero
 from voice_core.engines.wake import openwakeword
 from voice_core.engines.speaker import sherpa_speaker
@@ -31,6 +31,7 @@ def register_all() -> None:
 
     # TTS
     registry.register_tts("kokoro-82m", kokoro.factory)
+    registry.register_tts("f5-tts", f5.factory)
     registry.register_tts("chatterbox", chatterbox.factory)
     registry.register_tts("sherpa-onnx-tts", sherpa_tts.factory)
 

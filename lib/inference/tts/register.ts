@@ -28,14 +28,14 @@ const PROVIDERS: InferenceProvider[] = [
     id: "voice-core",
     name: "voice-core (local sidecar)",
     description:
-      "Local TTS engines hosted by voice-core (port 4245). sherpa-onnx VITS " +
-      "(Piper amy-medium) is the default — small, reliable, runs on CPU. " +
-      "Kokoro and Chatterbox stay available for higher quality / expressive output.",
+      "Local TTS engines hosted by voice-core (port 4245). Kokoro 82M is the " +
+      "default natural CPU voice; sherpa-onnx stays as the fast fallback and " +
+      "Chatterbox stays optional for expressive output.",
     modalities: ["tts", "stt"],
     requiresApiKey: false,
     defaultBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
     defaultModels: {
-      tts: ["sherpa-onnx-tts", "kokoro-82m", "chatterbox"],
+      tts: ["kokoro-82m", "sherpa-onnx-tts", "chatterbox"],
     },
     listModels: async (_m, config) => {
       const voices = await listTtsVoices("voice-core", config);
@@ -196,7 +196,7 @@ export function registerTtsProviders(): void {
         model: process.env.TTS_MODEL,
         extras: {
           defaultVoiceId: process.env.TTS_VOICE,
-          engine: process.env.TTS_ENGINE ?? "sherpa-onnx-tts",
+          engine: process.env.TTS_ENGINE ?? "kokoro-82m",
         },
       },
     });

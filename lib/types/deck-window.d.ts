@@ -29,6 +29,7 @@ declare global {
       electronVersion: string;
       chromeVersion: string;
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+      getFilePath?: (file: File) => string | null;
       browser: BrowserSurface;
     };
   }

@@ -21,8 +21,11 @@ import {
 } from "@/components/settings/DeckSettingsProvider";
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
-import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
-import { useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
+import { useVoiceSession } from "@/lib/voice/use-voice-session";
+import {
+  useOptionalVoiceSession,
+  VoiceSessionProvider,
+} from "@/lib/voice/VoiceSessionContext";
 import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
 import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
@@ -32,14 +35,24 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { UploadTray } from "@/components/chat/UploadTray";
 import { ContextRail } from "@/components/chat/ContextRail";
 import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
+import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
 import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
 import { useCommands } from "@/lib/hooks/useCommands";
 import { subscribeChatPrefill } from "@/lib/messages/chatPrefill";
+import { PhraseConductor } from "@/lib/voice/phrase-conductor";
+import { cleanResponseForSpeech } from "@/lib/voice/conductor";
 import type { Artifact } from "@/components/chat/ArtifactRenderer";
 import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
+
+type VoiceSubmitOrigin = "voice-dictation" | "voice-live";
+type SubmitOrigin = "typed" | VoiceSubmitOrigin;
+
+interface ChatSurfaceProps {
+  voiceSubmitOrigin?: VoiceSubmitOrigin;
+}
 
 /** Truncate string values in tool args to keep metadata compact */
 function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -292,11 +305,12 @@ function extractToolSummaries(segments: import("@/lib/types/agentRun").TimelineS
     }));
 }
 
-export default function ChatSurface() {
+export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: ChatSurfaceProps = {}) {
   // ---------------------------------------------------------------------------
   // External hooks
   // ---------------------------------------------------------------------------
   const { prefs } = useDeckSettings();
+  const dock = useOptionalAudioDock();
   // ---------------------------------------------------------------------------
   // Threads
   // ---------------------------------------------------------------------------
@@ -326,8 +340,12 @@ export default function ChatSurface() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastSpokenIdRef = useRef<string | null>(null);
-  const sendMessageRef = useRef<(text: string) => void>(() => {});
+  const sendMessageRef = useRef<(text: string, origin?: SubmitOrigin) => void>(() => {});
   const pendingTTSRef = useRef<string | null>(null);
+  const directSubmitRef = useRef<{ text: string; origin: SubmitOrigin } | null>(null);
+  const voiceReplyMessageIdsRef = useRef<Set<string>>(new Set());
+  const lastSharedFinalSubmittedRef = useRef<string>("");
+  const voiceStateRef = useRef<string>("idle");
   const queueComposerFocus = useCallback((delay = 0) => {
     window.setTimeout(() => {
       if (shouldMoveFocusTo(inputRef.current)) {
@@ -366,6 +384,19 @@ export default function ChatSurface() {
   const { runState, segments } = agentState;
   const isStreaming = runState.phase === "streaming" || runState.phase === "executing";
 
+  const submitVoiceFinal = useCallback(
+    (text: string) => {
+      if (!prefs.voice.enabled) return;
+      if (voiceStateRef.current === "confirming") return;
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (trimmed === lastSharedFinalSubmittedRef.current) return;
+      lastSharedFinalSubmittedRef.current = trimmed;
+      sendMessageRef.current(trimmed, voiceModeOpen ? "voice-live" : voiceSubmitOrigin);
+    },
+    [prefs.voice.enabled, voiceModeOpen, voiceSubmitOrigin],
+  );
+
   // ---------------------------------------------------------------------------
   // Voice chat
   //
@@ -374,37 +405,45 @@ export default function ChatSurface() {
   // hook owns the voice runtime for standalone chat pages.
   // ---------------------------------------------------------------------------
   const sharedVoiceSession = useOptionalVoiceSession();
-  const ownVoiceChat = useVoiceChat({
+  // Own a session when no parent provides one — and ALWAYS expose a session
+  // to downstream voice consumers (the sheet) via VoiceSessionProvider below.
+  // Without this, opening VoiceModeSheet on /chat spawns a parallel session
+  // that ChatSurface never observes, so transcripts go nowhere.
+  const ownSession = useVoiceSession({
     enabled: !sharedVoiceSession,
-    ttsEngine: prefs.voice.ttsEngine,
-    silenceTimeout: prefs.voice.silenceTimeoutMs,
-    silenceThreshold: prefs.voice.silenceThreshold,
-    inputDeviceId: prefs.voice.audioInputId ?? null,
-    outputDeviceId: prefs.voice.audioOutputId ?? null,
-    onTranscript: (text) => {
-      if (prefs.voice.enabled) setInputValue(text);
-    },
-    onAutoSend: (text) => {
-      if (prefs.voice.enabled && text.trim()) sendMessageRef.current(text);
-    },
+    onTranscriptFinal: submitVoiceFinal,
   });
-  const voiceChat = sharedVoiceSession?.voiceChat ?? ownVoiceChat;
-
-  // When using a shared session, the callbacks above live on LiveVoiceSurface's
-  // hook — not on ours. Mirror the shared transcript into the composer instead.
-  const sharedPartial = sharedVoiceSession?.transcriptPartial ?? "";
-  const sharedFinal = sharedVoiceSession?.transcriptFinal ?? "";
+  const voiceSession = sharedVoiceSession ?? ownSession;
+  const voiceChat = voiceSession.voiceChat;
   useEffect(() => {
-    if (!sharedVoiceSession) return;
+    voiceStateRef.current = voiceSession.state;
+  }, [voiceSession.state]);
+
+  const sharedPartial = voiceSession.transcriptPartial;
+  const sharedFinal = voiceSession.transcriptFinal;
+  useEffect(() => {
     if (!prefs.voice.enabled) return;
     if (sharedPartial) setInputValue(sharedPartial);
-  }, [sharedVoiceSession, prefs.voice.enabled, sharedPartial]);
+  }, [prefs.voice.enabled, sharedPartial]);
   useEffect(() => {
-    if (!sharedVoiceSession) return;
     if (!prefs.voice.enabled) return;
-    const text = sharedFinal.trim();
-    if (text) sendMessageRef.current(text);
-  }, [sharedVoiceSession, prefs.voice.enabled, sharedFinal]);
+    submitVoiceFinal(sharedFinal);
+  }, [prefs.voice.enabled, sharedFinal, submitVoiceFinal]);
+
+  // Streaming STT can emit a blank final immediately after the real final.
+  // If React batches those updates, the non-empty `transcriptFinal` may never
+  // be observed by this component; the FSM still enters `submitting`, so use
+  // the composer text as the last-known final in that case.
+  useEffect(() => {
+    if (voiceSession.state !== "submitting") return;
+    submitVoiceFinal(sharedFinal || inputValue);
+  }, [inputValue, sharedFinal, submitVoiceFinal, voiceSession.state]);
+
+  // Drop the dedup memory once the FSM clears the shared transcript, so a
+  // genuinely identical follow-up utterance is not blocked.
+  useEffect(() => {
+    if (!sharedFinal && voiceSession.state === "idle") lastSharedFinalSubmittedRef.current = "";
+  }, [sharedFinal, voiceSession.state]);
 
   // ---------------------------------------------------------------------------
   // Inspector sync (SURFACE.md §5.4 — single update replaces 6 push effects)
@@ -593,13 +632,17 @@ export default function ChatSurface() {
   // Effects: Auto-TTS, keyboard shortcuts
   // ---------------------------------------------------------------------------
 
-  // Auto-TTS when assistant message completes
+  // Auto-TTS only for assistant messages that answer a voice-origin turn.
+  // Opening voice mode by itself must not read old chat history or typed
+  // replies; manual speak controls still call `voiceChat.speak()` directly.
   useEffect(() => {
-    if (!prefs.voice.enabled || !prefs.voice.readAloud || isRunning || voiceModeOpen) return;
+    if (!prefs.voice.enabled || isRunning) return;
     const lastMsg = messages[messages.length - 1];
     if (!lastMsg || lastMsg.role !== "assistant" || !lastMsg.content) return;
+    if (!voiceReplyMessageIdsRef.current.has(lastMsg.id)) return;
     if (lastSpokenIdRef.current === lastMsg.id) return;
     if (pendingTTSRef.current === lastMsg.id) pendingTTSRef.current = null;
+    voiceReplyMessageIdsRef.current.delete(lastMsg.id);
 
     lastSpokenIdRef.current = lastMsg.id;
     setSpeakingMessageId(lastMsg.id);
@@ -608,14 +651,32 @@ export default function ChatSurface() {
       .replace(/<tool[^>]*>[\s\S]*?<\/tool>/g, "")
       .replace(/```[\s\S]*?```/g, "code block")
       .replace(/\{"tool"[\s\S]*?\}/g, "")
+      // Markdown → speakable plain text. Order matters: images/links before
+      // inline code so URLs in brackets don't get partially eaten.
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
+      .replace(/(^|[^_])_([^_\n]+)_/g, "$1$2")
+      .replace(/~~([^~]+)~~/g, "$1")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/^\s{0,3}>\s?/gm, "")
+      .replace(/^\s*[-*+]\s+/gm, "")
+      .replace(/^\s*\d+\.\s+/gm, "")
       .trim();
 
     if (cleanContent) {
-      voiceChat.speak(cleanContent).finally(() => setSpeakingMessageId(null));
+      voiceChat.speak(cleanContent).finally(() => {
+        setSpeakingMessageId(null);
+        voiceSession.markAgentRunFinished();
+      });
     } else {
       setSpeakingMessageId(null);
+      voiceSession.markAgentRunFinished();
     }
-  }, [isRunning, messages, prefs.voice.enabled, prefs.voice.readAloud, voiceChat, voiceModeOpen]);
+  }, [isRunning, messages, prefs.voice.enabled, voiceChat, voiceSession]);
 
   // ---------------------------------------------------------------------------
   // Keyboard shortcuts (BEHAVIOR.md §5)
@@ -733,7 +794,12 @@ export default function ChatSurface() {
 
   const onSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    const text = inputValue.trim();
+    const directSubmit = directSubmitRef.current;
+    directSubmitRef.current = null;
+    const origin: SubmitOrigin = directSubmit?.origin ?? "typed";
+    const isVoiceOrigin = origin === "voice-dictation" || origin === "voice-live";
+    const shouldSpeakReply = origin === "voice-live";
+    const text = (directSubmit?.text ?? inputValue).trim();
     if (!text && pendingUploads.length === 0) return;
     if (isRunning) return;
 
@@ -803,11 +869,9 @@ export default function ChatSurface() {
       }),
     }).catch((err) => console.error("[ChatSurface] Failed to save user message:", err));
 
-    // TTS tracking
+    // TTS tracking. Live voice streams speech from SSE text deltas below, so
+    // don't also mark the completed assistant message for full-text readback.
     const assistantId = crypto.randomUUID();
-    if (prefs.voice.enabled && prefs.voice.readAloud) {
-      pendingTTSRef.current = assistantId;
-    }
 
     // Build API messages (using all messages in the conversation)
     const apiMessages = updatedMessages.map((m) => ({
@@ -816,6 +880,23 @@ export default function ChatSurface() {
     }));
 
     // Send via useAgentRun — this POSTs to /api/chat and consumes the SSE stream
+    if (isVoiceOrigin) {
+      voiceSession.markAgentRunStarted();
+    }
+    let liveSpeechQueued = false;
+    const liveConductor = shouldSpeakReply ? new PhraseConductor({ maxChars: 180 }) : null;
+    const queueLiveSpeech = (delta: string) => {
+      if (!liveConductor) return;
+      for (const candidate of liveConductor.pushTextDelta(delta)) {
+        liveSpeechQueued = voiceChat.queueSpeech(candidate.text) || liveSpeechQueued;
+      }
+    };
+    const flushLiveSpeech = () => {
+      if (!liveConductor) return;
+      for (const candidate of liveConductor.flush()) {
+        liveSpeechQueued = voiceChat.queueSpeech(candidate.text) || liveSpeechQueued;
+      }
+    };
     const result = await agentRun.send(messageContent, {
       messages: apiMessages,
       threadId,
@@ -823,6 +904,17 @@ export default function ChatSurface() {
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
       systemPrompt: prefs.systemPrompt,
       preset: prefs.localModelPreset,
+      voice: isVoiceOrigin
+        ? {
+            turnId: crypto.randomUUID(),
+            routeId: shouldSpeakReply ? dock?.routeId ?? "handsfree-chat" : "dictation",
+            mode: shouldSpeakReply ? dock?.mode ?? "chat" : "dictation",
+            surface: "chat",
+            source: shouldSpeakReply ? "live" : "dictation",
+            modality: "voice",
+          }
+        : undefined,
+      hooks: shouldSpeakReply ? { onTextDelta: queueLiveSpeech } : undefined,
     });
 
     // Persist assistant message on completion
@@ -864,6 +956,9 @@ export default function ChatSurface() {
 
       // Thread title update is handled reactively via agentState.threadTitle
       // (see useEffect below) — no setTimeout polling needed (SURFACE.md §6.2)
+      if (isVoiceOrigin && !shouldSpeakReply) {
+        voiceSession.markAgentRunFinished();
+      }
     } else if (!result.ok && result.fullText) {
       // Partial content — save what we have with error indicator
       const assistantMessage: Message = {
@@ -872,22 +967,48 @@ export default function ChatSurface() {
         content: result.fullText + "\n\n*[Response interrupted]*",
       };
       setMessages((prev) => [...prev, assistantMessage]);
+      if (isVoiceOrigin && !shouldSpeakReply) {
+        voiceSession.markAgentRunFinished();
+      }
+    } else {
+      voiceReplyMessageIdsRef.current.delete(assistantId);
+      if (isVoiceOrigin && !shouldSpeakReply) {
+        voiceSession.markAgentRunFinished();
+      }
+    }
+
+    if (shouldSpeakReply) {
+      flushLiveSpeech();
+      setSpeakingMessageId(assistantId);
+      if (!liveSpeechQueued) {
+        const fallbackText = cleanResponseForSpeech(result.fullText, 360);
+        if (fallbackText) {
+          await voiceChat.speak(fallbackText);
+        }
+      } else {
+        await voiceChat.waitForSpeechEnd();
+      }
+      setSpeakingMessageId(null);
+      voiceSession.markAgentRunFinished();
     }
 
     // Refocus input
     queueComposerFocus(100);
   }, [
     inputValue, pendingUploads, isRunning, activeThreadId, fallbackThreadId,
-    messages, selectedModel, agentRun, voiceChat, prefs.voice,
+    messages, selectedModel, agentRun, voiceChat, voiceSession,
+    prefs.voice, prefs.systemPrompt, prefs.localModelPreset, dock?.mode, dock?.routeId,
     setMessages, setActiveThreadId, setThreads, clearUploads, queueComposerFocus,
   ]);
 
   // Wire voice auto-send
-  sendMessageRef.current = (text: string) => {
-    setInputValue(text);
-    // Simulate form submit
+  sendMessageRef.current = (text: string, origin: SubmitOrigin = "typed") => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    directSubmitRef.current = { text: trimmed, origin };
+    setInputValue(trimmed);
     const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
-    setTimeout(() => onSubmit(fakeEvent), 50);
+    void onSubmit(fakeEvent);
   };
 
   const handleStop = useCallback(() => {
@@ -1058,6 +1179,17 @@ export default function ChatSurface() {
     />
   );
 
+  // While voice mode is on, the composer text bar is replaced by an inline
+  // voice strip (orb + status + partial transcript + close). Chat timeline
+  // stays visible and interactive above it.
+  const composerOrVoice = voiceModeOpen ? (
+    <VoiceModeSheet
+      isOpen
+      onClose={() => setVoiceModeOpen(false)}
+      threadId={effectiveThreadId}
+    />
+  ) : composer;
+
   const chatStack = (
     <>
       <SurfaceHeader
@@ -1072,11 +1204,12 @@ export default function ChatSurface() {
       {uploadTray}
       {timeline}
       {statusStrip}
-      {composer}
+      {composerOrVoice}
     </>
   );
 
   return (
+    <VoiceSessionProvider session={voiceSession}>
     <div
       className={`cs-root cs-root--surface-${chatSurface} ${showContextRail ? "cs-root--context" : ""}`}
       onDrop={handleDrop}
@@ -1105,47 +1238,6 @@ export default function ChatSurface() {
 
       {showContextRail && <ContextRail />}
 
-      {/* Voice Mode Sheet */}
-      <VoiceModeSheet
-        isOpen={voiceModeOpen}
-        onClose={() => setVoiceModeOpen(false)}
-        threadId={effectiveThreadId}
-        selectedModel={selectedModel}
-        onMessageSent={(userMessage, assistantMessage) => {
-          const userMsgId = crypto.randomUUID();
-          const assistantMsgId = crypto.randomUUID();
-          setMessages((prev) => [
-            ...prev,
-            { id: userMsgId, role: "user", content: userMessage },
-            { id: assistantMsgId, role: "assistant", content: assistantMessage },
-          ]);
-          const tid = effectiveThreadId;
-          if (!activeThreadId) {
-            const newThread: Thread = {
-              id: tid,
-              title: userMessage.slice(0, 50) + (userMessage.length > 50 ? "..." : ""),
-              lastMessageAt: new Date().toISOString(),
-            };
-            setThreads((prev) => {
-              const updated = [newThread, ...prev];
-              setStoredThreads(updated);
-              return updated;
-            });
-            setActiveThreadId(tid);
-          }
-          fetch("/api/threads", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "message", threadId: tid, id: userMsgId, role: "user", content: userMessage }),
-          }).catch((err) => console.error("[ChatSurface] Failed to save voice user message:", err));
-          fetch("/api/threads", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "message", threadId: tid, id: assistantMsgId, role: "assistant", content: assistantMessage }),
-          }).catch((err) => console.error("[ChatSurface] Failed to save voice assistant message:", err));
-        }}
-      />
-
       {/* Agent-GO Interrupt Dialog */}
       <InterruptDialog
         request={pendingInterrupt}
@@ -1159,5 +1251,6 @@ export default function ChatSurface() {
         }}
       />
     </div>
+    </VoiceSessionProvider>
   );
 }

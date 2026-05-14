@@ -134,4 +134,12 @@ describe("createPhraseSplitter", () => {
       "before deciding.",
     ]);
   });
+
+  it("can length-bound an unpunctuated live phrase", () => {
+    const s = createPhraseSplitter({ maxBufferedChars: 60 });
+    expect(
+      s.push("This answer is intentionally streaming without punctuation so live audio starts"),
+    ).toEqual(["This answer is intentionally streaming without punctuation"]);
+    expect(s.flush()).toBe("so live audio starts");
+  });
 });

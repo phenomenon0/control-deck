@@ -19,6 +19,7 @@ import {
   getTerminalServiceConfig,
 } from "./services/terminal-service";
 import { startVoiceCoreSupervisor } from "./services/voice-core-supervisor";
+import { startAgentTsSupervisor } from "./services/agent-ts-supervisor";
 
 const IS_DEV = !app.isPackaged;
 const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
@@ -117,6 +118,7 @@ let themedBrowser: ThemedBrowserRegistry | null = null;
 let remoteDesktopClient: RemoteDesktopClient | null = null;
 let terminalService: { kill: () => void } | null = null;
 let voiceCoreService: { kill: () => void } | null = null;
+let agentTsService: { kill: () => void } | null = null;
 
 function resolveRemoteDesktopHelper(): string {
   const candidates = [
@@ -435,10 +437,56 @@ function attachDeckTokenToRendererRequests(serverOrigin: string): void {
   });
 }
 
+let permissionHandlersRegistered = false;
+function installDeckPermissionHandlers(): void {
+  if (permissionHandlersRegistered) return;
+  permissionHandlersRegistered = true;
+
+  const isDeckUrl = (raw: string | undefined): boolean => {
+    if (!raw) return false;
+    try {
+      const parsed = new URL(raw);
+      if (!/^https?:$/.test(parsed.protocol)) return false;
+      const current = serverUrl ? new URL(serverUrl) : null;
+      if (current && parsed.origin === current.origin) return true;
+      const configuredDevUrl = process.env.CONTROL_DECK_URL ?? "http://localhost:3333";
+      return parsed.origin === new URL(configuredDevUrl).origin;
+    } catch {
+      return false;
+    }
+  };
+
+  const allowedPermissions = new Set([
+    "media",
+    "microphone",
+    "camera",
+    "speaker-selection",
+  ]);
+
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback, details) => {
+      const origin = details.requestingUrl || webContents.getURL();
+      const allowed = isDeckUrl(origin) && allowedPermissions.has(permission);
+      if (allowed) {
+        console.log(`[electron] granted ${permission} permission for ${origin}`);
+      }
+      callback(allowed);
+    },
+  );
+
+  session.defaultSession.setPermissionCheckHandler(
+    (webContents, permission, requestingOrigin) => {
+      const origin = requestingOrigin || webContents?.getURL();
+      return isDeckUrl(origin) && allowedPermissions.has(permission);
+    },
+  );
+}
+
 async function createWindow(): Promise<void> {
   const url = serverUrl ?? (await startEmbeddedServer());
   serverUrl = url;
   attachDeckTokenToRendererRequests(url);
+  installDeckPermissionHandlers();
 
   const preload = path.join(__dirname, "preload.js");
 
@@ -744,6 +792,11 @@ app.whenReady().then(async () => {
     console.error("[electron] voice-core supervisor failed:", err);
   }
   try {
+    agentTsService = startAgentTsSupervisor();
+  } catch (err) {
+    console.error("[electron] agent-ts supervisor failed:", err);
+  }
+  try {
     await createWindow();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -781,6 +834,10 @@ app.on("before-quit", () => {
   if (terminalService) {
     try { terminalService.kill(); } catch { /* ignore */ }
     terminalService = null;
+  }
+  if (agentTsService) {
+    try { agentTsService.kill(); } catch { /* ignore */ }
+    agentTsService = null;
   }
   if (voiceCoreService) {
     try { voiceCoreService.kill(); } catch { /* ignore */ }

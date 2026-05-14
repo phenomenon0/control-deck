@@ -30,6 +30,15 @@ const ABBREVIATIONS = new Set([
 
 const MIN_SOFT_SPLIT_CHARS = 25;
 
+export interface PhraseSplitterOptions {
+  /**
+   * Emit a phrase once the buffered tail grows this long, even if the model has
+   * not emitted punctuation yet. This keeps live TTS responsive for terse
+   * voice turns where waiting for final punctuation feels broken.
+   */
+  maxBufferedChars?: number;
+}
+
 function isAbbreviationPeriod(text: string, periodIdx: number): boolean {
   // Decimal: "3.14", "v2.0".
   const before = text.charAt(periodIdx - 1);
@@ -129,13 +138,33 @@ export function getToolStartMessage(toolName: string): string | null {
  *   const tail = split.flush();
  *   if (tail) tts.queue(tail);
  */
-export function createPhraseSplitter() {
+export function createPhraseSplitter(opts: PhraseSplitterOptions = {}) {
   let buf = "";
+  const maxBufferedChars = opts.maxBufferedChars;
 
   function emit(out: string[], cutOff: number) {
     const phrase = buf.slice(0, cutOff).trim();
     if (phrase) out.push(phrase);
     buf = buf.slice(cutOff);
+  }
+
+  function maybeEmitLengthBound(out: string[]) {
+    if (!maxBufferedChars || buf.length < maxBufferedChars) return;
+
+    const maxCut = Math.min(buf.length - 1, maxBufferedChars);
+    const minCut = Math.max(MIN_SOFT_SPLIT_CHARS, Math.floor(maxBufferedChars * 0.55));
+    for (let i = maxCut; i >= minCut; i -= 1) {
+      if (/\s/.test(buf.charAt(i))) {
+        emit(out, i + 1);
+        return;
+      }
+    }
+
+    // If the stream has one very long unbroken token, cut it rather than
+    // letting the voice path appear dead.
+    if (buf.length >= maxBufferedChars + 40) {
+      emit(out, maxBufferedChars);
+    }
   }
 
   return {
@@ -187,6 +216,7 @@ export function createPhraseSplitter() {
         i++;
       }
 
+      maybeEmitLengthBound(out);
       return out;
     },
     flush(): string | null {

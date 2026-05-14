@@ -21,7 +21,17 @@ const migratedNextVitals = nextVitals.map((config) =>
 export default defineConfig([
   ...migratedNextVitals,
   globalIgnores([
-    "dist-electron/**",
+    ".electron-dist/**",
+    ".next/**",
+    ".turbo/**",
+    ".venv*/**",
     "apps/model-tray/src-tauri/target/**",
+    "build/**",
+    "coverage/**",
+    "dist/**",
+    "dist-electron/**",
+    "llama.cpp/**",
+    "node_modules/**",
+    "out/**",
   ]),
 ]);

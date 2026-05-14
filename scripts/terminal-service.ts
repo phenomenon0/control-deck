@@ -46,6 +46,16 @@ interface SessionRecord extends TerminalSession {
   sockets: Set<WebSocket>;
   history: string[];
   historyBytes: number;
+  // Total bytes the PTY has ever produced for the current generation.
+  // Monotonic — only resets on startSession (new generation).
+  historyEnd: number;
+  // Byte offset of the first chunk currently in `history`. Increases as
+  // older chunks are dropped during rotation. `historyEnd - historyStart`
+  // always equals `historyBytes`.
+  historyStart: number;
+  // End-byte offset of each chunk in `history`, parallel array. Used to
+  // resume replay from an arbitrary `?since=` cursor on WS attach.
+  chunkEndOffsets: number[];
   generation: number;
 }
 
@@ -118,13 +128,19 @@ function broadcast(session: SessionRecord, message: TerminalServerMessage): void
 }
 
 function appendHistory(session: SessionRecord, data: string): void {
+  const bytes = Buffer.byteLength(data);
   session.history.push(data);
-  session.historyBytes += Buffer.byteLength(data);
+  session.historyEnd += bytes;
+  session.chunkEndOffsets.push(session.historyEnd);
+  session.historyBytes += bytes;
 
   while (session.historyBytes > MAX_HISTORY_BYTES && session.history.length > 0) {
     const removed = session.history.shift();
+    session.chunkEndOffsets.shift();
     if (removed) {
-      session.historyBytes -= Buffer.byteLength(removed);
+      const removedBytes = Buffer.byteLength(removed);
+      session.historyBytes -= removedBytes;
+      session.historyStart += removedBytes;
     }
   }
 }
@@ -170,6 +186,9 @@ function startSession(session: SessionRecord): SessionRecord {
   session.exitCode = null;
   session.history = [];
   session.historyBytes = 0;
+  session.historyEnd = 0;
+  session.historyStart = 0;
+  session.chunkEndOffsets = [];
   session.lastActiveAt = nowIso();
   session.startedAt = nowIso();
 
@@ -319,6 +338,9 @@ function upsertSession(input: CreateTerminalSessionInput): SessionRecord {
     sockets: new Set(),
     history: [],
     historyBytes: 0,
+    historyEnd: 0,
+    historyStart: 0,
+    chunkEndOffsets: [],
     generation: 0,
   };
 
@@ -523,9 +545,38 @@ server.on("upgrade", (request, socket, head) => {
       exitCode: session.exitCode,
       error: session.error,
     });
-    for (const chunk of session.history) {
-      sendJson(ws, { type: "output", data: chunk });
+    const sinceParam = url.searchParams.get("since");
+    const since = sinceParam ? Math.max(0, Number(sinceParam) || 0) : 0;
+
+    if (since > session.historyEnd) {
+      // Cursor is past the live tail — session was restarted under the same id
+      // (new generation). Tell client to clear, then replay full history.
+      sendJson(ws, { type: "reset", reason: "session-restart" });
+      for (const chunk of session.history) {
+        sendJson(ws, { type: "output", data: chunk });
+      }
+    } else if (since === session.historyEnd) {
+      // Fully caught up — nothing to replay.
+    } else if (since < session.historyStart) {
+      // Cursor predates retained history — replay all we have, after a reset.
+      sendJson(ws, { type: "reset", reason: "history-truncated" });
+      for (const chunk of session.history) {
+        sendJson(ws, { type: "output", data: chunk });
+      }
+    } else {
+      // Resume from the first chunk that ends after `since`.
+      let i = 0;
+      while (
+        i < session.chunkEndOffsets.length &&
+        session.chunkEndOffsets[i] <= since
+      ) {
+        i++;
+      }
+      for (; i < session.history.length; i++) {
+        sendJson(ws, { type: "output", data: session.history[i] });
+      }
     }
+
     if (session.exitCode !== null) {
       sendJson(ws, { type: "exit", exitCode: session.exitCode });
     }

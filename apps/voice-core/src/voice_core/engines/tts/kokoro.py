@@ -13,6 +13,7 @@ auto-fetch them into `<models_dir>/kokoro-82m/` if they're missing.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import urllib.request
 from collections.abc import Iterator
@@ -74,13 +75,19 @@ class KokoroEngine(StreamingTts):
     def load(self) -> None:
         if self._loaded:
             return
+        # kokoro-onnx only picks CUDAExecutionProvider if ONNX_PROVIDER is set
+        # explicitly — its `find_spec("onnxruntime-gpu")` check fails because
+        # the importable module name is `onnxruntime`, not `onnxruntime-gpu`.
+        import onnxruntime as _ort
+        if not os.environ.get("ONNX_PROVIDER") and "CUDAExecutionProvider" in _ort.get_available_providers():
+            os.environ["ONNX_PROVIDER"] = "CUDAExecutionProvider"
         import kokoro_onnx  # type: ignore
 
         target = self._settings.models_dir / "kokoro-82m"
         model_path, voices_path = _ensure_release_files(target)
         self._model = kokoro_onnx.Kokoro(str(model_path), str(voices_path))
         self._loaded = True
-        LOG.info("kokoro-82m loaded from %s", target)
+        LOG.info("kokoro-82m loaded from %s provider=%s", target, os.environ.get("ONNX_PROVIDER", "CPU"))
 
     def stream(
         self, text: str, voice: str | None = None, speed: float = 1.0

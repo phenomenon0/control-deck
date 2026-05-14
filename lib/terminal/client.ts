@@ -167,8 +167,16 @@ export const terminalClient = {
   },
 };
 
-export async function getTerminalWebSocketUrl(sessionId: string): Promise<string> {
+export async function getTerminalWebSocketUrl(
+  sessionId: string,
+  options?: { since?: number },
+): Promise<string> {
   const transport = await getTransport();
-  const base = `${transport.wsBase}/sessions/${sessionId}/ws`;
-  return transport.token ? `${base}?token=${encodeURIComponent(transport.token)}` : base;
+  const params = new URLSearchParams();
+  if (transport.token) params.set("token", transport.token);
+  if (options?.since != null && options.since > 0) {
+    params.set("since", String(Math.floor(options.since)));
+  }
+  const query = params.toString();
+  return `${transport.wsBase}/sessions/${sessionId}/ws${query ? `?${query}` : ""}`;
 }

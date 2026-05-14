@@ -47,7 +47,7 @@ interface Fixtures {
 
 const test = base.extend<Fixtures>({
   wav: [FIXTURES[0], { option: true }],
-  browserWithFakeAudio: async ({ wav }, use) => {
+  browserWithFakeAudio: async ({ wav }, fixtureUse) => {
     const browser = await chromium.launch({
       args: [
         "--use-fake-device-for-media-stream",
@@ -56,15 +56,15 @@ const test = base.extend<Fixtures>({
         "--autoplay-policy=no-user-gesture-required",
       ],
     });
-    await use(browser);
+    await fixtureUse(browser);
     await browser.close();
   },
-  contextWithMic: async ({ browserWithFakeAudio }, use) => {
+  contextWithMic: async ({ browserWithFakeAudio }, fixtureUse) => {
     const ctx = await browserWithFakeAudio.newContext({
       permissions: ["microphone"],
       baseURL: "http://localhost:3333",
     });
-    await use(ctx);
+    await fixtureUse(ctx);
     await ctx.close();
   },
 });

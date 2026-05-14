@@ -108,9 +108,9 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
   enabled: true,
   readAloud: false,
   mode: "vad",
-  ttsEngine: "sherpa-onnx-tts",
+  ttsEngine: "kokoro-82m",
   silenceTimeoutMs: 1200,
-  silenceThreshold: 0.14,
+  silenceThreshold: 0.04,
   audioInputId: null,
   audioOutputId: null,
 };
@@ -150,6 +150,17 @@ function coerceTtsEngine(value: unknown): TTSEngine {
   return typeof value === "string" && VALID_TTS_ENGINES.has(value as TTSEngine)
     ? (value as TTSEngine)
     : DEFAULT_VOICE_PREFS.ttsEngine;
+}
+
+function coerceSilenceThreshold(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_VOICE_PREFS.silenceThreshold;
+  }
+  // Older installs used 0.14, which is too high for Electron's mic analyser
+  // and can strand Auto mode in LISTENING with no final transcript.
+  if (value > 0.08) return DEFAULT_VOICE_PREFS.silenceThreshold;
+  if (value < 0.005) return 0.005;
+  return value;
 }
 
 function safeParse<T>(value: string | null): T | null {
@@ -225,6 +236,7 @@ function migratePrefs(): DeckPrefs {
         ...DEFAULT_VOICE_PREFS,
         ...newPrefs.voice,
         ttsEngine: coerceTtsEngine(newPrefs.voice?.ttsEngine),
+        silenceThreshold: coerceSilenceThreshold(newPrefs.voice?.silenceThreshold),
       },
     };
     return enforceOnlineModelVisibility(migrated);

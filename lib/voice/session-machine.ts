@@ -165,6 +165,13 @@ export function reduceVoiceSession(
       if (event.type === "TRANSCRIPT_PARTIAL") {
         return transition(ctx, { state: "listening", transcriptPartial: event.text });
       }
+      if (event.type === "TRANSCRIPT_FINAL") {
+        return transition(ctx, {
+          state: "submitting",
+          transcriptFinal: event.text,
+          transcriptPartial: "",
+        });
+      }
       if (event.type === "VOICE_ENDED") {
         return transition(ctx, { state: "transcribing" });
       }
@@ -208,7 +215,12 @@ export function reduceVoiceSession(
         return ignore(ctx, "streaming text without audio keeps thinking");
       }
       if (event.type === "INTERRUPT") {
-        return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
+        return transition(ctx, {
+          state: "interrupted",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
       }
       if (event.type === "APPROVAL_CHALLENGE") {
         return transition(ctx, { state: "confirming" });
@@ -236,7 +248,12 @@ export function reduceVoiceSession(
         });
       }
       if (event.type === "INTERRUPT") {
-        return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
+        return transition(ctx, {
+          state: "interrupted",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
       }
       if (event.type === "APPROVAL_CHALLENGE") {
         return transition(ctx, { state: "confirming" });
@@ -252,10 +269,20 @@ export function reduceVoiceSession(
         return transition(ctx, { state: "thinking" });
       }
       if (event.type === "APPROVAL_REJECTED") {
-        return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
+        return transition(ctx, {
+          state: "interrupted",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
       }
       if (event.type === "INTERRUPT") {
-        return transition(ctx, { state: "interrupted", turnId: ctx.turnId + 1 });
+        return transition(ctx, {
+          state: "interrupted",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
       }
       return ignore(ctx, `event ${event.type} ignored in confirming`);
 

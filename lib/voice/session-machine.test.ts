@@ -167,4 +167,83 @@ describe("voice session machine", () => {
     expect(ctx.state).toBe("idle");
     expect(ctx.turnId).toBe(1);
   });
+
+  test("INTERRUPT from thinking clears transcriptFinal", () => {
+    // Without the clear, a stale transcriptFinal would survive into the
+    // interrupted state. The next mic-arm would still see the prior text in
+    // ctx and a remounting surface could replay the previous turn.
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_FINAL", text: "the prior question" },
+      { type: "RUN_STARTED" },
+      { type: "INTERRUPT" },
+    ]);
+    expect(ctx.state).toBe("interrupted");
+    expect(ctx.transcriptFinal).toBe("");
+    expect(ctx.transcriptPartial).toBe("");
+  });
+
+  test("INTERRUPT from speaking clears transcriptFinal", () => {
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_FINAL", text: "old prompt" },
+      { type: "RUN_STARTED" },
+      { type: "AUDIO_STARTED" },
+      { type: "INTERRUPT" },
+    ]);
+    expect(ctx.state).toBe("interrupted");
+    expect(ctx.transcriptFinal).toBe("");
+  });
+
+  test("re-arm after completed turn does not carry stale transcript", () => {
+    // Reproduces the "audio button resends prior text" class: after a clean
+    // turn the FSM must not let a fresh MIC_REQUESTED resurrect old text.
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_FINAL", text: "first utterance" },
+      { type: "RUN_STARTED" },
+      { type: "AUDIO_STARTED" },
+      { type: "AUDIO_STOPPED" },
+      // User taps the mic again
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+    ]);
+    expect(ctx.state).toBe("listening");
+    expect(ctx.transcriptFinal).toBe("");
+    expect(ctx.transcriptPartial).toBe("");
+  });
+
+  test("streaming TRANSCRIPT_FINAL from listening submits immediately", () => {
+    // Streaming STT can know the final transcript before the MediaRecorder
+    // stop path dispatches VOICE_ENDED. That final must still submit; otherwise
+    // the composer fills with text and never sends.
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "TRANSCRIPT_PARTIAL", text: "hello wor" },
+      { type: "TRANSCRIPT_FINAL", text: "hello world" },
+    ]);
+    expect(ctx.state).toBe("submitting");
+    expect(ctx.transcriptFinal).toBe("hello world");
+    expect(ctx.transcriptPartial).toBe("");
+  });
+
+  test("TRANSCRIPT_FINAL from idle is ignored (no ghost turn)", () => {
+    // A late STT frame arriving after the FSM returned to idle must not
+    // re-trigger submitting. Otherwise a remount or stale callback can fire
+    // a runTurn out of nowhere.
+    const result = reduceVoiceSession(initialContext(), {
+      type: "TRANSCRIPT_FINAL",
+      text: "should be dropped",
+    });
+    expect(result.context.state).toBe("idle");
+    expect(result.context.transcriptFinal).toBe("");
+    expect(result.changed).toBe(false);
+  });
 });

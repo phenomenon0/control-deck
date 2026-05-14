@@ -53,9 +53,20 @@ class FasterWhisperEngine(SttEngine):
         name = os.environ.get("VOICE_CORE_FASTER_WHISPER_MODEL", "large-v3-turbo")
         device = os.environ.get("VOICE_CORE_FASTER_WHISPER_DEVICE", "auto")
         compute_type = os.environ.get("VOICE_CORE_FASTER_WHISPER_COMPUTE", "auto")
-        self._model = WhisperModel(name, device=device, compute_type=compute_type)
+        try:
+            self._model = WhisperModel(name, device=device, compute_type=compute_type)
+            chosen_device = device
+        except RuntimeError as exc:
+            # CUDA OOM is common when the LLM also lives on the GPU. Fall back to
+            # CPU int8 — RTF ~0.2 on a modern CPU is still real-time.
+            msg = str(exc)
+            if "out of memory" not in msg.lower() and "cuda" not in msg.lower():
+                raise
+            LOG.warning("faster-whisper CUDA load failed (%s) — falling back to CPU int8", msg.splitlines()[0])
+            self._model = WhisperModel(name, device="cpu", compute_type="int8")
+            chosen_device = "cpu"
         self._loaded = True
-        LOG.info("faster-whisper loaded model=%s device=%s", name, device)
+        LOG.info("faster-whisper loaded model=%s device=%s", name, chosen_device)
 
     def transcribe(
         self, audio_pcm16: bytes, sample_rate: int, language: str | None = None

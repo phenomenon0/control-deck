@@ -41,21 +41,36 @@ def _ensure_unversioned_symlink(capi: Path) -> None:
             pass
 
 
+def _nvidia_lib_dirs() -> list[Path]:
+    """Pip-installed CUDA libs live under <site-packages>/nvidia/<pkg>/lib/.
+    onnxruntime-gpu needs cuBLAS/cuDNN/etc. from there; without LD_LIBRARY_PATH
+    pointing at these dirs, ORT fails over to CPUExecutionProvider."""
+    capi = _onnxruntime_capi()
+    if capi is None:
+        return []
+    nvidia_root = capi.parent.parent / "nvidia"
+    if not nvidia_root.is_dir():
+        return []
+    return [d for d in nvidia_root.glob("*/lib") if d.is_dir()]
+
+
 def _ensure_ld_library_path() -> None:
     """ld.so reads LD_LIBRARY_PATH at process start. If we're not already
     re-exec'd with the right path, update env and re-exec Python so sherpa-onnx
-    can dlopen libonnxruntime.so."""
+    can dlopen libonnxruntime.so and onnxruntime-gpu can dlopen libcublasLt."""
     if os.environ.get(_SENTINEL) == "1":
         return
     capi = _onnxruntime_capi()
     if capi is None:
         return
     _ensure_unversioned_symlink(capi)
+    extra_dirs = [str(capi), *(str(d) for d in _nvidia_lib_dirs())]
     current = os.environ.get("LD_LIBRARY_PATH", "")
-    if str(capi) in current.split(":"):
+    if all(d in current.split(":") for d in extra_dirs):
         return
     new_env = os.environ.copy()
-    new_env["LD_LIBRARY_PATH"] = f"{capi}:{current}" if current else str(capi)
+    prefix = ":".join(extra_dirs)
+    new_env["LD_LIBRARY_PATH"] = f"{prefix}:{current}" if current else prefix
     new_env[_SENTINEL] = "1"
     # Re-exec only when sys.argv[0] is a real script path. `python -c "..."`
     # leaves sys.argv = ['-c'] which cannot be reconstructed.

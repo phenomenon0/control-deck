@@ -196,12 +196,17 @@ def _preprocess_for_whisper(audio: np.ndarray, sample_rate: int) -> np.ndarray:
         return audio
 
 
+def _find_model_file(models_dir, dir_name: str):
+    target = models_dir / dir_name
+    return next(target.rglob("ggml-*.bin"), None) or next(target.rglob("*.bin"), None)
+
+
 def _load_model(models_dir, dir_name: str):
     from pywhispercpp.model import Model  # type: ignore
 
-    target = models_dir / dir_name
-    candidate = next(target.rglob("ggml-*.bin"), None) or next(target.rglob("*.bin"), None)
+    candidate = _find_model_file(models_dir, dir_name)
     if candidate is None:
+        target = models_dir / dir_name
         raise RuntimeError(f"whisper.cpp: no ggml-*.bin under {target}")
     return Model(str(candidate))
 
@@ -237,7 +242,7 @@ class WhisperCppEngine(StreamingStt):
             import pywhispercpp  # noqa: F401
         except Exception:  # noqa: BLE001
             return False
-        return True
+        return _find_model_file(self._settings.models_dir, self._model_dir_name) is not None
 
     def load(self) -> None:
         if self._loaded:

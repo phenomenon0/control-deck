@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
 
 // Allowlist of channels that deck.invoke() is permitted to reach.
 // browser:* channels are intentionally excluded — they are already reachable
@@ -47,6 +47,18 @@ contextBridge.exposeInMainWorld("deck", {
       throw new Error(`deck.invoke: channel '${channel}' not allowed`);
     }
     return ipcRenderer.invoke(channel, ...args);
+  },
+  /**
+   * Resolve the absolute OS path for a File obtained from drag-drop or
+   * <input type="file">. Electron 32+ removed File.path; this is the
+   * supported replacement.
+   */
+  getFilePath: (file: File): string | null => {
+    try {
+      return webUtils.getPathForFile(file) || null;
+    } catch {
+      return null;
+    }
   },
   browser,
 });

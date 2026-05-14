@@ -50,6 +50,7 @@ import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
 import { buildToolBridgeUrl, buildMcpToolsUrl } from "@/lib/tools/bridge-url";
+import { AUDIO_MODES, promptForAudioMode, type AudioMode } from "@/lib/audio/audio-modes";
 // Agent runtime: agent-ts (apps/agent-ts) on :4244. pi-agent-core wrapped
 // in the AG-UI/SSE wire contract. URL resolution lives in
 // `lib/agentgo/launcher.ts` so launch + chat + approve/reject stay aligned.
@@ -85,6 +86,12 @@ interface ChatRequestBody {
 }
 
 const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
+const VALID_AUDIO_MODES = new Set<AudioMode>(AUDIO_MODES);
+
+function coerceAudioMode(value: string | undefined): AudioMode | null {
+  if (!value) return null;
+  return VALID_AUDIO_MODES.has(value as AudioMode) ? value as AudioMode : null;
+}
 
 interface AgentGOMessage {
   role: "user" | "assistant" | "system" | "tool";
@@ -372,7 +379,12 @@ export async function POST(req: Request) {
   // that instead of whatever the client sent. Lets users keep per-thread
   // personas ("this thread is for code") without mutating global prefs.
   const thread0 = threadId ? getThread(threadId) : undefined;
-  const systemPrompt = thread0?.system_prompt ?? clientPrompt;
+  const baseSystemPrompt = thread0?.system_prompt ?? clientPrompt ?? "";
+  const voiceMode = voice?.modality === "voice" ? coerceAudioMode(voice.mode) : null;
+  const voicePrompt = voiceMode ? promptForAudioMode(voiceMode) : null;
+  const systemPrompt = [baseSystemPrompt.trim(), voicePrompt]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join("\n\n");
 
   // Validate messages array
   if (!Array.isArray(messages) || messages.length === 0) {

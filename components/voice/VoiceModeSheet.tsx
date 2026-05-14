@@ -16,8 +16,6 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { VoiceOrb, type OrbPhase } from "./VoiceOrb";
-import { VoiceTranscript } from "./VoiceTranscript";
-import { VoiceToolResults } from "./VoiceToolResult";
 import { useVoiceSession } from "@/lib/voice/use-voice-session";
 import { useOptionalVoiceSession } from "@/lib/voice/VoiceSessionContext";
 import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
@@ -31,16 +29,12 @@ interface VoiceModeSheetProps {
   isOpen: boolean;
   onClose: () => void;
   threadId: string;
-  selectedModel: string;
-  onMessageSent?: (userMessage: string, assistantMessage: string) => void;
 }
 
 export function VoiceModeSheet({
   isOpen,
   onClose,
   threadId,
-  selectedModel,
-  onMessageSent,
 }: VoiceModeSheetProps) {
   const { prefs, updateVoicePrefs } = useDeckSettings();
   const mode: VoiceMode = prefs.voice.mode;
@@ -65,40 +59,39 @@ export function VoiceModeSheet({
     return session.attachThread(threadId);
   }, [isOpen, threadId, session]);
 
-  // Drive a turn whenever the session emits a final transcript. While the
-  // FSM is in `confirming`, the same transcript is interpreted as the
-  // exact-phrase response to a pending approval rather than a new turn.
+  // Approval-phrase handler. Regular voice turns flow through ChatSurface's
+  // sharedFinal effect → agentRun.send (the unified path also used by typed
+  // input). We only short-circuit here when the FSM is in `confirming` so
+  // exact-phrase approval speech doesn't get mistaken for a new chat turn.
   useEffect(() => {
+    if (!isOpen) return;
     const text = session.transcriptFinal.trim();
-    if (!text || text === lastSubmittedRef.current) return;
-    lastSubmittedRef.current = text;
-
-    if (session.state === "confirming" && session.pendingApproval) {
-      if (isCancellation(text)) {
-        void session.confirmApproval("rejected", "user-cancelled");
-      } else if (matchPhrase(session.pendingApproval, text)) {
-        void session.confirmApproval("approved");
-      }
-      // Non-matching speech in confirming state stays as ambient noise.
+    if (!text) {
+      lastSubmittedRef.current = "";
       return;
     }
+    if (text === lastSubmittedRef.current) return;
+    if (session.state !== "confirming" || !session.pendingApproval) return;
 
-    void session.runTurn(text, {
-      threadId,
-      model: selectedModel,
-      onComplete: onMessageSent,
-      voice: {
-        routeId: dock?.routeId ?? "handsfree-chat",
-        mode: dock?.mode ?? "chat",
-        surface: "chat",
-        source: "manual",
-      },
-    });
-  }, [session, session.transcriptFinal, threadId, selectedModel, onMessageSent, dock]);
+    lastSubmittedRef.current = text;
+    if (isCancellation(text)) {
+      void session.confirmApproval("rejected", "user-cancelled");
+    } else if (matchPhrase(session.pendingApproval, text)) {
+      void session.confirmApproval("approved");
+    }
+    // Non-matching speech in confirming state stays as ambient noise.
+  }, [isOpen, session, session.transcriptFinal]);
 
-  // Auto-start listening when sheet opens.
+  // Auto-start listening when sheet opens in VAD mode. In push-to-talk mode,
+  // auto-starting leaves the sheet permanently listening and no final
+  // transcript is emitted until the mic stops.
   useEffect(() => {
-    if (isOpen && voiceChat.voiceApiStatus === "connected" && !autoStartedRef.current) {
+    if (
+      isOpen &&
+      mode !== "push-to-talk" &&
+      voiceChat.voiceApiStatus === "connected" &&
+      !autoStartedRef.current
+    ) {
       autoStartedRef.current = true;
       const timer = setTimeout(() => {
         void session.startListening();
@@ -107,13 +100,21 @@ export function VoiceModeSheet({
     }
     if (!isOpen) {
       autoStartedRef.current = false;
+      // Drop the dedup memory so the next session can't be blocked by — or
+      // replay — the previous turn's text if the FSM still holds it.
+      lastSubmittedRef.current = "";
     }
-  }, [isOpen, voiceChat.voiceApiStatus, session]);
+  }, [isOpen, mode, voiceChat.voiceApiStatus, session]);
 
-  // Safety net: keep the mic alive when the session is idle and the sheet open.
+  // Safety net: keep the mic alive for VAD. Push-to-talk must not re-arm
+  // itself, otherwise releasing the mic immediately starts another recording.
   useEffect(() => {
     if (!isOpen) return;
+    if (mode === "push-to-talk") return;
     const interval = setInterval(() => {
+      // Matches use-voice-session.ts:1087 — `interrupted` is a legitimate
+      // re-arm origin (post barge-in, post mid-turn close-reopen, post
+      // cross-claim INTERRUPT). Blocking it here would strand the mic.
       if (
         voiceChat.voiceApiStatus === "connected" &&
         !voiceChat.isListening &&
@@ -133,10 +134,12 @@ export function VoiceModeSheet({
     voiceChat.isSpeaking,
     voiceChat.isProcessingSTT,
     session,
+    mode,
   ]);
 
   // Mic press → barge-in if speaking, otherwise start/stop listening.
   const handleMicPress = useCallback(() => {
+    if (voiceChat.voiceApiStatus !== "connected") return;
     if (voiceChat.isSpeaking || session.isInterruptible) {
       void session.interrupt();
       return;
@@ -148,7 +151,7 @@ export function VoiceModeSheet({
     } else {
       void session.startListening();
     }
-  }, [mode, session, voiceChat.isListening, voiceChat.isSpeaking]);
+  }, [mode, session, voiceChat.isListening, voiceChat.isSpeaking, voiceChat.voiceApiStatus]);
 
   const handleMicRelease = useCallback(() => {
     if (mode === "push-to-talk" && voiceChat.isListening) {
@@ -197,220 +200,174 @@ export function VoiceModeSheet({
 
   if (!isOpen) return null;
 
+  const phaseLabel =
+    phase === "idle"
+      ? mode === "push-to-talk"
+        ? "Hold to talk"
+        : "Starting..."
+      : phase === "listening"
+        ? "Listening"
+        : phase === "processing"
+          ? "Thinking"
+          : "Speaking — tap to interrupt";
+
+  const partialOrHint =
+    session.transcriptPartial ||
+    (phase === "listening"
+      ? "Say something."
+      : mode === "push-to-talk"
+        ? "Hold the orb or spacebar."
+        : "");
+
   return (
     <div
-      className="voice-mode-overlay"
-      onClick={handleClose}
+      className="voice-mode-strip"
       style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0, 0, 0, 0.85)",
-        zIndex: 999,
-        animation: "fadeIn 0.15s cubic-bezier(0, 0, 0.2, 1)",
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: "10px",
+        background: "var(--bg-secondary)",
+        boxShadow: "0 1px 0 rgba(0,0,0,0.04)",
       }}
     >
-      <div
-        className="voice-mode-sheet"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: "70vh",
-          maxHeight: "640px",
-          background: "var(--bg-secondary)",
-          borderRadius: "6px 6px 0 0",
-          borderTop: "1px solid var(--border)",
-          display: "flex",
-          flexDirection: "column",
-          animation: "slideUpSheet 0.15s cubic-bezier(0, 0, 0.2, 1)",
-          zIndex: 1000,
-        }}
-      >
-        {/* Minimal header */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <div
+          onPointerDown={handleMicPress}
+          onPointerUp={handleMicRelease}
+          onPointerLeave={handleMicRelease}
+          style={{
+            cursor: voiceChat.voiceApiStatus === "connected" ? "pointer" : "not-allowed",
+            opacity: voiceChat.voiceApiStatus === "connected" ? 1 : 0.5,
+            touchAction: "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+          aria-label={phaseLabel}
+        >
+          <VoiceOrb
+            phase={phase}
+            audioLevel={
+              voiceChat.isListening
+                ? voiceChat.audioLevel
+                : voiceChat.isSpeaking
+                  ? 0.3
+                  : 0
+            }
+            size={36}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "var(--text-muted)",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+            }}
+          >
+            {phaseLabel}
+          </div>
+          <div
+            style={{
+              fontSize: "13px",
+              color: "var(--text-primary)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minHeight: "18px",
+            }}
+            title={partialOrHint}
+          >
+            {partialOrHint || " "}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => updateVoicePrefs({ mode: mode === "vad" ? "push-to-talk" : "vad" })}
+          style={{
+            padding: "4px 10px",
+            borderRadius: "6px",
+            border: "1px solid var(--border)",
+            background: "rgba(255, 255, 255, 0.04)",
+            color: "var(--accent)",
+            fontSize: "12px",
+            fontWeight: 500,
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+          title={mode === "vad" ? "Voice Activity Detection (auto)" : "Push-to-Talk (manual)"}
+        >
+          {mode === "vad" ? "Auto" : "PTT"}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleClose}
+          style={{
+            width: "28px",
+            height: "28px",
+            borderRadius: "6px",
+            border: "1px solid var(--border)",
+            background: "rgba(255, 255, 255, 0.04)",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "16px",
+            fontWeight: 300,
+            flexShrink: 0,
+          }}
+          aria-label="Close voice mode"
+        >
+          ×
+        </button>
+      </div>
+
+      <VoiceApprovalCard />
+
+      {voiceChat.error && (
         <div
           style={{
+            padding: "6px 10px",
+            background: "rgba(255, 59, 48, 0.08)",
+            borderRadius: "6px",
+            color: "var(--error)",
+            fontSize: "12px",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            padding: "4px 20px 12px",
+            gap: "8px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span
-              style={{
-                fontSize: "15px",
-                fontWeight: "600",
-                color: "var(--text-primary)",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              Voice
-            </span>
-            <span
-              style={{
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                background:
-                  voiceChat.voiceApiStatus === "connected"
-                    ? "var(--success)"
-                    : "var(--error)",
-                flexShrink: 0,
-              }}
-            />
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button
-              onClick={() => updateVoicePrefs({ mode: mode === "vad" ? "push-to-talk" : "vad" })}
-              style={{
-                padding: "4px 10px",
-                borderRadius: "6px",
-                border: "1px solid var(--border)",
-                background: "rgba(255, 255, 255, 0.04)",
-                color: "var(--accent)",
-                fontSize: "12px",
-                fontWeight: "500",
-                cursor: "pointer",
-                transition: "background 0.15s cubic-bezier(0, 0, 0.2, 1)",
-              }}
-              title={mode === "vad" ? "Voice Activity Detection (auto)" : "Push-to-Talk (manual)"}
-            >
-              {mode === "vad" ? "Auto" : "PTT"}
-            </button>
-            <button
-              onClick={handleClose}
-              style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "6px",
-                border: "1px solid var(--border)",
-                background: "rgba(255, 255, 255, 0.04)",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "16px",
-                fontWeight: "300",
-                transition: "background 0.15s cubic-bezier(0, 0, 0.2, 1)",
-              }}
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        {/* Main content */}
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            padding: "12px 20px 20px",
-            gap: "16px",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              flex: "0 0 auto",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              paddingTop: "12px",
-            }}
-          >
-            <div
-              onPointerDown={handleMicPress}
-              onPointerUp={handleMicRelease}
-              onPointerLeave={handleMicRelease}
-              style={{
-                cursor: voiceChat.voiceApiStatus === "connected" ? "pointer" : "not-allowed",
-                opacity: voiceChat.voiceApiStatus === "connected" ? 1 : 0.5,
-                touchAction: "none",
-              }}
-            >
-              <VoiceOrb
-                phase={phase}
-                audioLevel={
-                  voiceChat.isListening
-                    ? voiceChat.audioLevel
-                    : voiceChat.isSpeaking
-                      ? 0.3
-                      : 0
-                }
-                size={80}
-              />
-            </div>
-
-            <div
-              style={{
-                fontSize: "13px",
-                color: "var(--text-muted)",
-                textAlign: "center",
-                marginTop: "12px",
-                fontWeight: "400",
-                letterSpacing: "-0.01em",
-                transition: "opacity 0.2s cubic-bezier(0.4, 0, 0.6, 1)",
-              }}
-            >
-              {phase === "idle" && "Starting..."}
-              {phase === "listening" && "Listening..."}
-              {phase === "processing" && "Thinking..."}
-              {phase === "speaking" && "Tap to interrupt"}
-            </div>
-          </div>
-
-          <VoiceApprovalCard />
-
-          <VoiceToolResults
-            artifacts={session.tools.artifacts}
-            isGenerating={session.tools.isRunning}
-            toolName={session.tools.currentToolName ?? undefined}
-          />
-
-          <VoiceTranscript
-            entries={session.turns}
-            currentUserSpeech={session.transcriptPartial}
-            isListening={voiceChat.isListening}
-          />
-        </div>
-
-        {voiceChat.error && (
-          <div
-            style={{
-              padding: "10px 20px",
-              background: "rgba(255, 59, 48, 0.08)",
-              borderTop: "1px solid rgba(255, 59, 48, 0.12)",
-              color: "var(--error)",
-              fontSize: "13px",
-              textAlign: "center",
-              fontWeight: "400",
-            }}
-          >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {voiceChat.error}
-            <button
-              onClick={() => voiceChat.clearError()}
-              style={{
-                marginLeft: "8px",
-                background: "none",
-                border: "none",
-                color: "inherit",
-                textDecoration: "underline",
-                cursor: "pointer",
-                fontSize: "13px",
-              }}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-      </div>
+          </span>
+          <button
+            type="button"
+            onClick={() => voiceChat.clearError()}
+            style={{
+              background: "none",
+              border: "none",
+              color: "inherit",
+              textDecoration: "underline",
+              cursor: "pointer",
+              fontSize: "12px",
+              flexShrink: 0,
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
     </div>
   );
 }

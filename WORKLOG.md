@@ -50,3 +50,42 @@ Next likely step:
 
 Note:
 - Existing Hermes native MCP connection may need a Hermes restart to pick up the patched stdio server code. Fresh mcporter stdio calls already verify the fix.
+
+## 2026-05-13 05:34 CDT — Terminal output render-pressure optimization
+
+- Focused on a low-risk performance target in `components/panes/TerminalPane.tsx`: high-frequency terminal WebSocket output was updating React state for chunk stats on every output message.
+- Added ref-backed counters and a `requestAnimationFrame` stats flush so `chunkCount` and `lastChunkAt` coalesce to at most one React state update per frame while terminal bytes still write to xterm immediately.
+- Reset pending stat refs and cancel scheduled flushes when the active terminal session changes, preventing stale stats from leaking across sessions.
+- Kept a non-browser / no-RAF fallback so tests and SSR-like environments do not depend on browser animation APIs.
+- Made lint verification faster and cleaner by expanding flat-config global ignores for generated/vendor/build directories in `eslint.config.mjs`.
+- Fixed two Playwright fixture lint errors in the voice harness by renaming the fixture callback parameter from `use` to `fixtureUse`.
+- Verification passed:
+  - `bun run typecheck`
+  - `./node_modules/.bin/eslint components/panes/TerminalPane.tsx eslint.config.mjs tests/voice-harness/e2e/newsroom-liveblog.spec.ts tests/voice-harness/e2e/newsroom-ui-smoke.spec.ts`
+  - `bun run lint --quiet`
+  - `bun run build`
+- Remaining non-blocking build warnings:
+  - `baseline-browser-mapping` data is stale.
+  - Next.js warns `middleware` convention should migrate to `proxy`.
+  - Turbopack reports broad dynamic file patterns in `lib/llm/freeTier.ts` and code-exec runners; these are possible future build-performance targets.
+
+## 2026-05-14 09:58 CDT — Local agent cockpit MCP training plan
+
+- Inventoried the live Control Deck MCP surface through the stdio wrapper and `/api/tools/catalog`; the current exposed surface has 35 tools.
+- Wrote the local-agent-cockpit strategy document at `docs/plans/2026-05-14-control-deck-agent-cockpit-mcp-training.md` covering:
+  - the full live MCP tool inventory;
+  - recommended exposure profiles (`core`, `knowledge`, `creative`, `desktop-read`, `desktop-control`, `developer`, `full`);
+  - exact system prompts for cockpit, developer, and desktop-control agents;
+  - training/eval trajectory design for SFT, preference tuning, and RL-style environment work;
+  - P0 implementation tasks for profile-filtered MCP registration, prompts/resources, macro tools, failure envelopes, and trajectory recording.
+- Found an agent-usability bug: many bridge/MCP tools were registered without Zod arg schemas in `TOOL_SCHEMAS`, so MCP clients did not get good schemas for workspace/native tools.
+- Fixed the schema map in `lib/tools/definitions.ts` so all bridge-exposed tools, including workspace and native tools, have MCP-visible argument schemas.
+- Added `lib/tools/bridge-schemas.test.ts` to assert every bridge/MCP-exposed tool has a Zod args schema.
+- Verification passed:
+  - `bun test lib/tools/bridge-schemas.test.ts`
+  - `bun run typecheck`
+  - fresh mcporter stdio discovery shows `workspace_open_pane` args as `position,referencePane,title,type` and `workspace_pane_call` args as `args,capability,target`.
+
+Next likely step:
+- Implement MCP profile filtering so the default MCP surface is a safe `core` cockpit profile instead of exposing the entire trusted-local tool surface.
+- Add MCP prompts/resources (`local_agent_cockpit`, tool manifest, workspace state, platform capabilities) so agents can retrieve the correct operating handbook directly from the server.

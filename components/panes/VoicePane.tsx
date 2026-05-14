@@ -8,13 +8,13 @@ import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import Link from "next/link";
 
 const ENGINES: { id: TTSEngine; name: string; description: string }[] = [
-  { id: "sherpa-onnx-tts", name: "Sherpa ONNX VITS", description: "Default — Piper amy-medium, runs on CPU" },
-  { id: "kokoro-82m", name: "Kokoro 82M", description: "Apache 2.0, 50+ voices (heavier)" },
-  { id: "chatterbox", name: "Chatterbox", description: "Most expressive (lazy-load)" },
+  { id: "kokoro-82m", name: "Kokoro 82M", description: "Default - Apache 2.0, natural CPU voice" },
+  { id: "sherpa-onnx-tts", name: "Sherpa ONNX VITS", description: "Fast fallback - Piper amy-medium" },
+  { id: "chatterbox", name: "Chatterbox", description: "Optional expressive engine" },
 ];
 
 export function VoicePane() {
-  const [engine, setEngine] = useState<TTSEngine>("sherpa-onnx-tts");
+  const [engine, setEngine] = useState<TTSEngine>("kokoro-82m");
   const [text, setText] = useState("");
   const [mode, setMode] = useState<VoiceInputMode>("push-to-talk");
   const { prefs } = useDeckSettings();
@@ -83,7 +83,7 @@ export function VoicePane() {
             <p>Whisper speech input, local TTS engines, and live voice controls for the chat surface.</p>
           </div>
           <div className="warp-pane-actions">
-            <span className="pill--mono">STT Whisper</span>
+            <span className="pill--mono">STT Sherpa</span>
             <span className="pill--mono">TTS {engine}</span>
           <div
             className="flex items-center gap-1"

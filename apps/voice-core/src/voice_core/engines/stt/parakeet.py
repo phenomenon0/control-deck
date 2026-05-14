@@ -93,6 +93,22 @@ class ParakeetEngine(StreamingStt):
         if self._loaded:
             return
         self._model = _load_model(self._settings.models_dir)
+        # NeMo loads on CUDA by default if available. If the GPU is contended
+        # (e.g. an LLM holds most VRAM), move the model to CPU so we don't OOM
+        # at first transcribe. Force via VOICE_CORE_PARAKEET_DEVICE=cpu|cuda.
+        forced = os.environ.get("VOICE_CORE_PARAKEET_DEVICE")
+        try:
+            import torch  # type: ignore
+            on_cuda = next(self._model.parameters()).is_cuda if hasattr(self._model, "parameters") else False
+            free_mb = (torch.cuda.mem_get_info()[0] / 1024 / 1024) if torch.cuda.is_available() else 0
+            target = forced or ("cuda" if on_cuda and free_mb > 1800 else "cpu")
+            if target == "cpu" and on_cuda:
+                self._model = self._model.cpu()
+                LOG.warning("parakeet: insufficient VRAM (%.0f MiB free) — running on CPU", free_mb)
+            else:
+                LOG.info("parakeet device=%s free_vram=%.0fMiB", target, free_mb)
+        except Exception as exc:  # noqa: BLE001
+            LOG.debug("parakeet device-placement check failed: %s", exc)
         self._loaded = True
         LOG.info("parakeet loaded")
 

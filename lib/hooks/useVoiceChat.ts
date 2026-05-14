@@ -5,6 +5,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   claimVoiceActivity,
   createVoiceOwnerId,
+  getCurrentVoiceActivity,
   hasExternalVoiceActivityOwner,
   subscribeVoiceActivity,
 } from "@/lib/voice/activity-bus";
@@ -40,11 +41,16 @@ async function transcribeViaVoiceRoute(audio: Blob): Promise<string> {
   return data?.text ?? "";
 }
 
-async function synthesizeViaVoiceRoute(text: string, engine?: TTSEngine): Promise<ArrayBuffer> {
+async function synthesizeViaVoiceRoute(
+  text: string,
+  engine?: TTSEngine,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
   const res = await fetch("/api/voice/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, format: "wav", ...(engine ? { engine } : {}) }),
+    signal,
   });
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -97,6 +103,12 @@ export interface UseVoiceChatOptions {
    */
   suppressBlobStt?: boolean | { readonly current: boolean };
   /**
+   * Receives the recorded mic blob when `suppressBlobStt` skips local
+   * transcription. This gives the parent session a fallback if the streaming
+   * STT path never produces a usable final transcript.
+   */
+  onSuppressedAudio?: (audio: Blob, meta: { autoSend: boolean }) => void;
+  /**
    * App-routed STT bridge. By default this uses `/api/voice/stt`, which follows
    * the active deck binding (Qwen, voice-core fallback, or cloud).
    */
@@ -105,7 +117,7 @@ export interface UseVoiceChatOptions {
    * App-routed TTS bridge. By default this uses `/api/voice/tts`, which follows
    * the active deck binding (Qwen, voice-core fallback, or cloud).
    */
-  synthesizeSpeech?: (text: string) => Promise<ArrayBuffer>;
+  synthesizeSpeech?: (text: string, opts?: { signal?: AbortSignal }) => Promise<ArrayBuffer>;
   /**
    * Shared owner id for coordinated voice surfaces. useVoiceSession passes
    * its own id so the primitive mic/playback hook does not interrupt it.
@@ -128,7 +140,7 @@ export interface UseVoiceChatReturn {
   startListening: () => Promise<void>;
   stopListening: () => Promise<void>;
   speak: (text: string) => Promise<void>;
-  queueSpeech: (text: string) => void;
+  queueSpeech: (text: string) => boolean;
   playFiller: () => void;
   clearQueue: () => void;
   waitForSpeechEnd: () => Promise<void>;
@@ -213,6 +225,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     outputDeviceId = null,
     onMicFrame,
     suppressBlobStt = false,
+    onSuppressedAudio,
     transcribeAudio = transcribeViaVoiceRoute,
     synthesizeSpeech,
     ttsEngine,
@@ -227,7 +240,8 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   }, [ttsEngine]);
 
   const defaultSynthesize = useCallback(
-    (text: string) => synthesizeViaVoiceRoute(text, ttsEngineRef.current),
+    (text: string, opts?: { signal?: AbortSignal }) =>
+      synthesizeViaVoiceRoute(text, ttsEngineRef.current, opts?.signal),
     [],
   );
   const effectiveSynthesize = synthesizeSpeech ?? defaultSynthesize;
@@ -267,6 +281,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const onTranscriptRef = useRef<typeof onTranscript>(onTranscript);
   const onAutoSendRef = useRef<typeof onAutoSend>(onAutoSend);
   const onListeningStoppedRef = useRef<typeof onListeningStopped>(onListeningStopped);
+  const onSuppressedAudioRef = useRef<typeof onSuppressedAudio>(onSuppressedAudio);
   useEffect(() => {
     onMicFrameRef.current = onMicFrame;
   }, [onMicFrame]);
@@ -285,6 +300,9 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   useEffect(() => {
     onListeningStoppedRef.current = onListeningStopped;
   }, [onListeningStopped]);
+  useEffect(() => {
+    onSuppressedAudioRef.current = onSuppressedAudio;
+  }, [onSuppressedAudio]);
 
   // Audio queue system
   const audioQueueRef = useRef<AudioBuffer[]>([]);
@@ -298,6 +316,10 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const pendingSpeechJobsRef = useRef(0);
   const speechFetchChainRef = useRef<Promise<void>>(Promise.resolve());
   const speechGenerationTokenRef = useRef(0);
+  // Track in-flight TTS fetches so stopSpeaking can abort the network call,
+  // not just drop the result. Without this, cancelled turns kept their TTS
+  // requests running to completion, wasting bandwidth and GPU.
+  const speechAbortersRef = useRef<Set<AbortController>>(new Set());
   
   // Ref to hold the playNext function to avoid stale closure in onended callback
   const playNextRef = useRef<() => void>(() => {});
@@ -435,9 +457,9 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     }
   }, [initAudioContext]);
 
-  // Probe the deck-side voice route — when the bridge can reach voice-core,
-  // /api/voice/health returns ok=true. The result drives `voiceApiStatus`,
-  // which UI surfaces use to gate mic/playback buttons.
+  // Probe the deck-side voice route. The health route returns JSON even when
+  // every configured provider is down, so HTTP 200 alone is not enough to
+  // call voice usable.
   const checkVoiceApi = useCallback(async (): Promise<boolean> => {
     setVoiceApiStatus("checking");
     try {
@@ -446,6 +468,22 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) {
+        setVoiceApiStatus("disconnected");
+        return false;
+      }
+      const data = (await res.json().catch(() => null)) as
+        | {
+            status?: string;
+            sidecar?: string;
+            summary?: { reachable?: string[] };
+            providers?: Array<{ reachable?: boolean | null }>;
+          }
+        | null;
+      const reachableCount =
+        data?.summary?.reachable?.length ??
+        data?.providers?.filter((provider) => provider.reachable === true).length ??
+        0;
+      if (data && data.status !== "ok" && data.sidecar !== "ok" && reachableCount === 0) {
         setVoiceApiStatus("disconnected");
         return false;
       }
@@ -463,6 +501,17 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     checkVoiceApi();
     initAudioContext();
   }, [enabled, checkVoiceApi, initAudioContext]);
+
+  // Electron can mount the renderer before the auto-spawned voice-core
+  // supervisor finishes binding port 4245. A single failed boot-time probe
+  // used to leave the mic disabled forever even after the sidecar came up.
+  useEffect(() => {
+    if (!enabled || voiceApiStatus === "connected") return;
+    const retry = window.setInterval(() => {
+      void checkVoiceApi();
+    }, 2000);
+    return () => window.clearInterval(retry);
+  }, [enabled, voiceApiStatus, checkVoiceApi]);
 
   // Re-route output to the picked sink whenever the user changes it.
   useEffect(() => {
@@ -630,34 +679,44 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
   // Queue speech for playback via WebSocket (non-blocking)
   const queueSpeech = useCallback((text: string) => {
-    if (!enabled) return;
+    if (!enabled) return false;
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) return false;
     if (hasExternalVoiceActivityOwner(ownerIdRef.current)) {
-      console.info("[VoiceChat] Skipping passive speech; another voice surface is active");
-      return;
+      const blocker = getCurrentVoiceActivity();
+      console.warn(
+        "[VoiceChat] queueSpeech blocked by external owner",
+        blocker?.ownerId,
+        "age:",
+        blocker ? `${Date.now() - blocker.at}ms` : "n/a",
+      );
+      return false;
     }
     claimVoiceActivity(ownerIdRef.current, "speak");
 
     const synthesize = synthesizeSpeechRef.current;
     const token = speechGenerationTokenRef.current;
+    const aborter = new AbortController();
+    speechAbortersRef.current.add(aborter);
     pendingSpeechJobsRef.current += 1;
     setIsProcessingTTS(true);
 
     speechFetchChainRef.current = speechFetchChainRef.current
       .catch(() => undefined)
       .then(async () => {
-        if (token !== speechGenerationTokenRef.current) return;
+        if (token !== speechGenerationTokenRef.current || aborter.signal.aborted) return;
         try {
-          const arrayBuffer = await synthesize(trimmed);
-          if (token !== speechGenerationTokenRef.current) return;
+          const arrayBuffer = await synthesize(trimmed, { signal: aborter.signal });
+          if (token !== speechGenerationTokenRef.current || aborter.signal.aborted) return;
           await enqueueAudioArrayBuffer(arrayBuffer);
         } catch (err) {
-          if (token !== speechGenerationTokenRef.current) return;
+          if (token !== speechGenerationTokenRef.current || aborter.signal.aborted) return;
+          if ((err as Error)?.name === "AbortError") return;
           const msg = err instanceof Error ? err.message : "TTS failed";
           console.error("[VoiceChat] TTS error:", msg);
           setError(msg);
         } finally {
+          speechAbortersRef.current.delete(aborter);
           if (token === speechGenerationTokenRef.current) {
             pendingSpeechJobsRef.current = Math.max(0, pendingSpeechJobsRef.current - 1);
             if (pendingSpeechJobsRef.current === 0) setIsProcessingTTS(false);
@@ -665,6 +724,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
           }
         }
       });
+    return true;
   }, [enabled, enqueueAudioArrayBuffer, maybeResolveSpeechWaiters]);
 
   // Clear the audio queue (for barge-in)
@@ -719,6 +779,14 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const stopSpeaking = useCallback(() => {
     speechGenerationTokenRef.current += 1;
     pendingSpeechJobsRef.current = 0;
+
+    // Cancel in-flight TTS fetches so the server stops streaming audio bytes
+    // we'll never play. Without this, a barge-in still pays for the rest of
+    // the prior turn's synthesis.
+    for (const aborter of speechAbortersRef.current) {
+      try { aborter.abort(); } catch { /* ignore */ }
+    }
+    speechAbortersRef.current.clear();
 
     // Stop current audio source locally
     if (audioSourceRef.current) {
@@ -828,7 +896,9 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         }
 
         mediaRecorderRef.current.onstop = async () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          const audioBlob = new Blob(audioChunksRef.current, {
+            type: mediaRecorderRef.current?.mimeType || "audio/webm",
+          });
           audioChunksRef.current = [];
 
           if (!processAudio) {
@@ -849,6 +919,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
               ? suppressBlobStt
               : Boolean(suppressBlobStt?.current);
           if (suppressNow) {
+            onSuppressedAudioRef.current?.(audioBlob, { autoSend });
             onListeningStoppedRef.current?.();
             resolve();
             return;
@@ -925,6 +996,14 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     });
   }, [enabled]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    // Overwrite any stale claim left in localStorage by a prior session.
+    // Page reload mints a fresh ownerIdRef, so without this the previous
+    // session's claim gates queueSpeech for up to 120 s.
+    claimVoiceActivity(ownerIdRef.current, "mount");
+  }, [enabled]);
+
   const startListening = useCallback(async () => {
     if (!enabled) return;
     console.log("[VoiceChat] startListening called, isSpeaking:", isSpeaking, "isPlaying:", isPlayingRef.current);
@@ -988,10 +1067,15 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
         micPcmSourceRef.current = source;
       }
 
-      // Set up MediaRecorder
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
+      // Set up MediaRecorder. Chromium/Electron supports Opus-in-WebM, but
+      // some browser shells reject an explicit mimeType and only work with the
+      // platform default.
+      const preferredMimeType = "audio/webm;codecs=opus";
+      const mediaRecorder =
+        typeof MediaRecorder.isTypeSupported === "function" &&
+        MediaRecorder.isTypeSupported(preferredMimeType)
+          ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+          : new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -1031,6 +1115,10 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
       stopSpeaking();
       clearQueue();
+      // Assert ownership before queueing so any concurrent
+      // BroadcastChannel claim handler sees this surface as the current
+      // owner and won't abort the aborter we're about to add.
+      claimVoiceActivity(ownerIdRef.current, "speak");
 
       // Queue and wait
       queueSpeech(text);

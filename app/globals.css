@@ -1420,7 +1420,22 @@ code, pre, .mono, kbd, .font-mono {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.activity-step-arg--mono {
   font-family: var(--font-mono);
+}
+
+.activity-step-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0;
 }
 
 .activity-step-meta {

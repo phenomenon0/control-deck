@@ -71,7 +71,7 @@ async function invokeQwenOmniLocal(
     {
       providerId: "voice-core",
       baseURL: config.extras?.fallbackBaseURL as string | undefined,
-      extras: { engine: "sherpa-onnx-tts" },
+      extras: { engine: "kokoro-82m", defaultVoiceId: "af_sky" },
     },
     args,
   );
@@ -112,7 +112,7 @@ async function invokeVoiceCore(
   args: TtsArgs,
 ): Promise<TtsResult> {
   const explicitEngine = (config.extras?.engine as string | undefined) ?? null;
-  const engine = args.model ?? config.model ?? explicitEngine ?? "sherpa-onnx-tts";
+  const engine = args.model ?? config.model ?? explicitEngine ?? "kokoro-82m";
   const base = config.baseURL ?? voiceCoreUrl();
   const configuredVoice = config.extras?.defaultVoiceId as string | undefined;
   const requestedVoice = args.voice ?? configuredVoice;

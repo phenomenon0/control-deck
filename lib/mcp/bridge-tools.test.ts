@@ -43,6 +43,8 @@ describe("registerBridgeTools MCP profile filtering", () => {
 
     expect(names).toContain("workspace_list_panes");
     expect(names).toContain("workspace_pane_call");
+    expect(names).toContain("workspace_write_note");
+    expect(names).toContain("workspace_show_canvas");
     expect(names).toContain("vector_search");
     expect(names).not.toContain("execute_code");
     expect(names).not.toContain("native_click");

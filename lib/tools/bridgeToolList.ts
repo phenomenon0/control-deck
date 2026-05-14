@@ -38,4 +38,6 @@ export const BRIDGE_TOOLS = new Set<string>([
   "workspace_get_state",
   "workspace_list_panes",
   "workspace_pane_call",
+  "workspace_write_note",
+  "workspace_show_canvas",
 ]);

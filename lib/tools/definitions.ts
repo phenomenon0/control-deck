@@ -461,6 +461,34 @@ export const WorkspacePaneCallSchema = z.object({
   }),
 });
 
+export const WorkspaceWriteNoteSchema = z.object({
+  name: z.literal("workspace_write_note"),
+  args: z.object({
+    text: z.string().min(1).describe("Markdown/plain text to write into a notes pane"),
+    mode: z.enum(["append", "replace"]).default("append").describe("Append to the existing note or replace it entirely"),
+    paneId: z.string().optional().describe("Optional notes pane handle; omit to use the first open notes pane"),
+    verify: z.boolean().default(true).describe("Read the notes pane after writing and verify the text is present"),
+  }).describe("Semantic notes-pane macro that discovers a notes pane, writes text, and optionally verifies it"),
+});
+
+export const WorkspaceShowCanvasSchema = z.object({
+  name: z.literal("workspace_show_canvas"),
+  args: z.object({
+    mode: z.enum(["code", "preview", "artifact"]).default("code").describe("Canvas load mode: code, HTML preview, or server-side artifact"),
+    code: z.string().min(1).optional().describe("Code/markdown/text to load when mode='code'"),
+    html: z.string().min(1).optional().describe("HTML to preview when mode='preview'"),
+    artifactId: z.string().optional().describe("Artifact id when mode='artifact'"),
+    url: z.string().optional().describe("Artifact URL when mode='artifact'"),
+    name: z.string().optional().describe("Artifact display name when mode='artifact'"),
+    mimeType: z.string().optional().describe("Artifact MIME type when mode='artifact'"),
+    language: z.string().default("markdown").describe("Code language label for mode='code'"),
+    title: z.string().optional().describe("Canvas tab/editor title"),
+    filename: z.string().optional().describe("Suggested filename for code mode"),
+    autoRun: z.boolean().default(false).describe("Whether executable canvas code should run immediately"),
+    paneId: z.string().optional().describe("Optional canvas pane handle; omit to use the first open canvas pane"),
+  }).describe("Semantic canvas macro that discovers a canvas pane and loads code, preview HTML, or an artifact"),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -499,6 +527,8 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   WorkspaceGetStateSchema,
   WorkspaceListPanesSchema,
   WorkspacePaneCallSchema,
+  WorkspaceWriteNoteSchema,
+  WorkspaceShowCanvasSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -547,6 +577,8 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   workspace_get_state:        WorkspaceGetStateSchema.shape.args,
   workspace_list_panes:       WorkspaceListPanesSchema.shape.args,
   workspace_pane_call:        WorkspacePaneCallSchema.shape.args,
+  workspace_write_note:       WorkspaceWriteNoteSchema.shape.args,
+  workspace_show_canvas:      WorkspaceShowCanvasSchema.shape.args,
 };
 
 // Type helpers for individual tools
@@ -587,6 +619,8 @@ export type WorkspaceResetArgs = z.infer<typeof WorkspaceResetSchema>["args"];
 export type WorkspaceGetStateArgs = z.infer<typeof WorkspaceGetStateSchema>["args"];
 export type WorkspaceListPanesArgs = z.infer<typeof WorkspaceListPanesSchema>["args"];
 export type WorkspacePaneCallArgs = z.infer<typeof WorkspacePaneCallSchema>["args"];
+export type WorkspaceWriteNoteArgs = z.input<typeof WorkspaceWriteNoteSchema>["args"];
+export type WorkspaceShowCanvasArgs = z.input<typeof WorkspaceShowCanvasSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -910,6 +944,34 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "target", type: "string", required: true, description: "Pane handle id" },
       { name: "capability", type: "string", required: true, description: "Capability name" },
       { name: "args", type: "object", required: false, description: "Payload for the capability handler" },
+    ],
+  },
+  {
+    name: "workspace_write_note",
+    description: "Semantic notes macro: find a notes pane, append or replace markdown text, and optionally verify the resulting note. Prefer this over raw workspace_pane_call for notes edits.",
+    parameters: [
+      { name: "text", type: "string", required: true, description: "Markdown/plain text to write" },
+      { name: "mode", type: "string", required: false, description: "'append' or 'replace'", default: "append" },
+      { name: "paneId", type: "string", required: false, description: "Specific notes pane handle; omit to use the first notes pane" },
+      { name: "verify", type: "boolean", required: false, description: "Read the note after writing and verify the text", default: true },
+    ],
+  },
+  {
+    name: "workspace_show_canvas",
+    description: "Semantic canvas macro: find a canvas pane and load code/markdown, HTML preview, or a server-side artifact. Prefer this over raw workspace_pane_call for visible progress/artifacts.",
+    parameters: [
+      { name: "mode", type: "string", required: false, description: "'code', 'preview', or 'artifact'", default: "code" },
+      { name: "code", type: "string", required: false, description: "Code/markdown/text for mode='code'" },
+      { name: "html", type: "string", required: false, description: "HTML for mode='preview'" },
+      { name: "artifactId", type: "string", required: false, description: "Artifact id for mode='artifact'" },
+      { name: "url", type: "string", required: false, description: "Artifact URL for mode='artifact'" },
+      { name: "name", type: "string", required: false, description: "Artifact display name for mode='artifact'" },
+      { name: "mimeType", type: "string", required: false, description: "Artifact MIME type for mode='artifact'" },
+      { name: "language", type: "string", required: false, description: "Language label for code mode", default: "markdown" },
+      { name: "title", type: "string", required: false, description: "Canvas tab/editor title" },
+      { name: "filename", type: "string", required: false, description: "Suggested filename for code mode" },
+      { name: "autoRun", type: "boolean", required: false, description: "Run executable canvas code immediately", default: false },
+      { name: "paneId", type: "string", required: false, description: "Specific canvas pane handle; omit to use the first canvas pane" },
     ],
   },
 ];

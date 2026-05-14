@@ -182,6 +182,8 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
   workspace_get_state:    { ...mkWorkspace("low_write"), risk: "read_only", sideEffect: "none" },
   workspace_list_panes:   { ...mkWorkspace("low_write"), risk: "read_only", sideEffect: "none" },
   workspace_pane_call:    mkWorkspace("medium_write"),
+  workspace_write_note:   mkWorkspace("medium_write"),
+  workspace_show_canvas:  mkWorkspace("medium_write"),
 };
 
 function mkNativeRead(): ToolManifestEntry {

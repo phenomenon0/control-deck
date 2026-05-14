@@ -11,7 +11,14 @@ describe("bridge tool schemas", () => {
   });
 
   test("argument-bearing workspace tools expose schemas to MCP clients", () => {
-    for (const tool of ["workspace_open_pane", "workspace_close_pane", "workspace_focus_pane", "workspace_pane_call"]) {
+    for (const tool of [
+      "workspace_open_pane",
+      "workspace_close_pane",
+      "workspace_focus_pane",
+      "workspace_pane_call",
+      "workspace_write_note",
+      "workspace_show_canvas",
+    ]) {
       expect(TOOL_SCHEMAS[tool as keyof typeof TOOL_SCHEMAS]).toBeDefined();
     }
   });

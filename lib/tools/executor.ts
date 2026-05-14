@@ -58,6 +58,8 @@ import {
   executeWorkspaceGetState,
   executeWorkspaceListPanes,
   executeWorkspacePaneCall,
+  executeWorkspaceWriteNote,
+  executeWorkspaceShowCanvas,
 } from "./handlers/workspace";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
@@ -240,6 +242,10 @@ async function dispatchTool(
         return await executeWorkspaceListPanes();
       case "workspace_pane_call":
         return await executeWorkspacePaneCall(tool.args);
+      case "workspace_write_note":
+        return await executeWorkspaceWriteNote(tool.args);
+      case "workspace_show_canvas":
+        return await executeWorkspaceShowCanvas(tool.args);
       default:
         return {
           success: false,

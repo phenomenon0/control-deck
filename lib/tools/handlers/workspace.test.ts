@@ -30,6 +30,8 @@ const {
   executeWorkspaceGetState,
   executeWorkspaceListPanes,
   executeWorkspacePaneCall,
+  executeWorkspaceWriteNote,
+  executeWorkspaceShowCanvas,
 } = await import("./workspace");
 
 beforeEach(() => {
@@ -67,6 +69,123 @@ describe("workspace tool handlers", () => {
       snapshotId: "ws_test_1",
       workspaceOpen: true,
       paneCount: 1,
+    });
+  });
+
+  test("workspace_write_note appends to the first notes pane and verifies the write", async () => {
+    relayState.next.push(
+      {
+        snapshotId: "ws_notes_macro",
+        workspaceOpen: true,
+        paneCount: 1,
+        panes: [
+          {
+            handle: { id: "notes:notes-default", type: "notes", label: "Notes" },
+            capabilities: [
+              { name: "read_text", description: "Return the full markdown text" },
+              { name: "append_text", description: "Append text to the note" },
+              { name: "replace_text", description: "Overwrite the note" },
+            ],
+            topics: [],
+            autoThrottled: [],
+          },
+        ],
+      },
+      { appended: true },
+      { text: "Existing notes\nHarness online" },
+    );
+
+    const out = await executeWorkspaceWriteNote({
+      text: "Harness online",
+      mode: "append",
+      verify: true,
+    });
+
+    expect(relayState.calls).toEqual([
+      { command: "query:get_state", args: { includeLayout: false }, timeoutMs: 5_000 },
+      {
+        command: "query:pane_call",
+        args: {
+          target: "notes:notes-default",
+          capability: "append_text",
+          args: { text: "Harness online" },
+        },
+        timeoutMs: 5_000,
+      },
+      {
+        command: "query:pane_call",
+        args: {
+          target: "notes:notes-default",
+          capability: "read_text",
+          args: {},
+        },
+        timeoutMs: 5_000,
+      },
+    ]);
+    expect(out.success).toBe(true);
+    expect(out.message).toContain("notes:notes-default");
+    expect(out.data).toMatchObject({
+      kind: "workspace_write_note",
+      target: "notes:notes-default",
+      mode: "append",
+      verified: true,
+    });
+  });
+
+  test("workspace_show_canvas loads markdown into the first canvas pane", async () => {
+    relayState.next.push(
+      {
+        snapshotId: "ws_canvas_macro",
+        workspaceOpen: true,
+        paneCount: 1,
+        panes: [
+          {
+            handle: { id: "canvas:canvas-default", type: "canvas", label: "Canvas" },
+            capabilities: [
+              { name: "load_code", description: "Open a code block in the canvas editor" },
+              { name: "load_preview", description: "Open an HTML preview" },
+              { name: "load_artifact", description: "Open an artifact" },
+            ],
+            topics: [],
+            autoThrottled: [],
+          },
+        ],
+      },
+      { loaded: true },
+    );
+
+    const out = await executeWorkspaceShowCanvas({
+      code: "# Macro progress",
+      language: "markdown",
+      title: "Macro Progress",
+      filename: "macro-progress.md",
+      autoRun: false,
+    });
+
+    expect(relayState.calls).toEqual([
+      { command: "query:get_state", args: { includeLayout: false }, timeoutMs: 5_000 },
+      {
+        command: "query:pane_call",
+        args: {
+          target: "canvas:canvas-default",
+          capability: "load_code",
+          args: {
+            code: "# Macro progress",
+            language: "markdown",
+            title: "Macro Progress",
+            filename: "macro-progress.md",
+            autoRun: false,
+          },
+        },
+        timeoutMs: 5_000,
+      },
+    ]);
+    expect(out.success).toBe(true);
+    expect(out.data).toMatchObject({
+      kind: "workspace_show_canvas",
+      target: "canvas:canvas-default",
+      capability: "load_code",
+      loaded: true,
     });
   });
 

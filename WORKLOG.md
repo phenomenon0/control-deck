@@ -270,3 +270,32 @@ Current quality read:
 
 Next likely step:
 - Add semantic workspace macro tools (`workspace_write_note`, `workspace_show_canvas`, maybe `workspace_run_terminal_command`) so agents can use fewer raw `workspace_pane_call` strings and evals can grade higher-level intent.
+
+## 2026-05-14 14:42 CDT — Semantic workspace macros + live verification
+
+- Implemented the first semantic workspace macro tools so MCP/local agents can use higher-level workspace intents instead of hand-building raw `workspace_pane_call` payloads:
+  - `workspace_write_note` finds a notes pane, appends or replaces text, and can verify the write by reading the note back.
+  - `workspace_show_canvas` finds a canvas pane and loads code/markdown, preview HTML, or server-side artifacts.
+- Wired both macros through the split Control Deck tool registries:
+  - Zod schemas and model-facing definitions in `lib/tools/definitions.ts`.
+  - Bridge allowlist in `lib/tools/bridgeToolList.ts`.
+  - Core MCP profile exposure in `lib/tools/mcpProfiles.ts`.
+  - Manifest/policy metadata in `lib/tools/manifest.ts`.
+  - Executor dispatch in `lib/tools/executor.ts`.
+  - Workspace handler logic in `lib/tools/handlers/workspace.ts`.
+- Added TDD coverage before implementation:
+  - macro behavior tests in `lib/tools/handlers/workspace.test.ts`.
+  - MCP/profile/schema exposure tests in `lib/tools/mcpProfiles.test.ts`, `lib/tools/bridge-schemas.test.ts`, and `lib/mcp/bridge-tools.test.ts`.
+- Live bridge verification exposed a real Notes pane bug: `append_text` updated React state, but `read_text` could verify stale text because the once-registered capability closure captured old state.
+- Fixed the Notes pane by factoring `createNotesCapabilities`, tracking current text through `latestTextRef`, and routing capability writes through `setLiveText`; added `components/workspace/panes/NotesPaneAdapter.test.ts` to prove `read_text` observes `append_text` and `replace_text` updates.
+- Verification passed:
+  - `bun test components/workspace/panes/NotesPaneAdapter.test.ts lib/tools/handlers/workspace.test.ts lib/tools/mcpProfiles.test.ts lib/tools/bridge-schemas.test.ts lib/mcp/bridge-tools.test.ts lib/tools/manifest.test.ts` → 26 pass / 0 fail.
+  - `bun run typecheck` → pass.
+  - `/api/tools/catalog` smoke: catalog count 38, includes `workspace_write_note` and `workspace_show_canvas`.
+  - Fresh stdio MCP discovery through mcporter: default/core profile tool count 10, includes both macros.
+  - Live `/api/tools/bridge` smoke: `workspace_show_canvas` updated the workspace Canvas progress board and `workspace_write_note` appended a verified marker into the Notes pane.
+- Workspace Canvas updated through the new `workspace_show_canvas` macro; current observed target was `canvas:canvas-mp5mbufj`.
+- Unrelated untracked `test_file.txt` remains intentionally uncommitted.
+
+Next likely step:
+- Add live trajectory recording/grading around these macro tools, or continue with a verified `workspace_open_or_focus_pane` macro only after adding synchronous open/focus confirmation.

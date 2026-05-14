@@ -21,6 +21,8 @@ describe("MCP profile tool exposure", () => {
 
     expect(tools.has("workspace_list_panes")).toBe(true);
     expect(tools.has("workspace_pane_call")).toBe(true);
+    expect(tools.has("workspace_write_note")).toBe(true);
+    expect(tools.has("workspace_show_canvas")).toBe(true);
     expect(tools.has("vector_search")).toBe(true);
     expect(tools.has("execute_code")).toBe(false);
     expect(tools.has("native_click")).toBe(false);

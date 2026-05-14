@@ -21,6 +21,8 @@ const PROFILE_TOOLS: Record<Exclude<McpProfile, "full">, readonly string[]> = {
     "workspace_open_pane",
     "workspace_focus_pane",
     "workspace_pane_call",
+    "workspace_write_note",
+    "workspace_show_canvas",
     "vector_search",
     "analyze_image",
     "glyph_motif",

@@ -9,6 +9,41 @@ interface NotesParams {
   instanceId?: string;
 }
 
+type NotesTextUpdate = string | ((prev: string) => string);
+
+export function createNotesCapabilities(args: {
+  getText: () => string;
+  setText: (next: NotesTextUpdate) => void;
+  getSelection: () => string;
+}) {
+  return {
+    read_text: {
+      description: "Return the full markdown text",
+      handler: () => args.getText(),
+    },
+    read_selection: {
+      description: "Return currently-highlighted text (empty if none)",
+      handler: args.getSelection,
+    },
+    append_text: {
+      description: "Append text to the end of the note",
+      handler: (raw: unknown) => {
+        const { text: appended } = raw as { text: string };
+        args.setText((current) => (current.endsWith("\n") || current === "" ? current + appended : current + "\n" + appended));
+        return { appended: appended.length };
+      },
+    },
+    replace_text: {
+      description: "Overwrite the note with new text",
+      handler: (raw: unknown) => {
+        const { text: replaced } = raw as { text: string };
+        args.setText(replaced);
+        return { length: replaced.length };
+      },
+    },
+  };
+}
+
 /**
  * Notes pane — markdown notetaker, split view (raw | live preview).
  *
@@ -40,9 +75,20 @@ export function NotesPaneAdapter(props: IDockviewPanelProps<NotesParams>) {
   });
   const [showPreview, setShowPreview] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const latestTextRef = useRef(text);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+
+  useEffect(() => {
+    latestTextRef.current = text;
+  }, [text]);
+
+  const setLiveText = useCallback((next: NotesTextUpdate) => {
+    const resolved = typeof next === "function" ? next(latestTextRef.current) : next;
+    latestTextRef.current = resolved;
+    setText(resolved);
+  }, []);
 
   // ── Autosave (debounce 500ms) + topic publish ─────────────────────
   useEffect(() => {
@@ -63,36 +109,15 @@ export function NotesPaneAdapter(props: IDockviewPanelProps<NotesParams>) {
     const getSelection = (): string => {
       const ta = textareaRef.current;
       if (!ta) return "";
-      return text.slice(ta.selectionStart, ta.selectionEnd);
+      return latestTextRef.current.slice(ta.selectionStart, ta.selectionEnd);
     };
     const off = registerPane({
       handle: { id: paneId, type: "notes", label: props.api.title ?? "Notes" },
-      capabilities: {
-        read_text: {
-          description: "Return the full markdown text",
-          handler: () => text,
-        },
-        read_selection: {
-          description: "Return currently-highlighted text (empty if none)",
-          handler: getSelection,
-        },
-        append_text: {
-          description: "Append text to the end of the note",
-          handler: (args: unknown) => {
-            const { text: appended } = args as { text: string };
-            setText((t) => (t.endsWith("\n") || t === "" ? t + appended : t + "\n" + appended));
-            return { appended: appended.length };
-          },
-        },
-        replace_text: {
-          description: "Overwrite the note with new text",
-          handler: (args: unknown) => {
-            const { text: replaced } = args as { text: string };
-            setText(replaced);
-            return { length: replaced.length };
-          },
-        },
-      },
+      capabilities: createNotesCapabilities({
+        getText: () => latestTextRef.current,
+        setText: setLiveText,
+        getSelection,
+      }),
       topics: {
         changed: {
           expectedRatePerSec: 2,
@@ -102,11 +127,7 @@ export function NotesPaneAdapter(props: IDockviewPanelProps<NotesParams>) {
       },
     });
     return off;
-    // `text` is captured through the closure inside handlers — it's
-    // always up-to-date because handlers read from the outer scope on
-    // each invocation; no need to re-register per keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paneId, props.api.title]);
+  }, [paneId, props.api.title, setLiveText]);
 
   // ── Rendered HTML ─────────────────────────────────────────────────
   const html = useMemo(() => {

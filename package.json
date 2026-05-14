@@ -17,6 +17,7 @@
     "test:voice:e2e": "playwright test --config tests/voice-harness/e2e/playwright.config.ts",
     "test:voice:batch": "bun tests/voice-harness/run-batch.ts",
     "eval:mcp-tools": "bun scripts/mcp-tool-eval.ts",
+    "eval:mcp-live": "bun scripts/mcp-tool-eval.ts --mode live",
     "postinstall": "node scripts/copy-vad-assets.cjs",
     "terminal-service": "tsx scripts/terminal-service.ts",
     "omni:sidecar": ".venv-omni/bin/python scripts/qwen-omni-sidecar.py",

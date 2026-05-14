@@ -17,6 +17,13 @@ import {
   type McpDialogEvalCase,
   type ObservedDialogTurn,
 } from "../lib/evals/mcpDialogEval";
+import {
+  buildWorkspaceMacroLiveTrajectoryCase,
+  runLiveTrajectoryCase,
+  scoreLiveTrajectoryCase,
+  type LiveTrajectoryEvent,
+  type McpLiveTrajectoryCase,
+} from "../lib/evals/mcpLiveTrajectoryEval";
 
 type McporterTool = {
   name: string;
@@ -62,6 +69,19 @@ type DialogEvalResult = {
   reasons: string[];
   latencyMs: number;
   rawResponses: unknown[];
+};
+
+type LiveTrajectoryEvalResult = {
+  id: string;
+  profile: McpEvalProfile;
+  user: string;
+  marker: string;
+  bridgeUrl: string;
+  events: LiveTrajectoryEvent[];
+  passed: boolean;
+  score: number;
+  reasons: string[];
+  latencyMs: number;
 };
 
 type ChatMessage = {
@@ -317,6 +337,104 @@ function formatDialogSummary(results: DialogEvalResult[], model: string, baseUrl
   return `${lines.join("\n")}\n`;
 }
 
+function formatLiveTrajectorySummary(results: LiveTrajectoryEvalResult[], bridgeUrl: string, outDir: string): string {
+  const passed = results.filter((result) => result.passed).length;
+  const average = results.length === 0
+    ? 0
+    : results.reduce((sum, result) => sum + result.score, 0) / results.length;
+  const lines: string[] = [];
+  lines.push("# Control Deck MCP live trajectory eval");
+  lines.push("");
+  lines.push(`- Bridge: \`${bridgeUrl}\``);
+  lines.push(`- Cases: ${results.length}`);
+  lines.push(`- Pass rate: ${passed}/${results.length} (${Math.round((passed / Math.max(1, results.length)) * 100)}%)`);
+  lines.push(`- Average score: ${average.toFixed(2)}`);
+  lines.push(`- Output dir: \`${outDir}\``);
+  lines.push("");
+  lines.push("| case | profile | pass | sequence | score | notes |");
+  lines.push("| --- | --- | --- | --- | ---: | --- |");
+  for (const result of results) {
+    const sequence = result.events.map((event) => `${event.tool}${event.success ? "" : `(${event.error_code ?? "failed"})`}`).join(" → ");
+    const notes = result.reasons.join("; ").replace(/\|/g, "\\|");
+    lines.push(`| ${result.id} | ${result.profile} | ${result.passed ? "yes" : "NO"} | ${sequence} | ${result.score.toFixed(2)} | ${notes} |`);
+  }
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
+async function callBridgeTool(opts: {
+  bridgeUrl: string;
+  tool: string;
+  args: Record<string, unknown>;
+  runId: string;
+  timeoutMs: number;
+}): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  try {
+    const response = await fetch(opts.bridgeUrl, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool: opts.tool,
+        args: opts.args,
+        ctx: {
+          thread_id: "mcp-live-trajectory-eval",
+          run_id: opts.runId,
+          tool_call_id: `${opts.runId}:${opts.tool}`,
+          source: "eval",
+          modality: "eval",
+        },
+      }),
+    });
+    const text = await response.text();
+    const parsed = text ? JSON.parse(text) : {};
+    if (!response.ok) {
+      return {
+        success: false,
+        error_code: `http_${response.status}`,
+        message: text.slice(0, 2000),
+        response: parsed,
+      };
+    }
+    return parsed;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runLiveTrajectory(opts: {
+  testCase: McpLiveTrajectoryCase;
+  bridgeUrl: string;
+  timeoutMs: number;
+  runId: string;
+}): Promise<LiveTrajectoryEvalResult> {
+  const started = Date.now();
+  const events = await runLiveTrajectoryCase(opts.testCase, (request) =>
+    callBridgeTool({
+      bridgeUrl: opts.bridgeUrl,
+      tool: request.tool,
+      args: request.args,
+      runId: opts.runId,
+      timeoutMs: opts.timeoutMs,
+    }),
+  );
+  const score = scoreLiveTrajectoryCase(opts.testCase, events);
+  return {
+    id: opts.testCase.id,
+    profile: opts.testCase.profile,
+    user: opts.testCase.user,
+    marker: opts.testCase.marker,
+    bridgeUrl: opts.bridgeUrl,
+    events,
+    passed: score.passed,
+    score: score.score,
+    reasons: score.reasons,
+    latencyMs: Date.now() - started,
+  };
+}
+
 function scriptedResultFor(testCase: McpDialogEvalCase, index: number, toolName: string): unknown {
   const scripted = testCase.scriptedToolResults[index];
   if (!scripted) return { success: true };
@@ -404,6 +522,7 @@ async function main() {
   const model = argValue("--model", process.env.CONTROL_DECK_EVAL_MODEL ?? "qwen3.5-9b")!;
   const baseUrl = argValue("--base-url", process.env.CONTROL_DECK_EVAL_BASE_URL ?? "http://127.0.0.1:8080/v1")!;
   const wrapper = argValue("--wrapper", DEFAULT_WRAPPER)!;
+  const bridgeUrl = argValue("--bridge-url", process.env.CONTROL_DECK_TOOL_BRIDGE_URL ?? "http://localhost:3333/api/tools/bridge")!;
   const profiles = parseProfiles(argValue("--profiles"));
   const mode = argValue("--mode", "first")!;
   const limitRaw = argValue("--limit");
@@ -413,16 +532,19 @@ async function main() {
   const outDir = path.resolve(argValue("--out-dir", path.join(REPO_ROOT, "artifacts/mcp-evals", timestamp))!);
   const saveRaw = hasFlag("--save-raw");
 
-  const runFirst = mode === "first" || mode === "both";
-  const runDialog = mode === "dialog" || mode === "both";
-  if (!runFirst && !runDialog) throw new Error(`unknown --mode ${mode}; expected first, dialog, or both`);
+  const runFirst = mode === "first" || mode === "both" || mode === "all";
+  const runDialog = mode === "dialog" || mode === "both" || mode === "all";
+  const runLive = mode === "live" || mode === "all";
+  if (!runFirst && !runDialog && !runLive) throw new Error(`unknown --mode ${mode}; expected first, dialog, live, both, or all`);
 
   mkdirSync(outDir, { recursive: true });
   const toolsByProfile = new Map<McpEvalProfile, McporterTool[]>();
-  for (const profile of profiles) {
-    const tools = discoverTools(profile, wrapper);
-    toolsByProfile.set(profile, tools);
-    console.log(`[discover] ${profile}: ${tools.length} tools (${tools.map((tool) => tool.name).join(", ")})`);
+  if (runFirst || runDialog) {
+    for (const profile of profiles) {
+      const tools = discoverTools(profile, wrapper);
+      toolsByProfile.set(profile, tools);
+      console.log(`[discover] ${profile}: ${tools.length} tools (${tools.map((tool) => tool.name).join(", ")})`);
+    }
   }
 
   if (runFirst) {
@@ -511,6 +633,36 @@ async function main() {
     await writeFile(path.join(outDir, "dialog-summary.json"), JSON.stringify({ model, baseUrl, profiles, results: dialogResults }, null, 2));
     const markdown = formatDialogSummary(dialogResults, model, baseUrl, outDir);
     await writeFile(path.join(outDir, "dialog-summary.md"), markdown);
+    console.log("");
+    console.log(markdown);
+  }
+
+  if (runLive) {
+    const marker = `mcp-live-${timestamp}`;
+    const liveCases = [buildWorkspaceMacroLiveTrajectoryCase(marker)]
+      .filter((testCase) => profiles.includes(testCase.profile));
+    if (liveCases.length === 0) throw new Error("no live trajectory eval cases selected");
+
+    const liveResults: LiveTrajectoryEvalResult[] = [];
+    for (const testCase of liveCases) {
+      const result = await runLiveTrajectory({
+        testCase,
+        bridgeUrl,
+        timeoutMs,
+        runId: `${timestamp}:${testCase.id}`,
+      });
+      liveResults.push(result);
+      const sequence = result.events.map((event) => `${event.tool}${event.success ? "" : `(${event.error_code ?? "failed"})`}`).join(" → ");
+      console.log(
+        `[${result.passed ? "PASS" : "FAIL"}] ${testCase.id} seq=${sequence} score=${result.score.toFixed(2)} ${result.reasons.join("; ")}`,
+      );
+    }
+
+    const jsonl = liveResults.map((result) => JSON.stringify(result)).join("\n") + "\n";
+    await writeFile(path.join(outDir, "live-results.jsonl"), jsonl);
+    await writeFile(path.join(outDir, "live-summary.json"), JSON.stringify({ bridgeUrl, profiles, results: liveResults }, null, 2));
+    const markdown = formatLiveTrajectorySummary(liveResults, bridgeUrl, outDir);
+    await writeFile(path.join(outDir, "live-summary.md"), markdown);
     console.log("");
     console.log(markdown);
   }

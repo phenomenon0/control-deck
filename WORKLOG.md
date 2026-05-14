@@ -299,3 +299,26 @@ Next likely step:
 
 Next likely step:
 - Add live trajectory recording/grading around these macro tools, or continue with a verified `workspace_open_or_focus_pane` macro only after adding synchronous open/focus confirmation.
+
+## 2026-05-14 14:53 CDT — Live bridge-backed macro trajectory eval
+
+- Continued from the semantic workspace macro commit and added a minimal live trajectory evaluator for real bridge-backed workspace macro calls.
+- Added `lib/evals/mcpLiveTrajectoryEval.ts` with:
+  - `runLiveTrajectoryCase` to execute a case through an injected bridge caller and record per-step events.
+  - `scoreLiveTrajectoryCase` to grade required tool order, response success, expected result paths, and text containment.
+  - `buildWorkspaceMacroLiveTrajectoryCase` for the first live smoke: `workspace_show_canvas` followed by verified `workspace_write_note`.
+- Added `lib/evals/mcpLiveTrajectoryEval.test.ts` covering:
+  - successful verified macro trajectories.
+  - failure when note verification is false.
+  - preservation of bridge failure envelopes in recorded events.
+- Extended `scripts/mcp-tool-eval.ts` with `--mode live` and `--mode all`, plus `--bridge-url`, live summary JSON/JSONL/Markdown artifact output, and a package shortcut `bun run eval:mcp-live`.
+- Verification passed:
+  - `bun test lib/evals/mcpLiveTrajectoryEval.test.ts lib/evals/mcpDialogEval.test.ts lib/evals/mcpToolEval.test.ts` → 10 pass / 0 fail.
+  - `bun run typecheck` → pass.
+  - `bun run eval:mcp-live -- --timeout-ms 30000 --profiles core` → 1/1 pass, average score 1.00.
+  - Live artifact written at `artifacts/mcp-evals/2026-05-14T19-49-19-537Z/live-summary.md`.
+- Updated the workspace Canvas status board via `workspace_show_canvas` after explicitly targeting fresh canvas pane `canvas:canvas-mp5wkz96`; auto-selection hit stale pane handle `canvas:canvas-mp5mbufj`, so stale-handle handling/selection should be revisited later.
+- Unrelated untracked `test_file.txt` remains intentionally uncommitted.
+
+Next likely step:
+- Harden `workspace_show_canvas` auto-selection against stale canvas pane registrations, then expand live trajectory coverage to stale-pane recovery, workspace-not-open recovery, and malformed macro args.

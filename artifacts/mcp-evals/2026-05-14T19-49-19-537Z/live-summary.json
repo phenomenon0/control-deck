@@ -1,0 +1,83 @@
+{
+  "bridgeUrl": "http://localhost:3333/api/tools/bridge",
+  "profiles": [
+    "core"
+  ],
+  "results": [
+    {
+      "id": "core.workspace_macros.live_smoke",
+      "profile": "core",
+      "user": "Exercise workspace_show_canvas and workspace_write_note against the live Control Deck bridge, then grade the actual responses.",
+      "marker": "mcp-live-2026-05-14T19-49-19-537Z",
+      "bridgeUrl": "http://localhost:3333/api/tools/bridge",
+      "events": [
+        {
+          "stepId": "show-canvas",
+          "tool": "workspace_show_canvas",
+          "args": {
+            "code": "# Live Workspace Macro Trajectory\n\nMarker: mcp-live-2026-05-14T19-49-19-537Z\n\nThis board was loaded by workspace_show_canvas during live bridge-backed eval.",
+            "language": "markdown",
+            "title": "Live Macro Trajectory",
+            "filename": "live-macro-trajectory.md",
+            "autoRun": false
+          },
+          "response": {
+            "success": true,
+            "message": "canvas:canvas-mp5mbufj.load_code → loaded",
+            "data": {
+              "kind": "workspace_show_canvas",
+              "target": "canvas:canvas-mp5mbufj",
+              "label": "Canvas",
+              "mode": "code",
+              "capability": "load_code",
+              "loaded": true,
+              "result": {
+                "loaded": true
+              }
+            }
+          },
+          "success": true,
+          "startedAt": "2026-05-14T19:49:19.537Z",
+          "finishedAt": "2026-05-14T19:49:19.568Z",
+          "durationMs": 31
+        },
+        {
+          "stepId": "write-note",
+          "tool": "workspace_write_note",
+          "args": {
+            "text": "\n\n---\nmcp-live-2026-05-14T19-49-19-537Z",
+            "mode": "append",
+            "verify": true
+          },
+          "response": {
+            "success": true,
+            "message": "Wrote note via notes:notes-default.append_text and verified",
+            "data": {
+              "kind": "workspace_write_note",
+              "target": "notes:notes-default",
+              "label": "Notes",
+              "mode": "append",
+              "capability": "append_text",
+              "verified": true,
+              "writeResult": {
+                "appended": 39
+              },
+              "verifyResult": "# notes\n\na blank note. markdown is live on the right.\n\n- **Ctrl/Cmd+B** bold\n- **Ctrl/Cmd+I** italic\n- **Ctrl/Cmd+K** link\n- **Ctrl/Cmd+P** toggle preview\n- **Tab** indent lists\n\n```ts\n// code blocks syntax-highlight in the preview\nconst hello = \"world\";\n```\n\n> Autosaves every 500ms to localStorage.\n\nyour text persists across reloads under a per-pane key.\n\n\n---\nmcp-live-2026-05-14T19-49-19-537Z"
+            }
+          },
+          "success": true,
+          "startedAt": "2026-05-14T19:49:19.568Z",
+          "finishedAt": "2026-05-14T19:49:19.602Z",
+          "durationMs": 34
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "step 0 called workspace_show_canvas",
+        "step 1 called workspace_write_note"
+      ],
+      "latencyMs": 65
+    }
+  ]
+}

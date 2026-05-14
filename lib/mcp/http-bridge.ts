@@ -1,4 +1,5 @@
 import type { ToolExecutionResult } from "@/lib/tools/executor";
+import type { PolicyContext } from "@/lib/tools/policy";
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -9,6 +10,7 @@ export interface ToolBridgeHttpOptions {
   threadId: string;
   runId: string;
   toolCallId: string;
+  policyCtx?: Pick<PolicyContext, "source" | "modality" | "mcpProfiles">;
   fetchImpl?: FetchLike;
 }
 
@@ -18,6 +20,10 @@ interface ToolBridgeResponse {
   artifacts?: ToolExecutionResult["artifacts"];
   data?: unknown;
   error?: string;
+  error_code?: string;
+  recovery?: string[];
+  safe_to_retry?: boolean;
+  issues?: unknown;
 }
 
 export async function callToolBridgeHttp(
@@ -26,17 +32,22 @@ export async function callToolBridgeHttp(
   const fetchImpl = opts.fetchImpl ?? fetch;
   let response: Response;
   try {
+    const ctx: Record<string, unknown> = {
+      thread_id: opts.threadId,
+      run_id: opts.runId,
+      tool_call_id: opts.toolCallId,
+    };
+    if (opts.policyCtx?.source) ctx.source = opts.policyCtx.source;
+    if (opts.policyCtx?.modality) ctx.modality = opts.policyCtx.modality;
+    if (opts.policyCtx?.mcpProfiles?.length) ctx.mcp_profiles = opts.policyCtx.mcpProfiles;
+
     response = await fetchImpl(opts.bridgeUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         tool: opts.tool,
         args: opts.args,
-        ctx: {
-          thread_id: opts.threadId,
-          run_id: opts.runId,
-          tool_call_id: opts.toolCallId,
-        },
+        ctx,
       }),
     });
   } catch (err) {
@@ -71,5 +82,9 @@ export async function callToolBridgeHttp(
     artifacts: payload.artifacts,
     data: payload.data,
     error: payload.error,
+    error_code: payload.error_code,
+    recovery: payload.recovery,
+    safe_to_retry: payload.safe_to_retry,
+    issues: payload.issues,
   };
 }

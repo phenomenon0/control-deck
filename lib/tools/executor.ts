@@ -55,6 +55,7 @@ import {
   executeWorkspaceClosePane,
   executeWorkspaceFocusPane,
   executeWorkspaceReset,
+  executeWorkspaceGetState,
   executeWorkspaceListPanes,
   executeWorkspacePaneCall,
 } from "./handlers/workspace";
@@ -103,6 +104,14 @@ export interface ToolExecutionResult {
     mimeType: string;
   }>;
   error?: string;
+  /** Stable machine-readable failure code for agent recovery. */
+  error_code?: string;
+  /** Human/actionable recovery steps; safe to expose to the model/user. */
+  recovery?: string[];
+  /** Whether retrying after the recovery steps is expected to be safe. */
+  safe_to_retry?: boolean;
+  /** Validation or structured failure detail. */
+  issues?: unknown;
   /** Raw data for UI display (code execution results, etc.) */
   data?: unknown;
   /** 
@@ -225,6 +234,8 @@ async function dispatchTool(
         return executeWorkspaceFocusPane(tool.args);
       case "workspace_reset":
         return executeWorkspaceReset();
+      case "workspace_get_state":
+        return await executeWorkspaceGetState(tool.args);
       case "workspace_list_panes":
         return await executeWorkspaceListPanes();
       case "workspace_pane_call":

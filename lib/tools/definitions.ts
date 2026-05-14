@@ -437,6 +437,16 @@ export const WorkspaceResetSchema = z.object({
   args: z.object({}).describe("Reset the workspace to the default layout"),
 });
 
+export const WorkspaceGetStateSchema = z.object({
+  name: z.literal("workspace_get_state"),
+  args: z.object({
+    includeLayout: z
+      .boolean()
+      .default(true)
+      .describe("Include the Dockview layout JSON in the snapshot; set false for a smaller observe result"),
+  }).describe("Normalized workspace state snapshot for observe/verify loops"),
+});
+
 export const WorkspaceListPanesSchema = z.object({
   name: z.literal("workspace_list_panes"),
   args: z.object({}).describe("Snapshot of every registered pane + its capabilities + topic rates"),
@@ -486,6 +496,7 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   WorkspaceClosePaneSchema,
   WorkspaceFocusPaneSchema,
   WorkspaceResetSchema,
+  WorkspaceGetStateSchema,
   WorkspaceListPanesSchema,
   WorkspacePaneCallSchema,
 ]);
@@ -533,6 +544,7 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   workspace_close_pane:       WorkspaceClosePaneSchema.shape.args,
   workspace_focus_pane:       WorkspaceFocusPaneSchema.shape.args,
   workspace_reset:            WorkspaceResetSchema.shape.args,
+  workspace_get_state:        WorkspaceGetStateSchema.shape.args,
   workspace_list_panes:       WorkspaceListPanesSchema.shape.args,
   workspace_pane_call:        WorkspacePaneCallSchema.shape.args,
 };
@@ -572,6 +584,7 @@ export type WorkspaceOpenPaneArgs = z.infer<typeof WorkspaceOpenPaneSchema>["arg
 export type WorkspaceClosePaneArgs = z.infer<typeof WorkspaceClosePaneSchema>["args"];
 export type WorkspaceFocusPaneArgs = z.infer<typeof WorkspaceFocusPaneSchema>["args"];
 export type WorkspaceResetArgs = z.infer<typeof WorkspaceResetSchema>["args"];
+export type WorkspaceGetStateArgs = z.infer<typeof WorkspaceGetStateSchema>["args"];
 export type WorkspaceListPanesArgs = z.infer<typeof WorkspaceListPanesSchema>["args"];
 export type WorkspacePaneCallArgs = z.infer<typeof WorkspacePaneCallSchema>["args"];
 
@@ -877,6 +890,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     name: "workspace_reset",
     description: "Reset the user's workspace to the default layout (chat | terminal | notes). Fire-and-forget.",
     parameters: [],
+  },
+  {
+    name: "workspace_get_state",
+    description: "Observe the current /deck/workspace state as a normalized snapshot: open panes, pane capabilities, topic rates, client readiness, warnings, and optionally Dockview layout JSON. Prefer this before and after workspace writes for agent verify loops.",
+    parameters: [
+      { name: "includeLayout", type: "boolean", required: false, description: "Include Dockview layout JSON; set false for a smaller observe result", default: true },
+    ],
   },
   {
     name: "workspace_list_panes",

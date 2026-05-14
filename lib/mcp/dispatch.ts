@@ -15,7 +15,9 @@ import { bridgeDispatch } from "@/lib/tools/bridgeDispatch";
 import { generateId } from "@/lib/agui/events";
 import { createRun, finishRun, errorRun } from "@/lib/agui/db";
 import { callToolBridgeHttp } from "./http-bridge";
+import { resolveMcpProfiles } from "@/lib/tools/mcpProfiles";
 import type { ToolExecutionResult } from "@/lib/tools/executor";
+import type { PolicyContext } from "@/lib/tools/policy";
 
 export interface McpToolContent {
   type: "text";
@@ -50,6 +52,12 @@ export async function callBridgeToolForMcp(
 
   createRun(runId, threadId, "mcp:" + toolName);
 
+  const policyCtx: PolicyContext = {
+    source: "mcp",
+    modality: "mcp",
+    mcpProfiles: resolveMcpProfiles(),
+  };
+
   const r: ToolExecutionResult = opts.bridgeUrl
     ? await callToolBridgeHttp({
         bridgeUrl: opts.bridgeUrl,
@@ -58,6 +66,7 @@ export async function callBridgeToolForMcp(
         threadId,
         runId,
         toolCallId,
+        policyCtx,
       })
     : await (async () => {
         const outcome = await bridgeDispatch({
@@ -66,6 +75,7 @@ export async function callBridgeToolForMcp(
           threadId,
           runId,
           toolCallId,
+          policyCtx,
         });
 
         switch (outcome.kind) {

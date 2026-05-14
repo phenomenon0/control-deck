@@ -9,7 +9,11 @@ import {
 } from "dockview-react";
 import "dockview-react/dist/styles/dockview.css";
 import "./workspace.css";
-import { call as workspaceCall, listPanes as workspaceListPanes } from "@/lib/workspace";
+import {
+  call as workspaceCall,
+  getWarnings as workspaceGetWarnings,
+  listPanes as workspaceListPanes,
+} from "@/lib/workspace";
 import { DEFAULT_WORKSPACE_LAYOUT, WORKSPACE_LAYOUT_KEY } from "./defaults";
 import { PANE_CATALOG } from "./paneCatalog";
 import { ChatPanelAdapter } from "./panes/ChatPanelAdapter";
@@ -180,6 +184,62 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     }
   }, []);
 
+  const getWorkspaceState = useCallback((includeLayout: boolean) => {
+    const api = apiRef.current;
+    const apiAny = api as unknown as {
+      activePanel?: { id?: string; title?: string; component?: string } | null;
+      panels?: Array<{ id?: string; title?: string; component?: string; params?: unknown }>;
+      toJSON?: () => unknown;
+    } | null;
+    const panels = apiAny?.panels ?? [];
+    const panes = workspaceListPanes();
+
+    let layout: unknown;
+    let layoutError: string | undefined;
+    if (includeLayout && apiAny?.toJSON) {
+      try {
+        layout = apiAny.toJSON();
+      } catch (err) {
+        layoutError = err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    const snapshot: Record<string, unknown> = {
+      kind: "workspace_state",
+      snapshotId: `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      capturedAt: new Date().toISOString(),
+      workspaceOpen: true,
+      ready: Boolean(ready && api),
+      paneCount: panes.length,
+      panes,
+      warnings: workspaceGetWarnings(),
+      client: {
+        route: window.location.pathname,
+        href: window.location.href,
+        ready: Boolean(ready && api),
+        dockviewReady: Boolean(api),
+        panelCount: panels.length,
+        activePanel: apiAny?.activePanel
+          ? {
+              id: apiAny.activePanel.id,
+              title: apiAny.activePanel.title,
+              component: apiAny.activePanel.component,
+            }
+          : null,
+        panels: panels.map((panel) => ({
+          id: panel.id,
+          title: panel.title,
+          component: panel.component,
+          params: panel.params,
+        })),
+      },
+    };
+
+    if (includeLayout) snapshot.layout = layout;
+    if (layoutError) snapshot.layoutError = layoutError;
+    return snapshot;
+  }, [ready]);
+
   // ── Agent ↔ workspace relay subscription (commands + queries) ─────
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -204,6 +264,12 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
 
       // Query commands execute against the local bus + respond with
       // the correlation id so the server-side Promise resolves.
+      if (cmd.command === "query:get_state") {
+        const a = cmd.args as { includeLayout?: unknown };
+        try { await respond(cmd.id, getWorkspaceState(a.includeLayout !== false)); }
+        catch (err) { await respond(cmd.id, null, err instanceof Error ? err.message : String(err)); }
+        return;
+      }
       if (cmd.command === "query:list_panes") {
         try { await respond(cmd.id, workspaceListPanes()); }
         catch (err) { await respond(cmd.id, null, err instanceof Error ? err.message : String(err)); }
@@ -275,7 +341,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
     });
 
     return () => es.close();
-  }, [reset]);
+  }, [getWorkspaceState, reset]);
 
   const spawnPane = (component: string, label: string) => {
     const api = apiRef.current;

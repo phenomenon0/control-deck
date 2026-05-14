@@ -179,6 +179,7 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
   workspace_close_pane:   mkWorkspace("low_write"),
   workspace_focus_pane:   mkWorkspace("low_write"),
   workspace_reset:        mkWorkspace("medium_write"),
+  workspace_get_state:    { ...mkWorkspace("low_write"), risk: "read_only", sideEffect: "none" },
   workspace_list_panes:   { ...mkWorkspace("low_write"), risk: "read_only", sideEffect: "none" },
   workspace_pane_call:    mkWorkspace("medium_write"),
 };

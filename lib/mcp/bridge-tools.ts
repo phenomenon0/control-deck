@@ -9,12 +9,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ZodObject } from "zod";
 import type { ZodRawShape } from "zod";
-import { BRIDGE_TOOLS } from "@/lib/tools/bridgeDispatch";
+import { BRIDGE_TOOLS } from "@/lib/tools/bridgeToolList";
 import {
   TOOL_DEFINITIONS,
   TOOL_SCHEMAS,
   type ToolName,
 } from "@/lib/tools/definitions";
+import { getMcpProfileToolNames } from "@/lib/tools/mcpProfiles";
 import { callBridgeToolForMcp } from "./dispatch";
 
 export interface RegisterBridgeToolsOptions {
@@ -29,7 +30,7 @@ export function registerBridgeTools(
   const byName = new Map<string, (typeof TOOL_DEFINITIONS)[number]>();
   for (const def of TOOL_DEFINITIONS) byName.set(def.name, def);
 
-  for (const toolName of BRIDGE_TOOLS) {
+  for (const toolName of getMcpProfileToolNames(BRIDGE_TOOLS)) {
     const def = byName.get(toolName as ToolName);
     const description = def?.description ?? `Bridge tool: ${toolName}`;
     const zodSchema = TOOL_SCHEMAS[toolName as ToolName];

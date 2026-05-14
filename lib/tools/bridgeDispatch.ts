@@ -13,48 +13,13 @@ import {
   type ExecutorContext,
   type ToolExecutionResult,
 } from "./executor";
-import { TOOL_SCHEMAS, type ToolCall, type ToolName } from "./definitions";
+import { type ToolCall } from "./definitions";
 import { generateId } from "@/lib/agui/events";
 import { gateToolCall } from "@/lib/approvals/gate";
+import { BRIDGE_TOOLS } from "./bridgeToolList";
+import { decideToolPolicy, type PolicyContext } from "./policy";
 
-// Agent-GO native tools (web_search, workspace_search) are NOT routed here.
-export const BRIDGE_TOOLS = new Set<string>([
-  "generate_image",
-  "edit_image",
-  "generate_audio",
-  "image_to_3d",
-  "analyze_image",
-  "glyph_motif",
-  "execute_code",
-  "vector_search",
-  "vector_store",
-  "vector_ingest",
-  "native_locate",
-  "native_click",
-  "native_type",
-  "native_tree",
-  "native_key",
-  "native_focus",
-  "native_screen_grab",
-  "native_focus_window",
-  "native_click_pixel",
-  "native_invoke",
-  "native_wait_for",
-  "native_element_from_point",
-  "native_read_text",
-  "native_with_cache",
-  "native_watch_install",
-  "native_watch_drain",
-  "native_watch_remove",
-  "native_baseline_capture",
-  "native_baseline_restore",
-  "workspace_open_pane",
-  "workspace_close_pane",
-  "workspace_focus_pane",
-  "workspace_reset",
-  "workspace_list_panes",
-  "workspace_pane_call",
-]);
+export { BRIDGE_TOOLS };
 
 export interface BridgeDispatchRequest {
   tool: string;
@@ -62,6 +27,7 @@ export interface BridgeDispatchRequest {
   threadId: string;
   runId: string;
   toolCallId?: string;
+  policyCtx?: PolicyContext;
 }
 
 export type BridgeDispatchOutcome =
@@ -88,27 +54,36 @@ export async function bridgeDispatch(
     };
   }
 
-  const schema = TOOL_SCHEMAS[tool as ToolName];
-  let validatedArgs: Record<string, unknown> = args ?? {};
-  if (schema) {
-    const parsed = schema.safeParse(validatedArgs);
-    if (!parsed.success) {
+  const policy = decideToolPolicy({
+    tool,
+    args,
+    ctx: {
+      threadId,
+      runId,
+      toolCallId: req.toolCallId,
+      ...req.policyCtx,
+    },
+  });
+
+  if (policy.decision === "deny") {
+    if (policy.reason === "invalid args") {
       return {
         kind: "bad_request",
-        message: "invalid args",
-        issues: parsed.error.issues,
+        message: policy.reason,
+        issues: policy.issues,
       };
     }
-    validatedArgs = parsed.data as Record<string, unknown>;
-  } else {
-    console.warn("[bridge] no schema for tool:", tool);
+    return { kind: "denied", reason: policy.reason };
   }
+
+  const validatedArgs = policy.normalizedArgs as Record<string, unknown>;
 
   const verdict = await gateToolCall({
     toolName: tool,
     toolArgs: validatedArgs,
     runId,
     threadId,
+    reason: policy.decision === "approval_required" ? policy.reason : undefined,
   });
   if (verdict.decision === "denied") {
     return { kind: "denied", reason: verdict.reason };

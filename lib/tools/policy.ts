@@ -11,9 +11,17 @@
  * synchronous yes/no/maybe decision; the gate is what waits.
  */
 
-import { BRIDGE_TOOLS } from "./bridgeDispatch";
+import { BRIDGE_TOOLS } from "./bridgeToolList";
 import { TOOL_SCHEMAS, type ToolName } from "./definitions";
 import { getManifest, type RiskLevel, type SideEffectKind } from "./manifest";
+import {
+  isSafeCorePaneCapability,
+  isToolExposedForMcpProfile,
+  mcpProfileSummary,
+  type McpProfile,
+  profileAllowsUnsafePaneCapabilities,
+  resolveMcpProfiles,
+} from "./mcpProfiles";
 
 export type Modality = "text" | "voice" | "system" | "mcp";
 
@@ -23,6 +31,8 @@ export interface PolicyContext {
   toolCallId?: string;
   source?: "agent-ts" | "chat-route" | "mcp" | "manual-ui";
   modality?: Modality;
+  /** MCP profiles resolved by the transport process. Needed when stdio MCP proxies into Next over HTTP. */
+  mcpProfiles?: readonly McpProfile[];
 }
 
 export type PolicyDecision =
@@ -102,12 +112,27 @@ export function decideToolPolicy(input: PolicyInput): PolicyDecision {
       reason: `tool '${tool}' is not permitted from a voice modality`,
     };
   }
-  if (modality === "mcp" && !manifest.allowInMcp) {
-    return {
-      decision: "deny",
-      risk: manifest.risk,
-      reason: `tool '${tool}' is not exposed via MCP`,
-    };
+  if (modality === "mcp") {
+    const profiles = ctx?.mcpProfiles?.length ? ctx.mcpProfiles : resolveMcpProfiles();
+    if (!isToolExposedForMcpProfile(tool, profiles, BRIDGE_TOOLS)) {
+      return {
+        decision: "deny",
+        risk: manifest.risk,
+        reason: `tool '${tool}' is not exposed by MCP profile '${mcpProfileSummary(profiles)}'`,
+      };
+    }
+
+    if (
+      tool === "workspace_pane_call" &&
+      !profileAllowsUnsafePaneCapabilities(profiles) &&
+      !isSafeCorePaneCapability((normalizedArgs as { capability?: unknown }).capability)
+    ) {
+      return {
+        decision: "deny",
+        risk: manifest.risk,
+        reason: "workspace_pane_call capability is not allowed in the current MCP profile",
+      };
+    }
   }
 
   if (

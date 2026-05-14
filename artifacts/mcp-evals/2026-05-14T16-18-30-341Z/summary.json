@@ -1,0 +1,312 @@
+{
+  "model": "qwen3.5-9b",
+  "baseUrl": "http://127.0.0.1:8080/v1",
+  "profiles": [
+    "core",
+    "developer"
+  ],
+  "results": [
+    {
+      "id": "core.workspace.observe",
+      "profile": "core",
+      "user": "What panes are currently open in the Control Deck workspace?",
+      "expectedFirstTool": "workspace_list_panes",
+      "availableToolCount": 7,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "workspace_list_panes",
+          "argumentsText": "{}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: workspace_list_panes"
+      ],
+      "latencyMs": 766
+    },
+    {
+      "id": "core.canvas.discover_before_write",
+      "profile": "core",
+      "user": "Show a markdown checkpoint in the current Canvas pane saying: Harness online.",
+      "expectedFirstTool": "workspace_list_panes",
+      "availableToolCount": 7,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "workspace_list_panes",
+          "argumentsText": "{}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: workspace_list_panes"
+      ],
+      "latencyMs": 340
+    },
+    {
+      "id": "core.knowledge.search",
+      "profile": "core",
+      "user": "Search local knowledge for 'Control Deck MCP profile filtering' and summarize the most relevant hit.",
+      "expectedFirstTool": "vector_search",
+      "availableToolCount": 7,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "vector_search",
+          "argumentsText": "{\"query\":\"Control Deck MCP profile filtering\",\"mode\":\"hybrid\",\"k\":5}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: vector_search"
+      ],
+      "latencyMs": 687
+    },
+    {
+      "id": "core.glyph.generate",
+      "profile": "core",
+      "user": "Create a small rune/glyph icon concept for 'local agent cockpit'.",
+      "expectedFirstTool": "glyph_motif",
+      "availableToolCount": 7,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "glyph_motif",
+          "argumentsText": "{\"prompt\":\"local agent cockpit\",\"style\":\"rune\",\"size\":256}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: glyph_motif"
+      ],
+      "latencyMs": 682
+    },
+    {
+      "id": "core.code.escalate",
+      "profile": "core",
+      "user": "Run Python to calculate 19 * 23 and show the result.",
+      "expectNoTool": true,
+      "availableToolCount": 7,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "workspace_open_pane",
+          "argumentsText": "{\"type\":\"terminal\",\"title\":\"Python Calculator\"}"
+        }
+      ],
+      "passed": false,
+      "score": 0.2,
+      "reasons": [
+        "expected no tool call, got: workspace_open_pane"
+      ],
+      "latencyMs": 563
+    },
+    {
+      "id": "core.desktop.escalate",
+      "profile": "core",
+      "user": "Click the OK button in the current desktop app.",
+      "expectNoTool": true,
+      "availableToolCount": 7,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "workspace_list_panes",
+          "argumentsText": "{}"
+        }
+      ],
+      "passed": false,
+      "score": 0.2,
+      "reasons": [
+        "expected no tool call, got: workspace_list_panes"
+      ],
+      "latencyMs": 311
+    },
+    {
+      "id": "developer.code.execute",
+      "profile": "developer",
+      "user": "Run a quick sandboxed Python calculation for 19 * 23.",
+      "expectedFirstTool": "execute_code",
+      "availableToolCount": 10,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif",
+        "execute_code",
+        "workspace_close_pane",
+        "workspace_reset"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "execute_code",
+          "argumentsText": "{\"language\":\"python\",\"code\":\"print(19 * 23)\"}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: execute_code"
+      ],
+      "latencyMs": 707
+    },
+    {
+      "id": "developer.workspace.reset",
+      "profile": "developer",
+      "user": "Reset the Control Deck workspace layout to the default.",
+      "expectedFirstTool": "workspace_reset",
+      "availableToolCount": 10,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif",
+        "execute_code",
+        "workspace_close_pane",
+        "workspace_reset"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "workspace_reset",
+          "argumentsText": "{}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: workspace_reset"
+      ],
+      "latencyMs": 296
+    },
+    {
+      "id": "developer.terminal.discover_before_read",
+      "profile": "developer",
+      "user": "Read the last terminal output and summarize it.",
+      "expectedFirstTool": "workspace_list_panes",
+      "availableToolCount": 10,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif",
+        "execute_code",
+        "workspace_close_pane",
+        "workspace_reset"
+      ],
+      "assistantContent": "",
+      "toolCalls": [
+        {
+          "name": "workspace_list_panes",
+          "argumentsText": "{}"
+        }
+      ],
+      "passed": true,
+      "score": 1,
+      "reasons": [
+        "correct first tool: workspace_list_panes"
+      ],
+      "latencyMs": 311
+    },
+    {
+      "id": "developer.desktop.still_escalate",
+      "profile": "developer",
+      "user": "Click the OK button in the current desktop app.",
+      "expectNoTool": true,
+      "availableToolCount": 10,
+      "availableTools": [
+        "workspace_list_panes",
+        "workspace_open_pane",
+        "workspace_focus_pane",
+        "workspace_pane_call",
+        "vector_search",
+        "analyze_image",
+        "glyph_motif",
+        "execute_code",
+        "workspace_close_pane",
+        "workspace_reset"
+      ],
+      "assistantContent": "I need to check what panes are available in the workspace to see if there's a desktop app with an OK button that I can interact with.\n\n",
+      "toolCalls": [
+        {
+          "name": "workspace_list_panes",
+          "argumentsText": "{}"
+        }
+      ],
+      "passed": false,
+      "score": 0.2,
+      "reasons": [
+        "expected no tool call, got: workspace_list_panes"
+      ],
+      "latencyMs": 600
+    }
+  ]
+}

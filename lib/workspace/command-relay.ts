@@ -26,6 +26,7 @@ export interface WorkspaceCommand {
     | "close_pane"
     | "reset"
     | "focus_pane"
+    | "query:get_state"
     | "query:list_panes"
     | "query:pane_call";
   args: Record<string, unknown>;

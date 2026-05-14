@@ -79,4 +79,39 @@ describe("decideToolPolicy", () => {
       expect(out.issues).toBeDefined();
     }
   });
+
+  test("uses explicit MCP profile context for runtime profile enforcement", () => {
+    const coreOut = decideToolPolicy({
+      tool: "execute_code",
+      args: { language: "python", code: "print(1)" },
+      ctx: { source: "mcp", modality: "mcp", mcpProfiles: ["core"] },
+    });
+    expect(coreOut.decision).toBe("deny");
+    if (coreOut.decision === "deny") {
+      expect(coreOut.reason).toContain("MCP profile 'core'");
+    }
+
+    const developerOut = decideToolPolicy({
+      tool: "execute_code",
+      args: { language: "python", code: "print(1)" },
+      ctx: { source: "mcp", modality: "mcp", mcpProfiles: ["developer"] },
+    });
+    expect(developerOut.decision).toBe("approval_required");
+  });
+
+  test("blocks unsafe pane capabilities in core MCP profile at execution time", () => {
+    const out = decideToolPolicy({
+      tool: "workspace_pane_call",
+      args: {
+        target: "terminal:terminal-default",
+        capability: "terminal.send_keys",
+        args: { text: "rm -rf /" },
+      },
+      ctx: { source: "mcp", modality: "mcp", mcpProfiles: ["core"] },
+    });
+    expect(out.decision).toBe("deny");
+    if (out.decision === "deny") {
+      expect(out.reason).toMatch(/capability/i);
+    }
+  });
 });

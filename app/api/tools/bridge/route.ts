@@ -8,6 +8,8 @@
 
 import { BRIDGE_TOOLS, bridgeDispatch } from "@/lib/tools/bridgeDispatch";
 import { denyIfCrossOrigin } from "@/lib/security/originGuard";
+import { isMcpProfile, type McpProfile } from "@/lib/tools/mcpProfiles";
+import type { PolicyContext } from "@/lib/tools/policy";
 
 export { BRIDGE_TOOLS };
 
@@ -18,6 +20,9 @@ interface BridgeRequest {
     thread_id: string;
     run_id: string;
     tool_call_id?: string;
+    source?: PolicyContext["source"];
+    modality?: PolicyContext["modality"];
+    mcp_profiles?: unknown;
   };
 }
 
@@ -32,6 +37,27 @@ interface BridgeResponse {
   }>;
   data?: unknown;
   error?: string;
+  error_code?: string;
+  recovery?: string[];
+  safe_to_retry?: boolean;
+  issues?: unknown;
+}
+
+function parseMcpProfiles(raw: unknown): McpProfile[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const profiles = raw.filter((value): value is McpProfile =>
+    typeof value === "string" && isMcpProfile(value),
+  );
+  return profiles.length > 0 ? profiles : undefined;
+}
+
+function bridgePolicyContext(ctx: BridgeRequest["ctx"] | undefined): PolicyContext | undefined {
+  const policyCtx: PolicyContext = {};
+  if (ctx?.source) policyCtx.source = ctx.source;
+  if (ctx?.modality) policyCtx.modality = ctx.modality;
+  const mcpProfiles = parseMcpProfiles(ctx?.mcp_profiles);
+  if (mcpProfiles) policyCtx.mcpProfiles = mcpProfiles;
+  return Object.keys(policyCtx).length > 0 ? policyCtx : undefined;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -58,6 +84,7 @@ export async function POST(req: Request): Promise<Response> {
     threadId: body.ctx?.thread_id,
     runId: body.ctx?.run_id,
     toolCallId: body.ctx?.tool_call_id,
+    policyCtx: bridgePolicyContext(body.ctx),
   });
 
   switch (outcome.kind) {
@@ -88,6 +115,10 @@ export async function POST(req: Request): Promise<Response> {
         artifacts: r.artifacts,
         data: r.data,
         error: r.error,
+        error_code: r.error_code,
+        recovery: r.recovery,
+        safe_to_retry: r.safe_to_retry,
+        issues: r.issues,
       } as BridgeResponse);
     }
   }

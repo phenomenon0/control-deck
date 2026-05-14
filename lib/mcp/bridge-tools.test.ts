@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { BRIDGE_TOOLS } from "@/lib/tools/bridgeToolList";
+import type { McpProfile } from "@/lib/tools/mcpProfiles";
 import { registerBridgeTools } from "./bridge-tools";
 
-function registeredToolNames(env: {
-  CONTROL_DECK_MCP_EXPOSE?: string;
-  CONTROL_DECK_MCP_PROFILE?: string;
-}): string[] {
+function registeredToolNames(
+  env: {
+    CONTROL_DECK_MCP_EXPOSE?: string;
+    CONTROL_DECK_MCP_PROFILE?: string;
+  },
+  profiles?: readonly McpProfile[],
+): string[] {
   const prevExpose = process.env.CONTROL_DECK_MCP_EXPOSE;
   const prevProfile = process.env.CONTROL_DECK_MCP_PROFILE;
   const names: string[] = [];
@@ -22,7 +26,7 @@ function registeredToolNames(env: {
     if (env.CONTROL_DECK_MCP_PROFILE === undefined) delete process.env.CONTROL_DECK_MCP_PROFILE;
     else process.env.CONTROL_DECK_MCP_PROFILE = env.CONTROL_DECK_MCP_PROFILE;
 
-    registerBridgeTools(server);
+    registerBridgeTools(server, { profiles });
     return names;
   } finally {
     if (prevExpose === undefined) delete process.env.CONTROL_DECK_MCP_EXPOSE;
@@ -61,6 +65,15 @@ describe("registerBridgeTools MCP profile filtering", () => {
 
     expect(names).toContain("workspace_list_panes");
     expect(names).not.toContain("execute_code");
+  });
+
+  test("explicit profiles override env profile resolution for server factories", () => {
+    const names = registeredToolNames({ CONTROL_DECK_MCP_PROFILE: "core" }, ["developer"]);
+
+    expect(names).toContain("workspace_list_panes");
+    expect(names).toContain("execute_code");
+    expect(names).toContain("workspace_reset");
+    expect(names).not.toContain("native_click");
   });
 
   test("full profile registers the canonical bridge surface", () => {

@@ -15,7 +15,7 @@ import { bridgeDispatch } from "@/lib/tools/bridgeDispatch";
 import { generateId } from "@/lib/agui/events";
 import { createRun, finishRun, errorRun } from "@/lib/agui/db";
 import { callToolBridgeHttp } from "./http-bridge";
-import { resolveMcpProfiles } from "@/lib/tools/mcpProfiles";
+import { resolveMcpProfiles, type McpProfile } from "@/lib/tools/mcpProfiles";
 import type { ToolExecutionResult } from "@/lib/tools/executor";
 import type { PolicyContext } from "@/lib/tools/policy";
 
@@ -37,6 +37,8 @@ export interface McpDispatchOptions {
   sessionId?: string;
   /** Optional Next.js bridge URL. When set, calls proxy through the app process. */
   bridgeUrl?: string;
+  /** Explicit active MCP profiles for this server/session. Falls back to env resolution. */
+  mcpProfiles?: readonly McpProfile[];
 }
 
 export async function callBridgeToolForMcp(
@@ -55,7 +57,7 @@ export async function callBridgeToolForMcp(
   const policyCtx: PolicyContext = {
     source: "mcp",
     modality: "mcp",
-    mcpProfiles: resolveMcpProfiles(),
+    mcpProfiles: [...(opts.mcpProfiles ?? resolveMcpProfiles())],
   };
 
   const r: ToolExecutionResult = opts.bridgeUrl

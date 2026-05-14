@@ -15,12 +15,13 @@ import {
   TOOL_SCHEMAS,
   type ToolName,
 } from "@/lib/tools/definitions";
-import { getMcpProfileToolNames } from "@/lib/tools/mcpProfiles";
+import { getMcpProfileToolNames, type McpProfile } from "@/lib/tools/mcpProfiles";
 import { callBridgeToolForMcp } from "./dispatch";
 
 export interface RegisterBridgeToolsOptions {
   threadIdForSession?: string;
   bridgeUrl?: string;
+  profiles?: readonly McpProfile[];
 }
 
 export function registerBridgeTools(
@@ -30,7 +31,7 @@ export function registerBridgeTools(
   const byName = new Map<string, (typeof TOOL_DEFINITIONS)[number]>();
   for (const def of TOOL_DEFINITIONS) byName.set(def.name, def);
 
-  for (const toolName of getMcpProfileToolNames(BRIDGE_TOOLS)) {
+  for (const toolName of getMcpProfileToolNames(BRIDGE_TOOLS, opts.profiles)) {
     const def = byName.get(toolName as ToolName);
     const description = def?.description ?? `Bridge tool: ${toolName}`;
     const zodSchema = TOOL_SCHEMAS[toolName as ToolName];
@@ -48,6 +49,7 @@ export function registerBridgeTools(
       return callBridgeToolForMcp(toolName, args ?? {}, {
         threadId: opts.threadIdForSession,
         bridgeUrl: opts.bridgeUrl,
+        mcpProfiles: opts.profiles,
       });
     };
 

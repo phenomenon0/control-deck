@@ -244,3 +244,29 @@ Current quality read:
   - Live `/api/tools/bridge` smoke: `workspace_get_state` returned `success:true`, `paneCount:2`, and normalized state keys from the open `/deck/workspace` client.
   - Live `/api/tools/bridge` stale-pane smoke: `workspace_pane_call` returned `success:false`, top-level `error_code:"workspace_pane_not_found"`, `safe_to_retry:true`, and recovery steps.
   - `/api/tools/catalog` smoke: `workspace_get_state` present with `includeLayout`; catalog count 36.
+
+## 2026-05-14 13:31 CDT — MCP prompts/resources registered in stdio server
+
+- Started the next Control Deck MCP work item after the hardening commit: make the MCP server self-describing for small/local agents.
+- Added profile-aware MCP prompt registration in `lib/mcp/prompts.ts`:
+  - `local_agent_cockpit`
+  - `workspace_operator`
+  - `developer_sandbox`
+  - `desktop_automation_safe`
+  - `creative_media_operator`
+- Added profile-aware MCP resources in `lib/mcp/resources.ts`:
+  - `control-deck://agent-handbook`
+  - `control-deck://tool-manifest`
+  - `control-deck://platform/capabilities`
+  - `control-deck://workspace/state`
+- Wired prompts/resources into `createDeckMcpServer` and advertised MCP `prompts` + `resources` capabilities.
+- Fixed an explicit-profile consistency gap: `createDeckMcpServer({ profiles })` now passes the same profiles into prompt/resource generation, tool registration, and MCP runtime policy context instead of letting tool registration/runtime silently fall back to env resolution.
+- Added regression coverage in `lib/mcp/prompts-resources.test.ts` and extended `lib/mcp/bridge-tools.test.ts` for explicit profile override behavior.
+- Verification passed:
+  - `bun test lib/mcp/bridge-tools.test.ts lib/mcp/prompts-resources.test.ts lib/mcp/http-bridge.test.ts lib/tools/mcpProfiles.test.ts` → 18 pass / 0 fail.
+  - `bun run typecheck` → pass.
+  - Fresh stdio MCP discovery through mcporter returns 8 default core tools and still excludes `execute_code`.
+  - Direct MCP SDK smoke lists 5 prompts and 4 resources; `local_agent_cockpit` contains profile-gating instructions; default core tool manifest includes `workspace_get_state` and excludes `execute_code`.
+
+Next likely step:
+- Add semantic workspace macro tools (`workspace_write_note`, `workspace_show_canvas`, maybe `workspace_run_terminal_command`) so agents can use fewer raw `workspace_pane_call` strings and evals can grade higher-level intent.

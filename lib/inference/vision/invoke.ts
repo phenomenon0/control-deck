@@ -16,6 +16,7 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+const LLAMA_SWAP_DEFAULT = process.env.LLAMA_SWAP_BASE_URL ?? "http://127.0.0.1:8080/v1";
 
 export async function invokeVision(
   providerId: string,
@@ -33,6 +34,10 @@ export async function invokeVision(
       return invokeGoogle(config, args);
     case "openrouter":
       return invokeOpenRouter(config, args);
+    case "openai-compat":
+    case "llama-swap":
+    case "llama-cpp":
+      return invokeOpenAiCompat(config, args);
     default:
       throw new Error(`vision provider not supported: ${providerId}`);
   }
@@ -175,6 +180,53 @@ async function invokeOpenAi(
   return {
     text: String(data.choices?.[0]?.message?.content ?? ""),
     providerId: "openai",
+    inputTokens: data.usage?.prompt_tokens,
+    outputTokens: data.usage?.completion_tokens,
+  };
+}
+
+/**
+ * Local OpenAI-compatible endpoint (llama-swap / llama.cpp / vLLM in OAI mode).
+ * Uses the same image_url content shape as the cloud OpenAI case but skips the
+ * API key requirement, since the local server typically doesn't enforce auth.
+ */
+async function invokeOpenAiCompat(
+  config: InferenceProviderConfig,
+  args: VisionArgs,
+): Promise<VisionResult> {
+  const base = config.baseURL ?? LLAMA_SWAP_DEFAULT;
+  const model = args.model ?? config.model ?? "qwen3.5-9b";
+  const imageUrl = args.image.url ?? toDataUrl(args.image, await ensureBase64(args.image));
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const apiKey = config.apiKey ?? process.env.LLAMA_SWAP_API_KEY;
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const res = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      max_tokens: args.maxTokens ?? 1024,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: args.prompt },
+            { type: "image_url", image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`openai-compat-vision ${res.status}: ${await res.text()}`);
+  }
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  return {
+    text: String(data.choices?.[0]?.message?.content ?? ""),
+    providerId: "openai-compat",
     inputTokens: data.usage?.prompt_tokens,
     outputTokens: data.usage?.completion_tokens,
   };

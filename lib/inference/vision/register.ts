@@ -70,6 +70,14 @@ const SEEDS: ProviderSeed[] = [
     defaultBaseURL: "https://openrouter.ai/api/v1",
     defaultModels: ["anthropic/claude-3.5-sonnet", "openai/gpt-4o", "google/gemini-pro-1.5"],
   },
+  {
+    id: "openai-compat",
+    name: "Local OpenAI-compatible",
+    description: "Local llama.cpp/llama-swap/vLLM serving an OpenAI-compatible vision model (e.g. Qwen3.5-9B + mmproj).",
+    requiresApiKey: false,
+    defaultBaseURL: process.env.LLAMA_SWAP_BASE_URL ?? "http://127.0.0.1:8080/v1",
+    defaultModels: ["qwen3.5-9b", "qwen3.5-35b"],
+  },
 ];
 
 let registered = false;
@@ -96,9 +104,9 @@ export function registerVisionProviders(): void {
   }
 
   // Default-bind the primary vision slot from env so callers have something
-  // to fall back to even before the Settings UI touches it. Preserves the
-  // current VISION_MODEL env var that executor.ts used to read directly.
-  const providerEnv = (process.env.VISION_PROVIDER ?? "ollama").toLowerCase();
+  // to fall back to even before the Settings UI touches it. Defaults to the
+  // local openai-compat endpoint (llama-swap @ :8080 with qwen3.5-9b + mmproj).
+  const providerEnv = (process.env.VISION_PROVIDER ?? "openai-compat").toLowerCase();
   if (SEEDS.some((s) => s.id === providerEnv)) {
     bindSlot({
       modality: "vision",
@@ -106,8 +114,13 @@ export function registerVisionProviders(): void {
       providerId: providerEnv,
       config: {
         providerId: providerEnv,
-        model: process.env.VISION_MODEL,
-        baseURL: providerEnv === "ollama" ? process.env.OLLAMA_BASE_URL : undefined,
+        model: process.env.VISION_MODEL ?? (providerEnv === "openai-compat" ? "qwen3.5-9b" : undefined),
+        baseURL:
+          providerEnv === "ollama"
+            ? process.env.OLLAMA_BASE_URL
+            : providerEnv === "openai-compat"
+              ? process.env.LLAMA_SWAP_BASE_URL ?? "http://127.0.0.1:8080/v1"
+              : undefined,
       },
     });
   }

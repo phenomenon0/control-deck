@@ -11,6 +11,8 @@ import { renderToolCatalogGlyph } from "../tools/render-glyph-catalog";
 import { isLiteMode, getSystemProfile } from "../system";
 import { getProviderConfig, checkProviderHealth, listProviderModels } from "../llm";
 import { glyphInstruction } from "../codec";
+import { renderMemoryForPrompt } from "../memory/prompt";
+import { renderSkillIndex } from "../skills/index-block";
 
 /**
  * Environment variables for GLYPH control:
@@ -191,6 +193,20 @@ export async function buildSystemPrompt(
   let prompt = mobyBase
     .replace("{ENVIRONMENT}", env)
     .replace("{TOOLS}", useNativeTools ? "(Tools provided via native API)" : getToolDocs());
+
+  // Prepend curated memory (MEMORY.md + USER.md). Returns "" when memory is
+  // disabled in settings or both files are empty.
+  const memoryBlock = renderMemoryForPrompt();
+  if (memoryBlock) {
+    prompt = `${memoryBlock}\n${prompt}`;
+  }
+
+  // Prepend the compact skill index. Full bodies stay out of the prompt —
+  // the agent calls `skill_view` for any id it actually needs.
+  const skillIndex = renderSkillIndex();
+  if (skillIndex) {
+    prompt = `${skillIndex}\n\n${prompt}`;
+  }
 
   // Teach the model how to read GLYPH fences before it encounters them in tool
   // results or in the catalog. Without this, the LLM wastes tokens

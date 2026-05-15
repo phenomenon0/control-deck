@@ -27,6 +27,9 @@ export const DEFAULT_SETTINGS: DeckSettings = {
   storage: sectionDefault("storage"),
   sources: sectionDefault("sources"),
   hardware: sectionDefault("hardware"),
+  memory: sectionDefault("memory"),
+  skills: sectionDefault("skills"),
+  chat: sectionDefault("chat"),
 };
 
 /** Default value for a single section. */

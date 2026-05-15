@@ -160,6 +160,87 @@ export const HardwareSettingsSchema = z.object({
 export type HardwareSettings = z.infer<typeof HardwareSettingsSchema>;
 
 /* ============================================================================
+ * Memory — char budgets + (future) external provider plugin selection
+ * ========================================================================== */
+
+export const MemoryBudgetsSchema = z.object({
+  memory: z.number().int().min(0).max(64_000).default(2200),
+  user: z.number().int().min(0).max(64_000).default(1375),
+});
+export type MemoryBudgets = z.infer<typeof MemoryBudgetsSchema>;
+
+/**
+ * Per-provider config sub-schema. Currently scoped to mem0; future adapters
+ * (supermemory, byterover, etc.) add their fields here. API keys never live
+ * in this schema — they're read from process env (e.g. `MEM0_API_KEY`) so
+ * the SQLite settings store stays free of secrets.
+ */
+export const Mem0ConfigSchema = z.object({
+  /** REST base URL. Empty string = use mem0 default (https://api.mem0.ai). */
+  baseUrl: z.string().default(""),
+});
+export type Mem0Config = z.infer<typeof Mem0ConfigSchema>;
+
+export const MemorySettingsSchema = z.object({
+  /** Master switch — when false the snapshot is skipped entirely. */
+  enabled: z.boolean().default(true),
+  /** Per-target character budgets. Defaults mirror Hermes. */
+  budgets: MemoryBudgetsSchema.default({ memory: 2200, user: 1375 }),
+  /**
+   * Optional external provider plugin id (e.g. "mem0", "supermemory").
+   * Empty string = built-in curated files only.
+   */
+  providerId: z.string().default(""),
+  /**
+   * Stable per-deck identifier shipped to the external provider so its
+   * memories namespace correctly. Empty string lets the adapter pick a
+   * fallback (currently "control-deck-local").
+   */
+  userId: z.string().default(""),
+  /** mem0 adapter config (URL only — apiKey from env). */
+  mem0: Mem0ConfigSchema.default({ baseUrl: "" }),
+});
+export type MemorySettings = z.infer<typeof MemorySettingsSchema>;
+
+/* ============================================================================
+ * Chat — durable thread persistence behavior
+ *
+ * Currently scoped to the vector-DB session search. Each message saved via
+ * the threads API gets fired into the `chat-history` collection so future
+ * turns can `vector_search` past sessions semantically. Short messages and
+ * roles like `system` / `tool` are filtered out — only human and agent
+ * voice goes in.
+ * ========================================================================== */
+
+export const ChatSettingsSchema = z.object({
+  /** Auto-ingest each saved message into the `chat-history` collection. */
+  historyIngestEnabled: z.boolean().default(true),
+  /** Skip ingest for messages shorter than this many chars. */
+  minIngestChars: z.number().int().min(0).max(2048).default(16),
+  /** Roles that count for session search. system/tool noise stays out. */
+  ingestRoles: z.array(z.string().min(1).max(32)).default(["user", "assistant"]),
+  /** Collection name used for chat-history vector search. */
+  historyCollection: z.string().min(1).max(64).default("chat-history"),
+});
+export type ChatSettings = z.infer<typeof ChatSettingsSchema>;
+
+/* ============================================================================
+ * Skills — prompt-time visibility of the skill catalog
+ *
+ * Separate from `experiments.skillsEnabled` (which gates execution). This
+ * section controls whether the agent sees a compact skill index in its
+ * system prompt and how aggressively descriptions are truncated.
+ * ========================================================================== */
+
+export const SkillsSettingsSchema = z.object({
+  /** Inject `# SKILLS` index block into the system prompt. */
+  indexInPrompt: z.boolean().default(true),
+  /** Max chars per description in the index block. Tight is good. */
+  indexDescChars: z.number().int().min(40).max(400).default(140),
+});
+export type SkillsSettings = z.infer<typeof SkillsSettingsSchema>;
+
+/* ============================================================================
  * Skill sources — cross-ecosystem discovery toggles + custom paths
  * ========================================================================== */
 
@@ -192,6 +273,9 @@ export const DeckSettingsSchema = z.object({
   storage: StorageSettingsSchema,
   sources: SkillSourcesSchema,
   hardware: HardwareSettingsSchema,
+  memory: MemorySettingsSchema,
+  skills: SkillsSettingsSchema,
+  chat: ChatSettingsSchema,
 });
 export type DeckSettings = z.infer<typeof DeckSettingsSchema>;
 
@@ -204,6 +288,9 @@ export const SECTION_SCHEMAS = {
   storage: StorageSettingsSchema,
   sources: SkillSourcesSchema,
   hardware: HardwareSettingsSchema,
+  memory: MemorySettingsSchema,
+  skills: SkillsSettingsSchema,
+  chat: ChatSettingsSchema,
 } as const;
 
 export type SectionName = keyof typeof SECTION_SCHEMAS;

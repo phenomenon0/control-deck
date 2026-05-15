@@ -14,6 +14,7 @@ import {
   getArtifactsByThread,
   type ArtifactRow,
 } from "@/lib/agui/db";
+import { ingestMessageForSearch } from "@/lib/chat/session-ingest";
 
 /**
  * Generate a concise chat title using the fast slot (falls back to primary)
@@ -149,6 +150,20 @@ export async function POST(req: Request) {
     const messageId = id ?? crypto.randomUUID();
     console.log("[Threads API] Saving message:", { messageId, threadId, role, runId: runId ?? "null", hasMetadata: !!metadata });
     saveMessage({
+      id: messageId,
+      threadId,
+      role,
+      content,
+      runId,
+      metadata,
+    });
+
+    // Fire-and-forget ingest into the chat-history vector collection so the
+    // agent can semantically search past sessions. Filters (role allowlist,
+    // min char floor, master switch) live in lib/chat/session-ingest. We
+    // explicitly do not await — VectorDB latency / downtime must not break
+    // the chat save path.
+    void ingestMessageForSearch({
       id: messageId,
       threadId,
       role,

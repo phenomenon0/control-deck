@@ -32,6 +32,8 @@ import {
 } from "@/lib/agui/events";
 import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
 import { prepareForModel } from "@/lib/llm/systemPrompt";
+import { renderMemoryForPrompt } from "@/lib/memory/prompt";
+import { renderSkillIndex } from "@/lib/skills/index-block";
 import {
   createRun,
   createThread,
@@ -410,7 +412,14 @@ export async function POST(req: Request) {
   const baseSystemPrompt = thread0?.system_prompt ?? clientPrompt ?? "";
   const voiceMode = voice?.modality === "voice" ? coerceAudioMode(voice.mode) : null;
   const voicePrompt = voiceMode ? promptForAudioMode(voiceMode) : null;
-  const systemPrompt = [baseSystemPrompt.trim(), voicePrompt]
+  // Memory snapshot is prepended so it lands at the prompt prefix — KV-cache
+  // hits across turns as long as the curated files are stable. Returns ""
+  // when memory is disabled in settings or both files are empty.
+  const memoryBlock = renderMemoryForPrompt();
+  // Skill index = progressive disclosure; the agent calls skill_view for
+  // any id it actually needs. Returns "" when no skills or disabled.
+  const skillIndex = renderSkillIndex();
+  const systemPrompt = [skillIndex, memoryBlock, baseSystemPrompt.trim(), voicePrompt]
     .filter((part): part is string => Boolean(part && part.trim()))
     .join("\n\n");
 

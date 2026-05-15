@@ -68,6 +68,89 @@ export const SkillSourceRefSchema = z.object({
 });
 export type SkillSourceRef = z.infer<typeof SkillSourceRefSchema>;
 
+/**
+ * Tool input for the `skill_manage` MCP tool. Discriminated by `action`:
+ *
+ *   - create: needs `name` + `description` + `prompt`; id, version, tags,
+ *     tools, model, license, compatibility are optional.
+ *   - update: needs `id`; any subset of the manifest fields and/or `prompt`.
+ *   - delete: needs only `id`.
+ *
+ * Tools mentioned in `tools` must be valid bridge tool names — the handler
+ * does the runtime check against BRIDGE_TOOLS to avoid a circular import
+ * here.
+ */
+export const SkillIdSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-_]*$/i, "id must be a kebab/underscore slug starting with [a-z0-9]")
+  .min(1)
+  .max(64);
+
+export const SkillManageInputSchema = z
+  .object({
+    action: z.enum(["create", "update", "delete"]),
+    id: z.string().optional(),
+    name: z.string().min(1).max(120).optional(),
+    description: z.string().min(1).max(1000).optional(),
+    prompt: z.string().max(64_000).optional(),
+    version: z.string().max(32).optional(),
+    tags: z.array(z.string().min(1).max(64)).max(32).optional(),
+    tools: z.array(z.string().min(1).max(64)).max(64).optional(),
+    model: z.string().max(120).optional(),
+    license: z.string().max(64).optional(),
+    compatibility: z.string().max(120).optional(),
+    metadata: z.record(z.string(), z.string()).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.action === "create") {
+      if (!val.name) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "create requires name", path: ["name"] });
+      }
+      if (!val.description) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "create requires description", path: ["description"] });
+      }
+      if (val.prompt === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "create requires prompt", path: ["prompt"] });
+      }
+      if (val.id) {
+        const parsed = SkillIdSchema.safeParse(val.id);
+        if (!parsed.success) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.error.issues[0].message, path: ["id"] });
+        }
+      }
+    } else {
+      if (!val.id) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${val.action} requires id`, path: ["id"] });
+      } else {
+        const parsed = SkillIdSchema.safeParse(val.id);
+        if (!parsed.success) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: parsed.error.issues[0].message, path: ["id"] });
+        }
+      }
+      if (val.action === "update") {
+        const hasAny =
+          val.name !== undefined ||
+          val.description !== undefined ||
+          val.prompt !== undefined ||
+          val.version !== undefined ||
+          val.tags !== undefined ||
+          val.tools !== undefined ||
+          val.model !== undefined ||
+          val.license !== undefined ||
+          val.compatibility !== undefined ||
+          val.metadata !== undefined;
+        if (!hasAny) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "update requires at least one field to change",
+            path: [],
+          });
+        }
+      }
+    }
+  });
+export type SkillManageInput = z.infer<typeof SkillManageInputSchema>;
+
 export const SkillSchema = z.object({
   id: z.string().min(1),
   name: z.string(),

@@ -72,6 +72,9 @@ import {
   executeWorkspaceWriteNote,
   executeWorkspaceShowCanvas,
 } from "./handlers/workspace";
+import { executeMemoryTool } from "./handlers/memory";
+import { executeSkillView } from "./handlers/skill";
+import { executeSkillManage } from "./handlers/skill-manage";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
@@ -270,6 +273,12 @@ async function dispatchTool(
         return await executeGitTool(tool.args);
       case "apply_patch":
         return await executeApplyPatch(tool.args);
+      case "memory":
+        return await executeMemoryTool(tool.args);
+      case "skill_view":
+        return await executeSkillView(tool.args);
+      case "skill_manage":
+        return await executeSkillManage(tool.args);
       default:
         return {
           success: false,

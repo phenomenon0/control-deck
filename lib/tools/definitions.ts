@@ -5,6 +5,9 @@
 
 import { z } from "zod";
 
+import { MemoryToolInputSchema } from "@/lib/memory/schema";
+import { SkillManageInputSchema } from "@/lib/skills/schema";
+
 /**
  * Edit an image using natural language instructions (Qwen Image Edit)
  */
@@ -544,6 +547,43 @@ export const GitToolSchema = z.object({
 });
 
 /**
+ * Curate the agent's persistent MEMORY.md / USER.md. Writes go through a
+ * safety filter (injection / exfil / invisible-unicode) and per-target char
+ * budgets enforced in `lib/memory/store`. `add` appends a deduped block;
+ * `replace`/`remove` match `old_text` as a unique substring of an existing
+ * block. Returns the post-write state so the model can decide whether to
+ * trim further next turn.
+ */
+export const MemoryToolSchema = z.object({
+  name: z.literal("memory"),
+  args: MemoryToolInputSchema,
+});
+
+/**
+ * Progressive-disclosure pair to the SKILLS index block: the system prompt
+ * carries id + truncated description; this tool fetches the full SKILL.md
+ * body, tool whitelist, and source metadata for a single skill id.
+ */
+export const SkillViewToolSchema = z.object({
+  name: z.literal("skill_view"),
+  args: z.object({
+    id: z.string().min(1).describe("Skill id as listed in the SKILLS index"),
+  }),
+});
+
+/**
+ * Curate the local SKILLS catalog. action=create writes a new SKILL.md
+ * under the local writable root; action=update edits an existing one;
+ * action=delete removes it. The handler enforces slug rules, the writable
+ * root, body size limits, and a tools-list whitelist. Auto-executes — the
+ * validation layer is the gate.
+ */
+export const SkillManageToolSchema = z.object({
+  name: z.literal("skill_manage"),
+  args: SkillManageInputSchema,
+});
+
+/**
  * Apply a unified diff to local files via `git apply`. Always gated.
  */
 export const ApplyPatchSchema = z.object({
@@ -601,6 +641,9 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   HttpFetchSchema,
   GitToolSchema,
   ApplyPatchSchema,
+  MemoryToolSchema,
+  SkillViewToolSchema,
+  SkillManageToolSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -656,6 +699,9 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   http_fetch:                 HttpFetchSchema.shape.args,
   git:                        GitToolSchema.shape.args,
   apply_patch:                ApplyPatchSchema.shape.args,
+  memory:                     MemoryToolSchema.shape.args,
+  skill_view:                 SkillViewToolSchema.shape.args,
+  skill_manage:               SkillManageToolSchema.shape.args,
 };
 
 // Type helpers for individual tools
@@ -703,6 +749,9 @@ export type ReadLocalFileArgs = z.infer<typeof ReadLocalFileSchema>["args"];
 export type HttpFetchArgs = z.infer<typeof HttpFetchSchema>["args"];
 export type GitToolArgs = z.infer<typeof GitToolSchema>["args"];
 export type ApplyPatchArgs = z.infer<typeof ApplyPatchSchema>["args"];
+export type MemoryToolArgs = z.infer<typeof MemoryToolSchema>["args"];
+export type SkillViewToolArgs = z.infer<typeof SkillViewToolSchema>["args"];
+export type SkillManageToolArgs = z.infer<typeof SkillManageToolSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -1101,6 +1150,41 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "cwd", type: "string", required: false, description: "Working directory for the apply (default: process cwd)" },
       { name: "check", type: "boolean", required: false, description: "Dry-run with --check; do not modify files", default: false },
       { name: "allowBinary", type: "boolean", required: false, description: "Allow binary hunks (default: refuse)", default: false },
+    ],
+  },
+  {
+    name: "memory",
+    description: "Curate MEMORY.md (agent notes) and USER.md (user profile). action=add appends a deduped entry; action=replace swaps a unique substring; action=remove deletes the matching entry. Writes are safety-filtered (injection/exfil/invisible-unicode) and char-budgeted per target. Use sparingly — entries are durable across sessions.",
+    parameters: [
+      { name: "action", type: "string", required: true, description: "One of 'add', 'replace', 'remove'" },
+      { name: "target", type: "string", required: true, description: "Either 'memory' (agent notes) or 'user' (user profile)" },
+      { name: "content", type: "string", required: false, description: "New entry text (required for add/replace)" },
+      { name: "old_text", type: "string", required: false, description: "Unique substring matching the entry to replace or remove" },
+    ],
+  },
+  {
+    name: "skill_view",
+    description: "Fetch the full SKILL.md body and metadata for a skill listed in the SKILLS index. Use this only when you intend to follow the skill — the index already shows what's available.",
+    parameters: [
+      { name: "id", type: "string", required: true, description: "Skill id as shown in the SKILLS index" },
+    ],
+  },
+  {
+    name: "skill_manage",
+    description: "Create, update, or delete a SKILL.md in the local writable skills root. action=create needs name/description/prompt; action=update needs id and at least one field; action=delete needs only id. Slug, body size, and tools-list whitelist are validated.",
+    parameters: [
+      { name: "action", type: "string", required: true, description: "One of 'create', 'update', 'delete'" },
+      { name: "id", type: "string", required: false, description: "Skill id (required for update/delete; optional for create — slugified from name when omitted)" },
+      { name: "name", type: "string", required: false, description: "Human-readable name (required for create)" },
+      { name: "description", type: "string", required: false, description: "One-line description (required for create)" },
+      { name: "prompt", type: "string", required: false, description: "Full SKILL.md body (required for create)" },
+      { name: "version", type: "string", required: false, description: "Version string, e.g. '0.2.0'" },
+      { name: "tags", type: "array", required: false, description: "Free-form tags" },
+      { name: "tools", type: "array", required: false, description: "Tool names the skill is allowed to call (must be known bridge tools)" },
+      { name: "model", type: "string", required: false, description: "Optional model pin" },
+      { name: "license", type: "string", required: false, description: "SPDX license identifier" },
+      { name: "compatibility", type: "string", required: false, description: "Ecosystem compatibility hint" },
+      { name: "metadata", type: "object", required: false, description: "Free-form string-string metadata" },
     ],
   },
 ];

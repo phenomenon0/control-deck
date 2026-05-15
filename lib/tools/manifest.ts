@@ -247,6 +247,42 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
     requiresApproval: true,
     timeoutMs: DEFAULT_TIMEOUT_MS,
   },
+  // Curated MEMORY.md / USER.md writer. Auto-executes — the actual gate is the
+  // safety filter (injection/exfil/invisible-unicode) plus per-target char
+  // budgets in lib/memory/store, not an approval prompt.
+  memory: {
+    name: "memory",
+    risk: "low_write",
+    sideEffect: "persistent",
+    allowInVoice: true,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+  },
+  // Read-only progressive-disclosure for the skill catalog. No filesystem
+  // writes; the loader already runs on every snapshot, so there is nothing
+  // here to gate.
+  skill_view: {
+    name: "skill_view",
+    risk: "read_only",
+    sideEffect: "none",
+    allowInVoice: true,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+  },
+  // Writes/edits a SKILL.md under the local writable root. Auto-executes —
+  // slug/size/tools-whitelist validation in the handler is the actual gate.
+  // Out of voice because voice users can't review skill bodies inline.
+  skill_manage: {
+    name: "skill_manage",
+    risk: "low_write",
+    sideEffect: "persistent",
+    allowInVoice: false,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+  },
 };
 
 function mkNativeRead(): ToolManifestEntry {

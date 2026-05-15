@@ -45,4 +45,7 @@ export const BRIDGE_TOOLS = new Set<string>([
   "http_fetch",
   "git",
   "apply_patch",
+  "memory",
+  "skill_view",
+  "skill_manage",
 ]);

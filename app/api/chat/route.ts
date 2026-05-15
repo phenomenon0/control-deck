@@ -140,6 +140,16 @@ interface AgentGOEvent {
   // Interrupt events
   approved?: boolean;
   reason?: string;
+  data?: {
+    kind?: string;
+    approvalId?: string;
+    toolCallId?: string;
+    toolName?: string;
+    riskLevel?: string;
+    args?: unknown;
+    decision?: string;
+    reason?: string;
+  };
   // Artifact events
   artifactId?: string;
   url?: string;
@@ -167,7 +177,8 @@ function mapAndPublishEvent(
   event: AgentGOEvent,
   threadId: string,
   runId: string,
-  messageId: string
+  messageId: string,
+  state: { sawFirstTextStart: boolean }
 ): AGUIEvent | null {
   let aguiEvent: AGUIEvent | null = null;
 
@@ -193,7 +204,20 @@ function mapAndPublishEvent(
       break;
 
     case "TextMessageStart":
-      // Already emitted locally
+      // The deck pre-emits a TextMessageStart locally so the UI has a
+      // streaming segment ready before agent-ts connects. agent-ts then
+      // emits its own start for every model turn — drop the first one
+      // (duplicate of our local), but forward subsequent starts so the
+      // UI opens a new streaming segment after each tool-call round.
+      if (!state.sawFirstTextStart) {
+        state.sawFirstTextStart = true;
+        break;
+      }
+      aguiEvent = createEvent<TextMessageStart>("TextMessageStart", threadId, {
+        runId,
+        messageId: event.messageId ?? messageId,
+        role: "assistant",
+      });
       break;
 
     case "TextMessageContent":
@@ -267,12 +291,16 @@ function mapAndPublishEvent(
 
     case "InterruptRequested":
       // Publish interrupt request to hub for UI to handle
-      console.log("[Chat] InterruptRequested:", event.toolName, event.args);
+      console.log("[Chat] InterruptRequested:", event.data?.toolName ?? event.toolName, event.data?.args ?? event.args);
       aguiEvent = createEvent<InterruptRequested>("InterruptRequested", threadId, {
         runId,
-        toolCallId: event.toolCallId ?? generateId(),
-        toolName: event.toolName ?? "unknown",
-        args: event.args ? jsonPayload(event.args.data ?? event.args) : undefined,
+        toolCallId: event.data?.toolCallId ?? event.toolCallId ?? generateId(),
+        toolName: event.data?.toolName ?? event.toolName ?? "unknown",
+        args: event.data?.args !== undefined
+          ? jsonPayload(event.data.args)
+          : event.args
+            ? jsonPayload(event.args.data ?? event.args)
+            : undefined,
       });
       break;
 
@@ -280,9 +308,9 @@ function mapAndPublishEvent(
       console.log("[Chat] InterruptResolved:", event);
       aguiEvent = createEvent<InterruptResolved>("InterruptResolved", threadId, {
         runId,
-        toolCallId: event.toolCallId,
-        approved: event.approved ?? false,
-        reason: event.reason,
+        toolCallId: event.data?.toolCallId ?? event.toolCallId,
+        approved: event.data?.decision ? event.data.decision === "approved" : event.approved ?? false,
+        reason: event.data?.reason ?? event.reason,
       });
       break;
 
@@ -549,6 +577,11 @@ export async function POST(req: Request) {
   (async () => {
     let agentRunId: string | null = null;
     let fullText = "";
+    // Track per-stream state used by mapAndPublishEvent — currently
+    // tells us whether to suppress the first TextMessageStart from
+    // agent-ts (the deck pre-emitted one locally) vs forwarding the
+    // ones that begin each model turn after a tool-call round.
+    const eventState = { sawFirstTextStart: false };
 
     try {
       // Write initial locally-emitted events to the SSE stream
@@ -629,7 +662,7 @@ export async function POST(req: Request) {
             }
 
             // Map to AGUI event, save to DB, publish to hub (for other consumers)
-            const aguiEvent = mapAndPublishEvent(event, thread, runId, messageId);
+            const aguiEvent = mapAndPublishEvent(event, thread, runId, messageId, eventState);
 
             // Write the AGUI event to the SSE response stream
             if (aguiEvent) {

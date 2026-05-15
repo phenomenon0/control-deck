@@ -54,11 +54,14 @@ interface ChatSurfaceProps {
   voiceSubmitOrigin?: VoiceSubmitOrigin;
 }
 
-/** Truncate string values in tool args to keep metadata compact */
+/** Truncate string values in tool args to keep metadata compact.
+ *  `code` is exempt — the inline code block in chat needs the full source on
+ *  reload, otherwise old execute_code rows render as a 200-char stub. */
 function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
-    result[key] = typeof value === "string" && value.length > 200
+    const keepFull = key === "code";
+    result[key] = !keepFull && typeof value === "string" && value.length > 200
       ? value.slice(0, 200) + "..."
       : value;
   }

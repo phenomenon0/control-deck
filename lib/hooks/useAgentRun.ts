@@ -323,11 +323,21 @@ export function agentRunReducer(
     }
 
     case "TOOL_RESULT": {
+      // Back-fill step.args from the tool's own response when the bridge
+      // didn't emit ToolCallArgs deltas. execute_code in particular only
+      // surfaces its `code`/`language` inside details.data of the result —
+      // without this back-fill the chat would never see the source.
+      const detailsData = (
+        action.result?.data as { details?: { data?: Record<string, unknown> } } | undefined
+      )?.details?.data;
       const segs = updateToolStep(state.segments, action.toolCallId, (step) => ({
         ...step,
         status: action.result?.success !== false ? "complete" : "error",
         result: action.result,
         durationMs: action.durationMs,
+        args: step.args && Object.keys(step.args).length > 0
+          ? step.args
+          : (detailsData as Record<string, unknown> | undefined) ?? step.args,
       }));
 
       const runId = getRunId(state.runState);

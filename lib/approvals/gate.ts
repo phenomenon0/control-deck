@@ -56,15 +56,20 @@ export interface GateVerdict {
  * anything strictly above `low_write` (i.e. medium_write, high_write,
  * sensitive, dangerous) is treated as a side-effect tool. The manifest is
  * the canonical risk table — see `lib/tools/manifest.ts`.
+ *
+ * If the manifest entry sets `dynamicRisk`, that takes precedence over the
+ * static `risk` field — letting one tool name span both read and write
+ * modes (http_fetch GET vs POST, git status vs commit).
  */
-function isSideEffectTool(toolName: string): boolean {
+function isSideEffectTool(toolName: string, toolArgs: Record<string, unknown>): boolean {
   // Tools without a manifest entry (e.g. agent-go native web_search) are
   // not bridge-routed; the side-effect gate stays out of their way. The
   // bridge re-decides via decideToolPolicy with the same fail-safe default.
   if (!hasManifestEntry(toolName)) return false;
   const m = getManifest(toolName);
   if (m.requiresApproval) return true;
-  switch (m.risk) {
+  const risk = m.dynamicRisk ? m.dynamicRisk(toolArgs) : m.risk;
+  switch (risk) {
     case "medium_write":
     case "high_write":
     case "sensitive":
@@ -99,7 +104,7 @@ function shouldGate(
     case "cost":
       return (options.estimatedCostUsd ?? 0) >= costThreshold;
     case "side-effect":
-      return isSideEffectTool(options.toolName);
+      return isSideEffectTool(options.toolName, options.toolArgs);
   }
 }
 

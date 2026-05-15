@@ -26,7 +26,17 @@ import type {
   VectorSearchArgs,
   VectorStoreArgs,
   VectorIngestArgs,
+  ReadLocalFileArgs,
+  HttpFetchArgs,
+  GitToolArgs,
+  ApplyPatchArgs,
 } from "./definitions";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import * as path from "path";
+import * as os from "os";
+
+const execFileAsync = promisify(execFile);
 import { getNativeAdapter } from "./native";
 import { captureFailureEnvelope } from "./native/failure-envelope";
 import {
@@ -49,6 +59,7 @@ import {
   executeNativeWatchRemove,
   executeNativeBaselineCapture,
   executeNativeBaselineRestore,
+  executeNativeCapabilities,
 } from "./handlers/native";
 import {
   executeWorkspaceOpenPane,
@@ -94,6 +105,9 @@ const GLYPH_EXCLUDE_TOOLS = new Set([
   'glyph_motif',      // SVG artifact
   'analyze_image',    // Text analysis
   'native_screen_grab', // Base64 PNG blob — nonsense to GLYPH-encode
+  'read_local_file',  // Text or base64 blob
+  'git',              // stdout/stderr text
+  'apply_patch',      // Short result summary
 ]);
 
 export interface ToolExecutionResult {
@@ -228,6 +242,8 @@ async function dispatchTool(
         return await executeNativeBaselineCapture(tool.args);
       case "native_baseline_restore":
         return await executeNativeBaselineRestore(tool.args);
+      case "native_capabilities":
+        return await executeNativeCapabilities(tool.args);
       case "workspace_open_pane":
         return executeWorkspaceOpenPane(tool.args);
       case "workspace_close_pane":
@@ -246,6 +262,14 @@ async function dispatchTool(
         return await executeWorkspaceWriteNote(tool.args);
       case "workspace_show_canvas":
         return await executeWorkspaceShowCanvas(tool.args);
+      case "read_local_file":
+        return await executeReadLocalFile(tool.args);
+      case "http_fetch":
+        return await executeHttpFetch(tool.args);
+      case "git":
+        return await executeGitTool(tool.args);
+      case "apply_patch":
+        return await executeApplyPatch(tool.args);
       default:
         return {
           success: false,
@@ -1298,5 +1322,310 @@ function comfyResultToExecutorResult(
     message: result.error ?? "ComfyUI execution failed",
     error: result.error,
   };
+}
+
+/**
+ * Read a local file by absolute path.
+ *
+ * Pure-read tool; no approval needed. Refuses relative paths so the caller
+ * can't accidentally read whatever the process cwd happens to be — the
+ * agent should pass an absolute path it actually intends to read.
+ */
+async function executeReadLocalFile(
+  args: ReadLocalFileArgs,
+): Promise<ToolExecutionResult> {
+  try {
+    if (!path.isAbsolute(args.path)) {
+      return {
+        success: false,
+        message: `read_local_file requires an absolute path; got: ${args.path}`,
+        error: "Relative path",
+        error_code: "RELATIVE_PATH",
+      };
+    }
+
+    const offset = args.offset ?? 0;
+    const maxBytes = args.maxBytes ?? 200_000;
+    const encoding = args.encoding ?? "utf8";
+
+    let stat;
+    try {
+      stat = await fs.stat(args.path);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "stat failed";
+      return {
+        success: false,
+        message: `Cannot stat ${args.path}: ${msg}`,
+        error: msg,
+        error_code: "STAT_FAILED",
+      };
+    }
+    if (!stat.isFile()) {
+      return {
+        success: false,
+        message: `Not a regular file: ${args.path}`,
+        error: "Not a file",
+        error_code: "NOT_A_FILE",
+      };
+    }
+
+    const handle = await fs.open(args.path, "r");
+    try {
+      const remaining = Math.max(0, stat.size - offset);
+      const length = Math.min(maxBytes, remaining);
+      const buffer = Buffer.alloc(length);
+      if (length > 0) {
+        await handle.read(buffer, 0, length, offset);
+      }
+      const truncated = remaining > maxBytes;
+      const content = encoding === "base64" ? buffer.toString("base64") : buffer.toString("utf8");
+
+      return {
+        success: true,
+        message: `Read ${length} bytes from ${args.path}${truncated ? ` (truncated; file is ${stat.size} bytes)` : ""}`,
+        data: {
+          path: args.path,
+          encoding,
+          bytes: length,
+          totalBytes: stat.size,
+          truncated,
+          offset,
+          content,
+        },
+      };
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Read failed";
+    return {
+      success: false,
+      message: `Failed to read ${args.path}: ${errMsg}`,
+      error: errMsg,
+    };
+  }
+}
+
+/**
+ * Fetch a URL with arbitrary HTTP method.
+ *
+ * GET/HEAD are ungated reads; write verbs route through the approval gate
+ * via the manifest's `dynamicRisk` hook. Truncates the response body to
+ * `maxBytes` so absurdly large pages don't blow up the LLM context.
+ */
+async function executeHttpFetch(
+  args: HttpFetchArgs,
+): Promise<ToolExecutionResult> {
+  const method = (args.method ?? "GET").toUpperCase();
+  const timeoutMs = args.timeoutMs ?? 15_000;
+  const maxBytes = args.maxBytes ?? 500_000;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(args.url, {
+      method,
+      headers: args.headers,
+      body: method === "GET" || method === "HEAD" ? undefined : args.body,
+      signal: controller.signal,
+    });
+
+    const responseHeaders: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      responseHeaders[key] = value;
+    });
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const truncated = buffer.length > maxBytes;
+    const slice = truncated ? buffer.subarray(0, maxBytes) : buffer;
+
+    // Heuristic: text-y content types → utf8, otherwise base64.
+    const contentType = response.headers.get("content-type") ?? "";
+    const isText =
+      contentType.startsWith("text/") ||
+      contentType.includes("json") ||
+      contentType.includes("xml") ||
+      contentType.includes("javascript") ||
+      contentType.includes("yaml");
+    const body = isText ? slice.toString("utf8") : slice.toString("base64");
+
+    return {
+      success: response.ok,
+      message: `${method} ${args.url} → ${response.status} ${response.statusText}${truncated ? ` (body truncated at ${maxBytes} bytes)` : ""}`,
+      data: {
+        url: args.url,
+        method,
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: responseHeaders,
+        bodyEncoding: isText ? "utf8" : "base64",
+        body,
+        bytes: slice.length,
+        totalBytes: buffer.length,
+        truncated,
+      },
+    };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : "Fetch failed";
+    return {
+      success: false,
+      message: `Fetch failed for ${method} ${args.url}: ${errMsg}`,
+      error: errMsg,
+      error_code: errMsg.includes("aborted") ? "TIMEOUT" : "FETCH_FAILED",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Run a git subcommand via execFile (no shell, no injection).
+ *
+ * Read subcommands are listed in the manifest's `dynamicRisk`; this
+ * function does not duplicate that gating — it trusts the gate already
+ * approved the call. Failure cases: not a git repo, unknown subcommand,
+ * non-zero exit status (returned as success=false with stdout/stderr/code).
+ */
+async function executeGitTool(
+  args: GitToolArgs,
+): Promise<ToolExecutionResult> {
+  const cwd = args.cwd ?? process.cwd();
+  const timeoutMs = args.timeoutMs ?? 15_000;
+
+  try {
+    const result = await execFileAsync(
+      "git",
+      [args.subcommand, ...(args.args ?? [])],
+      { cwd, timeout: timeoutMs, maxBuffer: 4_000_000 },
+    );
+    return {
+      success: true,
+      message: `git ${args.subcommand} ✓`,
+      data: {
+        subcommand: args.subcommand,
+        args: args.args ?? [],
+        cwd,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: 0,
+      },
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & {
+      stdout?: string;
+      stderr?: string;
+      code?: number | string;
+      killed?: boolean;
+    };
+    const stderr = typeof err.stderr === "string" ? err.stderr : "";
+    const stdout = typeof err.stdout === "string" ? err.stdout : "";
+    const notRepo = /not a git repository/i.test(stderr);
+    return {
+      success: false,
+      message: `git ${args.subcommand} failed${notRepo ? " (not a git repository)" : ""}`,
+      error: err.message,
+      error_code: notRepo ? "NOT_A_REPO" : (err.killed ? "TIMEOUT" : "GIT_ERROR"),
+      data: {
+        subcommand: args.subcommand,
+        args: args.args ?? [],
+        cwd,
+        stdout,
+        stderr,
+        exitCode: typeof err.code === "number" ? err.code : null,
+      },
+    };
+  }
+}
+
+/**
+ * Apply a unified diff via `git apply`. Always gated upstream.
+ *
+ * Writes the diff to a tmp file and runs `git apply` so we get the full
+ * diff parser for free (rename detection, mode changes, hunk offsets).
+ * `check: true` validates without modifying. Binary hunks rejected by
+ * default — `allowBinary: true` opts in.
+ */
+async function executeApplyPatch(
+  args: ApplyPatchArgs,
+): Promise<ToolExecutionResult> {
+  const cwd = args.cwd ?? process.cwd();
+
+  if (!args.allowBinary && /^GIT binary patch$/m.test(args.diff)) {
+    return {
+      success: false,
+      message: "Patch contains binary hunks; pass allowBinary=true to apply.",
+      error: "Binary hunk refused",
+      error_code: "BINARY_REFUSED",
+    };
+  }
+
+  const tmpFile = path.join(os.tmpdir(), `deck-patch-${Date.now()}-${process.pid}.diff`);
+  try {
+    await fs.writeFile(tmpFile, args.diff, "utf8");
+
+    const gitArgs = ["apply", "--whitespace=nowarn"];
+    if (args.check) gitArgs.push("--check");
+    gitArgs.push(tmpFile);
+
+    try {
+      const result = await execFileAsync("git", gitArgs, {
+        cwd,
+        timeout: 30_000,
+        maxBuffer: 4_000_000,
+      });
+
+      // Stat the diff for a quick summary.
+      const lines = args.diff.split("\n");
+      const plus = lines.filter((l) => l.startsWith("+") && !l.startsWith("+++")).length;
+      const minus = lines.filter((l) => l.startsWith("-") && !l.startsWith("---")).length;
+      const files = new Set<string>();
+      for (const l of lines) {
+        const m = l.match(/^diff --git a\/(.+?) b\//);
+        if (m) files.add(m[1]);
+      }
+
+      return {
+        success: true,
+        message: args.check
+          ? `Patch is applicable (${files.size} files, +${plus}/-${minus})`
+          : `Applied patch: ${files.size} files, +${plus}/-${minus}`,
+        data: {
+          cwd,
+          check: args.check ?? false,
+          filesChanged: [...files],
+          plus,
+          minus,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        },
+      };
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException & {
+        stdout?: string;
+        stderr?: string;
+        code?: number | string;
+      };
+      return {
+        success: false,
+        message: `git apply failed`,
+        error: typeof err.stderr === "string" && err.stderr.trim() ? err.stderr.trim() : err.message,
+        error_code: "APPLY_FAILED",
+        data: {
+          cwd,
+          stdout: typeof err.stdout === "string" ? err.stdout : "",
+          stderr: typeof err.stderr === "string" ? err.stderr : "",
+          exitCode: typeof err.code === "number" ? err.code : null,
+        },
+      };
+    }
+  } finally {
+    try {
+      await fs.unlink(tmpFile);
+    } catch {
+      // tmp cleanup best-effort
+    }
+  }
 }
 

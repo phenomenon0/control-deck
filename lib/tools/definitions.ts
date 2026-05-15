@@ -232,6 +232,13 @@ export const NativeClickPixelSchema = z.object({
   }),
 });
 
+export const NativeCapabilitiesSchema = z.object({
+  name: z.literal("native_capabilities"),
+  args: z.object({}).describe(
+    "No args — probe the native adapter and report platform, session type, helper readiness, portal status, and per-tool availability. Side-effect free; safe to call before any other native_* tool.",
+  ),
+});
+
 // Windows-only extras (return unsupported_platform elsewhere). Grouped
 // together so they're easy to spot during cross-platform work.
 
@@ -489,6 +496,66 @@ export const WorkspaceShowCanvasSchema = z.object({
   }).describe("Semantic canvas macro that discovers a canvas pane and loads code, preview HTML, or an artifact"),
 });
 
+/**
+ * Read a local file by absolute path. Returns UTF-8 text up to `maxBytes`.
+ * Pure-read; not gated. Distinct from the workspace-jailed `read_file`
+ * native tool in agent-ts — this one accepts absolute paths and is the
+ * bridge surface the LLM sees.
+ */
+export const ReadLocalFileSchema = z.object({
+  name: z.literal("read_local_file"),
+  args: z.object({
+    path: z.string().min(1).describe("Absolute filesystem path to read"),
+    offset: z.number().int().min(0).optional().describe("Byte offset to start reading from (default 0)"),
+    maxBytes: z.number().int().min(1).max(2_000_000).default(200_000).describe("Maximum bytes to return (cap 2MB)"),
+    encoding: z.enum(["utf8", "base64"]).default("utf8").describe("Output encoding"),
+  }),
+});
+
+/**
+ * Fetch a URL with arbitrary HTTP method. GET is ungated; write verbs
+ * (POST/PUT/DELETE/PATCH) go through the approval gate via dynamicRisk.
+ */
+export const HttpFetchSchema = z.object({
+  name: z.literal("http_fetch"),
+  args: z.object({
+    url: z.string().url().describe("Target URL"),
+    method: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"]).default("GET").describe("HTTP method"),
+    headers: z.record(z.string(), z.string()).optional().describe("Extra request headers"),
+    body: z.string().optional().describe("Request body for non-GET methods"),
+    timeoutMs: z.number().int().min(1000).max(60_000).default(15_000).describe("Request timeout in ms"),
+    maxBytes: z.number().int().min(1).max(5_000_000).default(500_000).describe("Maximum response bytes to return"),
+  }),
+});
+
+/**
+ * Run a git subcommand. Read subcommands (status/log/diff/show/branch
+ * with no args) are ungated; write subcommands (commit/push/checkout/add/
+ * reset/rebase/merge/etc.) flow through the approval gate via dynamicRisk.
+ */
+export const GitToolSchema = z.object({
+  name: z.literal("git"),
+  args: z.object({
+    subcommand: z.string().min(1).describe("git subcommand, e.g. status, log, diff, show, commit"),
+    args: z.array(z.string()).default([]).describe("Additional CLI args for the subcommand"),
+    cwd: z.string().optional().describe("Working directory (default: process cwd)"),
+    timeoutMs: z.number().int().min(1000).max(60_000).default(15_000).describe("Execution timeout in ms"),
+  }),
+});
+
+/**
+ * Apply a unified diff to local files via `git apply`. Always gated.
+ */
+export const ApplyPatchSchema = z.object({
+  name: z.literal("apply_patch"),
+  args: z.object({
+    diff: z.string().min(1).describe("Unified diff content"),
+    cwd: z.string().optional().describe("Working directory for the apply (default: process cwd)"),
+    check: z.boolean().default(false).describe("Dry-run with --check; do not modify files"),
+    allowBinary: z.boolean().default(false).describe("Allow binary hunks (default: refuse)"),
+  }),
+});
+
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
   GenerateAudioSchema,
@@ -520,6 +587,7 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   NativeWatchRemoveSchema,
   NativeBaselineCaptureSchema,
   NativeBaselineRestoreSchema,
+  NativeCapabilitiesSchema,
   WorkspaceOpenPaneSchema,
   WorkspaceClosePaneSchema,
   WorkspaceFocusPaneSchema,
@@ -529,6 +597,10 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   WorkspacePaneCallSchema,
   WorkspaceWriteNoteSchema,
   WorkspaceShowCanvasSchema,
+  ReadLocalFileSchema,
+  HttpFetchSchema,
+  GitToolSchema,
+  ApplyPatchSchema,
 ]);
 
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -570,6 +642,7 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   native_watch_remove:        NativeWatchRemoveSchema.shape.args,
   native_baseline_capture:    NativeBaselineCaptureSchema.shape.args,
   native_baseline_restore:    NativeBaselineRestoreSchema.shape.args,
+  native_capabilities:        NativeCapabilitiesSchema.shape.args,
   workspace_open_pane:        WorkspaceOpenPaneSchema.shape.args,
   workspace_close_pane:       WorkspaceClosePaneSchema.shape.args,
   workspace_focus_pane:       WorkspaceFocusPaneSchema.shape.args,
@@ -579,6 +652,10 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   workspace_pane_call:        WorkspacePaneCallSchema.shape.args,
   workspace_write_note:       WorkspaceWriteNoteSchema.shape.args,
   workspace_show_canvas:      WorkspaceShowCanvasSchema.shape.args,
+  read_local_file:            ReadLocalFileSchema.shape.args,
+  http_fetch:                 HttpFetchSchema.shape.args,
+  git:                        GitToolSchema.shape.args,
+  apply_patch:                ApplyPatchSchema.shape.args,
 };
 
 // Type helpers for individual tools
@@ -612,6 +689,7 @@ export type NativeWatchDrainArgs = z.infer<typeof NativeWatchDrainSchema>["args"
 export type NativeWatchRemoveArgs = z.infer<typeof NativeWatchRemoveSchema>["args"];
 export type NativeBaselineCaptureArgs = z.infer<typeof NativeBaselineCaptureSchema>["args"];
 export type NativeBaselineRestoreArgs = z.infer<typeof NativeBaselineRestoreSchema>["args"];
+export type NativeCapabilitiesArgs = z.infer<typeof NativeCapabilitiesSchema>["args"];
 export type WorkspaceOpenPaneArgs = z.infer<typeof WorkspaceOpenPaneSchema>["args"];
 export type WorkspaceClosePaneArgs = z.infer<typeof WorkspaceClosePaneSchema>["args"];
 export type WorkspaceFocusPaneArgs = z.infer<typeof WorkspaceFocusPaneSchema>["args"];
@@ -621,6 +699,10 @@ export type WorkspaceListPanesArgs = z.infer<typeof WorkspaceListPanesSchema>["a
 export type WorkspacePaneCallArgs = z.infer<typeof WorkspacePaneCallSchema>["args"];
 export type WorkspaceWriteNoteArgs = z.input<typeof WorkspaceWriteNoteSchema>["args"];
 export type WorkspaceShowCanvasArgs = z.input<typeof WorkspaceShowCanvasSchema>["args"];
+export type ReadLocalFileArgs = z.infer<typeof ReadLocalFileSchema>["args"];
+export type HttpFetchArgs = z.infer<typeof HttpFetchSchema>["args"];
+export type GitToolArgs = z.infer<typeof GitToolSchema>["args"];
+export type ApplyPatchArgs = z.infer<typeof ApplyPatchSchema>["args"];
 
 export interface ToolDefinition {
   name: ToolName;
@@ -897,6 +979,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     ],
   },
   {
+    name: "native_capabilities",
+    description: "Probe the native automation adapter and return what's actually usable on this host: platform (linux/darwin/win32), session type (wayland/x11/n-a), helper readiness (pyatspi/AX/UIA host), portal connectivity (Linux), and a per-tool availability map. Side-effect free. Call this before attempting unfamiliar native_* ops so you can pick the right strategy instead of discovering capability gaps via errors.",
+    parameters: [],
+  },
+  {
     name: "workspace_open_pane",
     description: "Open a new pane in the user's workspace (must be on /deck/workspace). Fire-and-forget: the command relays to any connected WorkspaceShell which adds the panel via Dockview. Types: chat, terminal, canvas, browser, notes, agentgo, audio, comfy, control, models, runs, tools, voice.",
     parameters: [
@@ -972,6 +1059,48 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "filename", type: "string", required: false, description: "Suggested filename for code mode" },
       { name: "autoRun", type: "boolean", required: false, description: "Run executable canvas code immediately", default: false },
       { name: "paneId", type: "string", required: false, description: "Specific canvas pane handle; omit to use the first canvas pane" },
+    ],
+  },
+  {
+    name: "read_local_file",
+    description: "Read a local file by absolute path. Returns UTF-8 text up to maxBytes. Use this instead of execute_code('bash', 'cat ...') — it's faster, typed, and not gated.",
+    parameters: [
+      { name: "path", type: "string", required: true, description: "Absolute filesystem path" },
+      { name: "offset", type: "number", required: false, description: "Byte offset to start reading from", default: 0 },
+      { name: "maxBytes", type: "number", required: false, description: "Maximum bytes to return (cap 2MB)", default: 200000 },
+      { name: "encoding", type: "string", required: false, description: "'utf8' or 'base64'", default: "utf8" },
+    ],
+  },
+  {
+    name: "http_fetch",
+    description: "Fetch a URL with any HTTP method. GET is ungated; POST/PUT/DELETE/PATCH require approval. Prefer this over execute_code('bash', 'curl ...') for API calls.",
+    parameters: [
+      { name: "url", type: "string", required: true, description: "Target URL" },
+      { name: "method", type: "string", required: false, description: "GET / POST / PUT / DELETE / PATCH / HEAD", default: "GET" },
+      { name: "headers", type: "object", required: false, description: "Extra request headers (string-string map)" },
+      { name: "body", type: "string", required: false, description: "Request body for non-GET methods" },
+      { name: "timeoutMs", type: "number", required: false, description: "Request timeout in ms", default: 15000 },
+      { name: "maxBytes", type: "number", required: false, description: "Maximum response bytes to return", default: 500000 },
+    ],
+  },
+  {
+    name: "git",
+    description: "Run a git subcommand. Read subcommands (status, log, diff, show, branch) are ungated; write subcommands (commit, push, checkout, add, reset, rebase, merge, tag, stash, restore) require approval.",
+    parameters: [
+      { name: "subcommand", type: "string", required: true, description: "git subcommand, e.g. status, log, diff, show, commit" },
+      { name: "args", type: "array", required: false, description: "Additional CLI args for the subcommand", default: [] },
+      { name: "cwd", type: "string", required: false, description: "Working directory (default: process cwd)" },
+      { name: "timeoutMs", type: "number", required: false, description: "Execution timeout in ms", default: 15000 },
+    ],
+  },
+  {
+    name: "apply_patch",
+    description: "Apply a unified diff to local files via 'git apply'. Always gated. Use 'check: true' for a dry-run validation pass.",
+    parameters: [
+      { name: "diff", type: "string", required: true, description: "Unified diff content" },
+      { name: "cwd", type: "string", required: false, description: "Working directory for the apply (default: process cwd)" },
+      { name: "check", type: "boolean", required: false, description: "Dry-run with --check; do not modify files", default: false },
+      { name: "allowBinary", type: "boolean", required: false, description: "Allow binary hunks (default: refuse)", default: false },
     ],
   },
 ];

@@ -44,6 +44,39 @@ describe("manifest", () => {
     expect(m.sideEffect).toBe("none");
   });
 
+  test("universal tools land in manifest with the expected gate shape", () => {
+    expect(getManifest("read_local_file").requiresApproval).toBe(false);
+    expect(getManifest("read_local_file").risk).toBe("read_only");
+    expect(getManifest("apply_patch").requiresApproval).toBe(true);
+    expect(getManifest("apply_patch").risk).toBe("high_write");
+    expect(getManifest("apply_patch").allowInVoice).toBe(false);
+  });
+
+  test("http_fetch dynamicRisk splits read verbs from write verbs", () => {
+    const m = getManifest("http_fetch");
+    expect(typeof m.dynamicRisk).toBe("function");
+    expect(m.dynamicRisk!({ method: "GET" })).toBe("read_only");
+    expect(m.dynamicRisk!({ method: "HEAD" })).toBe("read_only");
+    expect(m.dynamicRisk!({ method: "POST" })).toBe("medium_write");
+    expect(m.dynamicRisk!({ method: "DELETE" })).toBe("medium_write");
+    // No method arg → defaults to GET (per the schema), but the manifest
+    // hook is conservative and treats only GET/HEAD as read.
+    expect(m.dynamicRisk!({})).toBe("read_only");
+  });
+
+  test("git dynamicRisk splits inspection subcommands from write subcommands", () => {
+    const m = getManifest("git");
+    expect(typeof m.dynamicRisk).toBe("function");
+    expect(m.dynamicRisk!({ subcommand: "status" })).toBe("read_only");
+    expect(m.dynamicRisk!({ subcommand: "log" })).toBe("read_only");
+    expect(m.dynamicRisk!({ subcommand: "diff" })).toBe("read_only");
+    expect(m.dynamicRisk!({ subcommand: "commit" })).toBe("medium_write");
+    expect(m.dynamicRisk!({ subcommand: "push" })).toBe("medium_write");
+    expect(m.dynamicRisk!({ subcommand: "rebase" })).toBe("medium_write");
+    // Unknown subcommand → conservative write classification.
+    expect(m.dynamicRisk!({ subcommand: "lolcat" })).toBe("medium_write");
+  });
+
   test("manifestVersion is deterministic and stable", () => {
     const a = manifestVersion();
     const b = manifestVersion();

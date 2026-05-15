@@ -48,6 +48,12 @@ const SIDE_EFFECT_TOOLS = new Set<string>([
   "native_focus_window",
   "native_click_pixel",
   "native_focus",
+  "apply_patch",
+  // Note: http_fetch and git are intentionally NOT in this set. They are
+  // dynamic-risk in the deck's manifest — gate.ts evaluates per-call
+  // (GET / status / log → read; POST / commit / push → write). Adding
+  // them here would force approval on every call including the read
+  // paths, defeating the dynamic check.
 ]);
 
 const HIGH_RISK_TOOLS = new Set<string>(["bash", "execute_code"]);
@@ -63,7 +69,11 @@ function approvalPolicy(toolName: string): {
 
 const SYSTEM_PROMPT =
   process.env.AGENT_TS_SYSTEM_PROMPT ??
-  "You are a helpful assistant running inside the Control Deck cockpit. Be concise and tool-aware.";
+  [
+    "You are a helpful assistant running inside the Control Deck cockpit. Be concise and tool-aware.",
+    "At run start, workspace context files may be appended below: SOUL.md, USER.md, MEMORY.md, AGENTS.md, and TOOLS.md.",
+    "Treat that appended workspace context as the active operating contract for identity, user preferences, memory, agent behavior, and tool routing.",
+  ].join("\n");
 
 export function makeLoopRunner(deps: LoopDeps): LoopRunner {
   return async (handle, req, signal) => {

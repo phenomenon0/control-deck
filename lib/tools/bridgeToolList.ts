@@ -31,6 +31,7 @@ export const BRIDGE_TOOLS = new Set<string>([
   "native_watch_remove",
   "native_baseline_capture",
   "native_baseline_restore",
+  "native_capabilities",
   "workspace_open_pane",
   "workspace_close_pane",
   "workspace_focus_pane",
@@ -40,4 +41,8 @@ export const BRIDGE_TOOLS = new Set<string>([
   "workspace_pane_call",
   "workspace_write_note",
   "workspace_show_canvas",
+  "read_local_file",
+  "http_fetch",
+  "git",
+  "apply_patch",
 ]);

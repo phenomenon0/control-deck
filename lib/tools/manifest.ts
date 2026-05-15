@@ -48,6 +48,13 @@ export interface ToolManifestEntry {
   timeoutMs: number;
   /** Map noisy or sensitive args to a redacted shape for log/event payloads. */
   redactForLog?: (args: Record<string, unknown>) => Record<string, unknown>;
+  /**
+   * Per-call risk override. When set, the approval gate consults this with
+   * the actual call args before falling back to the static `risk` field.
+   * Lets one tool name span both read and write modes (e.g. http_fetch GET
+   * vs POST, git status vs commit) without duplicating manifest entries.
+   */
+  dynamicRisk?: (args: Record<string, unknown>) => RiskLevel;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -160,6 +167,7 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
   native_element_from_point: mkNativeRead(),
   native_with_cache:      mkNativeRead(),
   native_wait_for:        mkNativeRead(),
+  native_capabilities:    mkNativeRead(),
 
   native_click:           mkNativeWrite(true),
   native_click_pixel:     mkNativeWrite(true),
@@ -184,6 +192,61 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
   workspace_pane_call:    mkWorkspace("medium_write"),
   workspace_write_note:   mkWorkspace("medium_write"),
   workspace_show_canvas:  mkWorkspace("medium_write"),
+
+  // ── Universal tools — file/network/git primitives so the agent doesn't fall through to execute_code
+  read_local_file: {
+    name: "read_local_file",
+    risk: "read_only",
+    sideEffect: "none",
+    allowInVoice: true,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+  },
+  http_fetch: {
+    name: "http_fetch",
+    // Static fallback: any unrecognised method is treated as a write.
+    risk: "medium_write",
+    sideEffect: "external",
+    allowInVoice: true,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    // GET/HEAD are pure reads; everything else mutates remote state.
+    dynamicRisk: (args) => {
+      const m = String(args.method ?? "GET").toUpperCase();
+      return m === "GET" || m === "HEAD" ? "read_only" : "medium_write";
+    },
+  },
+  git: {
+    name: "git",
+    // Static fallback: unrecognised subcommand → treat as write.
+    risk: "medium_write",
+    sideEffect: "persistent",
+    allowInVoice: true,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    dynamicRisk: (args) => {
+      const sub = String(args.subcommand ?? "").toLowerCase();
+      // Inspection-only subcommands. Anything else writes refs/objects/files.
+      const READ_SUBCOMMANDS = new Set([
+        "status", "log", "diff", "show", "branch", "tag",
+        "rev-parse", "rev-list", "ls-files", "ls-tree", "config", "remote",
+        "blame", "describe", "shortlog", "reflog", "cat-file", "for-each-ref",
+      ]);
+      return READ_SUBCOMMANDS.has(sub) ? "read_only" : "medium_write";
+    },
+  },
+  apply_patch: {
+    name: "apply_patch",
+    risk: "high_write",
+    sideEffect: "destructive",
+    allowInVoice: false,
+    allowInMcp: true,
+    requiresApproval: true,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+  },
 };
 
 function mkNativeRead(): ToolManifestEntry {

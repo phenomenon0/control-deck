@@ -22,4 +22,28 @@ describe("bridge tool schemas", () => {
       expect(TOOL_SCHEMAS[tool as keyof typeof TOOL_SCHEMAS]).toBeDefined();
     }
   });
+
+  test("universal tool schemas reject malformed args", () => {
+    const readSchema = TOOL_SCHEMAS["read_local_file"]!;
+    expect(readSchema.safeParse({ path: "/etc/hostname" }).success).toBe(true);
+    expect(readSchema.safeParse({}).success).toBe(false);
+    expect(readSchema.safeParse({ path: "" }).success).toBe(false);
+
+    const fetchSchema = TOOL_SCHEMAS["http_fetch"]!;
+    expect(fetchSchema.safeParse({ url: "https://example.com" }).success).toBe(true);
+    expect(fetchSchema.safeParse({ url: "https://example.com", method: "GET" }).success).toBe(true);
+    expect(fetchSchema.safeParse({ url: "not-a-url" }).success).toBe(false);
+    expect(fetchSchema.safeParse({ url: "https://example.com", method: "PARTY" }).success).toBe(false);
+
+    const gitSchema = TOOL_SCHEMAS["git"]!;
+    expect(gitSchema.safeParse({ subcommand: "status" }).success).toBe(true);
+    expect(gitSchema.safeParse({ subcommand: "log", args: ["-n", "5"] }).success).toBe(true);
+    expect(gitSchema.safeParse({}).success).toBe(false);
+    expect(gitSchema.safeParse({ subcommand: "" }).success).toBe(false);
+
+    const patchSchema = TOOL_SCHEMAS["apply_patch"]!;
+    expect(patchSchema.safeParse({ diff: "--- a\n+++ b\n" }).success).toBe(true);
+    expect(patchSchema.safeParse({}).success).toBe(false);
+    expect(patchSchema.safeParse({ diff: "" }).success).toBe(false);
+  });
 });

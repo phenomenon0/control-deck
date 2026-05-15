@@ -700,7 +700,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "execute_code",
-    description: "Execute code in a sandboxed environment. Output displays in Canvas with syntax highlighting, stdout/stderr streaming, and visual previews. Use for: running algorithms, data processing, demonstrations, visualizations, web previews (React/HTML/Three.js), testing code snippets.",
+    description: "Render to the canvas surface beside the chat. For visual output, pass language='html' with a full HTML document — counters, forms, dashboards, mini-apps, games, mockups, charts. The canvas iframes your markup; inline styles + a <script> tag work directly, no build step. Also runs python, lua, go, c, javascript, typescript, bash, react, threejs (stdout/stderr stream to the output tab). This is the primary way to show anything visual to the user.",
     parameters: [
       { name: "language", type: "string", required: true, description: "Language: python, lua, go, c, javascript, typescript, bash, html, react, threejs" },
       { name: "code", type: "string", required: true, description: "Source code to execute" },

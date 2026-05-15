@@ -21,6 +21,7 @@ import {
 import type { ActivityStep, AgentActivitySegment } from "@/lib/types/agentRun";
 import { formatDuration } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
+import { openCanvas } from "@/lib/canvas";
 
 const TOOL_ICONS: Record<string, { icon: typeof Wrench; label: string }> = {
   generate_image: { icon: Image, label: "Image" },
@@ -75,26 +76,66 @@ function ActivityStepRow({ step, count }: { step: ActivityStep; count?: number }
     step.status === "error" ? " activity-step-icon--error" : ""
   }`;
 
+  // execute_code gets a code-block preview + a Play button. The agent
+  // already ran it server-side; clicking Play re-runs the same source in
+  // the Canvas surface so the user can iterate on it.
+  const codeArg =
+    step.toolName === "execute_code" && step.args && typeof step.args.code === "string"
+      ? (step.args.code as string)
+      : null;
+  const languageArg =
+    step.args && typeof step.args.language === "string"
+      ? (step.args.language as string)
+      : "python";
+
   return (
-    <div className="activity-step">
-      <Icon size={14} className={iconClass} />
-      <span className="activity-step-label">{config.label}</span>
-      {count && count > 1 && (
-        <span className="activity-step-count">×{count}</span>
-      )}
-      {detail && (
-        <span className={`activity-step-arg${detail.mono ? " activity-step-arg--mono" : ""}`}>
-          {detail.text.length > 60 ? truncate(detail.text, 60) : detail.text}
-        </span>
-      )}
-      <span className="activity-step-meta">
-        {step.durationMs != null && step.status !== "running" && (
-          <span className="activity-step-duration">
-            {formatDuration(step.durationMs)}
+    <div className="activity-step-wrap">
+      <div className="activity-step">
+        <Icon size={14} className={iconClass} />
+        <span className="activity-step-label">{config.label}</span>
+        {count && count > 1 && (
+          <span className="activity-step-count">×{count}</span>
+        )}
+        {detail && !codeArg && (
+          <span className={`activity-step-arg${detail.mono ? " activity-step-arg--mono" : ""}`}>
+            {detail.text.length > 60 ? truncate(detail.text, 60) : detail.text}
           </span>
         )}
-        <StepStatusBadge status={step.status} />
-      </span>
+        <span className="activity-step-meta">
+          {step.durationMs != null && step.status !== "running" && (
+            <span className="activity-step-duration">
+              {formatDuration(step.durationMs)}
+            </span>
+          )}
+          <StepStatusBadge status={step.status} />
+        </span>
+      </div>
+
+      {codeArg && (
+        <div className="activity-codeblock">
+          <div className="activity-codeblock-head">
+            <span className="activity-codeblock-lang">{languageArg}</span>
+            <button
+              type="button"
+              className="activity-codeblock-play"
+              title="Run this code in Canvas"
+              onClick={() => {
+                openCanvas({
+                  language: languageArg,
+                  code: codeArg,
+                  title: `${languageArg} from chat`,
+                  autoRun: true,
+                });
+              }}
+            >
+              <Play size={12} /> Run in Canvas
+            </button>
+          </div>
+          <pre className="activity-codeblock-body">
+            <code>{codeArg}</code>
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

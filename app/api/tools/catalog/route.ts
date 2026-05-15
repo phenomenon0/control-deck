@@ -77,10 +77,17 @@ function paramTypeToJsonType(t: string): string {
   }
 }
 
-function buildCatalog(): CatalogResponse {
+// Workspace tools are suspended from the chat-agent catalog while we
+// redesign the pane model. They remain wired into bridgeDispatch +
+// MCP profiles for direct callers; only the LLM's tool menu hides them.
+// See docs/plans/2026-05-14-canvas-as-html-surface.md.
+const SUSPENDED_FROM_CATALOG = (name: string) => name.startsWith("workspace_");
+
+function buildCatalog(includeSuspended: boolean): CatalogResponse {
   const out: CatalogTool[] = [];
   for (const def of TOOL_DEFINITIONS) {
     if (!BRIDGE_TOOLS.has(def.name)) continue;
+    if (!includeSuspended && SUSPENDED_FROM_CATALOG(def.name)) continue;
     const properties: Record<string, JsonSchemaProperty> = {};
     const required: string[] = [];
     for (const p of def.parameters) {
@@ -116,9 +123,16 @@ function buildCatalog(): CatalogResponse {
 }
 
 let cached: CatalogResponse | null = null;
+let cachedWithSuspended: CatalogResponse | null = null;
 
 export async function GET(req: NextRequest) {
   const refresh = req.nextUrl.searchParams.get("refresh");
-  if (refresh === "1" || !cached) cached = buildCatalog();
+  const includeSuspended = req.nextUrl.searchParams.get("include") === "workspace";
+  if (refresh === "1") { cached = null; cachedWithSuspended = null; }
+  if (includeSuspended) {
+    if (!cachedWithSuspended) cachedWithSuspended = buildCatalog(true);
+    return NextResponse.json(cachedWithSuspended);
+  }
+  if (!cached) cached = buildCatalog(false);
   return NextResponse.json(cached);
 }

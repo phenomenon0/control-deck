@@ -53,12 +53,23 @@ export interface CanvasTab {
   currentRevisionIndex?: number;
 }
 
+export type CanvasMode = "docked" | "floating";
+
+export interface FloatRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface CanvasState {
   isOpen: boolean;
   tabs: CanvasTab[];
   activeTabId: string | null;
   width: number;
   isResizing: boolean;
+  mode: CanvasMode;
+  floatRect: FloatRect;
 }
 
 export interface CanvasActions {
@@ -67,6 +78,9 @@ export interface CanvasActions {
   toggle: () => void;
   setWidth: (width: number) => void;
   setResizing: (resizing: boolean) => void;
+  setMode: (mode: CanvasMode) => void;
+  toggleMode: () => void;
+  setFloatRect: (rect: FloatRect) => void;
 
   addTab: (tab: Omit<CanvasTab, "id" | "createdAt" | "updatedAt">) => string;
   updateTab: (id: string, updates: Partial<CanvasTab>) => void;
@@ -95,11 +109,40 @@ type CanvasContextValue = CanvasState & CanvasActions;
 
 const CanvasContext = createContext<CanvasContextValue | null>(null);
 
-const DEFAULT_WIDTH = 480;
+// Docked default is "half the viewport" — user wanted a 50/50 split with
+// the chat. We compute it lazily on first mount; SSR uses a sane fallback.
+const FALLBACK_WIDTH = 720;
 const MIN_WIDTH = 320;
-const MAX_WIDTH = 800;
-const STORAGE_KEY = "deck:canvas";
+// v2 bumps schema so we don't restore the pre-50/50 default width.
+const STORAGE_KEY = "deck:canvas:v2";
 const MAX_REVISIONS = 50;
+const FLOAT_MIN_W = 360;
+const FLOAT_MIN_H = 240;
+
+function viewportHalf(): number {
+  if (typeof window === "undefined") return FALLBACK_WIDTH;
+  // Leave room for the nav rail + threads sidebar (~360px combined) so
+  // chat stays usable; otherwise clamp to 50% viewport.
+  const reserved = 360;
+  return Math.max(MIN_WIDTH, Math.min(window.innerWidth - reserved, Math.round(window.innerWidth / 2)));
+}
+
+function maxDockedWidth(): number {
+  if (typeof window === "undefined") return 1200;
+  return Math.max(MIN_WIDTH + 100, window.innerWidth - 320);
+}
+
+function defaultFloatRect(): FloatRect {
+  if (typeof window === "undefined") return { x: 120, y: 80, w: 720, h: 520 };
+  const w = Math.min(820, Math.max(FLOAT_MIN_W, Math.round(window.innerWidth * 0.5)));
+  const h = Math.min(680, Math.max(FLOAT_MIN_H, Math.round(window.innerHeight * 0.7)));
+  return {
+    x: Math.max(40, window.innerWidth - w - 80),
+    y: Math.max(40, Math.round((window.innerHeight - h) / 2)),
+    w,
+    h,
+  };
+}
 
 // LocalStorage helpers
 function loadCanvasState(): Partial<CanvasState> | null {
@@ -143,8 +186,10 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
       isOpen: stored?.isOpen ?? false,
       tabs: stored?.tabs ?? [],
       activeTabId: stored?.activeTabId ?? null,
-      width: stored?.width ?? DEFAULT_WIDTH,
+      width: stored?.width ?? viewportHalf(),
       isResizing: false,
+      mode: stored?.mode ?? "docked",
+      floatRect: stored?.floatRect ?? defaultFloatRect(),
     };
   });
   
@@ -180,12 +225,35 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   }, []);
   
   const setWidth = useCallback((width: number) => {
-    const clamped = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width));
+    const clamped = Math.max(MIN_WIDTH, Math.min(maxDockedWidth(), width));
     setState(s => ({ ...s, width: clamped }));
   }, []);
-  
+
   const setResizing = useCallback((resizing: boolean) => {
     setState(s => ({ ...s, isResizing: resizing }));
+  }, []);
+
+  const setMode = useCallback((mode: CanvasMode) => {
+    setState(s => ({ ...s, mode }));
+  }, []);
+
+  const toggleMode = useCallback(() => {
+    setState(s => ({ ...s, mode: s.mode === "docked" ? "floating" : "docked" }));
+  }, []);
+
+  const setFloatRect = useCallback((rect: FloatRect) => {
+    // Clamp so the title bar can't be dragged fully off-screen.
+    if (typeof window === "undefined") {
+      setState(s => ({ ...s, floatRect: rect }));
+      return;
+    }
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = Math.max(FLOAT_MIN_W, Math.min(vw - 40, rect.w));
+    const h = Math.max(FLOAT_MIN_H, Math.min(vh - 40, rect.h));
+    const x = Math.max(-(w - 80), Math.min(vw - 80, rect.x));
+    const y = Math.max(0, Math.min(vh - 60, rect.y));
+    setState(s => ({ ...s, floatRect: { x, y, w, h } }));
   }, []);
 
   const addTab = useCallback((tabData: Omit<CanvasTab, "id" | "createdAt" | "updatedAt">) => {
@@ -312,7 +380,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         setState(s => ({
           ...s,
-          tabs: s.tabs.map(t => 
+          tabs: s.tabs.map(t =>
             t.id === tabId ? {
               ...t,
               isRunning: false,
@@ -324,6 +392,25 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
               },
               preview: data.preview,
               images: data.images,
+              updatedAt: Date.now(),
+            } : t
+          ),
+        }));
+      } else {
+        // Without this branch, a non-OK response pegs the Run button at
+        // "Running…" forever and the user gets no error context. Same
+        // shape as the catch below — surface status to the output tab.
+        const text = await res.text().catch(() => "");
+        setState(s => ({
+          ...s,
+          tabs: s.tabs.map(t =>
+            t.id === tabId ? {
+              ...t,
+              isRunning: false,
+              output: {
+                stderr: `execute failed: HTTP ${res.status}${text ? ` — ${text.slice(0, 400)}` : ""}`,
+                exitCode: res.status,
+              },
               updatedAt: Date.now(),
             } : t
           ),
@@ -514,6 +601,9 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     toggle,
     setWidth,
     setResizing,
+    setMode,
+    toggleMode,
+    setFloatRect,
     addTab,
     updateTab,
     removeTab,

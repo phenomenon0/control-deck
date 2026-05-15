@@ -19,6 +19,12 @@ const MIME_TYPES: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".glb": "model/gltf-binary",
   ".gltf": "model/gltf+json",
+  // Without these, HTML preview artifacts get served as octet-stream and
+  // iframes render blank.
+  ".html": "text/html; charset=utf-8",
+  ".htm": "text/html; charset=utf-8",
+  ".json": "application/json",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 export async function GET(

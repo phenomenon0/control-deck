@@ -42,7 +42,11 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Build request
+    // Build request.
+    // Local-dev defaults are permissive: code in the canvas needs to write
+    // files (sketches, plots, generated assets) and hit the network without
+    // the user having to opt in per call. File-system writes land in the
+    // per-run sandbox cwd which is captured back as `result.files`.
     const execRequest: CodeExecRequest = {
       language,
       code,
@@ -53,10 +57,11 @@ export async function POST(request: NextRequest) {
       dependencies,
       timeout: timeout ?? 30000,
       sandbox: {
-        maxMemoryMB: sandbox?.maxMemoryMB ?? 256,
-        maxCPUSeconds: sandbox?.maxCPUSeconds ?? 10,
-        maxOutputBytes: sandbox?.maxOutputBytes ?? 1024 * 1024,
-        networkEnabled: sandbox?.networkEnabled ?? false,
+        maxMemoryMB: sandbox?.maxMemoryMB ?? 512,
+        maxCPUSeconds: sandbox?.maxCPUSeconds ?? 30,
+        maxOutputBytes: sandbox?.maxOutputBytes ?? 4 * 1024 * 1024,
+        maxFileSize: sandbox?.maxFileSize ?? 100 * 1024 * 1024,
+        networkEnabled: sandbox?.networkEnabled ?? true,
         captureImages: sandbox?.captureImages ?? true,
         captureFiles: sandbox?.captureFiles ?? true,
       },
@@ -87,10 +92,11 @@ export async function GET() {
     languages: getSupportedLanguages(),
     defaults: {
       timeout: 30000,
-      maxMemoryMB: 256,
-      maxCPUSeconds: 10,
-      maxOutputBytes: 1024 * 1024,
-      networkEnabled: false,
+      maxMemoryMB: 512,
+      maxCPUSeconds: 30,
+      maxOutputBytes: 4 * 1024 * 1024,
+      maxFileSize: 100 * 1024 * 1024,
+      networkEnabled: true,
     },
     categories: {
       interpreted: ["python", "lua", "bash", "sh", "javascript", "typescript"],

@@ -26,6 +26,8 @@ import {
   Undo2 as UndoIcon,
   Redo2 as RedoIcon,
   History as HistoryIcon,
+  PictureInPicture2 as DetachIcon,
+  PanelRight as DockIcon,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useCanvas, useActiveCanvasTab, type CanvasTab } from "@/lib/hooks/useCanvas";
@@ -41,8 +43,8 @@ const MonacoEditor = dynamic(
 );
 
 function TabBar() {
-  const { tabs, activeTabId, setActiveTab, removeTab, close } = useCanvas();
-  
+  const { tabs, activeTabId, setActiveTab, removeTab, close, mode, toggleMode, floatRect, setFloatRect } = useCanvas();
+
   const getTabIcon = (type: CanvasTab["type"]) => {
     switch (type) {
       case "code": return "{ }";
@@ -55,9 +57,33 @@ function TabBar() {
       default: return "?";
     }
   };
-  
+
+  // Window-drag in floating mode. We don't initiate drag from buttons or
+  // tab clicks — only from "empty" tabbar surface (drag-handle attr).
+  const onDragStart = (e: React.MouseEvent) => {
+    if (mode !== "floating") return;
+    if (!(e.target as HTMLElement).closest("[data-drag-handle]")) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const start = { ...floatRect };
+    const onMove = (ev: MouseEvent) => {
+      setFloatRect({ ...start, x: start.x + (ev.clientX - startX), y: start.y + (ev.clientY - startY) });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-secondary)] border-b border-[var(--border)] overflow-x-auto">
+    <div
+      onMouseDown={onDragStart}
+      data-drag-handle
+      className={`canvas-tabbar-drag flex items-center gap-1 px-2 py-1.5 bg-[var(--bg-secondary)] border-b border-[var(--border)] overflow-x-auto`}
+    >
       {tabs.map(tab => (
         <button
           key={tab.id}
@@ -65,8 +91,8 @@ function TabBar() {
           className={`
             group flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium
             transition-colors whitespace-nowrap
-            ${activeTabId === tab.id 
-              ? "bg-[var(--bg-tertiary)] text-white" 
+            ${activeTabId === tab.id
+              ? "bg-[var(--bg-tertiary)] text-white"
               : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"}
           `}
         >
@@ -83,9 +109,16 @@ function TabBar() {
           </button>
         </button>
       ))}
-      
-      <div className="flex-1" />
-      
+
+      <div className="flex-1" data-drag-handle />
+
+      <button
+        onClick={toggleMode}
+        className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+        title={mode === "docked" ? "Detach (float)" : "Dock to side"}
+      >
+        {mode === "docked" ? <DetachIcon size={16} /> : <DockIcon size={16} />}
+      </button>
       <button
         onClick={close}
         className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
@@ -532,28 +565,28 @@ function ResizeHandle() {
   const { width, setWidth, setResizing } = useCanvas();
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
-  
+
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     startXRef.current = e.clientX;
     startWidthRef.current = width;
     setResizing(true);
-    
+
     const handleMouseMove = (e: MouseEvent) => {
       const delta = startXRef.current - e.clientX;
       setWidth(startWidthRef.current + delta);
     };
-    
+
     const handleMouseUp = () => {
       setResizing(false);
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-    
+
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
   };
-  
+
   return (
     <div
       onMouseDown={handleMouseDown}
@@ -562,10 +595,31 @@ function ResizeHandle() {
   );
 }
 
+function FloatResizeGrip() {
+  const { floatRect, setFloatRect } = useCanvas();
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const start = { ...floatRect };
+    const onMove = (ev: MouseEvent) => {
+      setFloatRect({ ...start, w: start.w + (ev.clientX - startX), h: start.h + (ev.clientY - startY) });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+  return <div className="canvas-float-resize" onMouseDown={handleMouseDown} />;
+}
+
 export function CanvasPanel() {
-  const { isOpen, tabs, width, isResizing } = useCanvas();
+  const { isOpen, tabs, mode } = useCanvas();
   const activeTab = useActiveCanvasTab();
-  
+
   if (!isOpen) return null;
   
   const renderContent = () => {
@@ -594,6 +648,31 @@ export function CanvasPanel() {
         return <AudioView tab={activeTab} />;
       case "model3d":
         return <Model3DView tab={activeTab} />;
+      case "document":
+        // HTML artifacts arrive here via openArtifact (mimeType=text/html).
+        // Render the artifact URL directly; saves fetching it into a string.
+        if (activeTab.artifact?.mimeType === "text/html" && activeTab.artifact.url) {
+          return (
+            <div className="h-full flex flex-col">
+              <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border)] bg-[var(--bg-tertiary)]">
+                <span className="text-xs text-[var(--text-muted)]">Live Preview</span>
+              </div>
+              <div className="flex-1 bg-white">
+                <iframe
+                  src={activeTab.artifact.url}
+                  className="w-full h-full border-0"
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                  title={activeTab.title}
+                />
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
+            Document type {activeTab.artifact?.mimeType || "(unknown)"} not yet rendered
+          </div>
+        );
       default:
         return (
           <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
@@ -604,21 +683,15 @@ export function CanvasPanel() {
   };
   
   return (
-    <aside
-      className="canvas-panel flex h-full bg-[var(--bg-secondary)] border-l border-[var(--border)]"
-      style={{ 
-        width: width,
-        minWidth: width,
-        transition: isResizing ? "none" : "width 0.2s ease",
-      }}
-    >
-      <ResizeHandle />
-      <div className="flex-1 flex flex-col overflow-hidden">
+    <aside className="canvas-panel relative flex h-full w-full bg-[var(--bg-secondary)] border-l border-[var(--border)]">
+      {mode === "docked" && <ResizeHandle />}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <TabBar />
         <div className="flex-1 overflow-hidden">
           {renderContent()}
         </div>
       </div>
+      {mode === "floating" && <FloatResizeGrip />}
     </aside>
   );
 }

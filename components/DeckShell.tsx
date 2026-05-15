@@ -100,11 +100,15 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
     label: "Go to Settings",
   });
 
+  const canvasDocked = canvas.isOpen && canvas.mode === "docked";
+  const canvasFloating = canvas.isOpen && canvas.mode === "floating";
+
   return (
     <div
       className={`app ${showThreads ? "app--chat" : "app--compact"} ${
         showThreads && prefs.chatContextRail ? "app--chat-context" : ""
-      }`}
+      } ${canvasDocked ? "app--canvas-docked" : ""}`}
+      style={canvasDocked ? ({ ["--canvas-width" as string]: `${canvas.width}px` } as React.CSSProperties) : undefined}
     >
       <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
 
@@ -113,11 +117,26 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
       <main className="main">
         <ErrorBoundary name="main-content">{children}</ErrorBoundary>
       </main>
-      <ErrorBoundary name="canvas">
-        <div className="canvas-panel-host">
+      {canvasDocked && (
+        <ErrorBoundary name="canvas">
           <CanvasPanel />
-        </div>
-      </ErrorBoundary>
+        </ErrorBoundary>
+      )}
+      {canvasFloating && (
+        <ErrorBoundary name="canvas">
+          <div
+            className="canvas-panel-host canvas-panel-host--floating"
+            style={{
+              left: canvas.floatRect.x,
+              top: canvas.floatRect.y,
+              width: canvas.floatRect.w,
+              height: canvas.floatRect.h,
+            }}
+          >
+            <CanvasPanel />
+          </div>
+        </ErrorBoundary>
+      )}
 
       <div className="right-rail" aria-label="Right pane controls">
         <button

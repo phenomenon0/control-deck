@@ -1940,24 +1940,63 @@ body {
   color: var(--accent);
 }
 
-.canvas-panel-host {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  pointer-events: none;
+/* Docked canvas — joins the .app grid as the rightmost column so it
+ * pushes the chat instead of overlaying. Width is fed from React state
+ * via the --canvas-width CSS variable on .app. */
+.app.app--canvas-docked.app--compact {
+  grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--canvas-width, 50vw);
 }
 
-.canvas-panel-host > * {
+.app.app--canvas-docked.app--chat {
+  grid-template-columns: var(--chat-nav-width) var(--threads-fluid-width) minmax(0, 1fr) var(--canvas-width, 50vw);
+}
+
+.app.app--canvas-docked.app--chat:has(.nav:hover),
+.app.app--canvas-docked.app--chat:has(.nav:focus-within) {
+  grid-template-columns: var(--nav-width) var(--threads-fluid-width) minmax(0, 1fr) var(--canvas-width, 50vw);
+}
+
+/* Floating canvas — a draggable window. Position + size come from inline
+ * style driven by floatRect state. */
+.canvas-panel-host--floating {
+  position: fixed;
+  z-index: var(--z-modal);
+  display: flex;
   pointer-events: auto;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-lift), 0 0 0 1px var(--mist-strong);
+}
+
+.canvas-panel-host--floating .canvas-panel {
+  width: 100%;
+  height: 100%;
+  border-left: none !important;
 }
 
 .canvas-panel {
   background: var(--bg-card) !important;
   border-left: 1px solid var(--mist) !important;
   box-shadow: var(--shadow-lift);
+}
+
+/* Floating-mode resize grip (bottom-right). */
+.canvas-float-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 0 45%, var(--mist-strong) 45% 55%, transparent 55% 70%, var(--mist-strong) 70% 80%, transparent 80%);
+  z-index: 2;
+}
+
+/* The tab bar doubles as a drag handle when floating. */
+.canvas-panel-host--floating .canvas-tabbar-drag {
+  cursor: move;
+  user-select: none;
 }
 
 .canvas-empty {
@@ -2684,6 +2723,73 @@ textarea.input:focus {
 .activity-step-duration {
   color: var(--fg-dim);
   font-family: var(--font-mono);
+}
+
+.activity-step-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Inline code preview shown for execute_code rows — keeps the agent's
+ * source visible without leaving the chat thread. The Play button hands
+ * it off to Canvas with autoRun. */
+.activity-codeblock {
+  margin: 6px 8px 8px;
+  border: 1px solid var(--mist);
+  border-radius: var(--r-sm);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.activity-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--veil);
+  border-bottom: 1px solid var(--mist);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.activity-codeblock-lang {
+  font-weight: 500;
+}
+
+.activity-codeblock-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--mist-strong);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.activity-codeblock-play:hover {
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+}
+
+.activity-codeblock-body {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 360px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .activity-badge,

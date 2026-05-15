@@ -887,17 +887,34 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
       voiceSession.markAgentRunStarted();
     }
     let liveSpeechQueued = false;
-    const liveConductor = shouldSpeakReply ? new PhraseConductor({ maxChars: 180 }) : null;
+    // Prefer the voice-core PCM streaming lane when the route supports it —
+    // first audio chunk plays as soon as synthesis begins, instead of waiting
+    // for a complete WAV per phrase. Falls back to voiceChat.queueSpeech when
+    // beginStreamingReply returns null (e.g. cloud TTS route).
+    const streamingReply = shouldSpeakReply ? voiceSession.beginStreamingReply() : null;
+    // Shorter phrases when streaming — we want the first phrase to ship as
+    // soon as a sentence boundary appears. The 180-char max was tuned for the
+    // per-phrase WAV path where round-trip cost dominated.
+    const liveConductor = shouldSpeakReply
+      ? new PhraseConductor({ maxChars: streamingReply ? 80 : 180 })
+      : null;
+    const pushPhrase = (text: string): boolean => {
+      if (streamingReply) {
+        streamingReply.speak(text);
+        return true;
+      }
+      return voiceChat.queueSpeech(text);
+    };
     const queueLiveSpeech = (delta: string) => {
       if (!liveConductor) return;
       for (const candidate of liveConductor.pushTextDelta(delta)) {
-        liveSpeechQueued = voiceChat.queueSpeech(candidate.text) || liveSpeechQueued;
+        liveSpeechQueued = pushPhrase(candidate.text) || liveSpeechQueued;
       }
     };
     const flushLiveSpeech = () => {
       if (!liveConductor) return;
       for (const candidate of liveConductor.flush()) {
-        liveSpeechQueued = voiceChat.queueSpeech(candidate.text) || liveSpeechQueued;
+        liveSpeechQueued = pushPhrase(candidate.text) || liveSpeechQueued;
       }
     };
     const result = await agentRun.send(messageContent, {
@@ -984,11 +1001,20 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
       flushLiveSpeech();
       setSpeakingMessageId(assistantId);
       if (!liveSpeechQueued) {
-        const fallbackText = cleanResponseForSpeech(result.fullText, 360);
-        if (fallbackText) {
-          await voiceChat.speak(fallbackText);
+        // No phrases queued (streaming lane wasn't routable AND queueSpeech
+        // refused — or the reply produced no terminator-bound phrases). Fall
+        // back to a single readback. Skip if streamingReply is live, since
+        // the streaming lane is the only valid output then.
+        if (!streamingReply) {
+          const fallbackText = cleanResponseForSpeech(result.fullText, 360);
+          if (fallbackText) {
+            await voiceChat.speak(fallbackText);
+          }
         }
-      } else {
+      }
+      if (streamingReply) {
+        await streamingReply.finish();
+      } else if (liveSpeechQueued) {
         await voiceChat.waitForSpeechEnd();
       }
       setSpeakingMessageId(null);

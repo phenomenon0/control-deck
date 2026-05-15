@@ -8,7 +8,7 @@
  * (`jumpToStudio`, `jumpToVoices`, `jumpToLive`, `jumpToHealth`) set the right
  * params in one call so a button in one pane can deep-link into another.
  *
- * Back-compat: old `?tab=assistant` / `?tab=voice` → conductor,
+ * Back-compat: old `?tab=assistant` / `?tab=voice` / `?tab=conductor` → live,
  * old `?tab=library` → voices. Callers can still use jumpToAssistant/jumpToLibrary
  * aliases so embedding code that hasn't migrated keeps working.
  */
@@ -17,7 +17,6 @@ import { useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 export type VoiceTab =
-  | "conductor"
   | "live"
   | "newsroom"
   | "voices"
@@ -28,7 +27,6 @@ export type VoiceTab =
   | "forum";
 
 const TAB_IDS: ReadonlySet<string> = new Set([
-  "conductor",
   "live",
   "newsroom",
   "voices",
@@ -40,10 +38,10 @@ const TAB_IDS: ReadonlySet<string> = new Set([
 ]);
 
 function normalizeTab(raw: string | null): VoiceTab {
-  if (raw === "assistant" || raw === "voice") return "conductor";
+  if (raw === "assistant" || raw === "voice" || raw === "conductor") return "live";
   if (raw === "library") return "voices";
   if (raw && TAB_IDS.has(raw)) return raw as VoiceTab;
-  return "conductor";
+  return "live";
 }
 
 export interface VoiceWorkspace {
@@ -53,7 +51,6 @@ export interface VoiceWorkspace {
   setTab: (tab: VoiceTab) => void;
   setAssetId: (id: string) => void;
   setJobId: (id: string) => void;
-  jumpToConductor: (opts?: { assetId?: string }) => void;
   jumpToNewsroom: () => void;
   jumpToVoices: (opts?: { assetId?: string }) => void;
   jumpToStudio: (opts?: { assetId?: string; jobId?: string }) => void;
@@ -63,7 +60,7 @@ export interface VoiceWorkspace {
   jumpToForum: () => void;
   /** Voice + chat surface. */
   jumpToLive: (opts?: { assetId?: string }) => void;
-  /** @deprecated use jumpToConductor */
+  /** @deprecated use jumpToLive */
   jumpToAssistant: (opts?: { assetId?: string }) => void;
   /** @deprecated use jumpToVoices */
   jumpToLibrary: (opts?: { assetId?: string }) => void;
@@ -85,8 +82,8 @@ export function useVoiceWorkspace(): VoiceWorkspace {
         if (value === null || value === "") sp.delete(key);
         else sp.set(key, value);
       }
-      // `conductor` is the default; drop it from the URL for clean deep-links.
-      if (sp.get("tab") === "conductor") sp.delete("tab");
+      // `live` is the default; drop it from the URL for clean deep-links.
+      if (sp.get("tab") === "live") sp.delete("tab");
       const qs = sp.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
@@ -94,8 +91,6 @@ export function useVoiceWorkspace(): VoiceWorkspace {
   );
 
   return useMemo<VoiceWorkspace>(() => {
-    const jumpToConductor = (opts?: { assetId?: string }) =>
-      replace({ tab: "conductor", asset: opts?.assetId ?? null, job: null });
     const jumpToLive = (opts?: { assetId?: string }) =>
       replace({ tab: "live", asset: opts?.assetId ?? assetId ?? null, job: null });
     const jumpToVoices = (opts?: { assetId?: string }) =>
@@ -107,7 +102,6 @@ export function useVoiceWorkspace(): VoiceWorkspace {
       setTab: (next) => replace({ tab: next }),
       setAssetId: (id) => replace({ asset: id }),
       setJobId: (id) => replace({ job: id }),
-      jumpToConductor,
       jumpToNewsroom: () => replace({ tab: "newsroom", asset: null, job: null }),
       jumpToVoices,
       jumpToStudio: (opts) =>
@@ -121,7 +115,7 @@ export function useVoiceWorkspace(): VoiceWorkspace {
       jumpToTape: () => replace({ tab: "tape", asset: null, job: null }),
       jumpToForum: () => replace({ tab: "forum", asset: null, job: null }),
       jumpToLive,
-      jumpToAssistant: jumpToConductor,
+      jumpToAssistant: jumpToLive,
       jumpToLibrary: jumpToVoices,
     };
   }, [tab, assetId, jobId, replace]);

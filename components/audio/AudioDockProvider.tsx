@@ -10,7 +10,7 @@
  *   - dock visibility / collapse state
  *   - pending VoiceApprovalChallenge channel
  *
- * Surfaces (Conductor, Newsroom, AudioPane) can opt into the shared session
+ * Surfaces (Newsroom, AudioPane) can opt into the shared session
  * via `useAudioDock()`. They pass it through `VoiceSessionProvider` for any
  * deeper consumers that already speak that contract.
  */

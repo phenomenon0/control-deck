@@ -3,8 +3,8 @@
 /**
  * AudioPane — visible workspace switcher for every audio surface.
  *
- * Conductor stays the default live orb, but the older workspace UIs remain
- * addressable through `?tab=` so they do not disappear behind corner cards.
+ * Live is the default orb; the older workspace UIs remain addressable through
+ * `?tab=` so they do not disappear behind corner cards.
  */
 
 import {
@@ -16,10 +16,8 @@ import {
   type ReactNode,
 } from "react";
 import dynamic from "next/dynamic";
-import { ConductorSurface } from "@/components/voice-conductor/ConductorSurface";
 import { useVoiceWorkspace, type VoiceTab } from "@/lib/hooks/useVoiceWorkspace";
 
-// Secondary surfaces stay lazy so the Conductor path remains light.
 const NewsroomSurface = dynamic(
   () => import("@/components/voice-newsroom/NewsroomSurface").then((m) => m.NewsroomSurface),
   { ssr: false, loading: () => <SurfaceLoading label="Newsroom" /> },
@@ -54,7 +52,6 @@ const ForumSurface = dynamic(
 );
 
 const AUDIO_TABS: readonly { id: VoiceTab; label: string }[] = [
-  { id: "conductor", label: "Conductor" },
   { id: "live", label: "Live" },
   { id: "newsroom", label: "Newsroom" },
   { id: "voices", label: "Voices" },
@@ -111,7 +108,6 @@ function AudioPaneInner() {
 }
 
 function ActiveAudioSurface({ tab }: { tab: VoiceTab }) {
-  if (tab === "live") return <LiveVoiceSurface />;
   if (tab === "newsroom") return <NewsroomSurface />;
   if (tab === "studio") return <StudioPane />;
   if (tab === "voices") return <LibraryPane />;
@@ -119,7 +115,7 @@ function ActiveAudioSurface({ tab }: { tab: VoiceTab }) {
   if (tab === "stage") return <StageSurface />;
   if (tab === "tape") return <TapeSurface />;
   if (tab === "forum") return <ForumSurface />;
-  return <ConductorSurface />;
+  return <LiveVoiceSurface />;
 }
 
 export function AudioPane() {

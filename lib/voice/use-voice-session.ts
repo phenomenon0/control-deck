@@ -5,16 +5,16 @@
  *
  * Composes the existing `useVoiceChat` primitive (mic, WebSocket, playback)
  * with the session state machine (`session-machine.ts`) and a route/latency
- * overlay that fetches `/api/voice/runtime`. Phase 3 added the
- * **conductor** layer: `runTurn(text)` orchestrates a full assistant turn —
- * POST `/api/chat`, stream the response, split into phrases, queue TTS,
- * await drain. Tool/artifact events from the agentic SSE stream are also
- * consumed here so any voice surface can read `tools` and `turns`.
+ * overlay that fetches `/api/voice/runtime`. The chat conversation lives in
+ * ChatSurface via `agentRun.send` — this hook only owns the mic FSM, STT,
+ * route/runtime snapshot, and exposes `markAgentRun{Started,Finished}` so
+ * the FSM stays in sync with the chat's streaming lifecycle. Tool/artifact
+ * events from the agentic SSE stream are also consumed here so the
+ * Newsroom surface can read `tools.artifacts`.
  *
- * Every voice surface (Live tab, fullscreen VoiceModeSheet, inline chat
- * mic) should consume this hook instead of calling `useVoiceChat` directly.
- * Sharing a single session means a single WebSocket, one transcript, one
- * state, one turn-buffer.
+ * Every voice surface should consume this hook instead of calling
+ * `useVoiceChat` directly. Sharing a single session means a single
+ * WebSocket, one transcript, one FSM.
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
@@ -30,28 +30,19 @@ import {
   type VoiceSessionEvent,
   type VoiceSessionState,
 } from "@/lib/voice/session-machine";
-import {
-  cleanResponseForDisplay,
-  getToolStartMessage,
-} from "@/lib/voice/conductor";
-import { PhraseConductor } from "@/lib/voice/phrase-conductor";
 import { SpeechHandle } from "@/lib/voice/speech-handle";
-import { StreamingTtsClient } from "@/lib/voice/streaming-tts";
 import { StreamingSttClient } from "@/lib/voice/streaming-stt";
+import { StreamingTtsClient } from "@/lib/voice/streaming-tts";
 import { AgentOutput } from "@/lib/voice/audio-output";
 import { decideSpeakingBridge } from "@/lib/voice/speaking-bridge";
 import {
-  claimVoiceActivity,
   createVoiceOwnerId,
   subscribeVoiceActivity,
 } from "@/lib/voice/activity-bus";
 import { shouldRouteToVoiceCore } from "@/lib/inference/voice-core/sidecar-url";
-import { isNoiseTranscript } from "@/lib/voice/noise-filter";
 import type { VoiceRoutePreset } from "@/lib/voice/resolve-voice-route";
 import type { Artifact } from "@/lib/types/chat";
-import { newVoiceTurn, type VoiceTurn, type VoiceTurnSource, type AudioSurface } from "@/lib/voice/turn";
 import type { VoiceApprovalChallenge } from "@/lib/voice/voice-approval";
-import type { AudioMode } from "@/lib/audio/audio-modes";
 
 export interface VoiceRuntimeSnapshot {
   route: {
@@ -78,38 +69,24 @@ export interface VoiceTurnLatency {
   firstAudioMs?: number;
 }
 
-export type VoiceTurnRole = "user" | "assistant" | "system";
-
-export interface VoiceTurnEntry {
-  id: string;
-  role: VoiceTurnRole;
-  content: string;
-  isStreaming?: boolean;
-  artifacts?: Artifact[];
-}
-
 export interface VoiceToolState {
   isRunning: boolean;
   currentToolName: string | null;
   artifacts: Artifact[];
 }
 
-export interface RunTurnOptions {
-  threadId: string;
-  model: string;
-  /** Called once the assistant turn finishes streaming. */
-  onComplete?: (userText: string, assistantText: string) => void;
-  /**
-   * Voice provenance for this turn. When present, /api/chat receives a
-   * `voice` block stamped with the turn id; the dock and the run ledger
-   * can correlate spoken vs. typed turns later.
-   */
-  voice?: {
-    routeId: string;
-    mode: AudioMode;
-    surface: AudioSurface;
-    source: VoiceTurnSource;
-  };
+/**
+ * Per-turn handle for the streaming-TTS lane. Returned by
+ * `beginStreamingReply()` when voice-core (port 4245) is the active TTS
+ * route; null otherwise. ChatSurface routes `agentRun` text deltas
+ * through a `PhraseConductor` and pushes each phrase here so the first
+ * audio chunk plays as soon as synthesis begins, rather than waiting for
+ * a complete WAV per phrase.
+ */
+export interface StreamingReplyHandle {
+  speak(text: string, utteranceId?: string): void;
+  finish(): Promise<void>;
+  interrupt(): void;
 }
 
 export interface VoiceSessionApi {
@@ -131,12 +108,8 @@ export interface VoiceSessionApi {
   currentVoiceId: string | null;
   currentDevices: { inputId: string | null; outputId: string | null };
 
-  /** Conductor turn buffer + tool state. */
-  turns: VoiceTurnEntry[];
+  /** Tool/artifact state from the agentic SSE stream. */
   tools: VoiceToolState;
-
-  /** Last/current first-class voice turn — set when runTurn is invoked with `voice`. */
-  currentTurn: VoiceTurn | null;
 
   /**
    * Active voice-approval challenge — populated when the agent emits an
@@ -163,24 +136,25 @@ export interface VoiceSessionApi {
   unlockOutput(): Promise<void>;
 
   /**
-   * Bridge for surfaces that own the chat stream themselves. ChatSurface uses
-   * this so the shared voice FSM moves submitting -> thinking -> speaking even
-   * when it does not call `runTurn()`.
+   * Bridge for surfaces that own the chat stream themselves. ChatSurface
+   * calls these so the shared voice FSM moves submitting -> thinking ->
+   * speaking even though the chat runs through `agentRun.send` instead of
+   * the voice hook.
    */
   markAgentRunStarted(): void;
   markAgentRunFinished(): void;
 
   /**
-   * Run one assistant turn end-to-end: POST /api/chat → stream → phrase-split
-   * → queue TTS → await speech drain. Calling `interrupt()` mid-flight
-   * aborts the fetch and drains the TTS queue.
+   * Open a streaming-TTS lane for the next assistant turn. Returns null if
+   * voice-core (port 4245) is not the active TTS route — caller falls back
+   * to the per-phrase WAV path via `voiceChat.queueSpeech`. The handle's
+   * lifecycle is bound to one assistant run: `speak` per phrase, `finish`
+   * once the run completes, `interrupt` on barge-in.
    */
-  runTurn(text: string, opts: RunTurnOptions): Promise<void>;
+  beginStreamingReply(): StreamingReplyHandle | null;
 
   /** Subscribe to agentic tool events on a thread. Returns an unsubscribe. */
   attachThread(threadId: string): () => void;
-
-  clearTurns(): void;
 
   /** Escape hatch for read-aloud and speak-on-submit paths. */
   speak(text: string): Promise<void>;
@@ -201,31 +175,6 @@ const TRANSCRIBING_WATCHDOG_MS = 12_000;
 // Thinking has no audio yet — if it's still ours after this long, the LLM/TTS
 // path likely failed silently. Bail to idle so the orb doesn't freeze.
 const THINKING_WATCHDOG_MS = 20_000;
-
-function waitForAgentOutputEnd(
-  output: AgentOutput,
-  handle: SpeechHandle,
-  timeoutMs = 30000,
-): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let offEnd: (() => void) | null = null;
-    let offDrained: (() => void) | null = null;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      offEnd?.();
-      offDrained?.();
-      window.clearTimeout(timer);
-      resolve();
-    };
-    const timer = window.setTimeout(finish, timeoutMs);
-    offEnd = output.on("speechEnd", ({ handle: ended }) => {
-      if (ended === handle) finish();
-    });
-    offDrained = output.on("drained", finish);
-  });
-}
 
 export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSessionApi {
   const { enabled = true, onTranscriptFinal, preset: initialPreset } = options;
@@ -655,33 +604,31 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     }
   }, [ctx.state]);
 
-  // ------- Conductor: turn buffer + tool state + runTurn orchestrator -------
+  // ------- Tool/artifact stream + output -------
 
-  const [turns, setTurns] = useState<VoiceTurnEntry[]>([]);
-  const [currentTurn, setCurrentTurn] = useState<VoiceTurn | null>(null);
   const [pendingApproval, setPendingApproval] = useState<VoiceApprovalChallenge | null>(null);
   const [tools, setTools] = useState<VoiceToolState>({
     isRunning: false,
     currentToolName: null,
     artifacts: [],
   });
-  const conversationRef = useRef<Array<{ role: string; content: string }>>([]);
   const speechHandleRef = useRef<SpeechHandle | null>(null);
-  const turnSeqRef = useRef(0);
   // Latest runId of the in-flight turn — captured via ref so interrupt()
   // stays a stable callback while still able to fire a server-side cancel.
   const activeRunIdRef = useRef<string | null>(null);
   const pendingApprovalRef = useRef<VoiceApprovalChallenge | null>(null);
-  // True while a runTurn is producing audio. Bridges the inter-phrase gap in
-  // the non-streaming TTS lane, where `voiceChat.isSpeaking` flips false
-  // between phrases while pending=0 and the queue briefly empties.
+  // True while ChatSurface's agentRun is streaming a reply. Bridges the
+  // inter-phrase gap in the per-phrase TTS lane: `voiceChat.isSpeaking`
+  // briefly flips false between queued phrases (pending=0), and without this
+  // flag `decideSpeakingBridge` would fire AUDIO_STOPPED, idle the FSM, and
+  // re-arm the mic mid-reply. Set/cleared by markAgentRun{Started,Finished}.
   const replyInFlightRef = useRef(false);
 
-  // Streaming TTS path — constructed when the active TTS model is served by
-  // voice-core (port 4245). voiceChat.queueSpeech remains as the per-phrase
-  // fallback for any provider that doesn't speak the WS streaming protocol.
   const agentOutputRef = useRef<AgentOutput | null>(null);
+  // Streaming TTS lane — constructed per turn by beginStreamingReply. Held in
+  // a ref so the speaking-bridge guard and `interrupt` can tear it down.
   const streamingTtsRef = useRef<StreamingTtsClient | null>(null);
+  const streamingHandleSeqRef = useRef(0);
 
   const createAgentOutput = useCallback(() => {
     const output = new AgentOutput({ outputDeviceId });
@@ -698,8 +645,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     return output;
   }, [outputDeviceId]);
 
-  // Tear down streaming TTS / STT resources when the output device or the
-  // active engine changes (or on unmount).
+  // Tear down STT + output resources on unmount.
   useEffect(() => {
     return () => {
       streamingTtsRef.current?.close();
@@ -717,34 +663,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     void agentOutputRef.current?.setOutputDevice(outputDeviceId);
   }, [outputDeviceId]);
 
-  const clearTurns = useCallback(() => {
-    setTurns([]);
-    setTools({ isRunning: false, currentToolName: null, artifacts: [] });
-    conversationRef.current = [];
-  }, []);
-
   const attachThread = useCallback((threadId: string) => {
     if (typeof window === "undefined" || !threadId) return () => {};
-
-    // Hydrate conversation history so voice turns share context with typed
-    // turns. Without this, voice runs are blind to prior typed messages in
-    // the same thread, manifesting as the LLM "forgetting" the conversation.
-    let cancelled = false;
-    void fetch(`/api/threads?id=${encodeURIComponent(threadId)}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { messages?: Array<{ role: string; content: string }> } | null) => {
-        if (cancelled || !data?.messages) return;
-        // Only seed if no live turn has appended yet — avoids clobbering an
-        // in-flight conversation that started before the fetch returned.
-        if (conversationRef.current.length === 0) {
-          conversationRef.current = data.messages
-            .filter((m) => (m.role === "user" || m.role === "assistant") && m.content)
-            .map((m) => ({ role: m.role, content: m.content }));
-        }
-      })
-      .catch(() => {
-        /* non-fatal: voice turn just runs with no prior context */
-      });
 
     const eventSource = new EventSource(`/api/agui/stream?threadId=${threadId}`);
     eventSource.onmessage = (e) => {
@@ -756,13 +676,6 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
             isRunning: true,
             currentToolName: event.toolName,
           }));
-          const toolMsg = getToolStartMessage(event.toolName);
-          if (toolMsg) {
-            setTurns((prev) => [
-              ...prev,
-              { id: `tool-${event.toolCallId}`, role: "system", content: toolMsg },
-            ]);
-          }
         }
         if (event.type === "ToolCallResult") {
           setTools((prev) => ({ ...prev, isRunning: false, currentToolName: null }));
@@ -824,303 +737,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       // EventSource auto-reconnects; nothing to do here.
     };
     return () => {
-      cancelled = true;
       eventSource.close();
     };
   }, []);
 
-  const runTurn = useCallback(
-    async (text: string, opts: RunTurnOptions) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      // Filter noise transcripts (filler words, single tokens, repeated
-      // characters) before they reach the LLM. Sherpa-streaming and other
-      // VAD-fronted engines hallucinate fillers like "you", "uh", "the"
-      // on background noise — submitting those wastes tokens and confuses
-      // the model.
-      if (isNoiseTranscript(trimmed)) {
-        console.log("[useVoiceSession] dropping noise transcript:", trimmed);
-        return;
-      }
-      claimVoiceActivity(voiceOwnerIdRef.current, "turn");
-
-      // Drop any in-flight turn before starting a new one.
-      speechHandleRef.current?.interrupt("new-turn");
-      dispatchCtx({ type: "RUN_STARTED" });
-      replyInFlightRef.current = true;
-
-      const handle = new SpeechHandle(turnSeqRef.current++);
-      speechHandleRef.current = handle;
-
-      // First-class VoiceTurn — stamps /api/chat + future AG-UI events.
-      // Pre-allocate a runId on the client so interrupt() can target the
-      // exact run via /api/chat/runs/:runId/cancel without waiting for
-      // the server to round-trip its own id back.
-      const turnRunId =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const voiceTurn = opts.voice
-        ? newVoiceTurn({
-            threadId: opts.threadId,
-            mode: opts.voice.mode,
-            routeId: opts.voice.routeId,
-            surface: opts.voice.surface,
-            source: opts.voice.source,
-            runId: turnRunId,
-          })
-        : null;
-      if (voiceTurn) {
-        voiceTurn.marks.llm.submittedAt = Date.now();
-        setCurrentTurn(voiceTurn);
-      }
-      activeRunIdRef.current = turnRunId;
-
-      // Decide TTS lane for this turn. voice-core streams Int16 PCM so we
-      // can play the first chunk as soon as synthesis begins; non-voice-core
-      // providers go through the per-phrase WAV fallback.
-      const ttsModel = runtime?.route?.tts?.model ?? null;
-      const useStreamingTts = shouldRouteToVoiceCore(ttsModel);
-      let ttsClient: StreamingTtsClient | null = null;
-      if (useStreamingTts) {
-        // Lazily build (or rebuild) the AgentOutput so the post-processing
-        // graph + speaker-routing live across turns.
-        if (!agentOutputRef.current) {
-          agentOutputRef.current = createAgentOutput();
-        }
-        const output = agentOutputRef.current;
-        // One client per turn keeps utteranceId scoping clean and gives us a
-        // simple `close()` on interrupt.
-        ttsClient = new StreamingTtsClient({
-          engine: ttsModel ?? undefined,
-          voice: currentVoiceId ?? undefined,
-          onChunk: ({ pcm, sampleRate }) => {
-            void output.playPcm16Chunk(handle, pcm, sampleRate);
-          },
-          onError: (err) => {
-            console.warn("[useVoiceSession] streaming tts error:", err);
-          },
-        });
-        streamingTtsRef.current?.close();
-        streamingTtsRef.current = ttsClient;
-      }
-
-      // Only the non-streaming lane plays through voiceChat's AudioContext.
-      // When streaming TTS is on, AgentOutput owns its own context — playing
-      // a filler here would overlap the real reply through two unrelated
-      // graphs and sound like a duplicate voice.
-      if (!useStreamingTts) {
-        voiceChat.playFiller();
-      }
-
-      const userId = `user-${Date.now()}`;
-      const assistantId = `assistant-${Date.now()}`;
-      setTurns((prev) => [
-        ...prev,
-        { id: userId, role: "user", content: trimmed },
-        { id: assistantId, role: "assistant", content: "", isStreaming: true },
-      ]);
-      // Drop a trailing user message left over from a turn that was
-      // interrupted before its assistant push could land. Without this,
-      // rapid utterances accumulate `[user, user, ...]` runs in
-      // conversationRef and the LLM gets a malformed transcript.
-      const lastEntry = conversationRef.current[conversationRef.current.length - 1];
-      if (lastEntry?.role === "user") {
-        conversationRef.current.pop();
-      }
-      conversationRef.current.push({ role: "user", content: trimmed });
-
-      let fullResponse = "";
-      const streamingTtsJobs: Promise<void>[] = [];
-      const conductor = new PhraseConductor({
-        runId: voiceTurn?.runId,
-        turnId: voiceTurn?.turnId,
-      });
-      const speakPhrase = (candidate: { text: string; id: string }) => {
-        if (!candidate.text) return;
-        if (ttsClient) {
-          const job = ttsClient.speak({
-            text: candidate.text,
-            utteranceId: `${handle.id}-${candidate.id}`,
-          }).catch((err) => {
-            console.warn("[useVoiceSession] streaming tts speak failed:", err);
-          });
-          streamingTtsJobs.push(job);
-        } else {
-          voiceChat.queueSpeech(candidate.text);
-        }
-      };
-      const flushQueued = (chunk: string) => {
-        for (const candidate of conductor.pushTextDelta(chunk)) {
-          speakPhrase(candidate);
-        }
-      };
-
-      try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: conversationRef.current,
-            model: opts.model,
-            threadId: opts.threadId,
-            voice: voiceTurn
-              ? {
-                  turnId: voiceTurn.turnId,
-                  runId: voiceTurn.runId,
-                  routeId: voiceTurn.routeId,
-                  mode: voiceTurn.mode,
-                  surface: voiceTurn.surface,
-                  source: voiceTurn.source,
-                  modality: "voice" as const,
-                }
-              : undefined,
-          }),
-          signal: handle.chatAbort.signal,
-        });
-        if (!response.ok) {
-          throw new Error(`Chat API error: ${response.status}`);
-        }
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error("No response body");
-        const decoder = new TextDecoder();
-        let sseBuffer = "";
-
-        // /api/chat returns AG-UI SSE: `data: ${JSON.stringify(event)}\n\n`.
-        // Extract only TextMessageContent.delta strings — feeding the raw frame
-        // bytes to the phrase splitter makes TTS read "data: {type:..." aloud.
-        const ingestEvent = (raw: string) => {
-          let event: { type?: string; delta?: string };
-          try {
-            event = JSON.parse(raw);
-          } catch {
-            return;
-          }
-          if (event.type === "TextMessageContent" && typeof event.delta === "string") {
-            const delta = event.delta;
-            if (!delta) return;
-            fullResponse += delta;
-            flushQueued(delta);
-            setTurns((prev) =>
-              prev.map((entry) =>
-                entry.id === assistantId
-                  ? { ...entry, content: cleanResponseForDisplay(fullResponse) }
-                  : entry,
-              ),
-            );
-          }
-        };
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (handle.state === "interrupted") {
-            try {
-              await reader.cancel();
-            } catch {
-              /* ignore */
-            }
-            break;
-          }
-          sseBuffer += decoder.decode(value, { stream: true });
-          let boundary = sseBuffer.indexOf("\n\n");
-          while (boundary !== -1) {
-            const frame = sseBuffer.slice(0, boundary);
-            sseBuffer = sseBuffer.slice(boundary + 2);
-            for (const line of frame.split("\n")) {
-              if (line.startsWith("data: ")) ingestEvent(line.slice(6));
-            }
-            boundary = sseBuffer.indexOf("\n\n");
-          }
-        }
-        // Drain any trailing buffered frame without a terminating blank line.
-        if (sseBuffer.length > 0) {
-          for (const line of sseBuffer.split("\n")) {
-            if (line.startsWith("data: ")) ingestEvent(line.slice(6));
-          }
-          sseBuffer = "";
-        }
-
-        for (const candidate of conductor.flush()) {
-          speakPhrase(candidate);
-        }
-
-        setTurns((prev) =>
-          prev.map((entry) =>
-            entry.id === assistantId
-              ? {
-                  ...entry,
-                  content: cleanResponseForDisplay(fullResponse),
-                  isStreaming: false,
-                }
-              : entry,
-          ),
-        );
-        conversationRef.current.push({ role: "assistant", content: fullResponse });
-        if (voiceTurn) {
-          voiceTurn.marks.llm.completedAt = Date.now();
-          voiceTurn.endedAt = Date.now();
-          voiceTurn.finalTranscript = trimmed;
-        }
-        opts.onComplete?.(trimmed, fullResponse);
-
-        if (ttsClient) {
-          const output = agentOutputRef.current;
-          await Promise.allSettled(streamingTtsJobs);
-          if (output) {
-            const outputDone = waitForAgentOutputEnd(output, handle);
-            await output.finish(handle);
-            await outputDone;
-          } else {
-            handle.markDone();
-          }
-          ttsClient.close();
-          if (streamingTtsRef.current === ttsClient) streamingTtsRef.current = null;
-        } else {
-          await voiceChat.waitForSpeechEnd();
-          handle.markDone();
-        }
-      } catch (err) {
-        if ((err as Error).name === "AbortError" || handle.state === "interrupted") {
-          // Mark assistant entry final with whatever we collected.
-          setTurns((prev) =>
-            prev.map((entry) =>
-              entry.id === assistantId
-                ? {
-                    ...entry,
-                    content: cleanResponseForDisplay(fullResponse),
-                    isStreaming: false,
-                  }
-                : entry,
-            ),
-          );
-          return;
-        }
-        const msg = err instanceof Error ? err.message : "voice turn failed";
-        console.error("[useVoiceSession] runTurn error:", err);
-        dispatchCtx({ type: "FAIL", error: msg });
-        setTurns((prev) => [
-          ...prev,
-          {
-            id: `error-${Date.now()}`,
-            role: "system",
-            content: "Sorry, there was an error. Please try again.",
-          },
-        ]);
-        handle.markDone();
-      } finally {
-        replyInFlightRef.current = false;
-        const activeTtsClient = streamingTtsRef.current;
-        if (activeTtsClient && activeTtsClient === ttsClient) {
-          activeTtsClient.close();
-          streamingTtsRef.current = null;
-        }
-        if (speechHandleRef.current === handle) speechHandleRef.current = null;
-        if (activeRunIdRef.current === turnRunId) activeRunIdRef.current = null;
-      }
-    },
-    [createAgentOutput, currentVoiceId, runtime, voiceChat],
-  );
 
   // ------- Lifecycle controls -------
 
@@ -1140,10 +760,12 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   }, [createAgentOutput]);
 
   const markAgentRunStarted = useCallback(() => {
+    replyInFlightRef.current = true;
     dispatchCtx({ type: "RUN_STARTED" });
   }, []);
 
   const markAgentRunFinished = useCallback(() => {
+    replyInFlightRef.current = false;
     const state = stateRef.current;
     if (state === "thinking" || state === "speaking") {
       dispatchCtx({ type: "AUDIO_STOPPED" });
@@ -1151,6 +773,72 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       dispatchCtx({ type: "RESET" });
     }
   }, []);
+
+  const beginStreamingReply = useCallback((): StreamingReplyHandle | null => {
+    const ttsModel = runtime?.route?.tts?.model ?? null;
+    if (!shouldRouteToVoiceCore(ttsModel)) return null;
+
+    if (!agentOutputRef.current) agentOutputRef.current = createAgentOutput();
+    const output = agentOutputRef.current;
+
+    // Tear down any prior lane — barge-in or new turn before the previous
+    // one fully drained.
+    streamingTtsRef.current?.close();
+    const prevHandle = speechHandleRef.current;
+    if (prevHandle) {
+      prevHandle.interrupt("new-turn");
+      output.interrupt(prevHandle, "new-turn");
+    }
+
+    const handle = new SpeechHandle(streamingHandleSeqRef.current++);
+    speechHandleRef.current = handle;
+
+    const jobs: Promise<void>[] = [];
+    const client = new StreamingTtsClient({
+      engine: ttsModel ?? undefined,
+      voice: currentVoiceId ?? undefined,
+      onChunk: ({ pcm, sampleRate }) => {
+        void output.playPcm16Chunk(handle, pcm, sampleRate);
+      },
+      onError: (err) => {
+        console.warn("[useVoiceSession] streaming tts error:", err);
+      },
+    });
+    streamingTtsRef.current = client;
+
+    const detach = () => {
+      if (streamingTtsRef.current === client) streamingTtsRef.current = null;
+      if (speechHandleRef.current === handle) speechHandleRef.current = null;
+    };
+
+    return {
+      speak: (text, utteranceId) => {
+        const trimmed = text.trim();
+        if (!trimmed) return;
+        const id = utteranceId ?? `${handle.id}-${jobs.length}`;
+        jobs.push(
+          client.speak({ text: trimmed, utteranceId: id }).catch((err) => {
+            console.warn("[useVoiceSession] streaming tts speak failed:", err);
+          }),
+        );
+      },
+      finish: async () => {
+        await Promise.allSettled(jobs);
+        try {
+          await output.finish(handle);
+        } catch (err) {
+          console.warn("[useVoiceSession] streaming tts finish failed:", err);
+        }
+        client.close();
+        detach();
+      },
+      interrupt: () => {
+        client.close();
+        output.interrupt(handle, "user-interrupt");
+        detach();
+      },
+    };
+  }, [createAgentOutput, currentVoiceId, runtime]);
 
   const startListening = useCallback(async () => {
     if (!enabled) return;
@@ -1225,11 +913,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   );
 
   const interrupt = useCallback(async () => {
+    replyInFlightRef.current = false;
     const handle = speechHandleRef.current;
     handle?.interrupt("user-interrupt");
     speechHandleRef.current = null;
     dispatchCtx({ type: "INTERRUPT" });
-    // Tear down both lanes — only one is active per turn but harmless to do both.
     streamingTtsRef.current?.close();
     streamingTtsRef.current = null;
     if (handle) agentOutputRef.current?.interrupt(handle, "user-interrupt");
@@ -1271,16 +959,14 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const reset = useCallback(() => {
     disarmContinuous();
+    replyInFlightRef.current = false;
     speechHandleRef.current?.interrupt("reset");
     speechHandleRef.current = null;
     dispatchCtx({ type: "RESET" });
     voiceChat.clearTranscript();
     voiceChat.clearError();
-    setTurns([]);
     setTools({ isRunning: false, currentToolName: null, artifacts: [] });
-    setCurrentTurn(null);
     setPendingApproval(null);
-    conversationRef.current = [];
   }, [disarmContinuous, voiceChat]);
 
   // Mirror pendingApproval into a ref so confirmApproval stays a stable callback.
@@ -1308,9 +994,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       currentVoiceId,
       currentDevices,
 
-      turns,
       tools,
-      currentTurn,
 
       pendingApproval,
       confirmApproval,
@@ -1326,10 +1010,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       unlockOutput,
       markAgentRunStarted,
       markAgentRunFinished,
+      beginStreamingReply,
 
-      runTurn,
       attachThread,
-      clearTurns,
 
       speak: voiceChat.speak,
       queueSpeech: voiceChat.queueSpeech,
@@ -1349,9 +1032,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       latency,
       currentVoiceId,
       currentDevices,
-      turns,
       tools,
-      currentTurn,
       pendingApproval,
       confirmApproval,
       setRoute,
@@ -1364,9 +1045,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       unlockOutput,
       markAgentRunStarted,
       markAgentRunFinished,
-      runTurn,
+      beginStreamingReply,
       attachThread,
-      clearTurns,
     ],
   );
 }

@@ -8,7 +8,6 @@
  * - FSM state + label
  * - Selected input/output devices
  * - Mic ownership claim (cross-tab, via activity-bus)
- * - Latency marks for the current VoiceTurn
  * - Tail of recent FSM transitions
  *
  * Read-only. Owns no agent logic.
@@ -62,11 +61,6 @@ export function AudioDiagnosticsDrawer({ open, onClose }: DiagnosticsDrawerProps
 
   if (!open) return null;
 
-  const turn = session.currentTurn;
-  const marks = turn?.marks;
-  const latency = (a?: number, b?: number) =>
-    a && b ? `${Math.max(0, b - a)} ms` : "—";
-
   return (
     <div className="ad-diagnostics" role="dialog" aria-label="Audio diagnostics">
       <div className="ad-diagnostics__head">
@@ -104,23 +98,6 @@ export function AudioDiagnosticsDrawer({ open, onClose }: DiagnosticsDrawerProps
               : "(none)"
           }
         />
-      </section>
-
-      <section className="ad-diagnostics__section">
-        <h4>Current turn</h4>
-        {turn ? (
-          <>
-            <Row label="Turn" value={turn.turnId} />
-            <Row label="Run" value={turn.runId ?? "—"} />
-            <Row label="Source" value={`${turn.source} / ${turn.surface}`} />
-            <Row label="STT first → final" value={latency(marks?.stt.firstPartialAt, marks?.stt.finalAt)} />
-            <Row label="LLM submit → first text" value={latency(marks?.llm.submittedAt, marks?.llm.firstTextAt)} />
-            <Row label="LLM submit → done" value={latency(marks?.llm.submittedAt, marks?.llm.completedAt)} />
-            <Row label="TTS first phrase → audio" value={latency(marks?.tts.firstPhraseAt, marks?.tts.firstAudioAt)} />
-          </>
-        ) : (
-          <Row label="—" value="(no active turn)" />
-        )}
       </section>
 
       <section className="ad-diagnostics__section">

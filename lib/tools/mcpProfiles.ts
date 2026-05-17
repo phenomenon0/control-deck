@@ -37,6 +37,7 @@ const PROFILE_TOOLS: Record<Exclude<McpProfile, "full">, readonly string[]> = {
     "native_element_from_point",
     "native_with_cache",
     "native_wait_for",
+    "native_capabilities",
   ],
   "desktop-control": [
     "native_focus",

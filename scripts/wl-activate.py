@@ -25,6 +25,49 @@ gi.require_version("Gdk", "4.0")
 from gi.repository import Gtk, Gdk, Gio, GLib
 
 
+def _resolve_app_info(query: str):
+    """Best-effort lookup of a DesktopAppInfo for `query`.
+
+    Tries in order:
+      1. Exact desktop-id (e.g. "google-chrome" → google-chrome.desktop).
+      2. Normalized desktop-id (case-fold, strip spaces/hyphens → match
+         e.g. "Google Chrome" → "googlechrome" against any installed file).
+      3. By app .desktop "Name=" (so the AT-SPI display name matches).
+    Returns None when nothing fits; caller logs and bails.
+    """
+    # 1. Direct: <query>.desktop. PyGI raises TypeError when the C
+    # constructor returns NULL — wrap it.
+    try:
+        info = Gio.DesktopAppInfo.new(f"{query}.desktop")
+        if info is not None:
+            return info
+    except TypeError:
+        pass
+
+    # 2/3. Walk all installed apps once and pick the best match.
+    norm_q = _normalize(query)
+    best_id_match = None
+    best_name_match = None
+    for app in Gio.AppInfo.get_all():
+        if not isinstance(app, Gio.DesktopAppInfo):
+            continue
+        dfid = app.get_id() or ""        # e.g. "google-chrome.desktop"
+        dfid_stem = dfid[:-len(".desktop")] if dfid.endswith(".desktop") else dfid
+        if _normalize(dfid_stem) == norm_q:
+            best_id_match = app
+            break
+        dname = app.get_name() or ""     # e.g. "Google Chrome"
+        if _normalize(dname) == norm_q and best_name_match is None:
+            best_name_match = app
+    return best_id_match or best_name_match
+
+
+def _normalize(s: str) -> str:
+    """Fold case + drop separators/dots so "Google Chrome", "google-chrome",
+    and "googlechrome" all hash to the same key."""
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: wl-activate.py <app-id> [desktop-file]", file=sys.stderr)
@@ -47,7 +90,7 @@ def main() -> int:
         if desktop_path:
             info = Gio.DesktopAppInfo.new_from_filename(desktop_path)
         else:
-            info = Gio.DesktopAppInfo.new(f"{app_id}.desktop")
+            info = _resolve_app_info(app_id)
         if info is None:
             print(f"[wl-activate] no AppInfo for {app_id}", file=sys.stderr)
             activator.quit()

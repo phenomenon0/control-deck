@@ -44,6 +44,9 @@ BUS = "org.freedesktop.portal.Desktop"
 PATH = "/org/freedesktop/portal/desktop"
 SCREENSHOT_IFACE = "org.freedesktop.portal.Screenshot"
 REQUEST_IFACE = "org.freedesktop.portal.Request"
+GNOME_SHELL_SCREENSHOT_BUS = "org.gnome.Shell.Screenshot"
+GNOME_SHELL_SCREENSHOT_PATH = "/org/gnome/Shell/Screenshot"
+GNOME_SHELL_SCREENSHOT_IFACE = "org.gnome.Shell.Screenshot"
 
 CAPTURE_TIMEOUT_S = 120
 
@@ -64,6 +67,61 @@ def _read_png_dims(path: str) -> tuple[int, int]:
     width = struct.unpack(">I", header[16:20])[0]
     height = struct.unpack(">I", header[20:24])[0]
     return width, height
+
+
+def _path_from_uri_or_path(uri_or_path: str) -> str:
+    return (
+        unquote(urlparse(uri_or_path).path)
+        if uri_or_path.startswith("file://")
+        else uri_or_path
+    )
+
+
+def _result_for_existing_png(path: str) -> dict:
+    try:
+        width, height = _read_png_dims(path)
+    except (OSError, ValueError) as err:
+        return {"ok": False, "error": f"failed to read PNG dims: {err}"}
+    return {"ok": True, "path": path, "width": width, "height": height}
+
+
+def capture_via_gnome_shell(out_png: str) -> dict:
+    """Fallback for GNOME Shell when xdg-desktop-portal is misconfigured.
+
+    Fedora/GNOME sessions can end up with xdg-desktop-portal selecting the
+    GNOME backend while the backend exposes only Settings (for example when
+    GDK_BACKEND is imported into the systemd user manager). The public portal
+    then returns Response code 2 for Screenshot even though GNOME Shell itself
+    can still capture the desktop. Use GNOME Shell's private DBus screenshot
+    interface as a local-session fallback rather than asking users to restart
+    or reconfigure their whole portal stack.
+    """
+    try:
+        bus = dbus.SessionBus()
+        proxy = bus.get_object(GNOME_SHELL_SCREENSHOT_BUS, GNOME_SHELL_SCREENSHOT_PATH)
+        iface = dbus.Interface(proxy, GNOME_SHELL_SCREENSHOT_IFACE)
+        success, filename_used = iface.Screenshot(True, False, out_png)
+    except dbus.DBusException as err:
+        return {"ok": False, "error": f"GNOME Shell screenshot fallback failed: {err}"}
+    except Exception as err:
+        return {
+            "ok": False,
+            "error": f"GNOME Shell screenshot fallback failed: {type(err).__name__}: {err}",
+        }
+
+    if not bool(success):
+        return {"ok": False, "error": "GNOME Shell screenshot fallback reported failure"}
+
+    shot_path = _path_from_uri_or_path(str(filename_used or out_png))
+    if not os.path.exists(shot_path):
+        return {"ok": False, "error": f"GNOME Shell screenshot output missing: {shot_path}"}
+    if shot_path != out_png:
+        try:
+            shutil.move(shot_path, out_png)
+            shot_path = out_png
+        except OSError as err:
+            return {"ok": False, "error": f"failed to move {shot_path} -> {out_png}: {err}"}
+    return _result_for_existing_png(shot_path)
 
 
 def capture(out_png: str) -> dict:
@@ -120,6 +178,14 @@ def capture(out_png: str) -> dict:
 
     code = result.get("code", -1)
     if code != 0:
+        if code == 2:
+            fallback = capture_via_gnome_shell(out_png)
+            if fallback.get("ok"):
+                return fallback
+            return {
+                "ok": False,
+                "error": f"Screenshot failed (code=2); {fallback.get('error', 'GNOME Shell fallback failed')}",
+            }
         msg = "user cancelled screenshot" if code == 1 else f"Screenshot failed (code={code})"
         return {"ok": False, "error": msg}
 
@@ -127,7 +193,7 @@ def capture(out_png: str) -> dict:
     if not uri:
         return {"ok": False, "error": "Screenshot response missing uri"}
 
-    src_path = unquote(urlparse(str(uri)).path) if str(uri).startswith("file://") else str(uri)
+    src_path = _path_from_uri_or_path(str(uri))
     if not os.path.exists(src_path):
         return {"ok": False, "error": f"Screenshot uri does not exist on disk: {src_path}"}
 

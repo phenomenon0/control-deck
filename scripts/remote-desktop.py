@@ -53,6 +53,41 @@ import time
 
 log = logging.getLogger("remote-desktop")
 
+
+def _diagnose_portal_failure() -> str:
+    """Inspect the live xdg-desktop-portal backend and explain CreateSession=2.
+
+    Code 2 from the portal request reply is overloaded: it's returned for
+    user-denial, backend missing, and silent timeout. Distinguishing these
+    is essential — a "user denied" message when the backend is broken
+    sends operators down the wrong path.
+    """
+    GNOME_BACKEND = "org.freedesktop.impl.portal.desktop.gnome"
+    PATH = "/org/freedesktop/portal/desktop"
+    try:
+        bus = dbus.SessionBus()
+        obj = bus.get_object(GNOME_BACKEND, PATH)
+        introspect = dbus.Interface(obj, "org.freedesktop.DBus.Introspectable")
+        xml = introspect.Introspect()
+    except Exception as exc:
+        return (
+            f". xdg-desktop-portal-gnome backend not reachable ({exc}). "
+            "Restart with: `systemctl --user daemon-reload && "
+            "systemctl --user restart xdg-desktop-portal xdg-desktop-portal-gnome`"
+        )
+    if "org.freedesktop.impl.portal.RemoteDesktop" not in xml:
+        return (
+            ". xdg-desktop-portal-gnome is running but does NOT expose the "
+            "RemoteDesktop interface (commonly happens after a package "
+            "upgrade without service restart). Fix: "
+            "`systemctl --user daemon-reload && systemctl --user restart "
+            "xdg-desktop-portal xdg-desktop-portal-gnome`"
+        )
+    return (
+        ". User denied the RemoteDesktop permission prompt, or the prompt "
+        "was dismissed without a response. Re-trigger and grant access."
+    )
+
 import dbus
 import dbus.mainloop.glib
 from gi.repository import GLib
@@ -213,13 +248,7 @@ class KeyboardSession:
         if code != 0:
             msg = f"CreateSession failed (code={code})"
             if code == 2:
-                msg += (
-                    ". On GNOME, check that GDK_BACKEND=wayland and"
-                    " xdg-desktop-portal-gnome is running. Fix:"
-                    " `systemctl --user set-environment GDK_BACKEND=wayland &&"
-                    " systemctl --user restart xdg-desktop-portal-gnome.service`"
-                    " (or unset GDK_BACKEND entirely)."
-                )
+                msg += _diagnose_portal_failure()
             raise RuntimeError(msg)
         self.handle = str(results["session_handle"])
 
@@ -320,13 +349,7 @@ class PointerSession:
         if code != 0:
             msg = f"CreateSession failed (code={code})"
             if code == 2:
-                msg += (
-                    ". On GNOME, check that GDK_BACKEND=wayland and"
-                    " xdg-desktop-portal-gnome is running. Fix:"
-                    " `systemctl --user set-environment GDK_BACKEND=wayland &&"
-                    " systemctl --user restart xdg-desktop-portal-gnome.service`"
-                    " (or unset GDK_BACKEND entirely)."
-                )
+                msg += _diagnose_portal_failure()
             raise RuntimeError(msg)
         self.handle = str(results["session_handle"])
 
@@ -377,6 +400,42 @@ class PointerSession:
         self.iface.NotifyPointerButton(self.handle, {}, dbus.Int32(btn), dbus.UInt32(1))
         self.iface.NotifyPointerButton(self.handle, {}, dbus.Int32(btn), dbus.UInt32(0))
 
+    def notify_key(self, keysym: int, state: int) -> None:
+        if self.iface is None or self.handle is None:
+            raise RuntimeError("pointer session not ready")
+        self.iface.NotifyKeyboardKeysym(self.handle, {}, dbus.Int32(keysym), dbus.UInt32(state))
+
+    def send_key_combo(self, modifiers: list[int], primary: int) -> None:
+        # PointerSession was started with device_mask = KEYBOARD|POINTER so
+        # NotifyKeyboardKeysym is in-scope here. Reusing it avoids spinning
+        # up a second xdg-portal session (= second permission prompt).
+        pressed: list[int] = []
+        for m in modifiers:
+            self.notify_key(m, KEY_PRESSED)
+            pressed.append(m)
+        try:
+            self.notify_key(primary, KEY_PRESSED)
+            self.notify_key(primary, KEY_RELEASED)
+        finally:
+            for m in reversed(pressed):
+                try:
+                    self.notify_key(m, KEY_RELEASED)
+                except Exception as exc:
+                    log.warning("releasing modifier 0x%x via pointer session: %s", m, exc)
+
+    def type_string(self, text: str) -> None:
+        for ch in text:
+            code = ord(ch)
+            if code < 0x20 or code == 0x7F:
+                continue
+            keysym = code if code <= 0xFF else 0x01000000 + code
+            needs_shift = "A" <= ch <= "Z"
+            if needs_shift:
+                self.send_key_combo([KEYSYM_SHIFT], keysym)
+            else:
+                self.notify_key(keysym, KEY_PRESSED)
+                self.notify_key(keysym, KEY_RELEASED)
+
     def close(self) -> None:
         if self.handle is None:
             return
@@ -420,6 +479,25 @@ class Daemon:
             self.pointer = sess
         return self.pointer
 
+    def _dispatch_key_combo(self, modifiers: list[int], keysym: int) -> None:
+        """Route key events through the cheapest live session.
+
+        - Pointer session already up: use it (its mask includes KEYBOARD).
+          Avoids a second portal prompt and a second restorable session.
+        - Otherwise: fall back to a dedicated keyboard-only session, which
+          xdg-desktop-portal can persist via restore_token.
+        """
+        if self.pointer is not None:
+            self.pointer.send_key_combo(modifiers, keysym)
+            return
+        self.ensure_keyboard().send_key_combo(modifiers, keysym)
+
+    def _dispatch_type_string(self, text: str) -> None:
+        if self.pointer is not None:
+            self.pointer.type_string(text)
+            return
+        self.ensure_keyboard().type_string(text)
+
     def handle_request(self, req: dict) -> dict:
         op = req.get("op")
         if op == "status":
@@ -432,12 +510,12 @@ class Daemon:
             keysym = int(req["keysym"])
             modifiers = [int(m) for m in req.get("modifiers", [])]
             with self.portal_lock:
-                self.ensure_keyboard().send_key_combo(modifiers, keysym)
+                self._dispatch_key_combo(modifiers, keysym)
             return {"ok": True}
         if op == "type":
             text = str(req["text"])
             with self.portal_lock:
-                self.ensure_keyboard().type_string(text)
+                self._dispatch_type_string(text)
             return {"ok": True, "len": len(text)}
         if op == "click_pixel":
             x = float(req["x"])

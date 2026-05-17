@@ -11,6 +11,8 @@
 
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as net from "node:net";
+import * as os from "node:os";
 import * as path from "node:path";
 import { parseKeySpec } from "./keysym";
 import type {
@@ -48,6 +50,11 @@ function isPidAlive(pid: number): boolean {
     // we refuse to trust that handoff either, so treat both as not-alive.
     return false;
   }
+}
+
+function isWaylandSession(): boolean {
+  if ((process.env.XDG_SESSION_TYPE ?? "").toLowerCase() === "wayland") return true;
+  return Boolean(process.env.WAYLAND_DISPLAY);
 }
 
 function loadPortalHandoff(): void {
@@ -115,6 +122,7 @@ function resolveHelper(): string {
 
 const HELPER = resolveHelper();
 const HELPER_TIMEOUT_MS = 5_000;
+const DAEMON_SPAWN_TIMEOUT_MS = 5_000;
 
 interface HelperCommand {
   op: "locate" | "click" | "type" | "tree" | "available" | "key" | "focus";
@@ -130,7 +138,288 @@ interface HelperResult<T = unknown> {
   error?: string;
 }
 
-async function runHelper<T>(cmd: HelperCommand): Promise<HelperResult<T>> {
+// ---------------------------------------------------------------------------
+//  Daemon path — long-lived python helper, one per uid, shared across every
+//  Node process on the box. Pattern lifted from browser-use/browser-harness:
+//  unix socket for IPC, pid+started_at identity to defeat PID reuse, ping
+//  liveness probe, connection-per-request, auto-spawn on first use,
+//  auto-restart on crash. Falls back to one-shot spawn (legacy path) if the
+//  daemon refuses to start so behaviour degrades gracefully on locked-down
+//  hosts.
+// ---------------------------------------------------------------------------
+
+interface DaemonHandle {
+  socket: string;
+  pid: number;
+  startedAt: number;
+}
+
+const DAEMON_DISABLED = process.env.CONTROL_DECK_NATIVE_NO_DAEMON === "1";
+
+function uidSuffix(): string {
+  return typeof process.getuid === "function" ? String(process.getuid()) : "anon";
+}
+
+function daemonSocketPath(): string {
+  return path.join(os.tmpdir(), `control-deck-atspi-${uidSuffix()}.sock`);
+}
+
+function daemonPidPath(): string {
+  return path.join(os.tmpdir(), `control-deck-atspi-${uidSuffix()}.pid`);
+}
+
+function isPidLive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readPidFile(): DaemonHandle | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(daemonPidPath(), "utf8")) as {
+      pid?: number;
+      started_at?: number;
+      socket?: string;
+    };
+    if (!raw.pid || !raw.socket) return null;
+    return {
+      pid: raw.pid,
+      startedAt: typeof raw.started_at === "number" ? raw.started_at : 0,
+      socket: raw.socket,
+    };
+  } catch {
+    return null;
+  }
+}
+
+let cachedDaemon: DaemonHandle | null = null;
+let daemonStarting: Promise<DaemonHandle | null> | null = null;
+let consecutiveDaemonFailures = 0;
+const DAEMON_FAILURE_THRESHOLD = 3;
+let daemonGivenUp = false;
+
+async function pingSocket(sock: string, timeoutMs = 1_000): Promise<{ pid: number; startedAt: number } | null> {
+  return new Promise((resolve) => {
+    const client = net.createConnection(sock);
+    let buf = "";
+    const done = (val: { pid: number; startedAt: number } | null) => {
+      try {
+        client.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(val);
+    };
+    const t = setTimeout(() => done(null), timeoutMs);
+    client.on("error", () => {
+      clearTimeout(t);
+      done(null);
+    });
+    client.on("data", (chunk) => {
+      buf += chunk.toString("utf8");
+      const nl = buf.indexOf("\n");
+      if (nl < 0) return;
+      const line = buf.slice(0, nl);
+      try {
+        const parsed = JSON.parse(line) as {
+          pong?: boolean;
+          pid?: number;
+          started_at?: number;
+        };
+        clearTimeout(t);
+        if (parsed.pong && typeof parsed.pid === "number") {
+          done({ pid: parsed.pid, startedAt: typeof parsed.started_at === "number" ? parsed.started_at : 0 });
+        } else {
+          done(null);
+        }
+      } catch {
+        clearTimeout(t);
+        done(null);
+      }
+    });
+    client.on("connect", () => {
+      client.write(JSON.stringify({ meta: "ping" }) + "\n");
+    });
+  });
+}
+
+async function adoptExistingDaemon(): Promise<DaemonHandle | null> {
+  const recorded = readPidFile();
+  if (!recorded || !isPidLive(recorded.pid)) return null;
+  const pong = await pingSocket(recorded.socket);
+  if (!pong) return null;
+  // Identity check: refuse to talk to a stranger that took our socket.
+  if (pong.pid !== recorded.pid) return null;
+  if (recorded.startedAt && pong.startedAt && pong.startedAt !== recorded.startedAt) return null;
+  return recorded;
+}
+
+async function spawnDaemon(): Promise<DaemonHandle | null> {
+  return new Promise((resolve) => {
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn("python3", [HELPER, "--daemon"], {
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch {
+      resolve(null);
+      return;
+    }
+    let stdoutBuf = "";
+    let stderrBuf = "";
+    let settled = false;
+    const settle = (val: DaemonHandle | null) => {
+      if (settled) return;
+      settled = true;
+      // Detach so the daemon outlives this Node process. Stream pipes are
+      // closed (rather than unref'd) so the event loop doesn't keep them
+      // alive — the daemon writes its ready line then talks over the socket.
+      try {
+        proc.unref();
+        proc.stdout?.destroy();
+        proc.stderr?.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(val);
+    };
+    const timer = setTimeout(() => {
+      settle(null);
+    }, DAEMON_SPAWN_TIMEOUT_MS);
+    proc.on("error", () => {
+      clearTimeout(timer);
+      settle(null);
+    });
+    proc.on("exit", (code) => {
+      // Only warn on spawn-time failures (exit before signalling ready).
+      // A later exit (signalled, intentional shutdown) is normal during
+      // recovery and would otherwise be noisy.
+      if (!settled) {
+        clearTimeout(timer);
+        if (code !== 0) {
+          const tail = (stderrBuf || stdoutBuf).trim().split("\n").slice(-3).join(" | ");
+          if (tail) {
+            // eslint-disable-next-line no-console
+            console.warn(`atspi daemon failed to start (code ${code}): ${tail}`);
+          }
+        }
+        settle(null);
+      }
+    });
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      stderrBuf += chunk.toString("utf8");
+    });
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      stdoutBuf += chunk.toString("utf8");
+      const nl = stdoutBuf.indexOf("\n");
+      if (nl < 0) return;
+      const line = stdoutBuf.slice(0, nl);
+      try {
+        const parsed = JSON.parse(line) as {
+          ready?: boolean;
+          socket?: string;
+          pid?: number;
+        };
+        if (parsed.ready && parsed.socket && typeof parsed.pid === "number") {
+          clearTimeout(timer);
+          settle({
+            socket: parsed.socket,
+            pid: parsed.pid,
+            startedAt: 0, // refined by next pingSocket call
+          });
+        }
+      } catch {
+        // not the ready line; keep buffering
+      }
+    });
+  });
+}
+
+async function ensureDaemon(): Promise<DaemonHandle | null> {
+  if (DAEMON_DISABLED || daemonGivenUp) return null;
+  if (cachedDaemon) return cachedDaemon;
+  if (daemonStarting) return daemonStarting;
+  daemonStarting = (async () => {
+    try {
+      const adopted = await adoptExistingDaemon();
+      if (adopted) {
+        cachedDaemon = adopted;
+        consecutiveDaemonFailures = 0;
+        return adopted;
+      }
+      const spawned = await spawnDaemon();
+      if (!spawned) {
+        consecutiveDaemonFailures += 1;
+        if (consecutiveDaemonFailures >= DAEMON_FAILURE_THRESHOLD) {
+          daemonGivenUp = true;
+        }
+        return null;
+      }
+      // Confirm by ping — also refines startedAt.
+      const pong = await pingSocket(spawned.socket);
+      if (!pong) {
+        consecutiveDaemonFailures += 1;
+        return null;
+      }
+      cachedDaemon = { ...spawned, startedAt: pong.startedAt };
+      consecutiveDaemonFailures = 0;
+      return cachedDaemon;
+    } finally {
+      daemonStarting = null;
+    }
+  })();
+  return daemonStarting;
+}
+
+async function callDaemon<T>(handle: DaemonHandle, cmd: HelperCommand): Promise<HelperResult<T>> {
+  return new Promise((resolve) => {
+    const client = net.createConnection(handle.socket);
+    let buf = "";
+    let settled = false;
+    const settle = (val: HelperResult<T>) => {
+      if (settled) return;
+      settled = true;
+      try {
+        client.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(val);
+    };
+    const timer = setTimeout(() => {
+      settle({ ok: false, error: "atspi daemon call timed out" });
+    }, HELPER_TIMEOUT_MS);
+    client.on("error", (err) => {
+      clearTimeout(timer);
+      settle({ ok: false, error: `daemon socket error: ${err.message}` });
+    });
+    client.on("data", (chunk) => {
+      buf += chunk.toString("utf8");
+      const nl = buf.indexOf("\n");
+      if (nl < 0) return;
+      const line = buf.slice(0, nl);
+      clearTimeout(timer);
+      try {
+        const parsed = JSON.parse(line) as HelperResult<T>;
+        settle(parsed);
+      } catch (err) {
+        settle({
+          ok: false,
+          error: `invalid daemon output: ${err instanceof Error ? err.message : err}`,
+        });
+      }
+    });
+    client.on("connect", () => {
+      client.write(JSON.stringify(cmd) + "\n");
+    });
+  });
+}
+
+async function runOneShot<T>(cmd: HelperCommand): Promise<HelperResult<T>> {
   return new Promise((resolve) => {
     const proc = spawn("python3", [HELPER], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -173,6 +462,33 @@ async function runHelper<T>(cmd: HelperCommand): Promise<HelperResult<T>> {
   });
 }
 
+async function runHelper<T>(cmd: HelperCommand): Promise<HelperResult<T>> {
+  const handle = await ensureDaemon();
+  if (handle) {
+    const res = await callDaemon<T>(handle, cmd);
+    if (res.ok) return res;
+    // Socket-layer failure (not a domain error) — if the message looks like
+    // the daemon went away, drop the cache so the next call respawns.
+    if (res.error && /socket error|timed out/i.test(res.error)) {
+      cachedDaemon = null;
+      const retry = await ensureDaemon();
+      if (retry) {
+        return await callDaemon<T>(retry, cmd);
+      }
+    }
+    return res;
+  }
+  return runOneShot<T>(cmd);
+}
+
+/** Test-only: drop the daemon handle so the next call re-discovers/respawns. */
+export function __resetDaemonCache(): void {
+  cachedDaemon = null;
+  daemonStarting = null;
+  consecutiveDaemonFailures = 0;
+  daemonGivenUp = false;
+}
+
 export const linuxAtspiAdapter: NativeAdapter = {
   platform: "linux",
 
@@ -188,9 +504,41 @@ export const linuxAtspiAdapter: NativeAdapter = {
   },
 
   async click(handle): Promise<ClickResult> {
-    const res = await runHelper<{ method?: ClickResult["method"] }>({ op: "click", handle });
+    const res = await runHelper<{
+      method?: ClickResult["method"] | "mouse-required";
+      bounds?: { x: number; y: number; width: number; height: number };
+      x?: number;
+      y?: number;
+      reason?: string;
+    }>({ op: "click", handle });
     if (!res.ok) throw new Error(res.error ?? "click failed");
-    return { method: res.data?.method ?? "unknown" };
+
+    const method = res.data?.method ?? "unknown";
+    if (method === "mouse-required") {
+      // Helper signalled it can't synthesize a mouse event itself (Wayland
+      // session, or XTest broken on X11). Route through the portal's
+      // RemoteDesktop click_pixel using the element's bounds-center.
+      loadPortalHandoff();
+      if (!PORTAL_URL) {
+        const why = res.data?.reason ?? "wayland";
+        throw new Error(
+          `native_click needs portal click_pixel fallback (${why}) but CONTROL_DECK_PORTAL_URL is not set — run inside Electron`,
+        );
+      }
+      const b = res.data?.bounds;
+      const cx = res.data?.x ?? (b ? Math.round(b.x + b.width / 2) : NaN);
+      const cy = res.data?.y ?? (b ? Math.round(b.y + b.height / 2) : NaN);
+      if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+        throw new Error("native_click mouse-required but no usable bounds returned");
+      }
+      await callPortal({ op: "click_pixel", x: cx, y: cy, button: "left" });
+      return { method: "mouse" };
+    }
+
+    if (method === "action" || method === "focus+enter" || method === "mouse") {
+      return { method };
+    }
+    return { method: "unknown" };
   },
 
   async typeText(handle, text) {
@@ -215,10 +563,22 @@ export const linuxAtspiAdapter: NativeAdapter = {
   },
 
   async key(event: KeyEvent) {
+    // Prefer the portal whenever it's reachable. AT-SPI's
+    // generateKeyboardEvent is XTest-only — on Wayland-native targets
+    // (Chrome --ozone-platform=wayland, GTK4 apps, Electron) it returns
+    // success but silently no-ops, leaving callers unable to tell the
+    // keystroke never arrived.
+    loadPortalHandoff();
     if (PORTAL_URL) {
       const { modifiers, primary } = parseKeySpec(event.key);
       await callPortal({ op: "key", modifiers, keysym: primary });
       return;
+    }
+    if (isWaylandSession()) {
+      throw new Error(
+        `native_key needs portal fallback on Wayland (XTest only reaches X11 windows). ` +
+        `Set CONTROL_DECK_PORTAL_URL or run inside Electron.`,
+      );
     }
     const res = await runHelper({ op: "key", key: event.key });
     if (!res.ok) throw new Error(res.error ?? "key failed");

@@ -31,6 +31,7 @@ import type {
   NativeWatchRemoveArgs,
   NativeBaselineCaptureArgs,
   NativeBaselineRestoreArgs,
+  NativeCapabilitiesArgs,
 } from "../definitions";
 import { getNativeAdapter } from "../native";
 import type { ToolExecutionResult } from "../executor";
@@ -377,4 +378,183 @@ export async function executeNativeBaselineRestore(
     const msg = err instanceof Error ? err.message : "native_baseline_restore failed";
     return { success: false, message: msg, error: msg };
   }
+}
+
+const CORE_NATIVE_TOOLS = [
+  "native_locate",
+  "native_click",
+  "native_type",
+  "native_tree",
+  "native_key",
+  "native_focus",
+  "native_screen_grab",
+  "native_focus_window",
+  "native_click_pixel",
+] as const;
+
+const WINDOWS_ONLY_NATIVE_TOOLS = [
+  "native_invoke",
+  "native_wait_for",
+  "native_element_from_point",
+  "native_read_text",
+  "native_with_cache",
+  "native_watch_install",
+  "native_watch_drain",
+  "native_watch_remove",
+  "native_baseline_capture",
+  "native_baseline_restore",
+] as const;
+
+interface ToolStatus {
+  available: boolean;
+  reason?: string;
+}
+
+function detectLinuxSession(): "wayland" | "x11" | "unknown" {
+  if (process.platform !== "linux") return "unknown";
+  if ((process.env.XDG_SESSION_TYPE ?? "").toLowerCase() === "wayland") return "wayland";
+  if (process.env.WAYLAND_DISPLAY) return "wayland";
+  if (process.env.DISPLAY) return "x11";
+  return "unknown";
+}
+
+type PortalStatus = "reachable" | "announced_unreachable" | "absent";
+
+interface PortalProbe {
+  status: PortalStatus;
+  url?: string;
+  error?: string;
+}
+
+async function probePortal(): Promise<PortalProbe> {
+  const fs = require("node:fs") as typeof import("node:fs");
+  let url = process.env.CONTROL_DECK_PORTAL_URL || "";
+  let secret = process.env.CONTROL_DECK_PORTAL_SECRET || "";
+  if (!url) {
+    if (typeof process.getuid !== "function") return { status: "absent" };
+    const handoff = `/tmp/control-deck-portal-${process.getuid()}.json`;
+    if (!fs.existsSync(handoff)) return { status: "absent" };
+    try {
+      const raw = JSON.parse(fs.readFileSync(handoff, "utf8")) as {
+        url?: string;
+        secret?: string;
+        pid?: number;
+      };
+      if (typeof raw.pid === "number") {
+        try {
+          process.kill(raw.pid, 0); // throws if dead/foreign
+        } catch {
+          return { status: "announced_unreachable", url: raw.url, error: "handoff pid is not alive" };
+        }
+      }
+      if (raw.url) url = raw.url;
+      if (raw.secret) secret = raw.secret;
+    } catch (err) {
+      return { status: "announced_unreachable", error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  if (!url) return { status: "absent" };
+
+  // Real round-trip with the auth secret. /focus_window with empty app_id
+  // is intentionally invalid; we just want a non-403 response that proves
+  // we can reach the bridge AND auth is correct. 400 = reached & authed.
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1500);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-deck-portal-auth": secret },
+      body: JSON.stringify({ op: "focus_window", app_id: "" }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (res.status === 403) {
+      return { status: "announced_unreachable", url, error: "auth rejected" };
+    }
+    return { status: "reachable", url };
+  } catch (err) {
+    return {
+      status: "announced_unreachable",
+      url,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function executeNativeCapabilities(
+  _args: NativeCapabilitiesArgs,
+): Promise<ToolExecutionResult> {
+  const adapter = await getNativeAdapter();
+  const platform = adapter.platform;
+
+  const session = platform === "linux" ? detectLinuxSession() : "n-a";
+  const portal = platform === "linux" ? await probePortal() : { status: "absent" as const };
+  const portalReachable = portal.status === "reachable";
+
+  let helperReady = false;
+  let helperError: string | undefined;
+  if (adapter.isAvailable) {
+    try {
+      helperReady = await adapter.isAvailable();
+    } catch (err) {
+      helperError = err instanceof Error ? err.message : String(err);
+    }
+  } else {
+    helperReady = platform !== "unsupported";
+  }
+
+  const tools: Record<string, ToolStatus> = {};
+  for (const t of CORE_NATIVE_TOOLS) {
+    if (platform === "unsupported") {
+      tools[t] = { available: false, reason: `no native adapter for ${process.platform}` };
+      continue;
+    }
+    if (!helperReady) {
+      tools[t] = { available: false, reason: helperError ?? "platform helper not ready" };
+      continue;
+    }
+    // Portal-dependent ops on Linux: screen_grab, focus_window, click_pixel,
+    // key (Wayland fallback), and click (Wayland fallback). Downgrade when
+    // the portal isn't reachable end-to-end (handoff alone isn't enough —
+    // the bridge process may be dead or auth wrong).
+    const portalReason =
+      portal.status === "absent"
+        ? "portal not configured (run inside Electron, or set CONTROL_DECK_PORTAL_URL)"
+        : `portal announced but unreachable (${portal.error ?? "no response"}); restart Electron host`;
+    if (platform === "linux" && !portalReachable && (t === "native_screen_grab" || t === "native_focus_window" || t === "native_click_pixel")) {
+      tools[t] = { available: false, reason: portalReason };
+      continue;
+    }
+    if (platform === "linux" && session === "wayland" && t === "native_click" && !portalReachable) {
+      tools[t] = { available: false, reason: `Wayland click requires portal click_pixel fallback: ${portalReason}` };
+      continue;
+    }
+    if (platform === "linux" && session === "wayland" && t === "native_key" && !portalReachable) {
+      tools[t] = { available: false, reason: `Wayland key needs portal NotifyKeyboardKeysym: ${portalReason}` };
+      continue;
+    }
+    tools[t] = { available: true };
+  }
+  for (const t of WINDOWS_ONLY_NATIVE_TOOLS) {
+    if (platform === "win32") {
+      tools[t] = helperReady
+        ? { available: true }
+        : { available: false, reason: helperError ?? "WinAutomationHost not ready" };
+    } else {
+      tools[t] = { available: false, reason: `${t} is Windows-only (current platform: ${platform})` };
+    }
+  }
+
+  return {
+    success: true,
+    message: `native capabilities: platform=${platform} session=${session} helper=${helperReady ? "ready" : "down"}${platform === "linux" ? ` portal=${portal.status}` : ""}`,
+    data: {
+      platform,
+      session,
+      helperReady,
+      helperError,
+      portal: platform === "linux" ? portal : undefined,
+      tools,
+    },
+  };
 }

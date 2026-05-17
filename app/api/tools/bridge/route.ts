@@ -11,8 +11,6 @@ import { denyIfCrossOrigin } from "@/lib/security/originGuard";
 import { isMcpProfile, type McpProfile } from "@/lib/tools/mcpProfiles";
 import type { PolicyContext } from "@/lib/tools/policy";
 
-export { BRIDGE_TOOLS };
-
 interface BridgeRequest {
   tool: string;
   args: Record<string, unknown>;

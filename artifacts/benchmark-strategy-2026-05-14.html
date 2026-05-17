@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Control Deck — Benchmark Strategy</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px; margin: 32px auto; padding: 0 24px; color: #1a1a1a; background: #fafafa; }
+  h1 { margin-bottom: 4px; }
+  .sub { color: #666; margin-top: 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 24px 0; }
+  .card { background: white; border: 1px solid #e2e2e2; border-radius: 8px; padding: 20px; }
+  .card h2 { margin-top: 0; font-size: 16px; }
+  canvas { max-width: 100%; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  th { background: #f4f4f4; }
+  .tier1 { background: #e8f5e9; }
+  .tier2 { background: #fff3e0; }
+  .tier3 { background: #fce4ec; }
+  .legend { font-size: 12px; color: #666; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>Control Deck — benchmark strategy</h1>
+<p class="sub">2026-05-14 · target: Linux/Wayland AT-SPI + xdg-desktop-portal automation surface</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Strategic fit vs setup cost</h2>
+    <canvas id="fitChart" height="260"></canvas>
+    <div class="legend">Top-right = best first targets. Bubble size = signal value (how much a score there moves the needle).</div>
+  </div>
+  <div class="card">
+    <h2>Credible-score targets (% task success)</h2>
+    <canvas id="scoreChart" height="260"></canvas>
+    <div class="legend">SOTA shown where public; "credible first run" = score that proves the loop works.</div>
+  </div>
+</div>
+
+<div class="card" style="margin: 24px 0;">
+  <h2>Recommended evaluation ladder</h2>
+  <table>
+    <tr><th>Tier</th><th>Benchmark</th><th>What it tests</th><th>Setup cost</th><th>Why now</th></tr>
+    <tr class="tier1"><td>1 — week</td><td>MiniWoB (BrowserGym)</td><td>Browser action loop</td><td>~30 min</td><td>Cheapest signal that the agent loop runs end-to-end.</td></tr>
+    <tr class="tier1"><td>1 — week</td><td>ScreenSpot-Pro</td><td>GUI grounding only (no agent loop)</td><td>~1 hr (dataset only)</td><td>Isolates perception failures from planning failures. We can run it directly against native_locate + native_screen_grab.</td></tr>
+    <tr class="tier2"><td>2 — month</td><td>OSWorld-Verified</td><td>Real Ubuntu desktop tasks</td><td>~1 wk (write predict() adapter, map pyautogui→native_*)</td><td>Flagship desktop CU benchmark. Architectural match: a11y_tree=AT-SPI, screenshot=portal. SOTA UiPath ~53.6% → credible debut ≥15%.</td></tr>
+    <tr class="tier2"><td>2 — month</td><td>VisualWebArena (BrowserGym)</td><td>Visual+browser combined</td><td>~1 day after MiniWoB</td><td>Same harness as MiniWoB; tests our screenshot-driven path.</td></tr>
+    <tr class="tier3"><td>3 — later</td><td>WebArena-Verified</td><td>Reproducible web tasks (heavy)</td><td>~3 days (deploy server)</td><td>Standard browser yardstick but server stack is heavy; queue after Tier 2.</td></tr>
+    <tr class="tier3"><td>3 — later</td><td>Online-Mind2Web / BrowserArena</td><td>Live web</td><td>variable</td><td>Noisy (captchas, drift). Don't use as primary regression.</td></tr>
+    <tr class="tier3"><td>skip</td><td>Windows Agent Arena</td><td>Windows UIA</td><td>n/a</td><td>Wrong OS for current adapter.</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>OSWorld integration sketch (the high-leverage one)</h2>
+  <pre style="background:#f4f4f4;padding:12px;border-radius:4px;overflow-x:auto;font-size:12px;">
+class ControlDeckAgent(AgentInterface):
+    def predict(self, instruction, obs):
+        # obs: { screenshot: bytes, a11y_tree: str }
+        # Translate OSWorld a11y_tree (AT-SPI dump) → our cached node handles
+        # Plan with model → emit pyautogui code that internally calls our
+        # native_click / native_type / native_key (our adapter is the
+        # execution layer; OSWorld treats it as opaque pyautogui).
+        return [pyautogui_code_block]
+
+# Bypass VM: point DesktopEnv at the host Flask controller running on the
+# real Wayland session — we already have the portal infra to satisfy it.
+  </pre>
+</div>
+
+<script>
+const fitCtx = document.getElementById('fitChart');
+new Chart(fitCtx, {
+  type: 'bubble',
+  data: {
+    datasets: [
+      { label: 'MiniWoB',           data: [{x: 95, y: 60, r: 12}], backgroundColor: '#43a047' },
+      { label: 'ScreenSpot-Pro',    data: [{x: 90, y: 75, r: 14}], backgroundColor: '#43a047' },
+      { label: 'OSWorld-Verified',  data: [{x: 35, y: 95, r: 22}], backgroundColor: '#fb8c00' },
+      { label: 'VisualWebArena',    data: [{x: 70, y: 65, r: 13}], backgroundColor: '#fb8c00' },
+      { label: 'WebArena-Verified', data: [{x: 25, y: 70, r: 14}], backgroundColor: '#e53935' },
+      { label: 'Online-Mind2Web',   data: [{x: 60, y: 40, r: 10}], backgroundColor: '#e53935' },
+      { label: 'Windows Agent Arena', data: [{x: 40, y: 5, r: 8}], backgroundColor: '#9e9e9e' },
+    ]
+  },
+  options: {
+    scales: {
+      x: { title: { display: true, text: 'Easier setup →' }, min: 0, max: 100 },
+      y: { title: { display: true, text: 'Strategic fit for our adapter →' }, min: 0, max: 100 },
+    },
+    plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }
+  }
+});
+
+const scoreCtx = document.getElementById('scoreChart');
+new Chart(scoreCtx, {
+  type: 'bar',
+  data: {
+    labels: ['MiniWoB', 'ScreenSpot-Pro', 'OSWorld-V', 'VisualWebArena', 'WebArena-V'],
+    datasets: [
+      { label: 'Credible debut', data: [60, 30, 15, 25, 25], backgroundColor: '#90caf9' },
+      { label: 'Strong',         data: [85, 50, 35, 50, 50], backgroundColor: '#42a5f5' },
+      { label: 'SOTA (public)',  data: [98, 70, 53.6, 75, 65], backgroundColor: '#1565c0' },
+    ]
+  },
+  options: {
+    scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '% task success' } } },
+    plugins: { legend: { position: 'bottom' } }
+  }
+});
+</script>
+</body>
+</html>

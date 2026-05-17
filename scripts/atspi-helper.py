@@ -33,6 +33,17 @@ CACHE_PATH = os.path.join(tempfile.gettempdir(), f"control-deck-atspi-{os.getuid
 CACHE_TTL_SECONDS = 60
 
 
+def _is_wayland() -> bool:
+    """True when running under a Wayland compositor.
+
+    AT-SPI's mouse-event synth path goes through XTest, which only exists on
+    X11 — so we need to know whether to ask the portal for the click instead.
+    """
+    if (os.environ.get("XDG_SESSION_TYPE") or "").lower() == "wayland":
+        return True
+    return bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
 def _read_cache() -> dict[str, Any]:
     try:
         with open(CACHE_PATH) as fh:
@@ -69,33 +80,61 @@ def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
 
     Path format: "<app_name>/<idx_in_app>/<idx_in_frame>/...". Indices are
     each node's position in its own parent. The leaf is the node itself.
+
+    The walk stops once cursor is the Application node, since we already
+    pin the path to its name. Walking past the app picks up `-1` from
+    Application.getIndexInParent() (Desktop is not a real index parent in
+    AT-SPI), and previously bled the desktop role ("main") into the path.
     """
     try:
         app = node.getApplication()
         app_name = app.name if app else ""
     except Exception as exc:
         log.debug("_node_handle getApplication: %s", exc)
+        app = None
         app_name = ""
 
     indices: list[str] = []
     cursor = node
     while cursor is not None:
+        # Stop at the Application root. Two ways we recognise it:
+        #   1. cursor IS the app object getApplication() returned (cheap & precise).
+        #   2. cursor.parent is None (fallback for adapters that hide the link).
+        if app is not None and cursor == app:
+            break
         try:
             parent = cursor.parent
         except Exception as exc:
             log.debug("_node_handle cursor.parent: %s", exc)
             parent = None
         if parent is None:
-            # Reached the application root.
-            indices.append(cursor.name or cursor.getRoleName())
             break
         try:
             idx = cursor.getIndexInParent()
         except Exception as exc:
             log.debug("_node_handle getIndexInParent: %s", exc)
             idx = -1
+        if idx < 0:
+            # Sibling search to recover the real index. Falls through to a
+            # `?<name>` sentinel if name+role don't disambiguate; resolver
+            # treats `?…` as a name-match request at that depth.
+            idx = _find_child_index(parent, cursor)
+            if idx < 0:
+                indices.append(_name_sentinel(cursor))
+                cursor = parent
+                continue
         indices.append(str(idx))
         cursor = parent
+
+    # Root segment is always the app name when known, so paths are stable
+    # across runs ("org.gnome.Nautilus/0/3/0" rather than "main/-1/0/3/0").
+    if app_name:
+        indices.append(app_name)
+    elif cursor is not None:
+        try:
+            indices.append(cursor.name or cursor.getRoleName())
+        except Exception:
+            indices.append("")
 
     path_str = "/".join(reversed(indices))
     handle_id = f"{app_name}::{path_str}"
@@ -107,6 +146,39 @@ def _node_handle(node, cache_entries: dict[str, Any]) -> dict[str, Any]:
         "name": node.name,
         "path": path_str,
     }
+
+
+def _find_child_index(parent, target) -> int:
+    """Linear scan parent's children for `target`. Returns -1 if not found."""
+    try:
+        count = parent.childCount
+    except Exception as exc:
+        log.debug("_find_child_index childCount: %s", exc)
+        return -1
+    for i in range(count):
+        try:
+            child = parent.getChildAtIndex(i)
+        except Exception as exc:
+            log.debug("_find_child_index getChildAtIndex(%d): %s", i, exc)
+            continue
+        if child == target:
+            return i
+    return -1
+
+
+def _name_sentinel(node) -> str:
+    """Sentinel `?<role>:<name>` for path segments that lack a stable index."""
+    role = ""
+    name = ""
+    try:
+        role = node.getRoleName() or ""
+    except Exception:
+        pass
+    try:
+        name = node.name or ""
+    except Exception:
+        pass
+    return f"?{role}:{name}"
 
 
 def _walk(root, max_nodes: int = 2000):
@@ -127,6 +199,40 @@ def _walk(root, max_nodes: int = 2000):
         except Exception as exc:
             log.debug("_walk childCount on node: %s", exc)
             continue
+
+
+def _normalize_app(value: str) -> str:
+    """Fold case + strip separators so {app:"google-chrome"}, {app:"Google Chrome"},
+    and {app:"googlechrome"} all match an AT-SPI app named "Google Chrome".
+
+    Also strips a leading "org." / "com." reverse-domain prefix and a trailing
+    ".desktop" so {app:"org.telegram.desktop"} matches AT-SPI name "Telegram".
+    """
+    s = value.lower()
+    for prefix in ("org.", "com.", "io.", "net."):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+            break
+    if s.endswith(".desktop"):
+        s = s[:-len(".desktop")]
+    # Drop separators so hyphen/space/underscore/dot variants all collapse.
+    return "".join(c for c in s if c.isalnum())
+
+
+def _app_matches(query_app: str, accessible_app_name: str) -> bool:
+    """True if `query_app` should match the AT-SPI app name.
+
+    Tries exact substring (case-insensitive) first to preserve back-compat
+    with the original behaviour, then falls back to normalized comparison
+    for desktop-ID-style queries.
+    """
+    if not query_app:
+        return True
+    if query_app.lower() in (accessible_app_name or "").lower():
+        return True
+    nq = _normalize_app(query_app)
+    na = _normalize_app(accessible_app_name or "")
+    return bool(nq) and bool(na) and (nq in na or na in nq)
 
 
 def _match(node, query: dict[str, Any]) -> bool:
@@ -153,7 +259,7 @@ def _match(node, query: dict[str, Any]) -> bool:
     if app:
         try:
             a = node.getApplication()
-            if not a or app.lower() not in (a.name or "").lower():
+            if not a or not _app_matches(app, a.name or ""):
                 return False
         except Exception as exc:
             log.debug("_match getApplication: %s", exc)
@@ -180,7 +286,7 @@ def op_locate(query: dict[str, Any]) -> dict[str, Any]:
     try:
         registry = pyatspi.Registry.getDesktop(0)
         for app in registry:
-            if query.get("app") and query["app"].lower() not in (app.name or "").lower():
+            if query.get("app") and not _app_matches(query["app"], app.name or ""):
                 continue
             for node in _walk(app):
                 if _match(node, query):
@@ -198,6 +304,29 @@ def op_locate(query: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "data": results}
 
 
+def _resolve_named_child(parent, count: int, want_role: str, want_name: str):
+    """Find a child by (role, name) when the original index is unrecoverable."""
+    for i in range(count):
+        try:
+            child = parent.getChildAtIndex(i)
+        except Exception as exc:
+            log.debug("_resolve_named_child getChildAtIndex(%d): %s", i, exc)
+            continue
+        if child is None:
+            continue
+        try:
+            role = child.getRoleName() or ""
+        except Exception:
+            role = ""
+        try:
+            name = child.name or ""
+        except Exception:
+            name = ""
+        if role == want_role and name == want_name:
+            return child
+    return None
+
+
 def _resolve_handle(handle: dict[str, Any]):
     """Re-walk the desktop to find a live node matching the cached handle.
 
@@ -209,7 +338,12 @@ def _resolve_handle(handle: dict[str, Any]):
     hid = handle.get("id", "")
     name = handle.get("name") or ""
     path_str = handle.get("path") or ""
-    app_name, _, _ = hid.partition("::")
+    app_name, sep, id_path = hid.partition("::")
+    # Handles round-tripped via the CLI / external callers may carry only
+    # `id`; the encoded path is the substring after "::". Use it when the
+    # caller didn't break the handle apart for us.
+    if not path_str and sep:
+        path_str = id_path
 
     registry = pyatspi.Registry.getDesktop(0)
 
@@ -222,7 +356,9 @@ def _resolve_handle(handle: dict[str, Any]):
                 return a
         return None
 
-    # Path-based resolution: "<app_name>/<idx>/<idx>/..."
+    # Path-based resolution: "<app_name>/<idx>/<idx>/..." with optional
+    # `?<role>:<name>` segments where the helper couldn't determine the
+    # child's index in its parent (and a sibling-scan failed to recover it).
     if path_str:
         parts = path_str.split("/")
         app = find_app()
@@ -230,17 +366,21 @@ def _resolve_handle(handle: dict[str, Any]):
             return None
         cursor = app
         for seg in parts[1:]:
-            try:
-                idx = int(seg)
-            except ValueError:
-                cursor = None
-                break
             if cursor is None:
                 break
             try:
                 count = cursor.childCount
             except Exception as exc:
                 log.debug("_resolve_handle childCount at seg %r: %s", seg, exc)
+                cursor = None
+                break
+            if seg.startswith("?"):
+                want_role, _, want_name = seg[1:].partition(":")
+                cursor = _resolve_named_child(cursor, count, want_role, want_name)
+                continue
+            try:
+                idx = int(seg)
+            except ValueError:
                 cursor = None
                 break
             if idx < 0 or idx >= count:
@@ -317,16 +457,30 @@ def op_click(handle: dict[str, Any]) -> dict[str, Any]:
         except Exception as exc:
             log.warning("op_click generateKeyboardEvent (Enter): %s", exc)
 
-    # 3. Synthetic mouse click at component center (compositor-level)
+    # 3. Synthetic mouse click at component center.
+    #    AT-SPI's generateMouseEvent goes through XTest, which is X11-only —
+    #    on Wayland it silently no-ops. So on Wayland (or when XTest fails
+    #    on X11), we hand the bounds back to the TS adapter so it can route
+    #    through the xdg-desktop-portal RemoteDesktop click_pixel path
+    #    instead. Same shape as the Windows host's "mouse-required" reply.
     try:
         comp = node.queryComponent()
         ext = comp.getExtents(pyatspi.DESKTOP_COORDS)
+        if ext.width <= 0 or ext.height <= 0 or ext.x < 0 or ext.y < 0:
+            return {"ok": False, "error": f"node off-screen or hidden (x={ext.x},y={ext.y},w={ext.width},h={ext.height})"}
         cx = ext.x + ext.width // 2
         cy = ext.y + ext.height // 2
-        if cx <= 0 or cy <= 0 or ext.width <= 0 or ext.height <= 0:
-            return {"ok": False, "error": f"node off-screen or hidden (x={ext.x},y={ext.y},w={ext.width},h={ext.height})"}
-        pyatspi.Registry.generateMouseEvent(cx, cy, "b1c")
-        return {"ok": True, "data": {"method": "mouse", "x": cx, "y": cy}}
+        bounds = {"x": ext.x, "y": ext.y, "width": ext.width, "height": ext.height}
+
+        if _is_wayland():
+            return {"ok": True, "data": {"method": "mouse-required", "bounds": bounds, "x": cx, "y": cy, "reason": "wayland"}}
+
+        try:
+            pyatspi.Registry.generateMouseEvent(cx, cy, "b1c")
+            return {"ok": True, "data": {"method": "mouse", "x": cx, "y": cy, "bounds": bounds}}
+        except Exception as synth_err:
+            # XTest broken on this X11 session — degrade to portal path.
+            return {"ok": True, "data": {"method": "mouse-required", "bounds": bounds, "x": cx, "y": cy, "reason": f"xtest_failed: {synth_err}"}}
     except Exception as e:
         return {"ok": False, "error": f"click: all fallbacks failed ({e})"}
 
@@ -495,35 +649,164 @@ def op_tree(handle: dict[str, Any] | None) -> dict[str, Any]:
         return {"ok": False, "error": f"tree: {e}"}
 
 
+def _dispatch(cmd: dict[str, Any]) -> dict[str, Any]:
+    op = cmd.get("op")
+    try:
+        if op == "available":
+            return op_available()
+        if op == "locate":
+            return op_locate(cmd.get("query") or {})
+        if op == "click":
+            return op_click(cmd.get("handle") or {})
+        if op == "type":
+            return op_type(cmd.get("handle"), cmd.get("text") or "")
+        if op == "tree":
+            return op_tree(cmd.get("handle"))
+        if op == "key":
+            return op_key(cmd.get("key") or "")
+        if op == "focus":
+            return op_focus(cmd.get("handle") or {})
+        return {"ok": False, "error": f"unknown op: {op}"}
+    except Exception as e:
+        return {"ok": False, "error": f"uncaught: {e}"}
+
+
+# ---------------------------------------------------------------------------
+#  Daemon mode — long-lived helper shared across all callers via a unix
+#  socket at /tmp/control-deck-atspi-<uid>.sock. Pattern lifted from
+#  browser-use/browser-harness (see docs/native-adapter): one daemon per
+#  user, line-delimited JSON over connection-per-request, ping-based
+#  liveness, pid+start-time identity to defeat PID reuse.
+# ---------------------------------------------------------------------------
+
+import socket
+import socketserver
+import threading
+
+DAEMON_SOCK = os.path.join(tempfile.gettempdir(), f"control-deck-atspi-{os.getuid()}.sock")
+DAEMON_PID_FILE = os.path.join(tempfile.gettempdir(), f"control-deck-atspi-{os.getuid()}.pid")
+DAEMON_STARTED_AT = time.time()
+
+
+def _write_pid_file() -> None:
+    payload = {"pid": os.getpid(), "started_at": DAEMON_STARTED_AT, "socket": DAEMON_SOCK}
+    tmp = DAEMON_PID_FILE + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(payload, fh)
+    os.replace(tmp, DAEMON_PID_FILE)
+
+
+def _cleanup_daemon_files() -> None:
+    for path in (DAEMON_SOCK, DAEMON_PID_FILE):
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            log.warning("cleanup %s: %s", path, exc)
+
+
+_shutdown_event = threading.Event()
+
+
+class _Handler(socketserver.StreamRequestHandler):
+    def handle(self) -> None:
+        # rfile is a buffered stream; readline() returns b"" on EOF.
+        for raw in self.rfile:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                cmd = json.loads(line)
+            except Exception as e:
+                self._reply({"ok": False, "error": f"bad input: {e}"})
+                continue
+            meta = cmd.get("meta")
+            if meta == "ping":
+                self._reply({"ok": True, "pong": True, "pid": os.getpid(), "started_at": DAEMON_STARTED_AT})
+                continue
+            if meta == "shutdown":
+                self._reply({"ok": True})
+                _shutdown_event.set()
+                # Tickle the server so serve_forever wakes up promptly.
+                try:
+                    self.server.shutdown()
+                except Exception as exc:
+                    log.debug("server.shutdown signal: %s", exc)
+                return
+            req_id = cmd.get("id")
+            result = _dispatch(cmd)
+            if req_id is not None:
+                result["id"] = req_id
+            self._reply(result)
+
+    def _reply(self, payload: dict[str, Any]) -> None:
+        self.wfile.write((json.dumps(payload) + "\n").encode("utf-8"))
+        self.wfile.flush()
+
+
+class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+    allow_reuse_address = True
+    request_queue_size = 32
+
+
+def _daemon_serve() -> int:
+    """Bind the unix socket, serve until shutdown meta or signal."""
+    # Pre-import pyatspi so the first real op doesn't pay the cold cost.
+    try:
+        _import_pyatspi()
+    except Exception as exc:
+        log.warning("daemon: pyatspi preload failed: %s", exc)
+
+    # Stale socket from a crashed prior instance — remove if not in use.
+    if os.path.exists(DAEMON_SOCK):
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(0.2)
+            probe.connect(DAEMON_SOCK)
+            probe.close()
+            print(json.dumps({"ok": False, "error": "another atspi-helper daemon already listening"}))
+            return 1
+        except OSError:
+            try:
+                os.unlink(DAEMON_SOCK)
+            except OSError as exc:
+                log.warning("removing stale socket %s: %s", DAEMON_SOCK, exc)
+        finally:
+            probe.close()
+
+    server = _Server(DAEMON_SOCK, _Handler)
+    try:
+        os.chmod(DAEMON_SOCK, 0o600)
+    except OSError as exc:
+        log.warning("chmod %s 0600: %s", DAEMON_SOCK, exc)
+    _write_pid_file()
+    # Print a single line so callers waiting on stdout know we're up. They
+    # can also poll the pid file / socket; this is just a fast path.
+    print(json.dumps({"ok": True, "ready": True, "socket": DAEMON_SOCK, "pid": os.getpid()}), flush=True)
+
+    try:
+        server.serve_forever(poll_interval=0.5)
+    finally:
+        try:
+            server.server_close()
+        finally:
+            _cleanup_daemon_files()
+    return 0
+
+
 def main() -> int:
+    if "--daemon" in sys.argv[1:]:
+        return _daemon_serve()
+
     try:
         cmd = json.loads(sys.stdin.read())
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"bad input: {e}"}))
         return 0
 
-    op = cmd.get("op")
-    try:
-        if op == "available":
-            result = op_available()
-        elif op == "locate":
-            result = op_locate(cmd.get("query") or {})
-        elif op == "click":
-            result = op_click(cmd.get("handle") or {})
-        elif op == "type":
-            result = op_type(cmd.get("handle"), cmd.get("text") or "")
-        elif op == "tree":
-            result = op_tree(cmd.get("handle"))
-        elif op == "key":
-            result = op_key(cmd.get("key") or "")
-        elif op == "focus":
-            result = op_focus(cmd.get("handle") or {})
-        else:
-            result = {"ok": False, "error": f"unknown op: {op}"}
-    except Exception as e:
-        result = {"ok": False, "error": f"uncaught: {e}"}
-
-    print(json.dumps(result))
+    print(json.dumps(_dispatch(cmd)))
     return 0
 
 

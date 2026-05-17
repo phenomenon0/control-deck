@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { RemoteDesktopClient } from "./services/remote-desktop-client";
 import { ScreenshotPortal } from "./services/screenshot-portal";
@@ -40,6 +41,124 @@ if (!IS_DEV && !process.env.DECK_TOKEN) {
   console.log("[electron] generated ephemeral DECK_TOKEN for this launch");
 }
 const DECK_TOKEN = process.env.DECK_TOKEN ?? "";
+
+// Append a single line to crash.log under app.getPath('logs') (resolved lazily
+// because the app may not be ready yet) with an os.tmpdir() fallback. Used by
+// the global handlers below, supervisor catch blocks, and the portal-bridge
+// failure path so an operator has one place to look after a bad boot.
+function appendCrashLog(kind: string, message: string): void {
+  let dir: string;
+  try {
+    dir = app.isReady() ? app.getPath("logs") : path.join(os.tmpdir(), "control-deck-logs");
+  } catch {
+    dir = path.join(os.tmpdir(), "control-deck-logs");
+  }
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const line = `${new Date().toISOString()}\t${kind}\t${message.replace(/\n/g, "\\n")}\n`;
+    fs.appendFileSync(path.join(dir, "crash.log"), line);
+  } catch {
+    // best-effort; if even tmpdir is unwritable there is nothing useful to do
+  }
+}
+
+function formatLogArgs(args: unknown[]): string {
+  return args
+    .map((arg) => {
+      if (arg instanceof Error) return arg.stack ?? arg.message;
+      if (typeof arg === "string") return arg;
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    })
+    .join(" ");
+}
+
+function errorCode(err: unknown): string {
+  if (typeof err === "object" && err && "code" in err) {
+    return String((err as { code?: unknown }).code ?? "");
+  }
+  return "";
+}
+
+function handleConsoleWriteError(level: string, args: unknown[], err: unknown): void {
+  const detail = err instanceof Error ? err.stack ?? err.message : String(err);
+  appendCrashLog(`console:${level}`, `${formatLogArgs(args)} | ${detail}`);
+  if (errorCode(err) !== "EPIPE") throw err;
+}
+
+function installConsolePipeGuards(): void {
+  process.stdout.on("error", (err) => {
+    appendCrashLog("stdio:stdout", err instanceof Error ? err.stack ?? err.message : String(err));
+  });
+  process.stderr.on("error", (err) => {
+    appendCrashLog("stdio:stderr", err instanceof Error ? err.stack ?? err.message : String(err));
+  });
+
+  const originalLog = console.log.bind(console);
+  const originalWarn = console.warn.bind(console);
+  const originalError = console.error.bind(console);
+  console.log = (...args: unknown[]) => {
+    try {
+      originalLog(...args);
+    } catch (err) {
+      handleConsoleWriteError("log", args, err);
+    }
+  };
+  console.warn = (...args: unknown[]) => {
+    try {
+      originalWarn(...args);
+    } catch (err) {
+      handleConsoleWriteError("warn", args, err);
+    }
+  };
+  console.error = (...args: unknown[]) => {
+    try {
+      originalError(...args);
+    } catch (err) {
+      handleConsoleWriteError("error", args, err);
+    }
+  };
+}
+
+installConsolePipeGuards();
+
+process.on("uncaughtException", (err) => {
+  const stack = err instanceof Error ? err.stack ?? err.message : String(err);
+  appendCrashLog("uncaught", stack);
+  console.error("[electron] uncaughtException:", stack);
+  try {
+    dialog.showErrorBox("Control Deck crashed", stack);
+  } catch {
+    // dialog may be unavailable pre-ready or in test runs
+  }
+  app.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  const detail =
+    reason instanceof Error ? reason.stack ?? reason.message : String(reason);
+  appendCrashLog("rejection", detail);
+  console.error("[electron] unhandledRejection:", detail);
+  // Do not quit: matches existing pattern where optional sidecars log and continue.
+});
+
+// ABI probe — surface native-module load failures early with the actionable
+// fix (`bun run electron:rebuild`). Each module is tried in isolation; one bad
+// module does not block the others. Non-fatal: the feature that needs the
+// module will surface its own error when invoked.
+for (const mod of ["better-sqlite3", "node-pty", "node-screenshots", "koffi"]) {
+  try {
+    require(mod);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const hint = `[electron] native module ${mod} failed to load: ${detail} — run \`bun run electron:rebuild\` if Electron was upgraded`;
+    console.error(hint);
+    appendCrashLog("abi-probe", hint);
+  }
+}
 
 // Linux: pin to X11 ozone by default. Chromium's Wayland backend on NVIDIA
 // has known flicker/tearing (crbug.com/1261448, /1318150) — X11 is stable on
@@ -260,17 +379,30 @@ function pickFreePort(): Promise<number> {
 
 async function startEmbeddedServer(): Promise<string> {
   if (IS_DEV) {
-    // In dev, the developer runs `bun run dev` separately. Wait for it
-    // instead of crashing on race — the Next server is often still
-    // compiling when Electron reaches this point.
+    // In dev, reuse an already-running Next server if present; otherwise
+    // launch it as a child so `bun run electron:dev` brings up the full app.
     const devUrl = process.env.CONTROL_DECK_URL ?? "http://localhost:3333";
-    console.log(`[electron] waiting for dev server at ${devUrl} (start with \`bun run dev\`)`);
+    if (await probeHttp(devUrl)) {
+      console.log(`[electron] dev server responsive at ${devUrl}`);
+      return devUrl;
+    }
+
+    const autoStartRequested = process.env.CONTROL_DECK_DEV_SERVER !== "external";
+    const autoStarted = autoStartRequested ? startDevServer(devUrl) : false;
+
+    console.log(
+      `[electron] waiting for dev server at ${devUrl}${
+        autoStartRequested ? "" : " (CONTROL_DECK_DEV_SERVER=external)"
+      }`,
+    );
     try {
       await waitForUrl(devUrl, 120_000);
       console.log(`[electron] dev server responsive at ${devUrl}`);
     } catch {
       throw new Error(
-        `dev server at ${devUrl} never came up. Run \`bun run dev\` in another terminal, then relaunch Electron.`,
+        autoStarted
+          ? `dev server at ${devUrl} never came up after auto-start. Check the [next-dev] output above.`
+          : `dev server at ${devUrl} never came up. Run \`bun run dev\` in another terminal, then relaunch Electron.`,
       );
     }
     return devUrl;
@@ -307,6 +439,83 @@ async function startEmbeddedServer(): Promise<string> {
   throw new Error(
     `embedded server failed after ${MAX_ATTEMPTS} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
   );
+}
+
+function startDevServer(devUrl: string): boolean {
+  if (serverProc && !serverProc.killed) return true;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(devUrl);
+  } catch {
+    console.warn(`[electron] CONTROL_DECK_URL is invalid (${devUrl}); not auto-starting dev server`);
+    return false;
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  const canAutoStart =
+    parsed.protocol === "http:" &&
+    (host === "localhost" || host === "127.0.0.1") &&
+    port === "3333";
+  if (!canAutoStart) {
+    console.log(
+      `[electron] dev server auto-start only supports http://localhost:3333; waiting for ${devUrl}`,
+    );
+    return false;
+  }
+
+  const repoRoot = path.resolve(__dirname, "..");
+  const command = resolveBunCommand();
+  const child = spawn(command, ["run", "dev"], {
+    cwd: repoRoot,
+    env: { ...process.env },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    shell: process.platform === "win32",
+  });
+  serverProc = child;
+
+  console.log(`[electron] launching dev server: ${command} run dev`);
+  child.stdout?.on("data", (chunk) => {
+    process.stdout.write(`[next-dev] ${chunk}`);
+  });
+  child.stderr?.on("data", (chunk) => {
+    process.stderr.write(`[next-dev] ${chunk}`);
+  });
+  child.on("error", (err) => {
+    console.error("[electron] dev server failed to spawn:", err);
+  });
+  child.on("exit", (code, signal) => {
+    if (serverProc === child) serverProc = null;
+    if (isQuitting || signal === "SIGTERM") return;
+    console.error(`[electron] dev server exited code=${code} signal=${signal}`);
+  });
+  return true;
+}
+
+function resolveBunCommand(): string {
+  const npmExecPath = process.env.npm_execpath;
+  if (
+    npmExecPath &&
+    /(?:^|[/\\])bun(?:\.exe)?$/i.test(npmExecPath) &&
+    fs.existsSync(npmExecPath)
+  ) {
+    return npmExecPath;
+  }
+
+  const home = os.homedir();
+  const candidates =
+    process.platform === "win32"
+      ? [
+          process.env.LOCALAPPDATA
+            ? path.join(process.env.LOCALAPPDATA, "bun", "bun.exe")
+            : "",
+          path.join(home, ".bun", "bin", "bun.exe"),
+          "bun",
+        ]
+      : [path.join(home, ".bun", "bin", "bun"), "bun"];
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) ?? "bun";
 }
 
 async function spawnNextOnPort(
@@ -773,7 +982,10 @@ app.whenReady().then(async () => {
     try {
       await startPortalBridge();
     } catch (err) {
-      console.error("[electron] portal bridge failed to start:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      const hint = `[electron] portal bridge failed — native_screen_grab will return code=2. Fix: systemctl --user daemon-reload && systemctl --user restart xdg-desktop-portal-gnome (override at ~/.config/systemd/user/xdg-desktop-portal-gnome.service.d/10-unset-gdk-backend.conf is staged but not active). Underlying error: ${detail}`;
+      console.error(hint);
+      appendCrashLog("portal-bridge", hint);
     }
   }
 
@@ -784,17 +996,23 @@ app.whenReady().then(async () => {
   try {
     terminalService = startTerminalService();
   } catch (err) {
-    console.error("[electron] terminal service auto-spawn failed:", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[electron] terminal service auto-spawn failed:", detail);
+    appendCrashLog("supervisor:terminal", detail);
   }
   try {
     voiceCoreService = startVoiceCoreSupervisor();
   } catch (err) {
-    console.error("[electron] voice-core supervisor failed:", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[electron] voice-core supervisor failed:", detail);
+    appendCrashLog("supervisor:voice-core", detail);
   }
   try {
     agentTsService = startAgentTsSupervisor();
   } catch (err) {
-    console.error("[electron] agent-ts supervisor failed:", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[electron] agent-ts supervisor failed:", detail);
+    appendCrashLog("supervisor:agent-ts", detail);
   }
   try {
     await createWindow();

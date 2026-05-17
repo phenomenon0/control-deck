@@ -53,6 +53,14 @@ export function resolveProviderUrl(id: SettingsProviderId): string {
   const override = settings?.providerUrls?.[id];
   if (override && override.trim()) return normalise(override.trim());
 
+  // llamacpp has a second canonical env var — LLAMA_SWAP_BASE_URL — because
+  // the chat lane is backed by mostlygeek/llama-swap in this deployment.
+  // Honour it first so callers don't have to know which name to set.
+  if (id === "llamacpp") {
+    const swapRaw = process.env.LLAMA_SWAP_BASE_URL;
+    if (swapRaw && swapRaw.trim()) return normalise(swapRaw.trim());
+  }
+
   const envRaw = process.env[ENV_VAR[id]];
   if (envRaw && envRaw.trim()) return normalise(envRaw.trim());
 

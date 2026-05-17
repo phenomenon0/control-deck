@@ -7,6 +7,8 @@ import { mkdir, copyFile, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
 import { hub } from "@/lib/agui/hub";
+import { acquire, release } from "@/lib/resource/arbiter";
+import type { LaneId } from "@/lib/resource/types";
 import {
   createEvent,
   generateId,
@@ -39,6 +41,18 @@ const VRAM_REQUIREMENTS: Record<string, number> = {
 };
 
 const MIN_VRAM_THRESHOLD = 20000; // 20GB minimum free for heavy workflows
+
+/**
+ * Map a ComfyUI preset name to the arbiter lane that owns its VRAM. The
+ * arbiter uses the lane (not the preset) to decide what is evictable.
+ */
+function presetToLane(preset: string | undefined): LaneId {
+  if (!preset) return "image";
+  if (preset.includes("audio") || preset.includes("ace-step")) return "audio";
+  if (preset.includes("hunyuan") || preset.includes("3d")) return "3d";
+  if (preset.includes("video") || preset.includes("wan") || preset.includes("svd")) return "video";
+  return "image";
+}
 
 /**
  * Free GPU memory by unloading all models from ComfyUI
@@ -342,10 +356,38 @@ export async function executeComfyWorkflow(
     };
   }
 
+  // Reserve the lane with the arbiter — this evicts the chat LLM if the
+  // workflow is heavy enough (3D/video) and denies the request when no
+  // lane can be freed. ensureVRAM stays as a legacy check beneath it.
+  const lane = presetToLane(preset);
+  const estimateMb = preset ? (VRAM_REQUIREMENTS[preset] ?? 8000) : 8000;
+  let comfyTicket: string | undefined;
+  try {
+    const acq = await acquire({
+      lane,
+      estimateMb,
+      reason: `comfy: ${name}${preset ? ` (${preset})` : ""}`,
+      priority: "normal",
+      evicts: "hard",
+      restoreOnIdle: false,
+      ttlMs: POLL_TIMEOUT + 30_000,
+    });
+    if (acq.status !== "granted") {
+      return {
+        status: "error",
+        error: `resource arbiter ${acq.status}: ${acq.reason}`,
+      };
+    }
+    comfyTicket = acq.ticket;
+  } catch (e) {
+    console.warn("[Comfy] arbiter acquire failed, proceeding unguarded:", e);
+  }
+
   // Ensure VRAM is available (frees memory first)
   if (preset) {
     const vramError = await ensureVRAM(preset);
     if (vramError) {
+      if (comfyTicket) release(comfyTicket);
       return { status: "error", error: vramError };
     }
   }
@@ -453,6 +495,7 @@ export async function executeComfyWorkflow(
           saveEvent(resultEvt);
           hub.publish(threadId, resultEvt);
 
+          if (comfyTicket) release(comfyTicket);
           return result;
         }
       }
@@ -477,6 +520,8 @@ export async function executeComfyWorkflow(
     saveEvent(resultEvt);
     hub.publish(threadId, resultEvt);
 
+    // Keep the reservation so the still-running job's VRAM is accounted
+    // for. TTL will auto-release if the job genuinely died.
     return queuedResult;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : "Unknown error";
@@ -495,6 +540,7 @@ export async function executeComfyWorkflow(
     saveEvent(resultEvt);
     hub.publish(threadId, resultEvt);
 
+    if (comfyTicket) release(comfyTicket);
     return errorResult;
   }
 }

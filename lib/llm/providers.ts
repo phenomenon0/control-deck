@@ -27,6 +27,10 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 // Note: @ai-sdk/huggingface uses a different pattern - we'll handle it specially
 
+import { resolveProviderUrl } from "@/lib/hardware/settings";
+
+const llamaSwapBaseV1 = (): string => `${resolveProviderUrl("llamacpp")}/v1`;
+
 export type ProviderType =
   | "openai"
   | "anthropic"
@@ -149,7 +153,7 @@ export const PROVIDERS: Record<ProviderType, ProviderInfo> = {
     name: "llama.cpp Server",
     description: "Local llama.cpp server",
     requiresApiKey: false,
-    defaultBaseURL: "http://localhost:8080/v1",
+    defaultBaseURL: llamaSwapBaseV1(),
     modelsEndpoint: "/models",
     defaultModels: [],
   },
@@ -365,7 +369,7 @@ export function createProviderClient(config: ProviderConfig) {
       return createOpenAICompatible({
         name: provider,
         apiKey: apiKey || "local", // Some servers need non-empty key
-        baseURL: baseURL || PROVIDERS[provider]?.defaultBaseURL || "http://localhost:8080/v1",
+        baseURL: baseURL || PROVIDERS[provider]?.defaultBaseURL || llamaSwapBaseV1(),
       });
   }
 }

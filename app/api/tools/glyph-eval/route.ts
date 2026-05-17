@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { encodeGlyphSmart, glyphInstruction } from "@/lib/codec";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 import { getDefaultModel, getProviderConfig, listProviderModels } from "@/lib/llm/providers";
 
 const TEST_SEARCH_RESULTS = {
@@ -76,7 +77,7 @@ const EVAL_QUESTIONS: EvalQuestion[] = [
 
 export async function POST() {
   const providerConfig = getProviderConfig().primary;
-  const configuredBase = process.env.LLM_BASE_URL ?? providerConfig?.baseURL ?? "http://localhost:8080/v1";
+  const configuredBase = process.env.LLM_BASE_URL ?? providerConfig?.baseURL ?? `${resolveProviderUrl("llamacpp")}/v1`;
   const LLM_BASE_URL = configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase.replace(/\/$/, "")}/v1`;
   const configuredModel = process.env.LLM_MODEL ?? process.env.DEFAULT_MODEL ?? getDefaultModel("primary");
   const availableModels = providerConfig ? await listProviderModels(providerConfig) : [];

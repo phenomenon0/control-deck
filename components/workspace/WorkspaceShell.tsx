@@ -30,6 +30,7 @@ import { ModelsPane } from "@/components/panes/ModelsPane";
 import { RunsPane } from "@/components/panes/RunsPane";
 import { ToolsPane } from "@/components/panes/ToolsPane";
 import { VoicePane } from "@/components/panes/VoicePane";
+import { ResourcePane } from "@/components/panes/ResourcePane";
 
 /**
  * WorkspaceShell — the Dockview-backed tiled layout container.
@@ -62,6 +63,7 @@ const COMPONENTS = {
   runs: makePaneAdapter("runs", RunsPane),
   tools: makePaneAdapter("tools", ToolsPane),
   voice: makePaneAdapter("voice", VoicePane),
+  resource: makePaneAdapter("resource", ResourcePane),
 } as unknown as Record<string, React.FC<IDockviewPanelProps>>;
 
 interface WorkspaceShellProps {

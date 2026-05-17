@@ -16,6 +16,8 @@
  *                    — reused from the text slot
  */
 
+import { resolveProviderUrl } from "@/lib/hardware/settings";
+
 import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
 import type { InferenceProvider, Modality } from "../types";
@@ -75,7 +77,7 @@ const SEEDS: ProviderSeed[] = [
     name: "Local OpenAI-compatible",
     description: "Local llama.cpp/llama-swap/vLLM serving an OpenAI-compatible vision model (e.g. Qwen3.5-9B + mmproj).",
     requiresApiKey: false,
-    defaultBaseURL: process.env.LLAMA_SWAP_BASE_URL ?? "http://127.0.0.1:8080/v1",
+    defaultBaseURL: `${resolveProviderUrl("llamacpp")}/v1`,
     defaultModels: ["qwen3.5-9b", "qwen3.5-35b"],
   },
 ];
@@ -119,7 +121,7 @@ export function registerVisionProviders(): void {
           providerEnv === "ollama"
             ? process.env.OLLAMA_BASE_URL
             : providerEnv === "openai-compat"
-              ? process.env.LLAMA_SWAP_BASE_URL ?? "http://127.0.0.1:8080/v1"
+              ? `${resolveProviderUrl("llamacpp")}/v1`
               : undefined,
       },
     });

@@ -8,15 +8,46 @@
  * Ollama's llama3.2-vision is unreachable.
  */
 
+import { resolveProviderUrl } from "@/lib/hardware/settings";
+import { acquire, release } from "@/lib/resource/arbiter";
+
 import type { InferenceProviderConfig } from "../types";
 import type { VisionArgs, VisionImage, VisionResult } from "./types";
 
 const OLLAMA_DEFAULT = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+
+// Conservative default — most vision models (llama3.2-vision:11b, qwen-vl-7b)
+// sit around 8 GB once loaded. Caller can override via args.estimateMb.
+const VISION_DEFAULT_ESTIMATE_MB = 8000;
+
+async function withVisionLane<T>(
+  args: VisionArgs,
+  model: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const acq = await acquire({
+    lane: "vision",
+    estimateMb: args.estimateMb ?? VISION_DEFAULT_ESTIMATE_MB,
+    reason: `vision: ${model}`,
+    modelId: model,
+    priority: "interactive",
+    evicts: "hard",
+    restoreOnIdle: false,
+  });
+  if (acq.status !== "granted") {
+    throw new Error(`vision lane denied: ${acq.reason ?? acq.status}`);
+  }
+  try {
+    return await run();
+  } finally {
+    release(acq.ticket!);
+  }
+}
 const OPENAI_BASE = "https://api.openai.com/v1";
 const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-const LLAMA_SWAP_DEFAULT = process.env.LLAMA_SWAP_BASE_URL ?? "http://127.0.0.1:8080/v1";
+const LLAMA_SWAP_DEFAULT = `${resolveProviderUrl("llamacpp")}/v1`;
 
 export async function invokeVision(
   providerId: string,
@@ -24,8 +55,10 @@ export async function invokeVision(
   args: VisionArgs,
 ): Promise<VisionResult> {
   switch (providerId) {
-    case "ollama":
-      return invokeOllama(config, args);
+    case "ollama": {
+      const model = args.model ?? config.model ?? "llama3.2-vision:11b";
+      return withVisionLane(args, model, () => invokeOllama(config, args));
+    }
     case "anthropic":
       return invokeAnthropic(config, args);
     case "openai":
@@ -36,8 +69,10 @@ export async function invokeVision(
       return invokeOpenRouter(config, args);
     case "openai-compat":
     case "llama-swap":
-    case "llama-cpp":
-      return invokeOpenAiCompat(config, args);
+    case "llama-cpp": {
+      const model = args.model ?? config.model ?? "qwen3.5-9b";
+      return withVisionLane(args, model, () => invokeOpenAiCompat(config, args));
+    }
     default:
       throw new Error(`vision provider not supported: ${providerId}`);
   }

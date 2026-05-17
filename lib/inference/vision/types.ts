@@ -23,6 +23,8 @@ export interface VisionArgs {
   model?: string;
   /** Optional output length cap; interpreted per-provider. */
   maxTokens?: number;
+  /** Optional VRAM hint for the arbiter when the call is local; ignored for cloud providers. */
+  estimateMb?: number;
 }
 
 export interface VisionResult {

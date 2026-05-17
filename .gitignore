@@ -51,11 +51,20 @@ data/*
 # code coverage
 coverage
 *.lcov
+test-results/
 
 # logs
 logs
 _.log
+run-v*.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+
+# generated benchmark/eval outputs that are too environment-specific to share
+artifacts/voice-bench/
+benchmarks/osworld/cache/
+benchmarks/osworld/docker_vm_data
+benchmarks/osworld/run-*.log
+benchmarks/osworld/trace-*.json
 
 # dotenv environment variable files
 .env

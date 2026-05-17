@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "control-deck-agent-work-trajectory.schema.json",
+  "title": "Control Deck Agent Work Trajectory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "case_id", "profile", "messages", "tool_calls", "final_response", "scores"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "case_id": { "type": "string", "minLength": 1 },
+    "profile": {
+      "type": "string",
+      "enum": ["core", "developer", "desktop-read", "desktop-control", "full"]
+    },
+    "model": { "type": "string" },
+    "prompt_variant": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "string",
+      "enum": ["scripted", "live", "human-labeled", "synthetic", "training-rollout"]
+    },
+    "messages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/message" },
+      "minItems": 1
+    },
+    "visible_tools": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/tool_call" }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "verifications": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/verification" }
+    },
+    "final_response": { "type": "string" },
+    "scores": { "$ref": "#/$defs/scores" },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "good",
+          "bad",
+          "needs-recovery",
+          "unsafe-tool",
+          "missing-verification",
+          "hallucinated-state",
+          "malformed-args",
+          "over-tooling",
+          "grounded",
+          "useful-final"
+        ]
+      }
+    },
+    "notes": { "type": "string" }
+  },
+  "$defs": {
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["system", "user", "assistant", "tool"]
+        },
+        "content": { "type": ["string", "null"] },
+        "tool_call_id": { "type": "string" },
+        "name": { "type": "string" },
+        "tool_calls": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool_call" }
+        }
+      }
+    },
+    "tool_call": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "args": {},
+        "success": { "type": "boolean" },
+        "error_code": { "type": "string" },
+        "result": {},
+        "started_at": { "type": "string", "format": "date-time" },
+        "finished_at": { "type": "string", "format": "date-time" },
+        "latency_ms": { "type": "number", "minimum": 0 }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "success"],
+      "properties": {
+        "target": { "type": "string" },
+        "success": { "type": "boolean" },
+        "method": { "type": "string" },
+        "evidence": { "type": "string" }
+      }
+    },
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall", "completion", "tool_discipline", "verification", "grounding", "safety"],
+      "properties": {
+        "overall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "completion": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tool_discipline": { "type": "number", "minimum": 0, "maximum": 1 },
+        "verification": { "type": "number", "minimum": 0, "maximum": 1 },
+        "grounding": { "type": "number", "minimum": 0, "maximum": 1 },
+        "safety": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

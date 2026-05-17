@@ -24,6 +24,20 @@ import {
   type LiveTrajectoryEvent,
   type McpLiveTrajectoryCase,
 } from "../lib/evals/mcpLiveTrajectoryEval";
+import {
+  DEFAULT_AGENT_WORK_EVAL_CASES,
+  scoreAgentWorkEvalCase,
+  type AgentWorkEvalCase,
+  type AgentWorkTrajectory,
+  type AgentVerification,
+} from "../lib/evals/agentWorkEval";
+import {
+  createWorkSimulatorState,
+  extractLiveWorkSideEffects,
+  LIVE_RUNNABLE_WORK_CASE_IDS,
+  simulateWorkToolCall,
+  type WorkSimulatorOutcome,
+} from "../lib/evals/agentWorkSimulator";
 
 type McporterTool = {
   name: string;
@@ -118,7 +132,12 @@ function parseProfiles(raw: string | undefined): McpEvalProfile[] {
     .split(/[\s,]+/)
     .map((value) => value.trim())
     .filter(Boolean);
-  const profiles = values.filter((value): value is McpEvalProfile => value === "core" || value === "developer");
+  const profiles = values.filter((value): value is McpEvalProfile =>
+    value === "core"
+      || value === "developer"
+      || value === "desktop-read"
+      || value === "desktop-control",
+  );
   return profiles.length > 0 ? profiles : ["core", "developer"];
 }
 
@@ -200,6 +219,7 @@ async function callModel(opts: {
   messages?: ChatMessage[];
   tools: OpenAITool[];
   timeoutMs: number;
+  apiKeyEnv?: string;
 }): Promise<{ message: { content?: string | null; tool_calls?: unknown }; raw: unknown; latencyMs: number }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
@@ -208,23 +228,26 @@ async function callModel(opts: {
     { role: "system" as const, content: opts.systemPrompt ?? "" },
     { role: "user" as const, content: opts.user ?? "" },
   ];
+  const apiKeyEnv = opts.apiKeyEnv ?? "LOCAL_OPENAI_API_KEY";
+  const isQwen = opts.model.toLowerCase().startsWith("qwen");
+  const body: Record<string, unknown> = {
+    model: opts.model,
+    messages,
+    tools: opts.tools,
+    tool_choice: "auto",
+    temperature: 0,
+    max_tokens: 512,
+  };
+  if (isQwen) body.chat_template_kwargs = { enable_thinking: false };
   try {
     const response = await fetch(`${opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.LOCAL_OPENAI_API_KEY ?? "local"}`,
+        Authorization: `Bearer ${process.env[apiKeyEnv] ?? "local"}`,
       },
-      body: JSON.stringify({
-        model: opts.model,
-        messages,
-        tools: opts.tools,
-        tool_choice: "auto",
-        temperature: 0,
-        max_tokens: 256,
-        chat_template_kwargs: { enable_thinking: false },
-      }),
+      body: JSON.stringify(body),
     });
 
     const text = await response.text();
@@ -456,6 +479,7 @@ async function runDialogCase(opts: {
   availableTools: string[];
   timeoutMs: number;
   saveRaw: boolean;
+  apiKeyEnv: string;
 }): Promise<DialogEvalResult> {
   const systemPrompt = buildMcpToolEvalSystemPrompt(opts.testCase.profile, opts.availableTools);
   const messages: ChatMessage[] = [
@@ -474,6 +498,7 @@ async function runDialogCase(opts: {
       messages,
       tools: opts.tools,
       timeoutMs: opts.timeoutMs,
+      apiKeyEnv: opts.apiKeyEnv,
     });
     totalLatencyMs += latencyMs;
     if (opts.saveRaw) rawResponses.push(raw);
@@ -518,6 +543,336 @@ async function runDialogCase(opts: {
   };
 }
 
+type WorkSchemaMessage = {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_call_id?: string;
+  name?: string;
+  tool_calls?: Array<{ id: string; name: string; args: unknown }>;
+};
+
+type WorkSchemaToolCall = {
+  id: string;
+  name: string;
+  args: unknown;
+  success: boolean;
+  error_code?: string;
+  result: unknown;
+  started_at: string;
+  finished_at: string;
+  latency_ms: number;
+};
+
+type WorkEvalResult = {
+  id: string;
+  case_id: string;
+  profile: AgentWorkEvalCase["profile"];
+  user: string;
+  model: string;
+  prompt_variant: string;
+  created_at: string;
+  source: "scripted" | "live";
+  messages: WorkSchemaMessage[];
+  visible_tools: string[];
+  tool_calls: WorkSchemaToolCall[];
+  artifacts: Record<string, string>;
+  verifications: AgentVerification[];
+  final_response: string;
+  scores: {
+    overall: number;
+    completion: number;
+    tool_discipline: number;
+    verification: number;
+    grounding: number;
+    safety: number;
+  };
+  passed: boolean;
+  reasons: string[];
+  latency_ms: number;
+  turns: number;
+  error?: string;
+  notes?: string;
+};
+
+function toWorkSchemaMessages(messages: ChatMessage[]): WorkSchemaMessage[] {
+  return messages.map((message) => {
+    const out: WorkSchemaMessage = {
+      role: message.role,
+      content: typeof message.content === "string" ? message.content : null,
+    };
+    if (message.tool_call_id) out.tool_call_id = message.tool_call_id;
+    if (message.name) out.name = message.name;
+    if (Array.isArray(message.tool_calls)) {
+      out.tool_calls = (message.tool_calls as unknown[]).flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const maybe = raw as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+        const name = typeof maybe.function?.name === "string" ? maybe.function.name : null;
+        if (!name) return [];
+        const argsText = maybe.function?.arguments;
+        let args: unknown = {};
+        if (typeof argsText === "string") {
+          try { args = argsText.length > 0 ? JSON.parse(argsText) : {}; } catch { args = argsText; }
+        } else if (argsText && typeof argsText === "object") {
+          args = argsText;
+        }
+        return [{
+          id: typeof maybe.id === "string" ? maybe.id : `call_${name}`,
+          name,
+          args,
+        }];
+      });
+    }
+    return out;
+  });
+}
+
+type WorkDispatcher = (call: {
+  toolName: string;
+  args: unknown;
+  callIndex: number;
+}) => Promise<WorkSimulatorOutcome>;
+
+function makeScriptedWorkDispatcher(caseId: string): WorkDispatcher {
+  const state = createWorkSimulatorState();
+  return async ({ toolName, args }) => simulateWorkToolCall({ caseId, toolName, args, state });
+}
+
+function makeLiveWorkDispatcher(opts: {
+  caseId: string;
+  bridgeUrl: string;
+  runId: string;
+  timeoutMs: number;
+}): WorkDispatcher {
+  return async ({ toolName, args }) => {
+    const argsObj = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+    let result: unknown;
+    try {
+      result = await callBridgeTool({
+        bridgeUrl: opts.bridgeUrl,
+        tool: toolName,
+        args: argsObj,
+        runId: opts.runId,
+        timeoutMs: opts.timeoutMs,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        result: { success: false, error_code: "bridge_call_exception", message },
+      };
+    }
+    const sideEffects = extractLiveWorkSideEffects({ toolName, args, result });
+    const wrapped = (result && typeof result === "object" ? result : { success: false, value: result }) as Record<string, unknown>;
+    return { result: wrapped, artifact: sideEffects.artifact, verification: sideEffects.verification };
+  };
+}
+
+async function runWorkCase(opts: {
+  testCase: AgentWorkEvalCase;
+  baseUrl: string;
+  model: string;
+  tools: OpenAITool[];
+  availableTools: string[];
+  timeoutMs: number;
+  maxTurns: number;
+  dispatcher: WorkDispatcher;
+  source: "scripted" | "live";
+  apiKeyEnv: string;
+}): Promise<WorkEvalResult> {
+  const created_at = new Date().toISOString();
+  const promptProfile = opts.testCase.profile as McpEvalProfile;
+  const systemPrompt = buildMcpToolEvalSystemPrompt(promptProfile, opts.availableTools);
+  const messages: ChatMessage[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: opts.testCase.user },
+  ];
+
+  const trajectory: AgentWorkTrajectory = {
+    finalResponse: "",
+    toolCalls: [],
+    artifacts: {},
+    verifications: [],
+  };
+  const toolCallRows: WorkSchemaToolCall[] = [];
+  let totalLatencyMs = 0;
+  let turns = 0;
+  let errorMessage: string | undefined;
+  let toolCallCounter = 0;
+
+  for (let turn = 0; turn < opts.maxTurns; turn += 1) {
+    turns = turn + 1;
+    let modelOut;
+    try {
+      modelOut = await callModel({
+        baseUrl: opts.baseUrl,
+        model: opts.model,
+        messages,
+        tools: opts.tools,
+        timeoutMs: opts.timeoutMs,
+        apiKeyEnv: opts.apiKeyEnv,
+      });
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err);
+      break;
+    }
+    totalLatencyMs += modelOut.latencyMs;
+    const message = modelOut.message;
+    const modelToolCalls = normalizeModelToolCalls(message.tool_calls);
+
+    messages.push({
+      role: "assistant",
+      content: message.content ?? null,
+      tool_calls: modelToolCalls.map((call) => call.raw),
+    });
+
+    if (modelToolCalls.length === 0) {
+      trajectory.finalResponse = message.content ?? "";
+      break;
+    }
+
+    for (const call of modelToolCalls) {
+      let parsedArgs: unknown = {};
+      try {
+        parsedArgs = call.argumentsText && call.argumentsText.length > 0
+          ? JSON.parse(call.argumentsText)
+          : {};
+      } catch {
+        parsedArgs = call.argumentsText;
+      }
+
+      const started = Date.now();
+      toolCallCounter += 1;
+      const outcome = await opts.dispatcher({
+        toolName: call.name,
+        args: parsedArgs,
+        callIndex: toolCallCounter - 1,
+      });
+      const finished = Date.now();
+      const result = outcome.result;
+      const success = typeof result.success === "boolean" ? result.success : true;
+      const error_code = typeof result.error_code === "string" ? result.error_code : undefined;
+
+      trajectory.toolCalls.push({
+        name: call.name,
+        args: parsedArgs,
+        success,
+        error_code,
+        result,
+      });
+      toolCallRows.push({
+        id: call.id,
+        name: call.name,
+        args: parsedArgs,
+        success,
+        error_code,
+        result,
+        started_at: new Date(started).toISOString(),
+        finished_at: new Date(finished).toISOString(),
+        latency_ms: finished - started,
+      });
+      if (outcome.artifact) {
+        trajectory.artifacts![outcome.artifact.name] = outcome.artifact.content;
+      }
+      if (outcome.verification) {
+        trajectory.verifications!.push(outcome.verification);
+      }
+
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        name: call.name,
+        content: JSON.stringify(result),
+      });
+    }
+  }
+
+  if (!trajectory.finalResponse) {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.length > 0) {
+        trajectory.finalResponse = msg.content;
+        break;
+      }
+    }
+  }
+
+  const score = scoreAgentWorkEvalCase(opts.testCase, trajectory);
+
+  return {
+    id: `${opts.testCase.id}#${created_at}`,
+    case_id: opts.testCase.id,
+    profile: opts.testCase.profile,
+    user: opts.testCase.user,
+    model: opts.model,
+    prompt_variant: "buildMcpToolEvalSystemPrompt:v1",
+    created_at,
+    source: opts.source,
+    messages: toWorkSchemaMessages(messages),
+    visible_tools: opts.availableTools,
+    tool_calls: toolCallRows,
+    artifacts: trajectory.artifacts ?? {},
+    verifications: trajectory.verifications ?? [],
+    final_response: trajectory.finalResponse,
+    scores: {
+      overall: score.score,
+      completion: score.dimensions.completion.score,
+      tool_discipline: score.dimensions.toolDiscipline.score,
+      verification: score.dimensions.verification.score,
+      grounding: score.dimensions.grounding.score,
+      safety: score.dimensions.safety.score,
+    },
+    passed: score.passed,
+    reasons: score.reasons,
+    latency_ms: totalLatencyMs,
+    turns,
+    error: errorMessage,
+    notes: opts.testCase.notes,
+  };
+}
+
+function formatWorkSummary(results: WorkEvalResult[], model: string, baseUrl: string, outDir: string): string {
+  const passed = results.filter((result) => result.passed).length;
+  const avg = results.length === 0
+    ? 0
+    : results.reduce((sum, result) => sum + result.scores.overall, 0) / results.length;
+  const lines: string[] = [];
+  lines.push("# Control Deck agent work-quality eval");
+  lines.push("");
+  lines.push(`- Model: \`${model}\``);
+  lines.push(`- Endpoint: \`${baseUrl}\``);
+  lines.push(`- Cases: ${results.length}`);
+  lines.push(`- Pass rate: ${passed}/${results.length} (${Math.round((passed / Math.max(1, results.length)) * 100)}%)`);
+  lines.push(`- Average score: ${avg.toFixed(2)}`);
+  lines.push(`- Output dir: \`${outDir}\``);
+  lines.push("");
+  lines.push("| case | profile | pass | overall | completion | tool | verif | ground | safety | turns | notes |");
+  lines.push("| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |");
+  for (const result of results) {
+    const s = result.scores;
+    const reason = (result.error ? `error: ${result.error}` : result.reasons.join("; ")).replace(/\|/g, "\\|");
+    lines.push(
+      `| ${result.case_id} | ${result.profile} | ${result.passed ? "yes" : "NO"} | ${s.overall.toFixed(2)} | ${s.completion.toFixed(2)} | ${s.tool_discipline.toFixed(2)} | ${s.verification.toFixed(2)} | ${s.grounding.toFixed(2)} | ${s.safety.toFixed(2)} | ${result.turns} | ${reason} |`,
+    );
+  }
+  lines.push("");
+
+  const failures = results.filter((result) => !result.passed);
+  if (failures.length > 0) {
+    lines.push("## Failure details");
+    lines.push("");
+    for (const result of failures) {
+      lines.push(`### ${result.case_id}`);
+      lines.push(`- User: ${result.user}`);
+      lines.push(`- Tools called: ${result.tool_calls.map((call) => call.name).join(", ") || "none"}`);
+      lines.push(`- Final response: ${JSON.stringify(result.final_response).slice(0, 500)}`);
+      if (result.error) lines.push(`- Error: ${result.error}`);
+      lines.push(`- Reasons: ${result.reasons.join("; ")}`);
+      lines.push("");
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 async function main() {
   const model = argValue("--model", process.env.CONTROL_DECK_EVAL_MODEL ?? "qwen3.5-9b")!;
   const baseUrl = argValue("--base-url", process.env.CONTROL_DECK_EVAL_BASE_URL ?? "http://127.0.0.1:8080/v1")!;
@@ -528,6 +883,7 @@ async function main() {
   const limitRaw = argValue("--limit");
   const limit = limitRaw ? Number(limitRaw) : undefined;
   const timeoutMs = Number(argValue("--timeout-ms", "180000"));
+  const apiKeyEnv = argValue("--api-key-env", "LOCAL_OPENAI_API_KEY")!;
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = path.resolve(argValue("--out-dir", path.join(REPO_ROOT, "artifacts/mcp-evals", timestamp))!);
   const saveRaw = hasFlag("--save-raw");
@@ -535,11 +891,16 @@ async function main() {
   const runFirst = mode === "first" || mode === "both" || mode === "all";
   const runDialog = mode === "dialog" || mode === "both" || mode === "all";
   const runLive = mode === "live" || mode === "all";
-  if (!runFirst && !runDialog && !runLive) throw new Error(`unknown --mode ${mode}; expected first, dialog, live, both, or all`);
+  const runWork = mode === "work" || mode === "all";
+  if (!runFirst && !runDialog && !runLive && !runWork) {
+    throw new Error(`unknown --mode ${mode}; expected first, dialog, live, work, both, or all`);
+  }
+  const workMaxTurns = Number(argValue("--work-max-turns", "8"));
+  const workLive = hasFlag("--work-live");
 
   mkdirSync(outDir, { recursive: true });
   const toolsByProfile = new Map<McpEvalProfile, McporterTool[]>();
-  if (runFirst || runDialog) {
+  if (runFirst || runDialog || runWork) {
     for (const profile of profiles) {
       const tools = discoverTools(profile, wrapper);
       toolsByProfile.set(profile, tools);
@@ -566,6 +927,7 @@ async function main() {
         user: testCase.user,
         tools: toOpenAITools(mcpTools),
         timeoutMs,
+        apiKeyEnv,
       });
       const toolCalls = normalizeToolCalls(message.tool_calls);
       const assistantContent = message.content ?? "";
@@ -620,6 +982,7 @@ async function main() {
         availableTools,
         timeoutMs,
         saveRaw,
+        apiKeyEnv,
       });
       dialogResults.push(result);
       const sequence = result.turns.map((turn) => turn.toolCalls.map((call) => call.name).join("+") || "final").join(" → ");
@@ -663,6 +1026,94 @@ async function main() {
     await writeFile(path.join(outDir, "live-summary.json"), JSON.stringify({ bridgeUrl, profiles, results: liveResults }, null, 2));
     const markdown = formatLiveTrajectorySummary(liveResults, bridgeUrl, outDir);
     await writeFile(path.join(outDir, "live-summary.md"), markdown);
+    console.log("");
+    console.log(markdown);
+  }
+
+  if (runWork) {
+    const workCases = DEFAULT_AGENT_WORK_EVAL_CASES
+      .filter((testCase) => profiles.includes(testCase.profile as McpEvalProfile))
+      .filter((testCase) => (workLive ? LIVE_RUNNABLE_WORK_CASE_IDS.has(testCase.id) : true))
+      .slice(0, Number.isFinite(limit) && limit && limit > 0 ? limit : undefined);
+
+    if (workCases.length === 0) {
+      throw new Error(
+        workLive
+          ? "no live-runnable agent work eval cases selected for the active profiles"
+          : "no agent work eval cases selected for the active profiles",
+      );
+    }
+
+    console.log(
+      `[work] mode=${workLive ? "live" : "scripted"} cases=${workCases.length} bridge=${workLive ? bridgeUrl : "(simulator)"}`,
+    );
+
+    const workResults: WorkEvalResult[] = [];
+    for (const testCase of workCases) {
+      const profileKey = testCase.profile as McpEvalProfile;
+      const mcpTools = toolsByProfile.get(profileKey) ?? [];
+      const availableTools = mcpTools.map((tool) => tool.name);
+      const runId = `${timestamp}:${testCase.id}`;
+      const dispatcher: WorkDispatcher = workLive
+        ? makeLiveWorkDispatcher({ caseId: testCase.id, bridgeUrl, runId, timeoutMs })
+        : makeScriptedWorkDispatcher(testCase.id);
+      try {
+        const result = await runWorkCase({
+          testCase,
+          baseUrl,
+          model,
+          tools: toOpenAITools(mcpTools),
+          availableTools,
+          timeoutMs,
+          maxTurns: workMaxTurns,
+          dispatcher,
+          source: workLive ? "live" : "scripted",
+          apiKeyEnv,
+        });
+        workResults.push(result);
+        const status = result.passed ? "PASS" : "FAIL";
+        const reason = result.error ? `error: ${result.error}` : result.reasons.join("; ");
+        console.log(
+          `[${status}] ${testCase.id} overall=${result.scores.overall.toFixed(2)} turns=${result.turns} ${reason}`,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const created_at = new Date().toISOString();
+        const empty: WorkEvalResult = {
+          id: `${testCase.id}#${created_at}`,
+          case_id: testCase.id,
+          profile: testCase.profile,
+          user: testCase.user,
+          model,
+          prompt_variant: "buildMcpToolEvalSystemPrompt:v1",
+          created_at,
+          source: workLive ? "live" : "scripted",
+          messages: [],
+          visible_tools: availableTools,
+          tool_calls: [],
+          artifacts: {},
+          verifications: [],
+          final_response: "",
+          scores: { overall: 0, completion: 0, tool_discipline: 0, verification: 0, grounding: 0, safety: 0 },
+          passed: false,
+          reasons: [`harness_error: ${message}`],
+          latency_ms: 0,
+          turns: 0,
+          error: message,
+        };
+        workResults.push(empty);
+        console.log(`[FAIL] ${testCase.id} harness_error: ${message}`);
+      }
+    }
+
+    const jsonl = workResults.map((result) => JSON.stringify(result)).join("\n") + "\n";
+    await writeFile(path.join(outDir, "work-results.jsonl"), jsonl);
+    await writeFile(
+      path.join(outDir, "work-summary.json"),
+      JSON.stringify({ model, baseUrl, profiles, results: workResults }, null, 2),
+    );
+    const markdown = formatWorkSummary(workResults, model, baseUrl, outDir);
+    await writeFile(path.join(outDir, "work-summary.md"), markdown);
     console.log("");
     console.log(markdown);
   }

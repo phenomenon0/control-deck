@@ -1,0 +1,100 @@
+{
+  "bridgeUrl": "http://localhost:3333/api/tools/bridge",
+  "profiles": [
+    "core"
+  ],
+  "results": [
+    {
+      "id": "core.workspace_macros.live_smoke",
+      "profile": "core",
+      "user": "Exercise workspace_show_canvas and workspace_write_note against the live Control Deck bridge, then grade the actual responses.",
+      "marker": "mcp-live-2026-05-15T05-05-19-033Z",
+      "bridgeUrl": "http://localhost:3333/api/tools/bridge",
+      "events": [
+        {
+          "stepId": "show-canvas",
+          "tool": "workspace_show_canvas",
+          "args": {
+            "code": "# Live Workspace Macro Trajectory\n\nMarker: mcp-live-2026-05-15T05-05-19-033Z\n\nThis board was loaded by workspace_show_canvas during live bridge-backed eval.",
+            "language": "markdown",
+            "title": "Live Macro Trajectory",
+            "filename": "live-macro-trajectory.md",
+            "autoRun": false
+          },
+          "response": {
+            "success": false,
+            "message": "No workspace client responded. Open /deck/workspace and retry the workspace operation.",
+            "data": {
+              "kind": "workspace_error",
+              "error_code": "workspace_not_open",
+              "query": "workspace_show_canvas",
+              "original_error": "workspace query query:get_state timed out after 5000ms (no client responded — is /deck/workspace open?)",
+              "workspaceOpen": false
+            },
+            "error": "workspace query query:get_state timed out after 5000ms (no client responded — is /deck/workspace open?)",
+            "error_code": "workspace_not_open",
+            "recovery": [
+              "Open http://localhost:3333/deck/workspace",
+              "Wait until the workspace finishes loading",
+              "Retry workspace_get_state before any workspace write"
+            ],
+            "safe_to_retry": true
+          },
+          "success": false,
+          "error_code": "workspace_not_open",
+          "startedAt": "2026-05-15T05:05:19.033Z",
+          "finishedAt": "2026-05-15T05:05:24.051Z",
+          "durationMs": 5018
+        },
+        {
+          "stepId": "write-note",
+          "tool": "workspace_write_note",
+          "args": {
+            "text": "\n\n---\nmcp-live-2026-05-15T05-05-19-033Z",
+            "mode": "append",
+            "verify": true
+          },
+          "response": {
+            "success": false,
+            "message": "No workspace client responded. Open /deck/workspace and retry the workspace operation.",
+            "data": {
+              "kind": "workspace_error",
+              "error_code": "workspace_not_open",
+              "query": "workspace_write_note",
+              "original_error": "workspace query query:get_state timed out after 5000ms (no client responded — is /deck/workspace open?)",
+              "workspaceOpen": false
+            },
+            "error": "workspace query query:get_state timed out after 5000ms (no client responded — is /deck/workspace open?)",
+            "error_code": "workspace_not_open",
+            "recovery": [
+              "Open http://localhost:3333/deck/workspace",
+              "Wait until the workspace finishes loading",
+              "Retry workspace_get_state before any workspace write"
+            ],
+            "safe_to_retry": true
+          },
+          "success": false,
+          "error_code": "workspace_not_open",
+          "startedAt": "2026-05-15T05:05:24.051Z",
+          "finishedAt": "2026-05-15T05:05:29.059Z",
+          "durationMs": 5008
+        }
+      ],
+      "passed": false,
+      "score": 0,
+      "reasons": [
+        "step 0 called workspace_show_canvas",
+        "step 0 workspace_show_canvas failed with workspace_not_open",
+        "show-canvas.success expected true, got false",
+        "show-canvas.data.loaded expected true, got undefined",
+        "show-canvas.data.target expected to contain canvas:, got undefined",
+        "step 1 called workspace_write_note",
+        "step 1 workspace_write_note failed with workspace_not_open",
+        "write-note.success expected true, got false",
+        "write-note.data.verified expected true, got undefined",
+        "write-note.data.verifyResult expected to contain mcp-live-2026-05-15T05-05-19-033Z, got undefined"
+      ],
+      "latencyMs": 10026
+    }
+  ]
+}

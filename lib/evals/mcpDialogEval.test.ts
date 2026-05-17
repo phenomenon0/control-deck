@@ -98,4 +98,59 @@ describe("mcp dialog eval scoring", () => {
 
     expect(score.passed).toBe(true);
   });
+
+  test("passes robust Windows native invoke flow with baseline, watcher, action, drain, and verify", () => {
+    const nativeCase: McpDialogEvalCase = {
+      id: "desktop-control.native_ok.invoke_verified",
+      profile: "desktop-control",
+      user: "Click OK in the current Windows dialog and verify the dialog closed.",
+      expectedToolSequence: [
+        "native_baseline_capture",
+        "native_watch_install",
+        "native_locate",
+        "native_invoke",
+        "native_watch_drain",
+        "native_locate",
+      ],
+      expectedArgsByTurn: {
+        1: { action: "notify" },
+        2: { name: "OK", role: "button" },
+        3: { pattern: "Invoke", action: "Invoke" },
+      },
+      scriptedToolResults: [],
+      requiredFinalKeywords: ["verified", "OK"],
+    };
+
+    const okHandle = { id: "uia:ok", role: "button", name: "OK" };
+    const score = scoreMcpDialogEvalCase(
+      nativeCase,
+      [
+        { assistantContent: "", toolCalls: [{ name: "native_baseline_capture", argumentsText: JSON.stringify({ label: "before-ok" }) }] },
+        { assistantContent: "", toolCalls: [{ name: "native_watch_install", argumentsText: JSON.stringify({ match: { role: "window" }, action: "notify" }) }] },
+        { assistantContent: "", toolCalls: [{ name: "native_locate", argumentsText: JSON.stringify({ name: "OK", role: "button" }) }] },
+        { assistantContent: "", toolCalls: [{ name: "native_invoke", argumentsText: JSON.stringify({ handle: okHandle, pattern: "Invoke", action: "Invoke" }) }] },
+        { assistantContent: "", toolCalls: [{ name: "native_watch_drain", argumentsText: "{}" }] },
+        { assistantContent: "", toolCalls: [{ name: "native_locate", argumentsText: JSON.stringify({ name: "Save changes", role: "window" }) }] },
+        { assistantContent: "Verified: OK was invoked and the dialog is gone.", toolCalls: [] },
+      ],
+      ["native_baseline_capture", "native_watch_install", "native_locate", "native_invoke", "native_watch_drain"],
+    );
+
+    expect(score.passed).toBe(true);
+    expect(score.score).toBe(1);
+  });
+
+  test("passes unsupported_platform recovery when Windows native automation is unavailable", () => {
+    const recoveryCase = DEFAULT_MCP_DIALOG_EVAL_CASES.find((testCase) => testCase.id === "desktop-control.unsupported_platform.stop")!;
+    const score = scoreMcpDialogEvalCase(
+      recoveryCase,
+      [
+        { assistantContent: "", toolCalls: [{ name: "native_baseline_capture", argumentsText: "{}" }] },
+        { assistantContent: "unsupported_platform: Windows UIA automation is unavailable on this host.", toolCalls: [] },
+      ],
+      ["native_baseline_capture", "native_locate", "native_invoke"],
+    );
+
+    expect(score.passed).toBe(true);
+  });
 });

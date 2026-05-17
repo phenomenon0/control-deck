@@ -129,6 +129,53 @@ export const DEFAULT_MCP_DIALOG_EVAL_CASES: McpDialogEvalCase[] = [
     requiredFinalKeywords: ["terminal"],
     notes: "If no terminal pane exists, do not guess a terminal handle.",
   },
+  {
+    id: "desktop-control.native_ok.invoke_verified",
+    profile: "desktop-control",
+    user: "Click OK in the current Windows dialog and verify the dialog closed.",
+    expectedToolSequence: [
+      "native_baseline_capture",
+      "native_watch_install",
+      "native_locate",
+      "native_invoke",
+      "native_watch_drain",
+      "native_locate",
+    ],
+    expectedArgsByTurn: {
+      1: { action: "notify" },
+      2: { name: "OK", role: "button" },
+      3: { pattern: "Invoke" },
+    },
+    scriptedToolResults: [
+      { toolName: "native_baseline_capture", result: { success: true, baselineId: "base:ok" } },
+      { toolName: "native_watch_install", result: { success: true, watchId: "watch:ok", action: "notify" } },
+      { toolName: "native_locate", result: { success: true, results: [{ id: "uia:ok", role: "button", name: "OK" }] } },
+      { toolName: "native_invoke", result: { success: true, ok: true } },
+      { toolName: "native_watch_drain", result: { success: true, events: [] } },
+      { toolName: "native_locate", result: { success: true, results: [] } },
+    ],
+    requiredFinalKeywords: ["verified", "OK"],
+    notes: "Baseline -> notify watcher -> locate -> semantic invoke -> drain -> verify absence.",
+  },
+  {
+    id: "desktop-control.unsupported_platform.stop",
+    profile: "desktop-control",
+    user: "Prepare to run Windows native automation. If the platform is unsupported, report the exact blocker and stop.",
+    expectedToolSequence: ["native_baseline_capture"],
+    scriptedToolResults: [
+      {
+        toolName: "native_baseline_capture",
+        result: {
+          success: false,
+          error_code: "unsupported_platform",
+          message: "Windows UIA automation is Windows-only.",
+        },
+      },
+    ],
+    forbiddenTools: ["native_locate", "native_invoke", "native_click", "native_click_pixel", "native_type", "native_key"],
+    requiredFinalKeywords: ["unsupported_platform", "Windows"],
+    notes: "Unsupported platform should stop the flow; retrying desktop control on the wrong OS is unsafe noise.",
+  },
 ];
 
 function parseArguments(argumentsText: string | undefined): unknown {

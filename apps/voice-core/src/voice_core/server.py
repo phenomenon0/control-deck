@@ -150,6 +150,37 @@ def build_app(settings: Settings) -> FastAPI:
             }
         )
 
+    @app.get("/voices")
+    def voices(engine: str | None = None) -> JSONResponse:
+        """List voice ids available for a TTS engine. Default = tier's default_tts."""
+        engine_id = engine or settings.tier.default_tts
+        instance = registry.get(engine_id, settings)
+        if instance is None or not isinstance(instance, (TtsEngine, StreamingTts)):
+            raise HTTPException(404, f"unknown tts engine: {engine_id}")
+        if not instance.available():
+            return JSONResponse({"engine": engine_id, "voices": []})
+        # Engines that implement list_voices() get to define their own catalogue.
+        # Fallback: a single "default" entry so the UI shows the engine is usable.
+        list_fn = getattr(instance, "list_voices", None)
+        voices = list_fn() if callable(list_fn) else [{"id": "default", "name": "default"}]
+        return JSONResponse({"engine": engine_id, "voices": voices})
+
+    @app.post("/engines/{engine_id}/unload")
+    def engine_unload(engine_id: str) -> JSONResponse:
+        """Release weights for `engine_id`. Called by the arbiter when it needs
+        the VRAM back. Idempotent — unloading an unloaded engine is a no-op."""
+        instance = registry.get(engine_id, settings)
+        if instance is None:
+            raise HTTPException(404, f"unknown engine: {engine_id}")
+        was_loaded = instance.loaded()
+        try:
+            instance.unload()
+        except Exception as exc:  # noqa: BLE001
+            LOG.exception("unload %s failed", engine_id)
+            _record_error(f"unload:{engine_id}", str(exc))
+            raise HTTPException(500, f"unload failed: {exc}") from exc
+        return JSONResponse({"ok": True, "engine": engine_id, "wasLoaded": was_loaded})
+
     @app.get("/diagnostics")
     def diagnostics() -> JSONResponse:
         body = DiagnosticsResponse(

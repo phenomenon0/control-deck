@@ -49,6 +49,13 @@ export const JUNCTIONS = {
   SESSION_FINAL_DISPATCHED: "session_final_dispatched",
   LIVE_TEXT_PAINTED: "live_text_painted",
   DOC_BLOCK_APPENDED: "doc_block_appended",
+  // Multi-turn loop: first byte of assistant audio, plus FSM entry/exit
+  // for `speaking`. Together they bracket the full mic-stop → audible-reply
+  // window and let an e2e harness verify the mic was NOT re-opened during
+  // that window.
+  TTS_FIRST_CHUNK: "tts_first_chunk",
+  AUDIO_STARTED: "audio_started",
+  AUDIO_STOPPED: "audio_stopped",
 } as const;
 
 /**
@@ -65,6 +72,9 @@ const STANDARD_SPANS: Array<[string, string, string]> = [
   ["live_text_render", JUNCTIONS.STT_PARTIAL_FIRST, JUNCTIONS.LIVE_TEXT_PAINTED],
   ["doc_append_after_final", JUNCTIONS.STT_FINAL, JUNCTIONS.DOC_BLOCK_APPENDED],
   ["e2e_first_word_to_doc", JUNCTIONS.CHUNK_FIRST, JUNCTIONS.DOC_BLOCK_APPENDED],
+  ["mic_stop_to_first_audio", JUNCTIONS.STT_FINAL, JUNCTIONS.TTS_FIRST_CHUNK],
+  ["tts_to_speaker", JUNCTIONS.TTS_FIRST_CHUNK, JUNCTIONS.AUDIO_STARTED],
+  ["e2e_turn_latency", JUNCTIONS.CHUNK_FIRST, JUNCTIONS.AUDIO_STOPPED],
 ];
 
 export function createProbe(): Probe {

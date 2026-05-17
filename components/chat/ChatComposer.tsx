@@ -5,6 +5,7 @@ import { Paperclip, Send, Square, AudioLines, Mic, X } from "lucide-react";
 import { VoiceInputIndicator } from "@/components/chat/VoiceWaveform";
 import { ComposerTweaks } from "@/components/chat/ComposerTweaks";
 import { RoutePicker } from "@/components/chat/RoutePicker";
+import { VoicePicker } from "@/components/voice/VoicePicker";
 import type { PendingUpload } from "@/components/chat/UploadTray";
 import type { UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
 import type { RunState } from "@/lib/types/agentRun";
@@ -273,6 +274,7 @@ export function ChatComposer({
           <div className="composer-actions">
             <RoutePicker />
             <ComposerTweaks />
+            <VoicePicker variant="chip" />
             <button
               type="button"
               onClick={onVoiceModeOpen}

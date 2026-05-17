@@ -395,9 +395,16 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
       if (!trimmed) return;
       if (trimmed === lastSharedFinalSubmittedRef.current) return;
       lastSharedFinalSubmittedRef.current = trimmed;
-      sendMessageRef.current(trimmed, voiceModeOpen ? "voice-live" : voiceSubmitOrigin);
+      // Dictation (composer mic): drop the text into the input so the user
+      // can review/edit/send manually. Only the full voice-mode sheet
+      // auto-sends — that's the hands-free contract.
+      if (!voiceModeOpen) {
+        setInputValue(trimmed);
+        return;
+      }
+      sendMessageRef.current(trimmed, "voice-live");
     },
-    [prefs.voice.enabled, voiceModeOpen, voiceSubmitOrigin],
+    [prefs.voice.enabled, voiceModeOpen],
   );
 
   // ---------------------------------------------------------------------------
@@ -876,11 +883,16 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
     // don't also mark the completed assistant message for full-text readback.
     const assistantId = crypto.randomUUID();
 
-    // Build API messages (using all messages in the conversation)
-    const apiMessages = updatedMessages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    // Build API messages (using all messages in the conversation).
+    // Drop any with empty/whitespace-only content — earlier voice bugs
+    // could stamp blank user bubbles into the thread, and replaying them
+    // makes the model respond as if every new turn were a no-op.
+    const apiMessages = updatedMessages
+      .filter((m) => m.content && m.content.trim().length > 0)
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
 
     // Send via useAgentRun — this POSTs to /api/chat and consumes the SSE stream
     if (isVoiceOrigin) {

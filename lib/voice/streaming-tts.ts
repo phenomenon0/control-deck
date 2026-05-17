@@ -46,6 +46,7 @@ export class StreamingTtsClient {
   private connectPromise: Promise<void> | null = null;
   private currentSampleRate = 0;
   private currentUtteranceId: string | undefined;
+  private gotFirstChunkForUtterance = false;
   private utteranceSeq = 0;
   private pendingUtterances = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
 
@@ -85,6 +86,7 @@ export class StreamingTtsClient {
             case "start":
               this.currentSampleRate = payload.sampleRate ?? 24000;
               this.currentUtteranceId = payload.utteranceId;
+              this.gotFirstChunkForUtterance = false;
               this.opts.onStart?.({
                 utteranceId: payload.utteranceId,
                 sampleRate: this.currentSampleRate,
@@ -101,6 +103,13 @@ export class StreamingTtsClient {
               break;
           }
         } else if (e.data instanceof ArrayBuffer) {
+          if (!this.gotFirstChunkForUtterance) {
+            this.gotFirstChunkForUtterance = true;
+            globalThis.__voiceProbe?.mark("tts_first_chunk", {
+              utteranceId: this.currentUtteranceId,
+              bytes: e.data.byteLength,
+            });
+          }
           this.opts.onChunk?.({
             utteranceId: this.currentUtteranceId,
             pcm: e.data,

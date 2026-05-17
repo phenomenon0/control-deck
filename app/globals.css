@@ -1,7 +1,9 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 
-@plugin "tailwindcss-animate";
 @import "tw-animate-css";
+
+@source "../app/**/*.{js,ts,jsx,tsx,mdx}";
+@source "../components/**/*.{js,ts,jsx,tsx,mdx}";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -16,27 +18,39 @@
 
 :root {
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  /* Core palette — luminance stepping (cool blue-black) */
-  --bg-base: #06060A;
-  --bg-primary: #0A0A0B;
-  --bg-secondary: #111115;
-  --bg-tertiary: #1A1A1E;
-  --bg-elevated: #222226;
-  --text-primary: #EDEDEF;
-  --text-secondary: #8B8B8E;
-  --text-muted: #5C5C5F;
-  --accent: #D4A574;
-  --accent-hover: #C49060;
+  /* Display + serif + mono — match femiadeniran.com/blog tokens.
+     Headings/nav use display; long-form (hacker body) uses serif; code uses mono. */
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-serif:   "Source Serif 4", Georgia, serif;
+  /* Display tracking — applied to large headings */
+  --tracking-display: -0.02em;
+  /* Label tracking — applied to small uppercase metadata */
+  --tracking-label: 0.08em;
+  /* Core palette — aliased to blog-theme.css tokens. Per-theme values live there;
+     this block stays theme-agnostic and only derives elevations via color-mix. */
+  --bg-base:      color-mix(in oklab, var(--bg), #000 30%);
+  --bg-primary:   var(--bg);
+  --bg-secondary: color-mix(in oklab, var(--bg), var(--text) 4%);
+  --bg-tertiary:  color-mix(in oklab, var(--bg), var(--text) 8%);
+  --bg-elevated:  color-mix(in oklab, var(--bg), var(--text) 12%);
+  --text-primary:   var(--text);
+  --text-secondary: var(--text-dim);
+  --text-muted:     color-mix(in oklab, var(--text-dim), var(--bg) 30%);
+  --accent:       var(--gold);
+  --accent-hover: var(--gold-bright);
+  /* Semantic colors stay solid so success/warning/error read on every theme. */
   --success: #3ECF71;
   --warning: #E5A63E;
-  --error: #E5534B;
-  --border: rgba(255, 255, 255, 0.06);
-  --border-bright: rgba(255, 255, 255, 0.10);
-  --separator: rgba(255, 255, 255, 0.04);
-  --accent-rgb: 212, 165, 116;
+  --error:   #E5534B;
+  --border-bright: color-mix(in srgb, var(--text), transparent 90%);
+  --separator:     color-mix(in srgb, var(--text), transparent 96%);
+  /* RGB triples — used for rgba(var(--accent-rgb), α) callsites.
+     Kept as the dark-mode reference; rgba() consumers are tinted slightly off
+     under light/hacker. Migrate these callsites to color-mix() when touched. */
+  --accent-rgb: 196, 164, 74;
   --error-rgb: 229, 83, 75;
 
-  /* AI indicator — violet shimmer for AI-generated content markers */
+  /* AI indicator — semantic violet, theme-agnostic */
   --ai-glow: rgba(139, 92, 246, 0.3);
   --ai-accent: #8B5CF6;
 
@@ -57,44 +71,47 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1.0); /* Overshoot — rare use */
   --ease-linear: linear; /* Progress bars only */
 
-  /* Shadcn / Tailwind compat */
-  --background: #0A0A0B;
-  --foreground: #EDEDEF;
-  --card: #111115;
-  --card-foreground: #EDEDEF;
-  --popover: #222226;
-  --popover-foreground: #EDEDEF;
-  --primary: #D4A574;
-  --primary-foreground: #FFFFFF;
-  --secondary: #1A1A1E;
-  --secondary-foreground: #8B8B8E;
-  --muted: #1A1A1E;
-  --muted-foreground: #5C5C5F;
-  --accent-foreground: #FFFFFF;
-  --destructive: #E5534B;
-  --input: rgba(255, 255, 255, 0.06);
-  --ring: #D4A574;
-  --chart-1: #D4A574;
-  --chart-2: #3ECF71;
-  --chart-3: #E5A63E;
-  --chart-4: #A855F7;
-  --chart-5: #E5534B;
-  --sidebar: #111115;
-  --sidebar-foreground: #EDEDEF;
-  --sidebar-primary: #D4A574;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #1A1A1E;
-  --sidebar-accent-foreground: #8B8B8E;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --sidebar-ring: #D4A574;
+  /* Shadcn / Tailwind compat — aliased to blog tokens.
+     blog-theme.css bridge also writes these per-theme; this block is the fallback
+     when no [data-theme] is set (shouldn't happen — layout always sets one). */
+  --background:           var(--bg);
+  --foreground:           var(--text);
+  --card:                 var(--bg-secondary);
+  --card-foreground:      var(--text);
+  --popover:              var(--bg-elevated);
+  --popover-foreground:   var(--text);
+  --primary:              var(--gold);
+  --primary-foreground:   var(--bg);
+  --secondary:            var(--bg-tertiary);
+  --secondary-foreground: var(--text-dim);
+  --muted:                var(--bg-tertiary);
+  --muted-foreground:     var(--text-dim);
+  --accent-foreground:    var(--bg);
+  --destructive:          var(--red);
+  --input:                var(--border);
+  --ring:                 var(--gold);
+  --chart-1: var(--gold);
+  --chart-2: var(--cyan);
+  --chart-3: var(--orange);
+  --chart-4: var(--purple);
+  --chart-5: var(--red);
+  --sidebar:                    var(--bg-secondary);
+  --sidebar-foreground:         var(--text);
+  --sidebar-primary:            var(--gold);
+  --sidebar-primary-foreground: var(--bg);
+  --sidebar-accent:             var(--bg-tertiary);
+  --sidebar-accent-foreground:  var(--text-dim);
+  --sidebar-border:             var(--border);
+  --sidebar-ring:               var(--gold);
 
   /* Spacing scale — variant-adaptive layout (apple overrides with more generous values).
-     Chat surface layout uses --sp-* tokens from DESIGN.md §2.3 (fixed 4px base) instead. */
-  --space-xs: 6px;
-  --space-sm: 8px;
-  --space-md: 12px;
-  --space-lg: 20px;
-  --space-xl: 32px;
+     Chat surface layout uses --sp-* tokens from DESIGN.md §2.3 (fixed 4px base) instead.
+     Bumped 2026-05 to match blog-theme editorial breathing room. */
+  --space-xs: 8px;
+  --space-sm: 10px;
+  --space-md: 14px;
+  --space-lg: 24px;
+  --space-xl: 40px;
 
   /* Component sizing */
   --sidebar-width: 220px;
@@ -105,18 +122,18 @@
   --icon-size: 18px;
   --icon-stroke: 1.5;
 
-  /* Density */
-  --card-padding: 14px;
-  --section-gap: 16px;
-  --item-gap: 6px;
-  --list-padding: 10px;
+  /* Density — bumped 2026-05 to match blog editorial spacing. */
+  --card-padding: 18px;
+  --section-gap: 20px;
+  --item-gap: 8px;
+  --list-padding: 14px;
 
-  /* Typography scale */
-  --font-size-xs: 11px;
-  --font-size-sm: 12px;
-  --font-size-base: 13px;
-  --font-size-md: 14px;
-  --font-size-lg: 16px;
+  /* Typography scale — bumped 2026-05 to match blog. */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 15px;
+  --font-size-lg: 17px;
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -124,23 +141,24 @@
   /* Borders */
   --border-width: 1px;
 
-  /* ── Agent Activity tokens ── */
-  --agent-thinking: #B8956A;
-  --agent-working: #D4A574;
-  --agent-done: #3ECF71;
-  --agent-surface: rgba(212, 165, 116, 0.04);
+  /* ── Agent Activity tokens — theme-adaptive ── */
+  --agent-thinking: var(--gold-dim);
+  --agent-working:  var(--gold);
+  --agent-done:     #3ECF71;  /* semantic green — readable everywhere */
+  --agent-surface:  color-mix(in srgb, var(--gold), transparent 96%);
 
-  /* Accent / semantic muted backgrounds */
-  --accent-muted: rgba(212, 165, 116, 0.15);
-  --accent-glow: rgba(212, 165, 116, 0.06);
-  --success-muted: rgba(62, 207, 113, 0.10);
-  --warning-muted: rgba(229, 166, 62, 0.10);
-  --error-muted: rgba(229, 83, 75, 0.10);
-  --border-subtle: rgba(255, 255, 255, 0.04);
-  --border-accent: rgba(212, 165, 116, 0.25);
+  /* Accent / semantic muted backgrounds — derived per theme */
+  --accent-muted:   color-mix(in srgb, var(--gold), transparent 85%);
+  --accent-glow:    color-mix(in srgb, var(--gold), transparent 94%);
+  --success-muted:  rgba(62, 207, 113, 0.10);
+  --warning-muted:  rgba(229, 166, 62, 0.10);
+  --error-muted:    rgba(229, 83, 75, 0.10);
+  --border-subtle:  color-mix(in srgb, var(--text), transparent 96%);
+  --border-accent:  var(--border-glow);
 
-  /* Extended text scale */
-  --text-on-accent: #FFFFFF;
+  /* Text on accent — assumes accent is bright (dark/hacker) or dark (light).
+     bg is the contrast partner in either case. */
+  --text-on-accent: var(--bg);
   --text-tertiary: var(--text-muted); /* alias — same role, single source of truth */
 
   /* ── Timing tokens (BEHAVIOR.md §3.1) — chat surface state animations.
@@ -215,15 +233,24 @@ body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
-  line-height: 1.47;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Monospace only for code */
+/* Headings — Space Grotesk display family, tight tracking like the blog hero.
+   Components that need their own family (chat surface, voice, etc.) keep
+   overriding this — base only fills the gap. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: var(--tracking-display);
+  color: var(--text-primary);
+}
+
+/* Monospace only for code — JetBrains Mono via the --font-mono token. */
 code, pre, .mono, kbd, .font-mono {
-  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.9em;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }
 
 /* Selection */
@@ -874,22 +901,24 @@ code, pre, .mono, kbd, .font-mono {
    TIMELINE SEGMENT CLASSES (extracted from TimelineSegment.tsx inline styles)
    ============================================================================= */
 
-/* --- User Message (DESIGN.md §3.1) --- */
+/* --- User Message (DESIGN.md §3.1) ---
+   Tightened 2026-05 for organic-read feel: match agent text size (--text-sm)
+   so the user side doesn't balloon, narrower max-width, smaller padding/gap. */
 .tl-user-msg {
-  max-width: 85%;
+  max-width: 72%;
   margin-left: auto;
   background: rgba(var(--accent-rgb), 0.08);
   border: 1px solid rgba(var(--accent-rgb), 0.12);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
-  padding: var(--sp-3) var(--sp-5);
-  margin-bottom: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-2);
 }
 
 .tl-user-uploads {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-1);
 }
 
 .tl-user-upload-tag {
@@ -902,8 +931,8 @@ code, pre, .mono, kbd, .font-mono {
 }
 
 .tl-user-text {
-  font-size: var(--text-md);
-  line-height: 1.6;
+  font-size: var(--text-sm);
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text-primary);
@@ -911,15 +940,15 @@ code, pre, .mono, kbd, .font-mono {
 
 /* --- Agent Reasoning (DESIGN.md §3.5) --- */
 .tl-reasoning {
-  margin-bottom: var(--sp-2);
-  max-width: 90%;
+  margin-bottom: var(--sp-1);
+  max-width: 100%;
 }
 
 /* --- Agent Text / Message (DESIGN.md §3.1) --- */
 .tl-agent-msg {
-  max-width: 90%;
+  max-width: 100%;
   margin-bottom: var(--sp-3);
-  padding: var(--sp-3) 0;
+  padding: var(--sp-1) 0;
 }
 
 .tl-streaming-cursor {
@@ -1219,7 +1248,7 @@ code, pre, .mono, kbd, .font-mono {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--sp-6) 0;
+  padding: var(--sp-4) 0;
 }
 
 .chat-timeline-column {
@@ -2968,24 +2997,37 @@ code, pre, .mono, kbd, .font-mono {
    ============================================================================= */
 
 pre {
-  background-color: var(--bg-secondary);
+  background-color: var(--bg-code);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1rem;
+  padding: 1.1rem 1.25rem;
+  margin: var(--space-md) 0;
   overflow-x: auto;
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+pre code {
+  background: transparent;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  font-size: inherit;
 }
 
 code {
-  font-family: inherit;
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 :not(pre) > code {
-  background-color: var(--bg-tertiary);
-  padding: 0.125rem 0.375rem;
-  border-radius: var(--radius-sm);
-  color: var(--accent);
+  background-color: var(--bg-code);
+  border: 1px solid var(--border-subtle);
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  color: var(--gold);
 }
 
 /* =============================================================================

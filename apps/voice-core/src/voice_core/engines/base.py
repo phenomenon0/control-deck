@@ -50,6 +50,15 @@ class Engine(ABC):
         """Idempotent. Subclasses set self._loaded = True when done."""
         self._loaded = True
 
+    def unload(self) -> None:
+        """Release weights/file handles. Default: drop the loaded flag.
+
+        Subclasses that hold heavy GPU state (whisper models, kokoro nets,
+        etc.) should override to actually `del` model refs and call
+        `torch.cuda.empty_cache()` so the arbiter can reclaim VRAM.
+        """
+        self._loaded = False
+
 
 # ---------------------------------------------------------------------------
 # STT

@@ -2546,7 +2546,7 @@ textarea.input:focus {
 }
 
 .chat-timeline-scroll {
-  padding: 36px 0 28px;
+  padding: 14px 0 12px;
 }
 
 .chat-timeline-column {
@@ -2575,12 +2575,12 @@ textarea.input:focus {
 }
 
 .tl-user-msg {
-  max-width: 85%;
+  max-width: 62%;
   margin-left: auto;
   background: var(--accent-muted);
   border: 1px solid color-mix(in oklch, var(--accent) 28%, transparent);
   border-radius: 14px 14px 4px 14px;
-  padding: 11px 15px;
+  padding: 8px 12px;
   color: var(--fg);
 }
 
@@ -2600,9 +2600,9 @@ textarea.input:focus {
   max-width: 760px;
   color: var(--fg);
   font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1.72;
-  padding: 4px 0;
+  font-size: 14px;
+  line-height: 1.58;
+  padding: 1px 0;
 }
 
 .tl-agent-msg .rt-paragraph,
@@ -2614,8 +2614,8 @@ textarea.input:focus {
 }
 
 .tl-agent-msg .rt-paragraph {
-  line-height: 1.72;
-  margin: 0 0 14px;
+  line-height: 1.58;
+  margin: 0 0 8px;
 }
 
 .tl-agent-msg .rt-paragraph:last-child {
@@ -2623,11 +2623,11 @@ textarea.input:focus {
 }
 
 .tl-agent-msg .rt-blockquote {
-  border-left: 2px solid var(--mist-strong);
-  padding-left: 14px;
+  border-left: 3px solid var(--magenta);
+  padding-left: 12px;
   color: var(--fg-muted);
   font-style: italic;
-  margin: 12px 0;
+  margin: 10px 0;
 }
 
 .tl-agent-msg .rt-list-item {
@@ -2668,29 +2668,72 @@ textarea.input:focus {
   letter-spacing: -0.01em;
 }
 
+/* Heading hierarchy — borrows the blog's metallic palette for prose accents.
+   Same palette tokens light/dark/hacker themes redefine, so colors shift with theme. */
 .rt-heading--1 {
-  font-size: 22px;
-  margin: 18px 0 10px;
+  font-size: 18px;
+  margin: 14px 0 6px;
+  color: var(--gold);
+  font-weight: 500;
 }
 
 .rt-heading--2 {
-  font-size: 18px;
-  margin: 16px 0 8px;
+  font-size: 16px;
+  margin: 12px 0 5px;
+  color: var(--silver-bright);
+  font-weight: 500;
 }
 
 .rt-heading--3 {
-  font-size: 15.5px;
-  margin: 12px 0 6px;
+  font-size: 14.5px;
+  margin: 10px 0 4px;
+  color: var(--cyan);
+  font-weight: 500;
+}
+
+.rt-heading--4 {
+  font-size: 14px;
+  margin: 8px 0 3px;
+  color: var(--magenta);
+  font-weight: 500;
+}
+
+.rt-heading:first-child {
+  margin-top: 0;
+}
+
+/* Inline code — warm bronze on the code-bg, like blog's prose code spans */
+.rt-inline-code,
+.glyph-payload {
+  background: var(--bg-code, var(--bg-deep));
+  border: 1px solid var(--border, var(--mist));
+  color: var(--orange);
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 0.88em;
+}
+
+.rt-code-block,
+.rt-code-pre {
+  background: var(--bg-code, var(--bg-deep));
+  border-color: var(--border, var(--mist));
   color: var(--fg-muted);
 }
 
-.rt-inline-code,
-.rt-code-block,
-.rt-code-pre,
-.glyph-payload {
-  background: var(--bg-deep);
-  border-color: var(--mist);
-  color: var(--fg-muted);
+/* Bold pops in silver-bright (steel); italic stays muted for tone-of-voice */
+.tl-agent-msg .rt-bold {
+  color: var(--silver-bright);
+  font-weight: 600;
+}
+
+/* Links — cyan with hover underline. Adapts per theme (teal/cyan/neon-cyan). */
+.tl-agent-msg .rt-link {
+  color: var(--cyan);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--cyan), transparent 70%);
+}
+.tl-agent-msg .rt-link:hover {
+  border-bottom-color: var(--cyan);
 }
 
 .activity-block {

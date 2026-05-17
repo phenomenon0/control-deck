@@ -96,6 +96,14 @@ export class StreamingSttClient {
   /** Monotonic counter; lets us discard a correction response if a reset/close happened mid-flight. */
   private utteranceSeq = 0;
   /**
+   * Tracks the seq value at the most recent `consumeUtteranceBuffer` so a
+   * late correction can tell "another utterance has been consumed" (drop —
+   * a newer correction or rough-text path will fire onFinal for that one)
+   * apart from "only a reset/close bumped me" (still fire — the user's
+   * spoken utterance deserves a transcript).
+   */
+  private lastConsumedSeq = -1;
+  /**
    * Latches `true` after the first unambiguous "engine not available" response
    * (HTTP 404 / 503). The sidecar tells us the correction engine isn't loaded
    * on this host — typical on non-Mac tiers where whisper.cpp isn't installed.
@@ -343,6 +351,7 @@ export class StreamingSttClient {
     this.utterancePcm = [];
     this.utterancePcmBytes = 0;
     this.utteranceSeq += 1;
+    this.lastConsumedSeq = this.utteranceSeq;
     return out;
   }
 
@@ -364,6 +373,10 @@ export class StreamingSttClient {
       fd.append("engine", engine);
       fd.append("model", engine);
       fd.append("mimeType", "audio/wav");
+      // Pin the correction-pass language so faster-whisper can't language-detect
+      // a low-content utterance into Russian/Chinese/etc. Default to English when
+      // the caller hasn't set a hint.
+      fd.append("language", this.opts.language ?? "en");
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), this.correctionTimeoutMs);
       try {
@@ -393,15 +406,45 @@ export class StreamingSttClient {
         console.warn("[streaming-stt] correction failed; using rough final:", msg);
       }
     }
-    // If a reset/close happened mid-flight, the seq advanced; drop the result.
-    if (this.closed || seq + 1 !== this.utteranceSeq) {
-      // The post-consume bump made seq+1 the "current" until something else mutates it.
-      // If anything has since changed, abandon — the corrected text would land out of order.
+    // Closed client: nothing to deliver to.
+    if (this.closed) return;
+    // Another utterance has been *consumed* since we started — its own
+    // correction (or rough-text fast path) will fire onFinal for it. Drop
+    // this stale result to avoid bleeding turn N's text into turn N+1.
+    // (A bare reset/close that didn't consume leaves lastConsumedSeq alone,
+    // so this still fires for the original utterance.)
+    if (this.lastConsumedSeq !== seq + 1) {
+      globalThis.__voiceProbe?.mark("stt_correction_stale", {
+        seq,
+        lastConsumed: this.lastConsumedSeq,
+      });
       return;
     }
     const elapsed = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
-    const usedCorrection = !!corrected;
-    const finalText = corrected || roughText;
+    // Whisper hallucinates training-set phrases ("Thank you", "Thanks for
+    // watching", "Subscribe to my channel", etc.) on near-silent or
+    // background-noise-only audio. When the rough streaming text has real
+    // content and the "correction" replaces it with a known hallucination,
+    // prefer the rough text — Whisper is trying to be helpful but it's
+    // overriding ground truth.
+    let chosen = corrected;
+    if (corrected && roughText && isWhisperHallucination(corrected, roughText)) {
+      globalThis.__voiceProbe?.mark("stt_correction_hallucination", {
+        rough: roughText,
+        corrected,
+      });
+      chosen = null;
+    }
+    const usedCorrection = !!chosen;
+    const finalText = (chosen || roughText || "").trim();
+    if (!finalText) {
+      // Whisper occasionally returns "" for silent buffers; without a real
+      // transcript there's nothing useful to deliver. Mark + bail so the
+      // session's fallback path can decide what to do.
+      globalThis.__voiceProbe?.mark("stt_correction_empty", { seq });
+      this.opts.onFinal?.("");
+      return;
+    }
     globalThis.__voiceProbe?.mark("stt_final_corrected", {
       latencyMs: Math.round(elapsed),
       corrected: usedCorrection,
@@ -422,6 +465,68 @@ export class StreamingSttClient {
     if (base.startsWith("ws://")) return "http://" + base.slice("ws://".length);
     return base;
   }
+}
+
+/**
+ * Whisper / faster-whisper hallucinations — phrases the model emits on
+ * silent or noise-only audio because they're statistically common in its
+ * YouTube training set. When the rough streaming text already had real
+ * content and the "correction" collapses it to one of these, the rough
+ * text is almost always closer to ground truth.
+ *
+ * Kept lowercase, normalised (no trailing punctuation) so the comparison
+ * is whitespace-tolerant. Order doesn't matter.
+ */
+const WHISPER_HALLUCINATIONS: ReadonlySet<string> = new Set([
+  "thank you",
+  "thanks",
+  "thanks for watching",
+  "thank you for watching",
+  "thanks for watching!",
+  "thank you so much",
+  "thank you very much",
+  "you",
+  "bye",
+  "bye bye",
+  "okay",
+  "ok",
+  "yeah",
+  "mhm",
+  "uh",
+  "um",
+  "subscribe",
+  "please subscribe",
+  "subtitles by the amara.org community",
+  "subtitles by the amara org community",
+  "i'll see you in the next video",
+  "see you in the next video",
+  "see you next time",
+  "music",
+]);
+
+function normaliseForHallucinationCheck(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[.,!?;:"']+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when `corrected` looks like a Whisper canned phrase AND `rough` has
+ * meaningfully different content. Threshold: a rough with ≥3 words or ≥10
+ * non-space chars is treated as "real content" worth preserving over a
+ * known hallucination.
+ */
+export function isWhisperHallucination(corrected: string, rough: string): boolean {
+  const c = normaliseForHallucinationCheck(corrected);
+  const r = normaliseForHallucinationCheck(rough);
+  if (!c || !r) return false;
+  if (!WHISPER_HALLUCINATIONS.has(c)) return false;
+  if (c === r) return false; // both ended up at the same canned phrase — fine
+  const roughWords = r.split(" ").filter(Boolean).length;
+  const roughChars = r.replace(/\s+/g, "").length;
+  return roughWords >= 3 || roughChars >= 10;
 }
 
 /** Wrap raw little-endian Int16 PCM bytes as a minimal RIFF/WAVE container. */

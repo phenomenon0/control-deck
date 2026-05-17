@@ -30,6 +30,12 @@ export interface PhraseConductorOptions {
   turnId?: string;
   /** Hard cap on chars per phrase to keep TTS responsive. */
   maxChars?: number;
+  /**
+   * Soft-break threshold for the FIRST emitted phrase. Defaults to 15 so
+   * voice TTFA is fast on leading clauses ("Sure, let me check ..."). Later
+   * phrases still use the standard MIN_SOFT_SPLIT_CHARS.
+   */
+  firstPhraseMinChars?: number;
 }
 
 const JSON_SHAPE = /^\s*[{[]/;
@@ -51,7 +57,10 @@ export class PhraseConductor {
 
   constructor(opts: PhraseConductorOptions = {}) {
     this.opts = opts;
-    this.splitter = createPhraseSplitter({ maxBufferedChars: opts.maxChars });
+    this.splitter = createPhraseSplitter({
+      maxBufferedChars: opts.maxChars,
+      firstPhraseMinChars: opts.firstPhraseMinChars ?? 15,
+    });
   }
 
   setIds(opts: { runId?: string; turnId?: string }) {
@@ -97,7 +106,10 @@ export class PhraseConductor {
   }
 
   reset() {
-    this.splitter = createPhraseSplitter({ maxBufferedChars: this.opts.maxChars });
+    this.splitter = createPhraseSplitter({
+      maxBufferedChars: this.opts.maxChars,
+      firstPhraseMinChars: this.opts.firstPhraseMinChars ?? 15,
+    });
     this.seq = 0;
   }
 }

@@ -20,6 +20,7 @@ import { PreflightGate } from "./preflight/PreflightGate";
 import { AudioDockProvider } from "./audio/AudioDockProvider";
 import { AudioDiagnosticsDrawer } from "./audio/AudioDiagnosticsDrawer";
 import { ApprovalPeek } from "./approvals/ApprovalPeek";
+import { ThemeToggle } from "./theme/ThemeToggle";
 
 function DeckShellInner({ children }: { children: React.ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -204,6 +205,7 @@ export function DeckShell({ children }: { children: React.ReactNode }) {
               <PreflightGate>
                 <AudioDockProvider>
                   <DeckShellInner>{children}</DeckShellInner>
+                  <ThemeToggle />
                 </AudioDockProvider>
               </PreflightGate>
             </ChatInspectorProvider>

@@ -25,6 +25,7 @@ import { useMemo, useState, useCallback } from "react";
 import { useLocalModelsStatus, type LocalModalityStatus } from "@/lib/hooks/useLocalModelsStatus";
 import { useModelPull } from "@/lib/hooks/useModelPull";
 import type { LocalPreset } from "@/lib/inference/local-defaults";
+import { VoicePicker } from "@/components/voice/VoicePicker";
 
 const PRESET_OPTIONS: Array<{ id: LocalPreset; label: string; hint: string }> = [
   { id: "quick", label: "Quick", hint: "Smallest models. Fastest first token, less depth." },
@@ -370,6 +371,13 @@ export function LocalModelsPanel({ preset: controlledPreset, onPresetChange }: L
                   {def.note}
                 </div>
               )}
+
+              {modality === "tts" && runners.voiceSidecar.reachable ? (
+                <div className="flex items-center justify-between gap-3 pt-1 border-t border-[var(--border)]">
+                  <span className="text-[11px] text-[var(--text-muted)]">Voice</span>
+                  <VoicePicker variant="row" />
+                </div>
+              ) : null}
             </div>
           );
         })}

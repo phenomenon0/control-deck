@@ -1,0 +1,296 @@
+/* =============================================================================
+   BLOG-THEME — design-token source of truth for the whole app
+   Extracted from femiadeniran.com/blog/inference-engine-deep-dive-blog.html
+   Three themes: light / dark / hacker. Toggled via [data-theme="..."] on <html>.
+   ============================================================================= */
+
+/* ── Fonts ────────────────────────────────────────────────────────────────────
+   Loaded in app/layout.tsx via Google Fonts:
+     • Space Grotesk  — display / headings / nav
+     • Source Serif 4 — body (hacker mode uses this too)
+     • JetBrains Mono — code, micro-labels, hacker headings
+   System fallback for body in default modes.
+
+   Specificity note: app/styles/tokens.css sets --font-display per
+   [data-warmth][data-type] (specificity 0,1,0). To win, the override below uses
+   html[data-theme] (0,1,1). Drop the html prefix and it gets clobbered. ──── */
+html[data-theme] {
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono:    "JetBrains Mono", "Geist Mono", ui-monospace, Consolas, monospace;
+  --font-serif:   "Source Serif 4", Georgia, serif;
+}
+
+:root {
+  --bt-font-display: "Space Grotesk", sans-serif;
+  --bt-font-serif:   "Source Serif 4", Georgia, serif;
+  --bt-font-mono:    "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --bt-font-body:    system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Type scale */
+  --bt-fs-base:   16.5px;   /* body */
+  --bt-fs-hero:   3rem;     /* h1 */
+  --bt-fs-sub:    1.1rem;   /* subtitle */
+  --bt-fs-nav:    11px;
+  --bt-fs-micro:  8px;      /* tooltip / micro labels */
+  --bt-lh-body:   1.65;
+  --bt-lh-hacker: 1.70;     /* hacker body uses serif at 18px / 1.7 */
+  --bt-tracking-nav: 0.08em;
+  --bt-tracking-tight: -0.02em;
+
+  /* Layout */
+  --bt-content-max:   820px;
+  --bt-content-pad-x: 2rem;
+  --bt-content-pad-t: 3.5rem;
+  --bt-content-pad-b: 6rem;
+  --bt-nav-pad-y:     0.5rem;
+  --bt-nav-pad-x:     1.5rem;
+  --bt-hero-3d:       72px;
+
+  /* Radii */
+  --bt-radius-card:   14px;
+  --bt-radius-dot:    50%;
+
+  /* Motion */
+  --bt-dur-theme:  0.3s;
+  --bt-dur-nav:    0.2s;
+  --bt-dur-wipe:   0.15s;
+  --bt-ease:       ease;
+}
+
+/* ── DARK (default) ── Metallic / aged-gold on near-black ────────────────── */
+[data-theme="dark"] {
+  --bg:          #0a0a0a;
+  --bg-card:     rgba(255,255,255,0.035);
+  --bg-hover:    rgba(255,255,255,0.06);
+  --bg-code:     #0c0c0e;
+  --border:      rgba(255,255,255,0.08);
+  --border-glow: rgba(196,164,74,0.25);
+  --text:        #e8e8e8;
+  --text-dim:    #707078;
+
+  --gold:          #c4a44a;        /* aged gold — primary */
+  --gold-bright:   #d4b85a;
+  --gold-dim:      #8a7530;
+  --silver:        #9898a8;        /* cool pewter */
+  --silver-bright: #b8b8c8;        /* polished steel */
+  --accent:        var(--gold);    /* swapped from silver — make gold the dominant chrome accent */
+  --accent-muted:  color-mix(in srgb, var(--gold), transparent 82%);
+
+  --magenta: #b07888;              /* rose copper */
+  --orange:  #b09068;              /* burnished bronze */
+  --red:     #b07070;              /* corroded iron */
+  --yellow:  #a8a068;              /* patinated brass */
+  --blue:    #7090b0;              /* brushed steel blue */
+  --purple:  #8878a8;              /* anodized violet */
+  --cyan:    #70a0a0;              /* oxidized copper-green */
+  --white:   #e8e8e8;
+
+  --nav-bg: rgba(10,10,10,0.92);
+}
+
+/* ── LIGHT ── Warm paper / brick / bronze ─────────────────────────────────── */
+[data-theme="light"] {
+  --bg:          #f0eeea;
+  --bg-card:     rgba(0,0,0,0.03);
+  --bg-hover:    rgba(0,0,0,0.05);
+  --bg-code:     #eeece4;
+  --border:      rgba(0,0,0,0.10);
+  --border-glow: rgba(140,110,40,0.15);
+  --text:        #2a2a2a;
+  --text-dim:    #7a7a80;
+
+  --gold:          #9a7a20;
+  --gold-bright:   #b89428;
+  --gold-dim:      #7a6418;
+  --silver:        #606068;
+  --silver-bright: #2a2a30;
+  --accent:        var(--gold);   /* swapped from near-black — gold dominates on paper */
+  --accent-muted:  color-mix(in srgb, var(--gold), transparent 86%);
+
+  --magenta: #a84070;              /* rose — visible on paper */
+  --orange:  #b07030;              /* warm bronze */
+  --red:     #b04040;              /* brick */
+  --yellow:  #808020;              /* olive brass */
+  --blue:    #3868a0;              /* steel blue */
+  --purple:  #6848a0;              /* deep violet */
+  --cyan:    #28787a;              /* teal */
+  --white:   #2a2a2a;
+
+  --nav-bg: rgba(248,248,248,0.92);
+}
+
+/* ── HACKER ── Terminal neon (green/cyan/magenta) ─────────────────────────── */
+[data-theme="hacker"] {
+  --bg:          #0a0a0f;
+  --bg-card:     #12121a;
+  --bg-hover:    #1a1a28;
+  --bg-code:     #0e0e16;
+  --border:      #1e1e2e;
+  --border-glow: #2a2a4a;
+  --text:        #c8c8d4;
+  --text-dim:    #6a6a7e;
+
+  --gold:          #00ff88;        /* neon green — primary */
+  --gold-bright:   #00ff88;
+  --gold-dim:      #00aa55;
+  --silver:        #00ddff;        /* cyan — secondary */
+  --silver-bright: #00ddff;
+  --accent:        var(--gold);   /* swapped from cyan — green dominates */
+  --accent-muted:  color-mix(in srgb, var(--gold), transparent 82%);
+
+  --magenta: #ff00aa;
+  --orange:  #ff8800;
+  --red:     #ff3344;
+  --yellow:  #ffdd00;
+  --blue:    #4488ff;
+  --purple:  #aa44ff;
+  --cyan:    #00ddff;
+  --white:   #e8e8f0;
+
+  --nav-bg: #0a0a0f;
+}
+
+/* ── Hacker syntax highlighting (CodeMirror-style class hooks) ────────────── */
+[data-theme="hacker"] .cm { color: #6a6a7e; }   /* comment   */
+[data-theme="hacker"] .kw { color: #ff00aa; }   /* keyword   */
+[data-theme="hacker"] .ty { color: #00ddff; }   /* type      */
+[data-theme="hacker"] .st { color: #00ff88; }   /* string    */
+[data-theme="hacker"] .nm { color: #ffdd00; }   /* number    */
+[data-theme="hacker"] .fn { color: #4488ff; }   /* function  */
+[data-theme="hacker"] .pp { color: #ff8800; }   /* preprocessor */
+
+/* ── Hacker typographic overrides ─────────────────────────────────────────── */
+[data-theme="hacker"] body {
+  font-family: var(--bt-font-serif);
+  font-size: 18px;
+  line-height: var(--bt-lh-hacker);
+}
+[data-theme="hacker"] h2,
+[data-theme="hacker"] h3,
+[data-theme="hacker"] h4,
+[data-theme="hacker"] nav { font-family: var(--bt-font-mono); }
+[data-theme="hacker"] h2 { color: #00ff88; text-shadow: 0 0 10px rgba(0,255,136,0.15); }
+[data-theme="hacker"] h3 { color: #00ddff; }
+[data-theme="hacker"] h4 { color: #ff00aa; }
+[data-theme="hacker"] .drop-cap::first-letter {
+  color: #00ff88;
+  text-shadow: 0 0 20px rgba(0,255,136,0.30);
+}
+[data-theme="hacker"] .hero h1 {
+  font-family: var(--bt-font-mono);
+  color: #00ff88;
+  text-shadow: 0 0 30px rgba(0,255,136,0.20), 0 0 60px rgba(0,255,136,0.10);
+  background: none;
+  -webkit-text-fill-color: #00ff88;
+  text-transform: uppercase;
+}
+[data-theme="hacker"] .blink { color: #00ff88; }
+[data-theme="hacker"] nav .nav-title { color: #00ff88; text-shadow: 0 0 10px rgba(0,255,136,0.30); }
+[data-theme="hacker"] nav a:hover { color: #00ff88; text-shadow: 0 0 8px rgba(0,255,136,0.30); }
+[data-theme="hacker"] nav a.active { color: #00ff88; text-shadow: 0 0 6px rgba(0,255,136,0.30); }
+
+/* CRT scanline overlay */
+[data-theme="hacker"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 2px,
+    rgba(0,0,0,0.03) 2px 4px
+  );
+  pointer-events: none;
+  z-index: 9998;
+}
+
+/* ── Light-mode paper noise ───────────────────────────────────────────────── */
+[data-theme="light"] body {
+  background:
+    #f0eeea
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--bt-font-body);
+  font-size: var(--bt-fs-base);
+  line-height: var(--bt-lh-body);
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background-color var(--bt-dur-theme) var(--bt-ease),
+    color            var(--bt-dur-theme) var(--bt-ease);
+}
+
+/* The shadcn/Tailwind bridge (--background, --foreground, --primary, --ring,
+   --chart-*, --sidebar-*, etc.) lives in app/globals.css :root and aliases the
+   tokens defined above. Per-theme blocks here override the source tokens; the
+   bridge propagates automatically. */
+
+/* ── Theme toggle (3 dots) ────────────────────────────────────────────────── */
+.theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 200;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.theme-toggle-btn {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0;
+  color: transparent;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  position: relative;
+  transition: all var(--bt-dur-theme) var(--bt-ease);
+}
+.theme-toggle-btn:hover { border-color: var(--text-dim); }
+.theme-toggle-btn.active {
+  background: var(--silver);
+  border-color: var(--silver);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--silver), transparent 70%),
+              inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+[data-theme="light"] .theme-toggle-btn {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .theme-toggle-btn.active {
+  background: var(--silver-bright);
+  border-color: var(--silver-bright);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.2);
+}
+[data-theme="hacker"] .theme-toggle-btn.active {
+  background: #00ff88;
+  border-color: #00ff88;
+  box-shadow: 0 0 6px rgba(0, 255, 136, 0.4);
+}
+/* Tooltip on hover */
+.theme-toggle-btn::after {
+  content: attr(data-label);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 50%;
+  transform: translateX(50%);
+  font-family: var(--bt-font-mono);
+  font-size: var(--bt-fs-micro);
+  letter-spacing: var(--bt-tracking-nav);
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity var(--bt-dur-nav) var(--bt-ease);
+  pointer-events: none;
+}
+.theme-toggle-btn:hover::after { opacity: 1; }
+.theme-toggle-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}

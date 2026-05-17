@@ -437,13 +437,20 @@ export async function listTtsVoices(
   switch (providerId) {
     case "voice-core": {
       const base = config.baseURL ?? voiceCoreUrl();
-      const res = await fetch(`${base}/voices`, { cache: "no-store" }).catch(() => null);
+      const engine = (config.extras?.engine as string | undefined) ?? config.model;
+      const url = engine
+        ? `${base}/voices?engine=${encodeURIComponent(engine)}`
+        : `${base}/voices`;
+      const res = await fetch(url, { cache: "no-store" }).catch(() => null);
       if (!res || !res.ok) return [];
-      const data = (await res.json()) as { voices?: Array<{ id?: string; name?: string }> };
+      const data = (await res.json()) as {
+        voices?: Array<{ id?: string; name?: string; lang?: string }>;
+      };
       return (data.voices ?? []).map((v) => ({
         id: String(v.id ?? v.name ?? ""),
         name: v.name,
         providerId,
+        tags: v.lang ? [v.lang] : undefined,
       }));
     }
     case "elevenlabs": {

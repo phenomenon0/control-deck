@@ -112,16 +112,18 @@ export function VoiceModeSheet({
     if (!isOpen) return;
     if (mode === "push-to-talk") return;
     const interval = setInterval(() => {
-      // Matches use-voice-session.ts:1087 — `interrupted` is a legitimate
-      // re-arm origin (post barge-in, post mid-turn close-reopen, post
-      // cross-claim INTERRUPT). Blocking it here would strand the mic.
+      // Positive whitelist — only re-arm from terminal-quiet states so we
+      // can't reopen the mic during speaking/transcribing/confirming. The
+      // negative-list version allowed mid-reply re-opens during the
+      // inter-phrase isSpeaking gap, which fed assistant TTS straight back
+      // into MicVAD and produced "always listening" cycles.
+      const armable = session.state === "idle" || session.state === "interrupted";
       if (
+        armable &&
         voiceChat.voiceApiStatus === "connected" &&
         !voiceChat.isListening &&
         !voiceChat.isSpeaking &&
-        !voiceChat.isProcessingSTT &&
-        session.state !== "thinking" &&
-        session.state !== "submitting"
+        !voiceChat.isProcessingSTT
       ) {
         void session.startListening();
       }

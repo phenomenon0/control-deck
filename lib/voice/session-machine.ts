@@ -81,6 +81,13 @@ function transition(
   if (next.state === ctx.state) {
     return { context: { ...ctx, ...next }, changed: hasNonStateChange(ctx, next) };
   }
+  // Probe marks bracketing `speaking` — the e2e multi-turn harness uses these
+  // to verify the mic never re-opens between AUDIO_STARTED and AUDIO_STOPPED.
+  if (next.state === "speaking" && ctx.state !== "speaking") {
+    globalThis.__voiceProbe?.mark("audio_started", { from: ctx.state });
+  } else if (ctx.state === "speaking" && next.state !== "speaking") {
+    globalThis.__voiceProbe?.mark("audio_stopped", { to: next.state });
+  }
   return {
     context: {
       ...ctx,
@@ -166,9 +173,15 @@ export function reduceVoiceSession(
         return transition(ctx, { state: "listening", transcriptPartial: event.text });
       }
       if (event.type === "TRANSCRIPT_FINAL") {
+        const trimmed = event.text.trim();
+        if (!trimmed) {
+          // Empty/whitespace-only finals must never advance the FSM —
+          // would otherwise stamp an empty user message into the chat.
+          return transition(ctx, { state: "idle", transcriptPartial: "" });
+        }
         return transition(ctx, {
           state: "submitting",
-          transcriptFinal: event.text,
+          transcriptFinal: trimmed,
           transcriptPartial: "",
         });
       }
@@ -189,9 +202,17 @@ export function reduceVoiceSession(
         });
       }
       if (event.type === "TRANSCRIPT_FINAL") {
+        const trimmed = event.text.trim();
+        if (!trimmed) {
+          return transition(ctx, {
+            state: "idle",
+            transcriptPartial: "",
+            transcriptFinal: "",
+          });
+        }
         return transition(ctx, {
           state: "submitting",
-          transcriptFinal: event.text,
+          transcriptFinal: trimmed,
           transcriptPartial: "",
         });
       }

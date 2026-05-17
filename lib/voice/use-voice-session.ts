@@ -191,16 +191,19 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const outputDeviceId = prefs.voice.audioOutputId ?? null;
   const voiceOwnerIdRef = useRef<string>(createVoiceOwnerId("voice-session"));
 
-  // Voice id stays in-memory until Task 8 wires it to the library; device IDs
-  // are persisted via DeckSettings so they survive reloads and are shared
-  // across every voice surface.
-  const [currentVoiceId, setCurrentVoiceIdState] = useState<string | null>(null);
+  // Voice id is persisted via DeckSettings (alongside device IDs) so it
+  // survives reloads and is shared across every voice surface — chat composer
+  // picker, voice mode sheet, models pane, etc.
+  const currentVoiceId = prefs.voice.voiceId ?? null;
   const currentDevices = useMemo(
     () => ({ inputId: inputDeviceId, outputId: outputDeviceId }),
     [inputDeviceId, outputDeviceId],
   );
 
-  const setVoice = useCallback((id: string | null) => setCurrentVoiceIdState(id), []);
+  const setVoice = useCallback(
+    (id: string | null) => updateVoicePrefs({ voiceId: id }),
+    [updateVoicePrefs],
+  );
   const setDevices = useCallback(
     (opts: { inputId?: string | null; outputId?: string | null }) => {
       const next: Partial<typeof prefs.voice> = {};
@@ -236,6 +239,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const onTranscriptFinalRef = useRef(onTranscriptFinal);
   onTranscriptFinalRef.current = onTranscriptFinal;
   const stateRef = useRef(ctx.state);
+  // Forward-ref so `startListening` (defined before `interrupt`) can call
+  // it for the speaking-state barge-in gate without forcing reorder.
+  const interruptRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     stateRef.current = ctx.state;
   }, [ctx.state]);
@@ -246,15 +252,18 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     if (!model) return null;
     let client = streamingSttRef.current;
     if (client) return client;
-    // Keep live chat on the streaming engine's own final. The optional
-    // whisper.cpp large-v3-turbo correction is installed, but on this CPU
-    // host it takes ~18s per utterance and makes the UI appear to produce no
-    // transcript. Quality correction belongs behind an explicit mode, not the
-    // default conversational path.
-    const correctionEngine = undefined;
+    // Two-stage STT: sherpa-onnx-streaming gives low-latency partials, then a
+    // faster-whisper correction pass polishes the final. On CUDA hosts the
+    // correction round-trip is sub-second; on CPU/slow hosts the streaming
+    // client's 404/503 handler latches correction off after the first failed
+    // call, and the timeout bound here prevents a slow host from blocking the
+    // turn.
+    const correctionEngine = "faster-whisper";
     client = new StreamingSttClient({
       engine: model,
+      language: "en",
       correctionEngine,
+      correctionTimeoutMs: 4000,
       onPartial: (text) => {
         if (text) dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
       },
@@ -384,8 +393,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
     },
     onAutoSend: (text) => {
-      dispatchCtx({ type: "TRANSCRIPT_FINAL", text });
-      onTranscriptFinal?.(text);
+      const trimmed = (text ?? "").trim();
+      if (!trimmed) return;
+      dispatchCtx({ type: "TRANSCRIPT_FINAL", text: trimmed });
+      onTranscriptFinal?.(trimmed);
     },
     inputDeviceId,
     outputDeviceId,
@@ -638,6 +649,13 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       }
     });
     output.on("speechEnd", ({ handle }) => {
+      // PhraseConductor emits one handle per phrase; firing AUDIO_STOPPED on
+      // every phrase end idled the FSM, the continuous-mode effect re-opened
+      // the mic 250 ms later, and the next phrase played into an open mic
+      // → self-barge-in → echo loop. The full-reply terminal transition is
+      // owned by `markAgentRunFinished` (called when ChatSurface's agentRun
+      // completes). Per-handle ends are decorative here.
+      if (replyInFlightRef.current) return;
       if (speechHandleRef.current === handle || handle.state === "done") {
         dispatchCtx({ type: "AUDIO_STOPPED" });
       }
@@ -846,6 +864,21 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     // the output context too — most surfaces wire mic + speak to the same orb.
     void unlockOutput();
     if (prefs.voice.mode === "vad") armContinuous();
+    // Speaking-state gate: an opener arriving while the assistant is talking
+    // is an implicit barge-in. Run the full interrupt() path so INTERRUPT
+    // dispatches, server-side run is cancelled, and TTS/output is torn down
+    // BEFORE we open the mic — otherwise Silero VAD picks up the assistant's
+    // own audio bleeding through speakers and submits empty turns.
+    // `interrupt` is defined later in this hook so we route through a ref
+    // populated by a useEffect at the bottom.
+    if (stateRef.current === "speaking" && interruptRef.current) {
+      await interruptRef.current();
+    }
+    // Eagerly dispatch MIC_REQUESTED so the FSM enters `arming` in the same
+    // render as the gesture, collapsing the 1-render window where
+    // `voiceChat.isListening` is true but FSM still says `idle`. The bridge
+    // effect's redundant re-dispatch is ignored by the reducer in `arming`.
+    dispatchCtx({ type: "MIC_REQUESTED" });
     await voiceChat.startListening();
   }, [armContinuous, enabled, prefs.voice.mode, unlockOutput, voiceChat]);
 
@@ -938,6 +971,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       });
     }
   }, [voiceChat]);
+
+  // Wire the forward-ref so `startListening`'s speaking-state barge-in gate
+  // can reach `interrupt` even though it's declared later in this hook.
+  interruptRef.current = interrupt;
 
   // Latest-ref so the subscription captures the most recent callbacks without
   // re-subscribing on every render (which used to stack listeners and tear

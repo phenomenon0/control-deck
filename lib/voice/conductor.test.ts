@@ -135,6 +135,18 @@ describe("createPhraseSplitter", () => {
     ]);
   });
 
+  it("uses firstPhraseMinChars only for the first soft-break emit (TTFA)", () => {
+    // With the default min (25), "Sure, let me check that." would buffer
+    // the leading "Sure," because it's only 4 chars before the comma.
+    // With firstPhraseMinChars=4 the first comma break emits early.
+    const s = createPhraseSplitter({ firstPhraseMinChars: 4 });
+    expect(s.push("Sure, ")).toEqual(["Sure,"]);
+    // Subsequent emits revert to the standard MIN_SOFT_SPLIT_CHARS — a
+    // short follow-up comma should NOT split.
+    expect(s.push("yep, ")).toEqual([]);
+    expect(s.push("ok. ")).toEqual(["yep, ok."]);
+  });
+
   it("can length-bound an unpunctuated live phrase", () => {
     const s = createPhraseSplitter({ maxBufferedChars: 60 });
     expect(

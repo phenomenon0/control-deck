@@ -218,7 +218,10 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     onTranscript,
     onAutoSend,
     onListeningStopped,
-    silenceTimeout = 1500,
+    // 1500 ms cut users off on natural breath-pauses ("uh, so... <pause>
+    // I think..."). 2500 ms tolerates that and still feels responsive
+    // once you actually stop. Override per-call if a workflow needs faster.
+    silenceTimeout = 2500,
     silenceThreshold = 0.01,
     enabled = true,
     inputDeviceId = null,
@@ -263,6 +266,10 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
   const analyserRef = useRef<AnalyserNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  // Silero MicVAD instance. When present, the energy-RMS timeout in
+  // startAudioLevelMonitoring is skipped — Silero owns the speech-end signal.
+  const vadRef = useRef<{ destroy: () => Promise<void> | void } | null>(null);
+  const vadActiveRef = useRef(false);
   const silenceStartRef = useRef<number | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const hasSpokenRef = useRef(false);
@@ -830,17 +837,21 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
       setAudioLevel(level);
 
-      // Silence detection
-      if (level < silenceThreshold) {
-        if (silenceStartRef.current === null) {
-          silenceStartRef.current = Date.now();
-        } else if (hasSpokenRef.current && Date.now() - silenceStartRef.current >= silenceTimeout) {
-          stopListeningInternal(true);
-          return;
+      // Silence detection — only when Silero VAD didn't boot. Silero owns
+      // speech-end signalling when it's live; this branch is the energy
+      // fallback for hosts where the ONNX/worklet bundle fails to load.
+      if (!vadActiveRef.current) {
+        if (level < silenceThreshold) {
+          if (silenceStartRef.current === null) {
+            silenceStartRef.current = Date.now();
+          } else if (hasSpokenRef.current && Date.now() - silenceStartRef.current >= silenceTimeout) {
+            stopListeningInternal(true);
+            return;
+          }
+        } else {
+          silenceStartRef.current = null;
+          hasSpokenRef.current = true;
         }
-      } else {
-        silenceStartRef.current = null;
-        hasSpokenRef.current = true;
       }
 
       animationFrameRef.current = requestAnimationFrame(updateLevel);
@@ -867,6 +878,18 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
 
       setIsListening(false);
       stopAudioLevelMonitoring();
+
+      // Tear down Silero VAD before stopping tracks so its worklet doesn't
+      // keep pulling frames from a dead source.
+      if (vadRef.current) {
+        try {
+          await vadRef.current.destroy();
+        } catch (err) {
+          console.warn("[VoiceChat] VAD destroy failed:", err);
+        }
+        vadRef.current = null;
+        vadActiveRef.current = false;
+      }
 
       // Tear down the streaming-STT passthrough first so its onaudioprocess
       // doesn't fire after the stream is stopped.
@@ -1086,6 +1109,49 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       };
 
       mediaRecorder.start(100);
+
+      // Boot Silero MicVAD on the same stream. This replaces the fixed
+      // 2.5 s RMS timeout with frame-level speech/no-speech inference:
+      // ~600-900 ms after you actually stop, no penalty for breath-pauses.
+      // Falls back to energy-RMS timeout if the model/worklet fails to load.
+      try {
+        const { MicVAD } = await import("@ricky0123/vad-web");
+        const vad = await MicVAD.new({
+          model: "v5",
+          baseAssetPath: "/audio-worklets/",
+          onnxWASMBasePath: "/audio-worklets/",
+          audioContext: ctx,
+          getStream: async () => stream as MediaStream,
+          startOnLoad: false,
+          // Defaults clip at ~256 ms of silence — fires mid-sentence on
+          // breath-pauses. 700 ms tolerates that and still feels snappy.
+          redemptionMs: 700,
+          positiveSpeechThreshold: 0.55,
+          negativeSpeechThreshold: 0.35,
+          minSpeechMs: 120,
+          onSpeechStart: () => {
+            hasSpokenRef.current = true;
+          },
+          onSpeechEnd: () => {
+            void stopListeningInternal(true);
+          },
+        });
+        await vad.start();
+        vadRef.current = vad;
+        vadActiveRef.current = true;
+      } catch (err) {
+        console.warn("[VoiceChat] Silero VAD unavailable, falling back to energy timeout:", err);
+        vadActiveRef.current = false;
+      }
+
+      // Defensively reset silence-detector state. stopAudioLevelMonitoring
+      // resets these on the down-edge, but if a prior turn exited via an
+      // early-return path (recorder already inactive, error, etc.) the refs
+      // can leak `hasSpoken=true` into the next turn — causing the very
+      // first inter-word pause to satisfy the silence predicate and chop
+      // the user mid-sentence.
+      silenceStartRef.current = null;
+      hasSpokenRef.current = false;
       setIsListening(true);
       startAudioLevelMonitoring();
       console.log("[VoiceChat] Now listening");
@@ -1101,7 +1167,7 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       setError(msg);
       setIsListening(false);
     }
-  }, [enabled, inputDeviceId, isSpeaking, stopSpeaking, clearQueue, startAudioLevelMonitoring, initAudioContext]);
+  }, [enabled, inputDeviceId, isSpeaking, stopSpeaking, clearQueue, startAudioLevelMonitoring, initAudioContext, stopListeningInternal]);
 
   const stopListening = useCallback(async () => {
     await stopListeningInternal(true);

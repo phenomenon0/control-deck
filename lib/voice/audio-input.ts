@@ -277,6 +277,18 @@ export class AgentInput {
         audioContext: ctx,
         getStream: async () => stream,
         startOnLoad: false,
+        // Defaults cut at ~256 ms of silence, which fires mid-sentence on
+        // natural pauses. ~900 ms tolerates breath-pauses but still feels
+        // responsive once the user actually stops.
+        redemptionMs: 900,
+        // Slightly higher onset threshold so room noise / lip smacks don't
+        // open the gate; lower release threshold so trailing words aren't
+        // chopped.
+        positiveSpeechThreshold: 0.6,
+        negativeSpeechThreshold: 0.35,
+        // Require a bit more sustained speech before declaring an utterance
+        // so a single cough or "uh" doesn't trip a full STT round-trip.
+        minSpeechMs: 128,
         onSpeechStart: () => {
           const now = performance.now();
           startedAt.value = now;

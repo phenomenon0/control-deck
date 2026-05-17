@@ -89,6 +89,28 @@ class KokoroEngine(StreamingTts):
         self._loaded = True
         LOG.info("kokoro-82m loaded from %s provider=%s", target, os.environ.get("ONNX_PROVIDER", "CPU"))
 
+    def unload(self) -> None:
+        if not self._loaded:
+            return
+        self._model = None
+        self._loaded = False
+        LOG.info("kokoro-82m unloaded")
+
+    def list_voices(self) -> list[dict[str, str]]:
+        """Return the baked voice catalogue. Kokoro ships ~50 voices in voices-v1.0.bin."""
+        try:
+            self.load()
+        except Exception:  # noqa: BLE001 — surface empty list rather than crash
+            return []
+        # kokoro_onnx's Kokoro stores voices in self._model.voices as {id: ndarray}.
+        names = sorted(getattr(self._model, "voices", {}).keys())
+        out = []
+        for name in names:
+            # Format: <lang/gender>_<name>, e.g. af_sky, am_michael, bf_emma.
+            lang = name.split("_", 1)[0] if "_" in name else None
+            out.append({"id": name, "name": name, "lang": lang or ""})
+        return out
+
     def stream(
         self, text: str, voice: str | None = None, speed: float = 1.0
     ) -> Iterator[bytes]:

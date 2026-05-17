@@ -68,6 +68,8 @@ export function VoiceStage({ session, compact = false, hint }: VoiceStageProps) 
       <button
         type="button"
         onClick={primary}
+        data-testid="live-voice-orb"
+        data-state={state}
         className="relative rounded-full border transition-transform focus:outline-none"
         style={{
           width: size,

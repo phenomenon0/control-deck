@@ -37,6 +37,13 @@ export interface PhraseSplitterOptions {
    * voice turns where waiting for final punctuation feels broken.
    */
   maxBufferedChars?: number;
+  /**
+   * Override the minimum char count for the FIRST soft-break (comma/semi/colon)
+   * emit only. Lower values reduce time-to-first-audio for responses that lead
+   * with a short clause ("Sure, let me check that"). Subsequent emits still use
+   * MIN_SOFT_SPLIT_CHARS.
+   */
+  firstPhraseMinChars?: number;
 }
 
 function isAbbreviationPeriod(text: string, periodIdx: number): boolean {
@@ -140,11 +147,20 @@ export function getToolStartMessage(toolName: string): string | null {
  */
 export function createPhraseSplitter(opts: PhraseSplitterOptions = {}) {
   let buf = "";
+  let emittedCount = 0;
   const maxBufferedChars = opts.maxBufferedChars;
+  const firstPhraseMinChars = opts.firstPhraseMinChars ?? MIN_SOFT_SPLIT_CHARS;
+
+  function softMinChars(): number {
+    return emittedCount === 0 ? firstPhraseMinChars : MIN_SOFT_SPLIT_CHARS;
+  }
 
   function emit(out: string[], cutOff: number) {
     const phrase = buf.slice(0, cutOff).trim();
-    if (phrase) out.push(phrase);
+    if (phrase) {
+      out.push(phrase);
+      emittedCount += 1;
+    }
     buf = buf.slice(cutOff);
   }
 
@@ -152,7 +168,7 @@ export function createPhraseSplitter(opts: PhraseSplitterOptions = {}) {
     if (!maxBufferedChars || buf.length < maxBufferedChars) return;
 
     const maxCut = Math.min(buf.length - 1, maxBufferedChars);
-    const minCut = Math.max(MIN_SOFT_SPLIT_CHARS, Math.floor(maxBufferedChars * 0.55));
+    const minCut = Math.max(softMinChars(), Math.floor(maxBufferedChars * 0.55));
     for (let i = maxCut; i >= minCut; i -= 1) {
       if (/\s/.test(buf.charAt(i))) {
         emit(out, i + 1);
@@ -202,11 +218,12 @@ export function createPhraseSplitter(opts: PhraseSplitterOptions = {}) {
 
         // Soft break (comma / semicolon / colon) — only if accumulated
         // phrase is long enough, so leading clauses like "First," don't
-        // get spoken on their own.
+        // get spoken on their own. The first emit can use a lower threshold
+        // (see `firstPhraseMinChars`) to cut time-to-first-audio.
         if (
           (ch === "," || ch === ";" || ch === ":") &&
           /\s/.test(next) &&
-          i >= MIN_SOFT_SPLIT_CHARS
+          i >= softMinChars()
         ) {
           emit(out, i + 2);
           i = 0;

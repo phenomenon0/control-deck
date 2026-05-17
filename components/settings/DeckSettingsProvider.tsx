@@ -18,6 +18,8 @@ export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 export type ChatSurface = "safe" | "brave" | "radical";
 export type RouteMode = "local" | "free" | "cloud";
 export type CloudProviderId = "anthropic" | "openai" | "google";
+export type ThemeName = "dark" | "light" | "hacker";
+export const THEMES: readonly ThemeName[] = ["dark", "light", "hacker"] as const;
 
 export interface VoicePrefs {
   enabled: boolean;
@@ -33,6 +35,12 @@ export interface VoicePrefs {
    */
   audioInputId?: string | null;
   audioOutputId?: string | null;
+  /**
+   * Active TTS voice id. Resolves against `/api/voice/providers`'s
+   * `current.voices` list. `null` = use the engine default (`af_sky` for
+   * Kokoro, etc.). Set from the chat composer's voice picker.
+   */
+  voiceId?: string | null;
 }
 
 export interface DeckPrefs {
@@ -71,6 +79,8 @@ export interface DeckPrefs {
   reduceMotion: boolean;
   chatContextRail: boolean;
   chatSurface: ChatSurface;
+  /** Active visual theme. Applied as [data-theme] on <html>. */
+  theme: ThemeName;
   voice: VoicePrefs;
   /**
    * Latency/quality trade-off preset for local models across every modality
@@ -113,6 +123,7 @@ const DEFAULT_VOICE_PREFS: VoicePrefs = {
   silenceThreshold: 0.04,
   audioInputId: null,
   audioOutputId: null,
+  voiceId: null,
 };
 
 const DEFAULT_PREFS: DeckPrefs = {
@@ -132,6 +143,7 @@ const DEFAULT_PREFS: DeckPrefs = {
   reduceMotion: false,
   chatContextRail: false,
   chatSurface: "safe",
+  theme: "dark",
   voice: DEFAULT_VOICE_PREFS,
   localModelPreset: "balanced",
 };
@@ -272,9 +284,10 @@ function migratePrefs(): DeckPrefs {
   return enforceOnlineModelVisibility(migrated);
 }
 
-function applyRootPrefs(reduceMotion: boolean) {
+function applyRootPrefs(reduceMotion: boolean, theme: ThemeName) {
   const root = document.documentElement;
   root.dataset.reduceMotion = reduceMotion ? "1" : "0";
+  root.dataset.theme = theme;
 }
 
 const DeckSettingsContext = createContext<DeckSettingsContextValue | null>(null);
@@ -297,9 +310,9 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   // Apply theme immediately after hydration
   useLayoutEffect(() => {
     if (hydrated) {
-      applyRootPrefs(prefs.reduceMotion);
+      applyRootPrefs(prefs.reduceMotion, prefs.theme);
     }
-  }, [hydrated, prefs.reduceMotion]);
+  }, [hydrated, prefs.reduceMotion, prefs.theme]);
 
   // Persist prefs whenever they change (after hydration)
   useEffect(() => {

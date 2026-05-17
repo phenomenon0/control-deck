@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { downsamplePcmFloat32To16k, float32ToInt16Bytes } from "./audio-input";
-import { StreamingSttClient } from "./streaming-stt";
+import { isWhisperHallucination, StreamingSttClient } from "./streaming-stt";
 
 // ============================================================================
 // audio-input helpers (kept from original test file)
@@ -261,5 +261,37 @@ describe("StreamingSttClient — pre-handshake buffering", () => {
     // Server hangs up before sending `ready`.
     ws.onclose?.();
     expect(client.pendingFrameBytes()).toBe(0);
+  });
+});
+
+// ============================================================================
+// Whisper hallucination filter — keeps "thank you" from overwriting the real
+// rough text when faster-whisper backfills training-set phrases onto
+// low-content audio.
+// ============================================================================
+
+describe("isWhisperHallucination", () => {
+  test("flags 'Thank you' when rough has real content", () => {
+    expect(isWhisperHallucination("Thank you", "hey what's the weather like today")).toBe(true);
+    expect(isWhisperHallucination("Thanks for watching", "open the browser")).toBe(true);
+    expect(isWhisperHallucination("you", "what time is it tomorrow")).toBe(true);
+  });
+
+  test("does NOT flag when rough is empty or also short", () => {
+    expect(isWhisperHallucination("Thank you", "")).toBe(false);
+    // Both ended up as the same short phrase — probably actually said it.
+    expect(isWhisperHallucination("thank you", "thank you")).toBe(false);
+    // Rough is also a tiny utterance — can't tell, don't overrule.
+    expect(isWhisperHallucination("Thank you", "ok")).toBe(false);
+  });
+
+  test("does NOT flag a non-hallucination correction", () => {
+    expect(isWhisperHallucination("Hello, world.", "hello world")).toBe(false);
+    expect(isWhisperHallucination("What's the weather?", "whats the weather")).toBe(false);
+  });
+
+  test("trailing punctuation does not defeat the matcher", () => {
+    expect(isWhisperHallucination("Thank you.", "open the browser please")).toBe(true);
+    expect(isWhisperHallucination("Thanks!", "open the browser please")).toBe(true);
   });
 });

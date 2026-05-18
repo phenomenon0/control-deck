@@ -21,7 +21,7 @@ import { jsonPayload } from "@/lib/agui/payload";
 import { createArtifact, saveEvent } from "@/lib/agui/db";
 import { artifactFilePath, artifactRunDir, artifactUrl, safeArtifactFilename } from "@/lib/storage/paths";
 
-const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
+const COMFY_URL = process.env.COMFY_URL ?? process.env.COMFYUI_BASE_URL ?? "http://127.0.0.1:8188";
 const COMFY_OUTPUT_DIR = process.env.COMFY_OUTPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "output");
 const COMFY_INPUT_DIR = process.env.COMFY_INPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "input");
 const POLL_INTERVAL = 500; // ms - faster polling for quick jobs like SDXL Turbo

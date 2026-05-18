@@ -4,7 +4,7 @@ import { createEvent, generateId, type RunStarted, type ToolCallStart } from "@/
 import { jsonPayload } from "@/lib/agui/payload";
 import { createRun, saveEvent } from "@/lib/agui/db";
 
-const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
+const COMFY_URL = process.env.COMFY_URL ?? process.env.COMFYUI_BASE_URL ?? "http://127.0.0.1:8188";
 
 export async function POST(req: Request) {
   const { workflow, threadId } = await req.json();

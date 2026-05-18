@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const COMFY_URL = process.env.COMFY_URL ?? "http://localhost:8188";
+const COMFY_URL = process.env.COMFY_URL ?? process.env.COMFYUI_BASE_URL ?? "http://127.0.0.1:8188";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);

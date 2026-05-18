@@ -23,7 +23,7 @@ import {
 import { publishChatPrefill } from "@/lib/messages/chatPrefill";
 import type { LedgerSnapshot } from "@/lib/resource/types";
 
-const COMFY_STUDIO_URL = process.env.NEXT_PUBLIC_COMFY_URL ?? "http://localhost:8188";
+const COMFY_STUDIO_URL = process.env.NEXT_PUBLIC_COMFY_URL ?? "http://127.0.0.1:8188";
 
 type WorkflowFormat = "ui_graph" | "api_prompt";
 type WorkflowLane = "image" | "audio" | "3d" | "video";
@@ -85,6 +85,9 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [webviewReady, setWebviewReady] = useState(false);
+  const [webviewFailed, setWebviewFailed] = useState(false);
+  const [iframeKey, setIframeKey] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const webviewHostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<HTMLElement | null>(null);
@@ -99,6 +102,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
     const view = viewRef.current as unknown as { reload?: () => void; src?: string } | null;
     if (view?.reload) view.reload();
     else if (view?.src) view.src = COMFY_STUDIO_URL;
+    setIframeKey((key) => key + 1);
   }, []);
 
   useImperativeHandle(ref, () => ({
@@ -121,7 +125,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
   const fetchStatus = useCallback(async () => {
     try {
       const [healthRes, ledgerRes] = await Promise.all([
-        fetch("/api/comfy/free", { cache: "no-store" }),
+        fetch("/api/comfy/status", { cache: "no-store" }),
         fetch("/api/resource/ledger", { cache: "no-store" }),
       ]);
       const health = await healthRes.json().catch(() => null) as { comfyui?: string } | null;
@@ -153,6 +157,9 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
     if (!isElectron) return;
     const host = webviewHostRef.current;
     if (!host || viewRef.current) return;
+    setWebviewReady(false);
+    setWebviewFailed(false);
+    let loaded = false;
     const view = document.createElement("webview") as HTMLElement & {
       src: string;
       setAttribute(name: string, value: string): void;
@@ -160,11 +167,32 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
     view.src = COMFY_STUDIO_URL;
     view.setAttribute("style", "width:100%;height:100%;border:0;background:#111;");
     view.setAttribute("allowpopups", "true");
+    const markReady = () => {
+      loaded = true;
+      setWebviewFailed(false);
+      setWebviewReady(true);
+    };
+    const markFailed = () => {
+      if (loaded) return;
+      setWebviewReady(false);
+      setWebviewFailed(true);
+    };
+    view.addEventListener("dom-ready", markReady);
+    view.addEventListener("did-finish-load", markReady);
+    view.addEventListener("did-fail-load", markFailed);
+    view.addEventListener("render-process-gone", markFailed);
     host.appendChild(view);
     viewRef.current = view;
+    const fallbackTimer = window.setTimeout(markFailed, 2500);
     return () => {
+      window.clearTimeout(fallbackTimer);
+      view.removeEventListener("dom-ready", markReady);
+      view.removeEventListener("did-finish-load", markReady);
+      view.removeEventListener("did-fail-load", markFailed);
+      view.removeEventListener("render-process-gone", markFailed);
       if (host.contains(view)) host.removeChild(view);
       viewRef.current = null;
+      setWebviewReady(false);
     };
   }, [isElectron]);
 
@@ -331,15 +359,25 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
           </div>
         </header>
         <div style={embedWrap}>
-          {isElectron ? (
-            <div ref={webviewHostRef} style={{ width: "100%", height: "100%" }} />
-          ) : (
+          <div
+            ref={webviewHostRef}
+            style={{
+              ...webviewLayer,
+              visibility: isElectron && webviewReady && !webviewFailed ? "visible" : "hidden",
+              pointerEvents: isElectron && webviewReady && !webviewFailed ? "auto" : "none",
+            }}
+          />
+          {(!isElectron || !webviewReady || webviewFailed) && (
             <iframe
+              key={iframeKey}
               src={COMFY_STUDIO_URL}
               title="ComfyUI"
               style={iframeStyle}
-              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation-by-user-activation"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-top-navigation-by-user-activation"
             />
+          )}
+          {isElectron && !webviewReady && !webviewFailed && (
+            <div style={embedStatus}>Loading ComfyUI Studio...</div>
           )}
         </div>
       </section>
@@ -590,8 +628,39 @@ const studioTopbar: React.CSSProperties = {
   background: "#0d1117",
 };
 const topActions: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8 };
-const embedWrap: React.CSSProperties = { flex: 1, minHeight: 0, background: "#111" };
-const iframeStyle: React.CSSProperties = { width: "100%", height: "100%", border: 0, background: "#111" };
+const embedWrap: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  background: "#111",
+  position: "relative",
+  overflow: "hidden",
+};
+const webviewLayer: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  zIndex: 2,
+};
+const iframeStyle: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  border: 0,
+  background: "#111",
+};
+const embedStatus: React.CSSProperties = {
+  position: "absolute",
+  left: 12,
+  bottom: 12,
+  zIndex: 3,
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 6,
+  background: "rgba(0,0,0,0.65)",
+  color: "#d8e1ea",
+  fontSize: 12,
+  padding: "6px 8px",
+  pointerEvents: "none",
+};
 const rail: React.CSSProperties = {
   minHeight: 0,
   overflow: "auto",

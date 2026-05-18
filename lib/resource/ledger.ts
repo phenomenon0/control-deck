@@ -20,7 +20,9 @@ import { promisify } from "node:util";
 import { collectGpuProcesses } from "@/lib/hardware/gpu-processes";
 import type { GpuProcess } from "@/lib/hardware/gpu-types";
 
+import { attachProcessMemory, collectKvCaches } from "./kv-cache";
 import type {
+  KvCacheTelemetry,
   LedgerSnapshot,
   Reservation,
   ResourceEvent,
@@ -137,6 +139,7 @@ function ledgerState(): LedgerState {
         freeMb: 0,
         reserveMb: DEFAULT_RESERVE_MB,
         processes: [],
+        kvCaches: [],
         reservations: [],
       },
       pollTimer: null,
@@ -179,19 +182,29 @@ export function getSnapshot(): LedgerSnapshot {
 export async function refreshSnapshot(): Promise<LedgerSnapshot> {
   const s = ledgerState();
   const memFn = s.memoryOverride ?? readGpuMemory;
-  const [mem, procs] = await Promise.all([
+  const [mem, procs, rawKvCaches] = await Promise.all([
     memFn(),
     s.memoryOverride ? Promise.resolve([]) : collectGpuProcesses(),
+    s.memoryOverride ? Promise.resolve([]) : collectKvCaches(),
   ]);
+  const gpuProcesses = procs ?? [];
+  const kvCaches = attachProcessMemory(rawKvCaches, llamaCppProcessMemoryMb(gpuProcesses));
   const next = buildSnapshot(
     mem,
-    procs ?? [],
+    gpuProcesses,
     s.reservationProvider(),
     s.reserveOverrideMb ?? DEFAULT_RESERVE_MB,
+    kvCaches,
   );
   s.currentSnapshot = next;
   emit({ kind: "ledger", at: next.at, snapshot: next });
   return next;
+}
+
+function llamaCppProcessMemoryMb(procs: GpuProcess[]): number {
+  return procs
+    .filter((proc) => proc.providerHint === "llamacpp")
+    .reduce((sum, proc) => sum + proc.usedMemoryMb, 0);
 }
 
 export function buildSnapshot(
@@ -199,6 +212,7 @@ export function buildSnapshot(
   procs: GpuProcess[],
   reservations: Reservation[],
   reserveMb: number,
+  kvCaches: KvCacheTelemetry[] = [],
 ): LedgerSnapshot {
   if (!mem) {
     return {
@@ -209,6 +223,7 @@ export function buildSnapshot(
       freeMb: 0,
       reserveMb,
       processes: procs,
+      kvCaches,
       reservations,
     };
   }
@@ -220,6 +235,7 @@ export function buildSnapshot(
     freeMb: mem.freeMb,
     reserveMb,
     processes: procs,
+    kvCaches,
     reservations,
   };
 }
@@ -268,6 +284,7 @@ export const __test = {
       freeMb: 0,
       reserveMb: DEFAULT_RESERVE_MB,
       processes: [],
+      kvCaches: [],
       reservations: [],
     };
     s.listeners.clear();

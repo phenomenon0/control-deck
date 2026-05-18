@@ -70,6 +70,7 @@ export function ResourcePane() {
       "evict-failed",
       "release",
       "restore-scheduled",
+      "downgrade-swap",
       "oom",
     ]) {
       es.addEventListener(kind, onEvent as EventListener);
@@ -95,6 +96,8 @@ export function ResourcePane() {
       <section style={{ padding: "12px 16px" }}>
         <CapacityBar snapshot={snapshot} />
       </section>
+
+      <KvCacheTable snapshot={snapshot} />
 
       <section style={twoCol}>
         <ReservationList reservations={snapshot?.reservations ?? []} />
@@ -140,6 +143,52 @@ function CapacityBar({ snapshot }: { snapshot: LedgerSnapshot | null }) {
         />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// KV cache table
+// ---------------------------------------------------------------------------
+
+function KvCacheTable({ snapshot }: { snapshot: LedgerSnapshot | null }) {
+  const kvCaches = useMemo(() => snapshot?.kvCaches ?? [], [snapshot]);
+  if (kvCaches.length === 0) return null;
+  return (
+    <section style={{ padding: "0 16px 12px" }}>
+      <h2 style={colTitle}>KV Cache</h2>
+      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ textAlign: "left", opacity: 0.7 }}>
+            <th style={th}>Model</th>
+            <th style={th}>State</th>
+            <th style={th}>Slots</th>
+            <th style={{ ...th, textAlign: "right" }}>Ctx / Slot</th>
+            <th style={{ ...th, textAlign: "right" }}>Logical Ctx</th>
+            <th style={{ ...th, textAlign: "right" }}>Decoded</th>
+            <th style={{ ...th, textAlign: "right" }}>Process VRAM</th>
+            <th style={{ ...th, textAlign: "right" }}>Metrics</th>
+          </tr>
+        </thead>
+        <tbody>
+          {kvCaches.map((kv) => (
+            <tr key={`${kv.provider}-${kv.modelId}-${kv.proxyUrl}`}>
+              <td style={td}>{kv.modelId}</td>
+              <td style={td}>{kv.state ?? "ready"}</td>
+              <td style={td}>
+                {kv.activeSlots}/{kv.slotCount}
+              </td>
+              <td style={{ ...td, textAlign: "right" }}>{fmtTokens(kv.slotContextTokens)}</td>
+              <td style={{ ...td, textAlign: "right" }}>{fmtTokens(kv.logicalContextTokens)}</td>
+              <td style={{ ...td, textAlign: "right" }}>{fmtTokens(kv.decodedTokens)}</td>
+              <td style={{ ...td, textAlign: "right" }}>
+                {kv.processUsedMemoryMb ? fmtMb(kv.processUsedMemoryMb) : "-"}
+              </td>
+              <td style={{ ...td, textAlign: "right" }}>{kv.metricsEnabled ? "on" : "off"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
@@ -274,6 +323,12 @@ function fmtMb(mb: number): string {
   if (!Number.isFinite(mb) || mb <= 0) return "0 MB";
   if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
   return `${mb} MB`;
+}
+
+function fmtTokens(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+  return String(tokens);
 }
 
 function ago(at: number): string {

@@ -115,6 +115,31 @@ export interface Reservation {
   ttlMs: number;
 }
 
+export interface KvCacheSlotTelemetry {
+  id: number;
+  nCtx: number;
+  isProcessing: boolean;
+  decodedTokens?: number;
+  remainingTokens?: number;
+}
+
+export interface KvCacheTelemetry {
+  provider: "llamacpp";
+  modelId: string;
+  state?: string;
+  proxyUrl: string;
+  source: "llama.cpp";
+  metricsEnabled: boolean;
+  slots: KvCacheSlotTelemetry[];
+  slotCount: number;
+  activeSlots: number;
+  slotContextTokens: number;
+  logicalContextTokens: number;
+  decodedTokens: number;
+  processUsedMemoryMb?: number;
+  error?: string;
+}
+
 export interface LedgerSnapshot {
   /** When the snapshot was taken (epoch ms). */
   at: number;
@@ -127,6 +152,8 @@ export interface LedgerSnapshot {
   reserveMb: number;
   /** Live GPU processes from nvidia-smi / ps. */
   processes: GpuProcess[];
+  /** Provider-level KV/context telemetry when exposed by the backend. */
+  kvCaches?: KvCacheTelemetry[];
   /** Current reservations held by the arbiter. */
   reservations: Reservation[];
 }

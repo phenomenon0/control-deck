@@ -25,17 +25,34 @@ describe("buildSnapshot", () => {
     expect(snap.totalMb).toBe(0);
     expect(snap.freeMb).toBe(0);
     expect(snap.reserveMb).toBe(2048);
+    expect(snap.kvCaches).toEqual([]);
   });
 
   test("merges memory, processes, reservations", () => {
     const procs = [{ pid: 100, processName: "llama-server", usedMemoryMb: 7000, providerHint: "llamacpp" as const }];
     const reservations = [fakeReservation("chat", 7000)];
-    const snap = buildSnapshot(mem, procs, reservations, 2048);
+    const kvCaches = [
+      {
+        provider: "llamacpp" as const,
+        modelId: "qwen3.5-9b",
+        proxyUrl: "http://127.0.0.1:10002",
+        source: "llama.cpp" as const,
+        metricsEnabled: false,
+        slots: [],
+        slotCount: 0,
+        activeSlots: 0,
+        slotContextTokens: 0,
+        logicalContextTokens: 0,
+        decodedTokens: 0,
+      },
+    ];
+    const snap = buildSnapshot(mem, procs, reservations, 2048, kvCaches);
     expect(snap.source).toBe("nvidia-smi");
     expect(snap.totalMb).toBe(24576);
     expect(snap.usedMb).toBe(8000);
     expect(snap.freeMb).toBe(16576);
     expect(snap.processes).toEqual(procs);
+    expect(snap.kvCaches).toEqual(kvCaches);
     expect(snap.reservations).toEqual(reservations);
     expect(snap.reserveMb).toBe(2048);
   });

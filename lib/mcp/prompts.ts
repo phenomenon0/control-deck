@@ -173,6 +173,7 @@ Rules:
 - Use analyze_image for inspection/question answering about uploaded images.
 - Use glyph_motif only for procedural SVG glyphs, sigils, runes, mandalas, circuits, organic motifs, or icons.
 - Use generate_image/edit_image/generate_audio/image_to_3d only when those tools are visible and the user explicitly asks for media generation/editing.
+- Use comfy_workflow_list/get/run for saved ComfyUI workflows. Treat @workflow/<slug> as a saved workflow reference; inspect it before running it.
 - Do not use image generation for text documents, code, essays, or normal written content.
 - After generation, report the exact artifact identifier/path/URL returned by the tool and any verification available.`;
 }

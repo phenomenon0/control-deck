@@ -313,6 +313,25 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_voice_sessions_thread ON voice_sessions(thread_id);
+
+    -- Saved ComfyUI workflows. workflow_json stores either ComfyUI UI graph
+    -- JSON or API prompt JSON, tagged by format. Only api_prompt is
+    -- directly runnable by the Comfy executor.
+    CREATE TABLE IF NOT EXISTS comfy_workflows (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT,
+      format TEXT NOT NULL CHECK(format IN ('ui_graph', 'api_prompt')),
+      workflow_json TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '[]',
+      lane TEXT NOT NULL DEFAULT 'image' CHECK(lane IN ('image', 'audio', '3d', 'video')),
+      estimate_mb INTEGER NOT NULL DEFAULT 8000,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_comfy_workflows_updated ON comfy_workflows(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_comfy_workflows_lane ON comfy_workflows(lane);
   `);
   
   // Migration: Add run_id column to messages if it doesn't exist
@@ -685,6 +704,9 @@ export interface MessageMetadata {
       arguments: Record<string, unknown>;
     };
   }>;
+  toolCalls?: Array<Record<string, unknown>>;
+  uploads?: Array<{ id: string; url: string; name: string; mimeType: string }>;
+  workflowRefs?: Array<{ id: string; slug: string; name: string }>;
   tool_name?: string;  // For tool role messages
 }
 

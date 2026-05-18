@@ -94,6 +94,49 @@ export const OPENAI_TOOLS: OpenAITool[] = [
   {
     type: "function",
     function: {
+      name: "comfy_workflow_list",
+      description: "List saved ComfyUI workflows referenceable as @workflow/slug.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Maximum workflows to return, default 50" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "comfy_workflow_get",
+      description: "Get a saved ComfyUI workflow by id or slug before using or running it.",
+      parameters: {
+        type: "object",
+        properties: {
+          workflow: { type: "string", description: "Workflow id or slug, with or without @workflow/ prefix" },
+        },
+        required: ["workflow"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "comfy_workflow_run",
+      description: "Run a saved ComfyUI API workflow by id or slug. Params patch node inputs by nodeId.inputName.",
+      parameters: {
+        type: "object",
+        properties: {
+          workflow: { type: "string", description: "Workflow id or slug" },
+          params: { type: "object", description: "Optional input patches keyed as nodeId.inputName" },
+        },
+        required: ["workflow"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "analyze_image",
       description: "Analyze and answer questions about an uploaded image using vision AI",
       parameters: {
@@ -230,4 +273,3 @@ export interface OpenAIChatResponse {
     total_tokens: number;
   };
 }
-

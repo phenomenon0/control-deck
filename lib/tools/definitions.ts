@@ -56,6 +56,28 @@ export const GenerateImageSchema = z.object({
   }),
 });
 
+export const ComfyWorkflowListSchema = z.object({
+  name: z.literal("comfy_workflow_list"),
+  args: z.object({
+    limit: z.number().int().min(1).max(100).default(50).describe("Maximum saved workflows to return"),
+  }),
+});
+
+export const ComfyWorkflowGetSchema = z.object({
+  name: z.literal("comfy_workflow_get"),
+  args: z.object({
+    workflow: z.string().min(1).describe("Workflow id or slug, for example @workflow/my-style or my-style"),
+  }),
+});
+
+export const ComfyWorkflowRunSchema = z.object({
+  name: z.literal("comfy_workflow_run"),
+  args: z.object({
+    workflow: z.string().min(1).describe("Saved workflow id or slug"),
+    params: z.record(z.string(), z.unknown()).optional().describe("Optional API-prompt patches keyed as nodeId.inputName"),
+  }),
+});
+
 /**
  * Analyze an image and answer questions (Vision model)
  */
@@ -601,6 +623,9 @@ export const ToolCallSchema = z.discriminatedUnion("name", [
   GenerateAudioSchema,
   ImageTo3DSchema,
   GenerateImageSchema,
+  ComfyWorkflowListSchema,
+  ComfyWorkflowGetSchema,
+  ComfyWorkflowRunSchema,
   AnalyzeImageSchema,
   WebSearchSchema,
   GlyphMotifSchema,
@@ -659,6 +684,9 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   generate_audio:             GenerateAudioSchema.shape.args,
   image_to_3d:                ImageTo3DSchema.shape.args,
   generate_image:             GenerateImageSchema.shape.args,
+  comfy_workflow_list:         ComfyWorkflowListSchema.shape.args,
+  comfy_workflow_get:          ComfyWorkflowGetSchema.shape.args,
+  comfy_workflow_run:          ComfyWorkflowRunSchema.shape.args,
   analyze_image:              AnalyzeImageSchema.shape.args,
   web_search:                 WebSearchSchema.shape.args,
   glyph_motif:                GlyphMotifSchema.shape.args,
@@ -709,6 +737,9 @@ export type EditImageArgs = z.infer<typeof EditImageSchema>["args"];
 export type GenerateAudioArgs = z.infer<typeof GenerateAudioSchema>["args"];
 export type ImageTo3DArgs = z.infer<typeof ImageTo3DSchema>["args"];
 export type GenerateImageArgs = z.infer<typeof GenerateImageSchema>["args"];
+export type ComfyWorkflowListArgs = z.infer<typeof ComfyWorkflowListSchema>["args"];
+export type ComfyWorkflowGetArgs = z.infer<typeof ComfyWorkflowGetSchema>["args"];
+export type ComfyWorkflowRunArgs = z.infer<typeof ComfyWorkflowRunSchema>["args"];
 export type AnalyzeImageArgs = z.infer<typeof AnalyzeImageSchema>["args"];
 export type WebSearchArgs = z.infer<typeof WebSearchSchema>["args"];
 export type GlyphMotifArgs = z.infer<typeof GlyphMotifSchema>["args"];
@@ -800,6 +831,28 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       { name: "width", type: "number", required: false, description: "Image width (512-1024)", default: 768 },
       { name: "height", type: "number", required: false, description: "Image height (512-1024)", default: 768 },
       { name: "seed", type: "number", required: false, description: "Random seed for reproducibility" },
+    ],
+  },
+  {
+    name: "comfy_workflow_list",
+    description: "List saved ComfyUI workflows that the user can reference by @workflow/slug.",
+    parameters: [
+      { name: "limit", type: "number", required: false, description: "Maximum saved workflows to return", default: 50 },
+    ],
+  },
+  {
+    name: "comfy_workflow_get",
+    description: "Get a saved ComfyUI workflow by id or slug. Use this before running a referenced @workflow/slug if details are needed.",
+    parameters: [
+      { name: "workflow", type: "string", required: true, description: "Saved workflow id or slug" },
+    ],
+  },
+  {
+    name: "comfy_workflow_run",
+    description: "Run a saved ComfyUI API workflow by id or slug. Optional params patch API prompt inputs by nodeId.inputName.",
+    parameters: [
+      { name: "workflow", type: "string", required: true, description: "Saved workflow id or slug" },
+      { name: "params", type: "object", required: false, description: "Optional input patches keyed as nodeId.inputName" },
     ],
   },
   {

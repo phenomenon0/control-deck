@@ -343,7 +343,8 @@ export async function executeComfyWorkflow(
   workflow: unknown,
   name: string,
   ctx: ComfyToolContext,
-  preset?: string
+  preset?: string,
+  resource?: { lane?: LaneId; estimateMb?: number },
 ): Promise<ComfyToolResult> {
   const { threadId, runId, toolCallId } = ctx;
 
@@ -359,8 +360,8 @@ export async function executeComfyWorkflow(
   // Reserve the lane with the arbiter — this evicts the chat LLM if the
   // workflow is heavy enough (3D/video) and denies the request when no
   // lane can be freed. ensureVRAM stays as a legacy check beneath it.
-  const lane = presetToLane(preset);
-  const estimateMb = preset ? (VRAM_REQUIREMENTS[preset] ?? 8000) : 8000;
+  const lane = resource?.lane ?? presetToLane(preset);
+  const estimateMb = resource?.estimateMb ?? (preset ? (VRAM_REQUIREMENTS[preset] ?? 8000) : 8000);
   let comfyTicket: string | undefined;
   try {
     const acq = await acquire({

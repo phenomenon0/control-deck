@@ -19,6 +19,9 @@ import type {
   GenerateAudioArgs,
   ImageTo3DArgs,
   GenerateImageArgs,
+  ComfyWorkflowGetArgs,
+  ComfyWorkflowListArgs,
+  ComfyWorkflowRunArgs,
   AnalyzeImageArgs,
   WebSearchArgs,
   GlyphMotifArgs,
@@ -78,6 +81,7 @@ import { executeSkillManage } from "./handlers/skill-manage";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
 import { loadWorkflow } from "./workflows";
+import { applyWorkflowParams, getComfyWorkflow, listComfyWorkflows } from "@/lib/comfy/workflows";
 import { getUpload, createArtifact, getArtifact, saveEvent } from "@/lib/agui/db";
 import { generateGlyphSvg, generateGlyphSheet, type GlyphStyle } from "./glyph";
 import { createEvent, type ArtifactCreated } from "@/lib/agui/events";
@@ -193,6 +197,12 @@ async function dispatchTool(
         return await executeImageTo3D(tool.args, ctx);
       case "generate_image":
         return await executeGenerateImage(tool.args, ctx);
+      case "comfy_workflow_list":
+        return executeComfyWorkflowList(tool.args);
+      case "comfy_workflow_get":
+        return executeComfyWorkflowGet(tool.args);
+      case "comfy_workflow_run":
+        return await executeSavedComfyWorkflow(tool.args, ctx);
       case "analyze_image":
         return await executeAnalyzeImage(tool.args, ctx);
       case "web_search":
@@ -502,6 +512,83 @@ async function executeGenerateImage(
   );
 
   return comfyResultToExecutorResult(result, `Generated image: "${args.prompt}"`);
+}
+
+function cleanWorkflowRef(value: string): string {
+  return value.trim().replace(/^@workflow\//, "");
+}
+
+function executeComfyWorkflowList(args: ComfyWorkflowListArgs): ToolExecutionResult {
+  const workflows = listComfyWorkflows(args.limit ?? 50).map((workflow) => ({
+    id: workflow.id,
+    slug: workflow.slug,
+    name: workflow.name,
+    description: workflow.description,
+    format: workflow.format,
+    runnable: workflow.format === "api_prompt",
+    lane: workflow.lane,
+    estimateMb: workflow.estimateMb,
+    tags: workflow.tags,
+    updatedAt: workflow.updatedAt,
+  }));
+  return {
+    success: true,
+    message: workflows.length ? `Found ${workflows.length} saved ComfyUI workflows.` : "No saved ComfyUI workflows.",
+    data: { workflows },
+    payload: jsonPayload({ workflows }),
+  };
+}
+
+function executeComfyWorkflowGet(args: ComfyWorkflowGetArgs): ToolExecutionResult {
+  const workflow = getComfyWorkflow(cleanWorkflowRef(args.workflow));
+  if (!workflow) {
+    return {
+      success: false,
+      message: `Saved ComfyUI workflow not found: ${args.workflow}`,
+      error: "workflow not found",
+      safe_to_retry: false,
+    };
+  }
+  return {
+    success: true,
+    message: `Loaded saved ComfyUI workflow @workflow/${workflow.slug}.`,
+    data: { workflow, runnable: workflow.format === "api_prompt" },
+    payload: smartEncode({ workflow, runnable: workflow.format === "api_prompt" }),
+  };
+}
+
+async function executeSavedComfyWorkflow(
+  args: ComfyWorkflowRunArgs,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
+  const workflow = getComfyWorkflow(cleanWorkflowRef(args.workflow));
+  if (!workflow) {
+    return {
+      success: false,
+      message: `Saved ComfyUI workflow not found: ${args.workflow}`,
+      error: "workflow not found",
+      safe_to_retry: false,
+    };
+  }
+  if (workflow.format !== "api_prompt") {
+    return {
+      success: false,
+      message: `@workflow/${workflow.slug} is a UI graph, not a runnable API prompt.`,
+      error: "workflow is not runnable",
+      recovery: ["Open Comfy Studio and save an API prompt JSON version of this workflow."],
+      safe_to_retry: false,
+    };
+  }
+
+  const patchedWorkflow = applyWorkflowParams(workflow.workflowJson, args.params);
+  const result = await executeComfyWorkflow(
+    patchedWorkflow,
+    workflow.slug,
+    ctx,
+    workflow.slug,
+    { lane: workflow.lane, estimateMb: workflow.estimateMb },
+  );
+  return comfyResultToExecutorResult(result, `Ran saved ComfyUI workflow @workflow/${workflow.slug}`);
 }
 
 /**
@@ -1637,4 +1724,3 @@ async function executeApplyPatch(
     }
   }
 }
-

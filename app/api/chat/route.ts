@@ -34,6 +34,7 @@ import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload
 import { prepareForModel } from "@/lib/llm/systemPrompt";
 import { renderMemoryForPrompt } from "@/lib/memory/prompt";
 import { renderSkillIndex } from "@/lib/skills/index-block";
+import { renderWorkflowReferenceBlock } from "@/lib/comfy/refs";
 import {
   createRun,
   createThread,
@@ -419,7 +420,8 @@ export async function POST(req: Request) {
   // Skill index = progressive disclosure; the agent calls skill_view for
   // any id it actually needs. Returns "" when no skills or disabled.
   const skillIndex = renderSkillIndex();
-  const systemPrompt = [skillIndex, memoryBlock, baseSystemPrompt.trim(), voicePrompt]
+  const workflowReferenceBlock = renderWorkflowReferenceBlock(messages ?? []);
+  const systemPrompt = [skillIndex, memoryBlock, workflowReferenceBlock, baseSystemPrompt.trim(), voicePrompt]
     .filter((part): part is string => Boolean(part && part.trim()))
     .join("\n\n");
 

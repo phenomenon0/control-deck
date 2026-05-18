@@ -38,6 +38,15 @@ describe("MCP profile tool exposure", () => {
     expect(tools.has("native_click")).toBe(false);
   });
 
+  test("creative profile exposes saved Comfy workflow tools", () => {
+    const tools = getMcpProfileToolNames(BRIDGE_TOOLS, ["creative"]);
+
+    expect(tools.has("generate_image")).toBe(true);
+    expect(tools.has("comfy_workflow_list")).toBe(true);
+    expect(tools.has("comfy_workflow_get")).toBe(true);
+    expect(tools.has("comfy_workflow_run")).toBe(true);
+  });
+
   test("desktop-control includes desktop-read prerequisites", () => {
     const tools = getMcpProfileToolNames(BRIDGE_TOOLS, ["desktop-control"]);
 

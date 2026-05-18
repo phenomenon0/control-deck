@@ -28,7 +28,15 @@ const PROFILE_TOOLS: Record<Exclude<McpProfile, "full">, readonly string[]> = {
     "glyph_motif",
   ],
   knowledge: ["vector_store", "vector_ingest"],
-  creative: ["generate_image", "edit_image", "generate_audio", "image_to_3d"],
+  creative: [
+    "generate_image",
+    "edit_image",
+    "generate_audio",
+    "image_to_3d",
+    "comfy_workflow_list",
+    "comfy_workflow_get",
+    "comfy_workflow_run",
+  ],
   "desktop-read": [
     "native_locate",
     "native_tree",

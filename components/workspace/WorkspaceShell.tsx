@@ -21,10 +21,10 @@ import { TerminalPanelAdapter } from "./panes/TerminalPanelAdapter";
 import { CanvasPanelAdapter } from "./panes/CanvasPanelAdapter";
 import { BrowserPanelAdapter } from "./panes/BrowserPanelAdapter";
 import { NotesPaneAdapter } from "./panes/NotesPaneAdapter";
+import { ComfyPanelAdapter } from "./panes/ComfyPanelAdapter";
 import { makePaneAdapter } from "./panes/GenericPaneAdapter";
 import { AgentGoPane } from "@/components/panes/AgentGoPane";
 import { AudioPane } from "@/components/panes/AudioPane";
-import { ComfyPane } from "@/components/panes/ComfyPane";
 import { ControlPane } from "@/components/panes/ControlPane";
 import { ModelsPane } from "@/components/panes/ModelsPane";
 import { RunsPane } from "@/components/panes/RunsPane";
@@ -57,7 +57,7 @@ const COMPONENTS = {
   notes: NotesPaneAdapter,
   agentgo: makePaneAdapter("agentgo", AgentGoPane),
   audio: makePaneAdapter("audio", AudioPane),
-  comfy: makePaneAdapter("comfy", ComfyPane),
+  comfy: ComfyPanelAdapter,
   control: makePaneAdapter("control", ControlPane),
   models: makePaneAdapter("models", ModelsPane),
   runs: makePaneAdapter("runs", RunsPane),

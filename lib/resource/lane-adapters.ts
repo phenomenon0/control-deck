@@ -45,11 +45,10 @@ async function safeFetch(url: string, init: RequestInit & { timeoutMs?: number }
 }
 
 /**
- * llama-swap: POST /unload?model=<id> drops the currently loaded model
- * for that group. If `modelId` is omitted, hits the bare /unload which
- * unloads everything in the default group.
- *
- * Older llama-swap builds expose `/admin/unload` instead — try both.
+ * llama-swap: POST /api/models/unload/<id> drops the currently loaded model
+ * for that group. If `modelId` is omitted, hits /api/models/unload which
+ * unloads all running models. Older builds exposed `/unload` or
+ * `/admin/unload` instead — keep those as fallbacks.
  *
  * Contract: `modelId` must be a llama-swap *group id* (e.g. `qwen3.5-9b`,
  * `qwen3.5-35b`), not a GGUF filename. Group ids come from the live
@@ -58,16 +57,26 @@ async function safeFetch(url: string, init: RequestInit & { timeoutMs?: number }
  */
 async function unloadLlamaSwap(modelId?: string): Promise<UnloadResult> {
   const base = LLAMA_SWAP_URL().replace(/\/$/, "").replace(/\/v1$/, "");
-  const qs = modelId ? `?model=${encodeURIComponent(modelId)}` : "";
-  for (const path of ["/unload", "/admin/unload"]) {
+  const encoded = modelId ? encodeURIComponent(modelId) : "";
+  const paths = modelId
+    ? [
+        `/api/models/unload/${encoded}`,
+        "/api/models/unload",
+        `/unload?model=${encoded}`,
+        `/admin/unload?model=${encoded}`,
+      ]
+    : ["/api/models/unload", "/unload", "/admin/unload"];
+  const failures: string[] = [];
+  for (const path of paths) {
     try {
-      const res = await safeFetch(`${base}${path}${qs}`, { method: "POST", timeoutMs: 8000 });
+      const res = await safeFetch(`${base}${path}`, { method: "POST", timeoutMs: 8000 });
       if (res.ok) return { ok: true, via: `llama-swap${path}` };
-    } catch {
-      /* try next */
+      failures.push(`${path}: ${res.status}`);
+    } catch (e) {
+      failures.push(`${path}: ${e instanceof Error ? e.message : "fetch failed"}`);
     }
   }
-  return { ok: false, via: "llama-swap", error: "no unload endpoint answered 2xx" };
+  return { ok: false, via: "llama-swap", error: failures.join("; ") || "no unload endpoint answered 2xx" };
 }
 
 /**

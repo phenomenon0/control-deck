@@ -33,9 +33,10 @@ export interface LlamacppHealth {
 
 export async function probeLlamacpp(timeoutMs = 1200): Promise<LlamacppHealth> {
   const url = LLAMACPP_URL;
+  const base = url.replace(/\/$/, "");
   const start = Date.now();
   try {
-    const res = await fetch(`${url.replace(/\/$/, "")}/v1/models`, {
+    const res = await fetch(`${base}/v1/models`, {
       signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
     });
@@ -46,11 +47,18 @@ export async function probeLlamacpp(timeoutMs = 1200): Promise<LlamacppHealth> {
     const models = (data?.data ?? [])
       .map((row) => row?.id)
       .filter((id): id is string => typeof id === "string");
+    const running = (await fetch(`${base}/running`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      cache: "no-store",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)) as { running?: Array<{ model?: string }> } | null;
+    const activeModel = running?.running?.find((row) => typeof row?.model === "string")?.model;
     return {
       online: true,
       url,
       latencyMs: Date.now() - start,
-      modelId: models[0],
+      modelId: activeModel,
       models,
     };
   } catch (e) {

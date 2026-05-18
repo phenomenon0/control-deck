@@ -21,6 +21,25 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!Number.isFinite(estimateMb) || estimateMb < 0) {
     return Response.json({ error: "estimateMb must be a non-negative number" }, { status: 400 });
   }
+  let swapTo: AcquireRequest["swapTo"];
+  if (body.swapTo !== undefined) {
+    const raw = body.swapTo;
+    const swapEstimateMb = Number(raw?.estimateMb);
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      typeof raw.modelId !== "string" ||
+      raw.modelId.length === 0 ||
+      !Number.isFinite(swapEstimateMb) ||
+      swapEstimateMb < 0
+    ) {
+      return Response.json(
+        { error: "swapTo must include modelId and non-negative estimateMb" },
+        { status: 400 },
+      );
+    }
+    swapTo = { modelId: raw.modelId, estimateMb: swapEstimateMb };
+  }
   const result = await acquire({
     lane: lane as LaneId,
     estimateMb,
@@ -30,6 +49,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     ttlMs: body.ttlMs,
     restoreOnIdle: body.restoreOnIdle,
     modelId: body.modelId,
+    swapTo,
   });
   return Response.json(result);
 }

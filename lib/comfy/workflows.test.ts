@@ -29,6 +29,29 @@ describe("Comfy workflow helpers", () => {
     expect(clean.estimateMb).toBe(defaultEstimateForLane("3d"));
   });
 
+  test("keeps editable UI graph metadata beside runnable prompt", () => {
+    const clean = sanitizeWorkflowInput({
+      name: "Flux Draft",
+      workflowJson: { "1": { class_type: "KSampler", inputs: {} } },
+      uiWorkflowJson: { nodes: [], links: [] },
+      comfyPath: "workflows/Flux Draft.json",
+    });
+
+    expect(clean.format).toBe("api_prompt");
+    expect(clean.uiWorkflowJson).toEqual({ nodes: [], links: [] });
+    expect(clean.comfyPath).toBe("workflows/flux-draft.json");
+  });
+
+  test("rejects API prompt JSON in editable UI graph slot", () => {
+    expect(() =>
+      sanitizeWorkflowInput({
+        name: "Bad Pair",
+        workflowJson: { "1": { class_type: "KSampler", inputs: {} } },
+        uiWorkflowJson: { "1": { class_type: "KSampler", inputs: {} } },
+      }),
+    ).toThrow("uiWorkflowJson must be a ComfyUI UI graph");
+  });
+
   test("patches API prompt params by node input key", () => {
     const workflow = {
       "6": { class_type: "CLIPTextEncode", inputs: { text: "old" } },

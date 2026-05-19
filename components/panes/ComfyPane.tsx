@@ -35,6 +35,8 @@ interface WorkflowRecord {
   description?: string;
   format: WorkflowFormat;
   workflowJson: unknown;
+  uiWorkflowJson?: unknown;
+  comfyPath?: string;
   tags: string[];
   lane: WorkflowLane;
   estimateMb: number;
@@ -46,6 +48,19 @@ interface ComfyJob {
   promptId: string;
   status?: { status_str: string; completed: boolean };
   outputs?: Record<string, { images?: Array<{ filename: string; subfolder: string; type: string }> }>;
+}
+
+interface ComfyUserWorkflowFile {
+  name: string;
+  path: string;
+  size?: number;
+  modified?: number;
+}
+
+interface StudioCaptureResult {
+  graph?: unknown;
+  apiPrompt?: unknown;
+  error?: string;
 }
 
 interface DraftState {
@@ -77,11 +92,13 @@ const emptyDraft: DraftState = {
 
 export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, ref) {
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
+  const [comfyFiles, setComfyFiles] = useState<ComfyUserWorkflowFile[]>([]);
   const [jobs, setJobs] = useState<ComfyJob[]>([]);
   const [ledger, setLedger] = useState<LedgerSnapshot | null>(null);
   const [healthy, setHealthy] = useState<"online" | "offline" | "checking">("checking");
   const [draft, setDraft] = useState<DraftState>(emptyDraft);
   const [jsonText, setJsonText] = useState("");
+  const [uiGraphText, setUiGraphText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,6 +133,16 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
     setWorkflows(data.workflows ?? []);
   }, []);
 
+  const fetchComfyFiles = useCallback(async () => {
+    try {
+      const res = await fetch("/api/comfy/user-workflows", { cache: "no-store" });
+      const data = await res.json();
+      setComfyFiles(Array.isArray(data.files) ? data.files : []);
+    } catch {
+      setComfyFiles([]);
+    }
+  }, []);
+
   const fetchHistory = useCallback(async () => {
     const res = await fetch("/api/comfy/history?limit=20", { cache: "no-store" });
     const data = await res.json();
@@ -139,11 +166,11 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
   const refreshAll = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([fetchWorkflows(), fetchHistory(), fetchStatus()]);
+      await Promise.all([fetchWorkflows(), fetchComfyFiles(), fetchHistory(), fetchStatus()]);
     } finally {
       setLoading(false);
     }
-  }, [fetchHistory, fetchStatus, fetchWorkflows]);
+  }, [fetchComfyFiles, fetchHistory, fetchStatus, fetchWorkflows]);
 
   useEffect(() => {
     void refreshAll();
@@ -208,22 +235,40 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
       format: workflow.format,
     });
     setJsonText(JSON.stringify(workflow.workflowJson, null, 2));
+    const graphJson = workflow.uiWorkflowJson ?? (workflow.format === "ui_graph" ? workflow.workflowJson : undefined);
+    setUiGraphText(graphJson === undefined ? "" : JSON.stringify(graphJson, null, 2));
     setNotice(null);
   };
 
   const resetDraft = () => {
     setDraft(emptyDraft);
     setJsonText("");
+    setUiGraphText("");
     setNotice(null);
   };
 
   const saveWorkflow = async () => {
     let workflowJson: unknown;
+    let uiWorkflowJson: unknown;
     try {
       workflowJson = JSON.parse(jsonText);
     } catch {
       setNotice("Workflow JSON is not valid.");
       return;
+    }
+    if (uiGraphText.trim()) {
+      try {
+        uiWorkflowJson = JSON.parse(uiGraphText);
+      } catch {
+        setNotice("Comfy graph JSON is not valid.");
+        return;
+      }
+      if (!isUiGraphJson(uiWorkflowJson)) {
+        setNotice("Comfy graph JSON must include nodes and links.");
+        return;
+      }
+    } else if (isUiGraphJson(workflowJson)) {
+      uiWorkflowJson = workflowJson;
     }
     if (!draft.name.trim()) {
       setNotice("Workflow name is required.");
@@ -240,6 +285,8 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
         estimateMb: draft.estimateMb,
         format: draft.format === "auto" ? undefined : draft.format,
         workflowJson,
+        uiWorkflowJson,
+        comfyPath: selectedWorkflow?.comfyPath,
       };
       const res = await fetch(draft.id ? `/api/comfy/workflows/${draft.id}` : "/api/comfy/workflows", {
         method: draft.id ? "PUT" : "POST",
@@ -248,8 +295,34 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "save failed");
-      setNotice(`Saved @workflow/${data.workflow.slug}.`);
-      await fetchWorkflows();
+      let syncFile: ComfyUserWorkflowFile | null = null;
+      let syncError: string | null = null;
+      if (uiWorkflowJson !== undefined) {
+        try {
+          const syncRes = await fetch("/api/comfy/user-workflows", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              path: data.workflow.comfyPath,
+              slug: data.workflow.slug,
+              workflowJson: uiWorkflowJson,
+            }),
+          });
+          const syncData = await syncRes.json();
+          if (!syncRes.ok) throw new Error(syncData.error ?? "Comfy sync failed");
+          syncFile = syncData.file ?? null;
+        } catch (error) {
+          syncError = error instanceof Error ? error.message : "Comfy sync failed.";
+        }
+      }
+      setNotice(
+        syncError
+          ? `Saved @workflow/${data.workflow.slug}. Comfy sync failed: ${syncError}`
+          : syncFile
+            ? `Saved @workflow/${data.workflow.slug} + ${syncFile.path}.`
+            : `Saved @workflow/${data.workflow.slug}.`,
+      );
+      await Promise.all([fetchWorkflows(), fetchComfyFiles()]);
       selectWorkflow(data.workflow);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Save failed.");
@@ -315,20 +388,41 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
     }
     setBusy("capture");
     try {
-      const graph = await view.executeJavaScript(`
-        (() => {
+      const capture = await view.executeJavaScript(`
+        (async () => {
           const app = globalThis.app;
-          const graph = app && app.graph;
-          if (graph && typeof graph.serialize === "function") return graph.serialize();
-          return null;
+          const graph = app?.graph?.serialize?.() ?? null;
+          let apiPrompt = null;
+          let error = null;
+          if (typeof app?.graphToPrompt === "function") {
+            try {
+              const prompt = await app.graphToPrompt();
+              apiPrompt = prompt?.output ?? prompt?.prompt ?? null;
+              return { graph: prompt?.workflow ?? graph, apiPrompt, error };
+            } catch (err) {
+              error = err instanceof Error ? err.message : String(err);
+            }
+          }
+          return { graph, apiPrompt, error };
         })()
-      `);
+      `) as StudioCaptureResult | null;
+      const graph = capture?.graph;
+      const apiPrompt = capture?.apiPrompt;
       if (!graph || typeof graph !== "object") throw new Error("ComfyUI graph was not available.");
-      setJsonText(JSON.stringify(graph, null, 2));
-      if (!draft.name) {
-        setDraft((prev) => ({ ...prev, name: `Captured ${new Date().toLocaleTimeString()}`, format: "ui_graph" }));
+      setUiGraphText(JSON.stringify(graph, null, 2));
+      if (apiPrompt && typeof apiPrompt === "object") {
+        setJsonText(JSON.stringify(apiPrompt, null, 2));
+      } else {
+        setJsonText(JSON.stringify(graph, null, 2));
       }
-      setNotice("Captured current ComfyUI graph.");
+      if (!draft.name) {
+        setDraft((prev) => ({
+          ...prev,
+          name: `Captured ${new Date().toLocaleTimeString()}`,
+          format: apiPrompt && typeof apiPrompt === "object" ? "api_prompt" : "ui_graph",
+        }));
+      }
+      setNotice(capture?.error ? `Captured graph. Prompt export warning: ${capture.error}` : "Captured current ComfyUI graph.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Capture failed.");
     } finally {
@@ -339,7 +433,37 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
   const readFile = async (file: File) => {
     const text = await file.text();
     setJsonText(text);
+    try {
+      const parsed = JSON.parse(text);
+      setUiGraphText(isUiGraphJson(parsed) ? JSON.stringify(parsed, null, 2) : "");
+    } catch {
+      setUiGraphText("");
+    }
     setDraft((prev) => ({ ...prev, name: prev.name || file.name.replace(/\.json$/i, "") }));
+  };
+
+  const importComfyFile = async (file: ComfyUserWorkflowFile) => {
+    setBusy(`import:${file.path}`);
+    try {
+      const res = await fetch(`/api/comfy/user-workflows?path=${encodeURIComponent(file.path)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "import failed");
+      const text = JSON.stringify(data.workflowJson, null, 2);
+      setJsonText(text);
+      setUiGraphText(isUiGraphJson(data.workflowJson) ? text : "");
+      setDraft((prev) => ({
+        ...prev,
+        id: null,
+        name: file.name.replace(/\.json$/i, ""),
+        slug: file.name.replace(/\.json$/i, ""),
+        format: isUiGraphJson(data.workflowJson) ? "ui_graph" : prev.format,
+      }));
+      setNotice(`Imported ${file.path}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Import failed.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const freeAfterReserve = ledger ? Math.max(0, ledger.freeMb - ledger.reserveMb) : 0;
@@ -470,13 +594,23 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
             <input style={input} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
           </label>
           <label style={fieldLabel}>
-            Workflow JSON
+            Runnable JSON
             <textarea
               style={textarea}
               value={jsonText}
               spellCheck={false}
               onChange={(e) => setJsonText(e.target.value)}
-              placeholder="Paste ComfyUI API prompt JSON or UI graph JSON here."
+              placeholder="API prompt JSON or UI graph JSON."
+            />
+          </label>
+          <label style={fieldLabel}>
+            Comfy Graph JSON
+            <textarea
+              style={textareaSmall}
+              value={uiGraphText}
+              spellCheck={false}
+              onChange={(e) => setUiGraphText(e.target.value)}
+              placeholder="nodes / links"
             />
           </label>
           <div style={toolbar}>
@@ -485,6 +619,41 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
               <button type="button" style={buttonDanger} onClick={deleteWorkflow} disabled={busy === "delete"}>
                 <Trash2 size={14} /> Delete
               </button>
+            )}
+          </div>
+        </section>
+
+        <section style={listPanel}>
+          <div style={sectionHead}>
+            <span>Comfy Files</span>
+            <button type="button" style={linkButton} onClick={fetchComfyFiles}>refresh</button>
+          </div>
+          <div style={workflowList}>
+            {comfyFiles.length === 0 ? (
+              <p style={empty}>No Comfy workflow files found.</p>
+            ) : (
+              comfyFiles.slice(0, 8).map((file) => (
+                <button
+                  key={file.path}
+                  type="button"
+                  style={workflowRow}
+                  onClick={() => void importComfyFile(file)}
+                >
+                  <span style={workflowName}>{file.name}</span>
+                  <span style={workflowMeta}>
+                    {file.path} · {fmtBytes(file.size)}
+                  </span>
+                  <span style={rowActions}>
+                    <MiniAction
+                      label="Import Comfy file"
+                      disabled={busy === `import:${file.path}`}
+                      onClick={(e) => { e.stopPropagation(); void importComfyFile(file); }}
+                    >
+                      <Upload size={13} />
+                    </MiniAction>
+                  </span>
+                </button>
+              ))
             )}
           </div>
         </section>
@@ -507,7 +676,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
                 >
                   <span style={workflowName}>{workflow.name}</span>
                   <span style={workflowMeta}>
-                    @{workflow.slug} · {workflow.format === "api_prompt" ? "runnable" : "reference"} · {fmtMb(workflow.estimateMb)}
+                    @{workflow.slug} · {workflow.format === "api_prompt" ? "runnable" : "reference"} · {workflow.comfyPath ?? fmtMb(workflow.estimateMb)}
                   </span>
                   <span style={rowActions}>
                     <MiniAction label="Insert reference" onClick={(e) => { e.stopPropagation(); insertWorkflowReference(workflow); }}>
@@ -547,6 +716,15 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
 
 function splitTags(raw: string): string[] {
   return raw.split(",").map((tag) => tag.trim()).filter(Boolean);
+}
+
+function isUiGraphJson(value: unknown): value is { nodes: unknown[]; links: unknown[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as { nodes?: unknown }).nodes) &&
+    Array.isArray((value as { links?: unknown }).links)
+  );
 }
 
 function StatusPill({ status }: { status: "online" | "offline" | "checking" }) {
@@ -607,6 +785,12 @@ function fmtMb(mb: number): string {
   if (!Number.isFinite(mb) || mb <= 0) return "0 MB";
   if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
   return `${Math.round(mb)} MB`;
+}
+
+function fmtBytes(bytes: number | undefined): string {
+  if (!Number.isFinite(bytes) || !bytes) return "0 KB";
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 const shell: React.CSSProperties = {
@@ -767,6 +951,10 @@ const textarea: React.CSSProperties = {
   resize: "vertical",
   fontFamily: "ui-monospace, SFMono-Regular, monospace",
   lineHeight: 1.35,
+};
+const textareaSmall: React.CSSProperties = {
+  ...textarea,
+  minHeight: 92,
 };
 const listPanel: React.CSSProperties = {
   border: "1px solid rgba(255,255,255,0.08)",

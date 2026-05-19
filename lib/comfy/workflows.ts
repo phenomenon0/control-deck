@@ -12,6 +12,8 @@ export interface ComfyWorkflowRecord {
   description?: string;
   format: ComfyWorkflowFormat;
   workflowJson: unknown;
+  uiWorkflowJson?: unknown;
+  comfyPath?: string;
   tags: string[];
   lane: ComfyWorkflowLane;
   estimateMb: number;
@@ -26,6 +28,8 @@ export interface ComfyWorkflowInput {
   description?: string;
   format?: ComfyWorkflowFormat;
   workflowJson: unknown;
+  uiWorkflowJson?: unknown;
+  comfyPath?: string;
   tags?: string[];
   lane?: ComfyWorkflowLane;
   estimateMb?: number;
@@ -38,6 +42,8 @@ interface ComfyWorkflowRow {
   description: string | null;
   format: ComfyWorkflowFormat;
   workflow_json: string;
+  ui_workflow_json: string | null;
+  comfy_path: string | null;
   tags: string;
   lane: ComfyWorkflowLane;
   estimate_mb: number;
@@ -91,6 +97,8 @@ export function sanitizeWorkflowInput(input: ComfyWorkflowInput): ComfyWorkflowI
   id: string;
   slug: string;
   format: ComfyWorkflowFormat;
+  uiWorkflowJson?: unknown;
+  comfyPath?: string;
   tags: string[];
   lane: ComfyWorkflowLane;
   estimateMb: number;
@@ -104,15 +112,25 @@ export function sanitizeWorkflowInput(input: ComfyWorkflowInput): ComfyWorkflowI
     throw new Error(`workflow JSON looks like ${detected}, not ${input.format}`);
   }
   assertWorkflowJsonSize(input.workflowJson);
+  const uiWorkflowJson = input.uiWorkflowJson ?? (format === "ui_graph" ? input.workflowJson : undefined);
+  if (uiWorkflowJson !== undefined) {
+    if (detectWorkflowFormat(uiWorkflowJson) !== "ui_graph") {
+      throw new Error("uiWorkflowJson must be a ComfyUI UI graph");
+    }
+    assertWorkflowJsonSize(uiWorkflowJson);
+  }
   const lane = input.lane ?? "image";
   const tags = normalizeTags(input.tags ?? []);
+  const slug = normalizeWorkflowSlug(input.slug ?? name);
   return {
     ...input,
     id: input.id ?? randomUUID(),
     name,
-    slug: normalizeWorkflowSlug(input.slug ?? name),
+    slug,
     description: normalizeOptionalText(input.description),
     format,
+    uiWorkflowJson,
+    comfyPath: uiWorkflowJson ? normalizeComfyWorkflowPath(input.comfyPath ?? `${slug}.json`) : undefined,
     tags,
     lane,
     estimateMb: normalizeEstimate(input.estimateMb, lane),
@@ -125,8 +143,8 @@ export function createComfyWorkflow(input: ComfyWorkflowInput): ComfyWorkflowRec
   const db = getDb();
   db.prepare(
     `INSERT INTO comfy_workflows
-      (id, slug, name, description, format, workflow_json, tags, lane, estimate_mb, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, slug, name, description, format, workflow_json, ui_workflow_json, comfy_path, tags, lane, estimate_mb, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     clean.id,
     clean.slug,
@@ -134,6 +152,8 @@ export function createComfyWorkflow(input: ComfyWorkflowInput): ComfyWorkflowRec
     clean.description ?? null,
     clean.format,
     JSON.stringify(clean.workflowJson),
+    clean.uiWorkflowJson === undefined ? null : JSON.stringify(clean.uiWorkflowJson),
+    clean.comfyPath ?? null,
     JSON.stringify(clean.tags),
     clean.lane,
     clean.estimateMb,
@@ -155,6 +175,8 @@ export function updateComfyWorkflow(id: string, input: ComfyWorkflowInput): Comf
             description = ?,
             format = ?,
             workflow_json = ?,
+            ui_workflow_json = ?,
+            comfy_path = ?,
             tags = ?,
             lane = ?,
             estimate_mb = ?,
@@ -166,6 +188,8 @@ export function updateComfyWorkflow(id: string, input: ComfyWorkflowInput): Comf
     clean.description ?? null,
     clean.format,
     JSON.stringify(clean.workflowJson),
+    clean.uiWorkflowJson === undefined ? null : JSON.stringify(clean.uiWorkflowJson),
+    clean.comfyPath ?? null,
     JSON.stringify(clean.tags),
     clean.lane,
     clean.estimateMb,
@@ -230,6 +254,8 @@ function rowToRecord(row: ComfyWorkflowRow): ComfyWorkflowRecord {
     description: row.description ?? undefined,
     format: row.format,
     workflowJson: safeJson(row.workflow_json, {}),
+    uiWorkflowJson: row.ui_workflow_json ? safeJson(row.ui_workflow_json, undefined) : undefined,
+    comfyPath: row.comfy_path ?? undefined,
     tags: safeJson(row.tags, []),
     lane: row.lane,
     estimateMb: row.estimate_mb,
@@ -259,6 +285,16 @@ function normalizeTags(tags: string[]): string[] {
 function normalizeOptionalText(value: string | undefined): string | undefined {
   const text = value?.trim();
   return text ? text.slice(0, 2000) : undefined;
+}
+
+function normalizeComfyWorkflowPath(path: string): string {
+  const raw = path.trim().replace(/^\/+/, "");
+  const prefixed = raw.startsWith("workflows/") ? raw : `workflows/${raw}`;
+  const parts = prefixed.split("/").filter(Boolean);
+  if (parts.length !== 2 || parts[0] !== "workflows" || !parts[1].endsWith(".json")) {
+    throw new Error("Comfy workflow path must be workflows/<name>.json");
+  }
+  return `workflows/${normalizeWorkflowSlug(parts[1].replace(/\.json$/i, ""))}.json`;
 }
 
 function normalizeEstimate(value: number | undefined, lane: ComfyWorkflowLane): number {

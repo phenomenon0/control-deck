@@ -324,6 +324,8 @@ function initSchema(db: Database.Database) {
       description TEXT,
       format TEXT NOT NULL CHECK(format IN ('ui_graph', 'api_prompt')),
       workflow_json TEXT NOT NULL,
+      ui_workflow_json TEXT,
+      comfy_path TEXT,
       tags TEXT NOT NULL DEFAULT '[]',
       lane TEXT NOT NULL DEFAULT 'image' CHECK(lane IN ('image', 'audio', '3d', 'video')),
       estimate_mb INTEGER NOT NULL DEFAULT 8000,
@@ -357,6 +359,18 @@ function initSchema(db: Database.Database) {
 
   try {
     db.exec(`ALTER TABLE runs ADD COLUMN agent_run_id TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec(`ALTER TABLE comfy_workflows ADD COLUMN ui_workflow_json TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+
+  try {
+    db.exec(`ALTER TABLE comfy_workflows ADD COLUMN comfy_path TEXT`);
   } catch {
     // Column already exists, ignore
   }

@@ -18,6 +18,8 @@ const WorkflowPayloadSchema = z.object({
   description: z.string().max(2000).optional(),
   format: z.enum(["ui_graph", "api_prompt"]).optional(),
   workflowJson: z.unknown().refine((value) => value !== undefined, "workflowJson is required"),
+  uiWorkflowJson: z.unknown().optional(),
+  comfyPath: z.string().max(240).optional(),
   tags: z.array(z.string()).optional(),
   lane: z.enum(["image", "audio", "3d", "video"]).optional(),
   estimateMb: z.number().int().min(512).max(65536).optional(),

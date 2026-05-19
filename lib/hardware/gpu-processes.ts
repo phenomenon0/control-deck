@@ -53,7 +53,29 @@ function inferProvider(processName: string): ProviderHint {
  * the data comes from `nvidia-smi --query-compute-apps`; on macOS from
  * `ps -A` filtered by provider-name regex.
  */
+// Coalesce concurrent callers within a 2 s window so we don't spawn N copies
+// of `ps -A` (Mac) or `nvidia-smi` (Linux/Win) per tick.
+const COLLECT_TTL_MS = 2000;
+let cachedResult: GpuProcess[] | null = null;
+let cachedAt = 0;
+let inflight: Promise<GpuProcess[] | null> | null = null;
+
 export async function collectGpuProcesses(): Promise<GpuProcess[] | null> {
+  const now = Date.now();
+  if (cachedResult !== null && now - cachedAt < COLLECT_TTL_MS) {
+    return cachedResult;
+  }
+  if (inflight) return inflight;
+  inflight = collectGpuProcessesUncached().finally(() => {
+    inflight = null;
+  });
+  const result = await inflight;
+  cachedResult = result;
+  cachedAt = Date.now();
+  return result;
+}
+
+async function collectGpuProcessesUncached(): Promise<GpuProcess[] | null> {
   // macOS path — ps + regex filter. Always supported; returns [] if no
   // known GPU-intensive processes are running.
   if (process.platform === "darwin") {

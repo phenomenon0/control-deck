@@ -46,7 +46,7 @@ const POLL_INTERVAL_MS = (() => {
     const n = Number.parseInt(raw, 10);
     if (Number.isFinite(n) && n >= 250) return n;
   }
-  return 2000;
+  return 10_000;
 })();
 
 /**
@@ -162,6 +162,8 @@ export function subscribe(listener: ResourceEventListener): () => void {
   s.listeners.add(listener);
   // Replay the current snapshot to new subscribers so the UI paints immediately.
   listener({ kind: "ledger", at: Date.now(), snapshot: s.currentSnapshot });
+  // A new subscriber means we need fresh data — resume polling if it was paused.
+  if (!s.pollTimer) startLedgerPolling();
   return () => s.listeners.delete(listener);
 }
 
@@ -199,6 +201,11 @@ export async function refreshSnapshot(): Promise<LedgerSnapshot> {
   s.currentSnapshot = next;
   emit({ kind: "ledger", at: next.at, snapshot: next });
   return next;
+}
+
+function isIdle(): boolean {
+  const s = ledgerState();
+  return s.listeners.size === 0 && s.reservationProvider().length === 0;
 }
 
 function llamaCppProcessMemoryMb(procs: GpuProcess[]): number {
@@ -250,6 +257,12 @@ export function startLedgerPolling(): void {
   // Kick an immediate refresh so the first SSE subscriber doesn't see zeros.
   void refreshSnapshot();
   s.pollTimer = setInterval(() => {
+    // Auto-pause when nothing's holding VRAM and no UI is subscribed —
+    // wakeups resume from subscribe() or arbiter.acquire().
+    if (isIdle()) {
+      stopLedgerPolling();
+      return;
+    }
     void refreshSnapshot();
   }, POLL_INTERVAL_MS);
   // Don't hold the event loop open just for polling.

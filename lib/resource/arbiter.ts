@@ -572,11 +572,19 @@ async function maybeRestore(): Promise<void> {
 
 function sweepTtl(): void {
   const now = Date.now();
+  const idleEvictions: Reservation[] = [];
   for (const [ticket, r] of reservations) {
     if (r.ttlMs > 0 && now - r.lastTouchAt > r.ttlMs) {
       reservations.delete(ticket);
       emit({ kind: "release", at: now, ticket, lane: r.lane, heldMs: now - r.acquiredAt });
+      // Reservations marked restoreOnIdle will be re-acquired soon — leave the
+      // model resident so the restore doesn't pay the cold-load tax. Everyone
+      // else: actually release the underlying VRAM (e.g. Ollama keep_alive=0).
+      if (!r.restoreOnIdle) idleEvictions.push(r);
     }
+  }
+  for (const r of idleEvictions) {
+    void doUnload(r.lane, r.modelId).catch(() => null);
   }
   void maybeRestore();
 }

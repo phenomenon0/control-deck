@@ -44,6 +44,8 @@ let lastPort = 4245;
 
 interface PersistedBindings {
   selectedTier?: string;
+  /** User opt-out — explicit `false` keeps the supervisor idle even with a tier installed. */
+  voiceEnabled?: boolean;
 }
 
 function snapshot(): VoiceCoreSupervisorState {
@@ -121,6 +123,8 @@ function readPersistedTier(): string | null {
     const parsed = JSON.parse(
       fs.readFileSync(file, "utf8"),
     ) as PersistedBindings;
+    // Honour explicit opt-out — undefined defaults to enabled.
+    if (parsed.voiceEnabled === false) return null;
     return typeof parsed.selectedTier === "string" ? parsed.selectedTier : null;
   } catch {
     return null;

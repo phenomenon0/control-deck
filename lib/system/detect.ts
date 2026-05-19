@@ -219,10 +219,17 @@ function determineMode(gpu: GpuInfo | null, ram: number): DeckMode {
   if (envMode === "lite") return "lite";
   if (envMode === "power") return "power";
 
-  // Auto-detect based on hardware
-  // Power mode requires: GPU with 6GB+ VRAM AND 12GB+ system RAM
-  if (gpu && gpu.vram >= 6000 && ram >= 12) {
-    return "power";
+  // Auto-detect based on hardware.
+  // Discrete GPU: 6GB+ VRAM AND 12GB+ system RAM.
+  // Unified memory (Apple Silicon): the "vram" budget is carved out of system
+  // RAM, so the same byte can't serve both the OS and the model. Require
+  // 24GB+ system RAM before promoting to power, otherwise everything thrashes.
+  if (gpu && gpu.vram >= 6000) {
+    if (gpu.unifiedMemory) {
+      if (ram >= 24) return "power";
+    } else if (ram >= 12) {
+      return "power";
+    }
   }
 
   // Everything else is lite mode

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
@@ -75,12 +76,20 @@ class KokoroEngine(StreamingTts):
     def load(self) -> None:
         if self._loaded:
             return
-        # kokoro-onnx only picks CUDAExecutionProvider if ONNX_PROVIDER is set
+        # kokoro-onnx only picks an accelerator EP if ONNX_PROVIDER is set
         # explicitly — its `find_spec("onnxruntime-gpu")` check fails because
         # the importable module name is `onnxruntime`, not `onnxruntime-gpu`.
+        # Prefer CUDA on Linux/Windows; CoreML on macOS (Apple Silicon ANE);
+        # fall back to CPU silently. Honour any pre-set value so operators can
+        # override per-host without code changes.
+        import sys
         import onnxruntime as _ort
-        if not os.environ.get("ONNX_PROVIDER") and "CUDAExecutionProvider" in _ort.get_available_providers():
-            os.environ["ONNX_PROVIDER"] = "CUDAExecutionProvider"
+        if not os.environ.get("ONNX_PROVIDER"):
+            available = _ort.get_available_providers()
+            if "CUDAExecutionProvider" in available:
+                os.environ["ONNX_PROVIDER"] = "CUDAExecutionProvider"
+            elif sys.platform == "darwin" and "CoreMLExecutionProvider" in available:
+                os.environ["ONNX_PROVIDER"] = "CoreMLExecutionProvider"
         import kokoro_onnx  # type: ignore
 
         target = self._settings.models_dir / "kokoro-82m"
@@ -112,11 +121,19 @@ class KokoroEngine(StreamingTts):
         return out
 
     def stream(
-        self, text: str, voice: str | None = None, speed: float = 1.0
-    ) -> Iterator[bytes]:
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        *,
+        enable_timing: bool = False,
+    ) -> Iterator:
         self.load()
         chosen_voice = voice or self._default_voice
-        for phrase in _split_phrases(text):
+        phrases = _split_phrases(text)
+        for idx, phrase in enumerate(phrases):
+            if enable_timing:
+                t0 = time.perf_counter()
             audio, sr = self._model.create(phrase, voice=chosen_voice, speed=float(speed), lang="en-us")
             if sr != self.sample_rate:
                 self.sample_rate = int(sr)
@@ -126,6 +143,20 @@ class KokoroEngine(StreamingTts):
                 pcm = (clipped * 32767.0).astype("int16")
             else:
                 pcm = arr
+            if enable_timing:
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                yield {
+                    "type": "timing",
+                    "phase": "tts.synth_per_phrase",
+                    "ms": elapsed_ms,
+                    "meta": {
+                        "engine": "kokoro-82m",
+                        "voice": chosen_voice,
+                        "phrase_index": idx,
+                        "phrase_chars": len(phrase),
+                        "audio_samples": int(arr.size),
+                    },
+                }
             yield pcm.tobytes()
 
 

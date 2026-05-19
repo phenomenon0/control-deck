@@ -42,8 +42,32 @@ export interface MacGpuStats {
   powerMw?: number;
 }
 
+// Concurrent callers (resource ledger + provider sweep + hardware API) used to
+// each spawn their own `ioreg` + `powermetrics` pair. A 2 s TTL collapses them
+// into a single read; in-flight requests share the same promise so the
+// subprocess fork happens once per window.
+const COLLECT_TTL_MS = 2000;
+let cachedResult: MacGpuStats | null = null;
+let cachedAt = 0;
+let inflight: Promise<MacGpuStats | null> | null = null;
+
 export async function collectMacGpu(): Promise<MacGpuStats | null> {
   if (process.platform !== "darwin") return null;
+  const now = Date.now();
+  if (cachedResult !== null && now - cachedAt < COLLECT_TTL_MS) {
+    return cachedResult;
+  }
+  if (inflight) return inflight;
+  inflight = collectMacGpuUncached().finally(() => {
+    inflight = null;
+  });
+  const result = await inflight;
+  cachedResult = result;
+  cachedAt = Date.now();
+  return result;
+}
+
+async function collectMacGpuUncached(): Promise<MacGpuStats | null> {
   try {
     // Fan ioreg + optional powermetrics in parallel. ioreg is fast (<50ms);
     // powermetrics is ~500ms, so this keeps the combined latency flat.

@@ -35,8 +35,34 @@ export function useHardwareProviders(): Result {
 
   useEffect(() => {
     refetch();
-    const id = setInterval(refetch, 10_000);
-    return () => clearInterval(id);
+    // Hidden tabs don't need polling. setInterval keeps firing in background
+    // tabs on Chrome/Edge and burns CPU on every desktop — especially Mac,
+    // where each sweep shells out to ioreg + ps.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id !== null) return;
+      id = setInterval(refetch, 60_000);
+    };
+    const stop = () => {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refetch();
+        start();
+      } else {
+        stop();
+      }
+    };
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [refetch]);
 
   return { providers, discovered, loading, refetch };

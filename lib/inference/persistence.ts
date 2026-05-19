@@ -43,6 +43,8 @@ interface PersistedBindings {
   selectedTier?: TierId;
   /** Whether the omni lane was opted-in for the selected tier. */
   selectedTierOmni?: boolean;
+  /** Voice supervisor opt-out — `false` keeps the sidecar from auto-spawning. */
+  voiceEnabled?: boolean;
 }
 
 function emptyStore(): PersistedBindings {
@@ -69,6 +71,7 @@ export function readPersistedBindings(): PersistedBindings {
         bindings: parsed.bindings,
         selectedTier: parsed.selectedTier,
         selectedTierOmni: parsed.selectedTierOmni,
+        voiceEnabled: parsed.voiceEnabled,
       };
     }
     return emptyStore();
@@ -145,6 +148,24 @@ export function setSelectedTier(tier: TierId, opts: { omni?: boolean } = {}): vo
     console.error("[inference] failed to write selected tier:", err);
     throw err;
   }
+}
+
+export function setVoiceEnabled(enabled: boolean): void {
+  const store = readPersistedBindings();
+  store.voiceEnabled = enabled;
+  const p = resolvePath();
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(store, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error("[inference] failed to write voice-enabled flag:", err);
+    throw err;
+  }
+}
+
+export function getVoiceEnabled(): boolean {
+  const store = readPersistedBindings();
+  return store.voiceEnabled !== false;
 }
 
 export function clearSelectedTier(): void {

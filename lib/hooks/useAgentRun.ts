@@ -537,6 +537,12 @@ export interface UseAgentRunReturn {
       messages: Array<{ role: string; content: string }>;
       threadId: string;
       model: string;
+      /**
+       * Local engine the user picked in the RoutePicker. When set, /api/chat
+       * resolves that engine's base URL for this turn only. Undefined keeps
+       * the env-configured default.
+       */
+      providerId?: "ollama" | "vllm" | "llamacpp" | "lm-studio";
       uploadIds?: string[];
       systemPrompt?: string;
       preset?: LocalPreset;
@@ -587,6 +593,12 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         messages: Array<{ role: string; content: string }>;
         threadId: string;
         model: string;
+        /**
+         * Local engine the user picked in the RoutePicker. When set, /api/chat
+         * resolves that engine's base URL for this turn only. Undefined keeps
+         * the env-configured default.
+         */
+        providerId?: "ollama" | "vllm" | "llamacpp" | "lm-studio";
         uploadIds?: string[];
         systemPrompt?: string;
         preset?: LocalPreset;
@@ -618,6 +630,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
           body: JSON.stringify({
             messages: opts.messages,
             model: opts.model,
+            providerId: opts.providerId,
             threadId: opts.threadId,
             uploadIds: opts.uploadIds,
             systemPrompt: opts.systemPrompt,

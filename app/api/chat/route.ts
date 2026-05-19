@@ -47,6 +47,7 @@ import {
   type MessageMetadata,
 } from "@/lib/agui/db";
 import { getDefaultModel, getProviderConfig } from "@/lib/llm";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
 import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
@@ -62,6 +63,13 @@ import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 interface ChatRequestBody {
   messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
   model?: string;
+  /**
+   * Which local inference engine the user picked in the chat composer
+   * (Ollama / llama.cpp / vLLM / LM Studio). When set, the request runs
+   * against that engine's resolved base URL for this turn only — no global
+   * runtimeOverride mutation. Cloud / free routes ignore this field.
+   */
+  providerId?: "ollama" | "vllm" | "llamacpp" | "lm-studio";
   threadId?: string;
   uploadIds?: string[];
   /** User-editable system prompt. Augmented per-model in each route. */
@@ -383,6 +391,7 @@ export async function POST(req: Request) {
   const {
     messages,
     model,
+    providerId,
     threadId,
     uploadIds,
     systemPrompt: clientPrompt,
@@ -448,13 +457,30 @@ export async function POST(req: Request) {
   const hasImages = hasImageContent(messages);
 
   const clientSlot = hasImages && providerCfg.vision ? "vision" : "primary";
-  const activeConfig = providerCfg[clientSlot];
+  const baseConfig = providerCfg[clientSlot];
 
-  if (!activeConfig) {
+  if (!baseConfig) {
     return new Response(JSON.stringify({ error: `provider slot "${clientSlot}" is not configured` }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // Per-request engine override: when the composer's RoutePicker sent a
+  // providerId, route this turn to that engine's resolved base URL. We clone
+  // the slot config first so the global cached ProviderSlots isn't touched —
+  // concurrent requests from other surfaces keep their own routing. Only
+  // applies to the local OpenAI-compatible engines; comfyui doesn't serve text.
+  const activeConfig = providerId
+    ? {
+        ...baseConfig,
+        // resolveProviderUrl strips trailing /v1; all four engines speak
+        // OpenAI-compat on /v1 below the host root.
+        baseURL: `${resolveProviderUrl(providerId)}/v1`,
+      }
+    : baseConfig;
+  if (providerId) {
+    console.log(`[Chat] providerId=${providerId} base_url=${activeConfig.baseURL}`);
   }
 
   // Model selection precedence — two storage layers meet here:

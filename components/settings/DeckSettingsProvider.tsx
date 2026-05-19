@@ -11,6 +11,7 @@ import React, {
 } from "react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
+import type { ProviderId } from "@/lib/hardware/providers/types";
 
 export type TTSEngine = "kokoro-82m" | "chatterbox" | "sherpa-onnx-tts";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
@@ -58,6 +59,14 @@ export interface DeckPrefs {
   routeMode: RouteMode;
   /** Remembered Ollama pick. Populated when routeMode flips away from "local". */
   localModel: string;
+  /**
+   * Which local inference engine (Ollama / llama.cpp / vLLM / LM Studio / etc.)
+   * the user last picked. Resolved against the live hardware-provider registry —
+   * if the persisted id isn't online, the picker auto-falls-back to the first
+   * available engine and the persisted value is kept so it sticks when the
+   * preferred engine comes back.
+   */
+  providerId?: ProviderId;
   /** Remembered free-tier pick. Populated when routeMode flips away from "free". */
   remoteModel: string;
   /** Active cloud provider id; only meaningful when routeMode === "cloud". */

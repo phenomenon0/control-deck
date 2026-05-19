@@ -9659,7 +9659,141 @@ button.composer-free-provider-chip:not(.is-on):not(:disabled):hover {
   font-weight: 600;
   letter-spacing: 0.14em;
 }
-.composer-route-panel { min-width: 360px; }
+.composer-route-panel { min-width: 360px; max-width: 460px; }
+/* Model name inside the route-pill button should keep its native casing —
+   the parent .composer-tweaks-launch uppercases everything, which mangles
+   identifiers like "qwen3:8b" → "QWEN3:8B". */
+.composer-model-name {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- RoutePicker pill grid ---------------------------------------------- */
+.cd-engine-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.cd-engine-group { display: flex; flex-direction: column; gap: 6px; }
+.cd-engine-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+.cd-engine-label {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+.cd-engine-count {
+  font-size: 10px;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.cd-engine-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cd-model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--mist);
+  background: color-mix(in oklch, var(--bg-card) 60%, transparent);
+  color: var(--fg-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: border-color 140ms var(--ease-out),
+              color 140ms var(--ease-out),
+              background 140ms var(--ease-out);
+  max-width: 240px;
+}
+.cd-model-pill:hover {
+  color: var(--fg);
+  border-color: var(--mist-strong);
+}
+.cd-model-pill.is-active {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  color: var(--fg);
+}
+.cd-model-pill.is-loaded::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+  flex-shrink: 0;
+}
+.cd-model-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-engine-empty {
+  font-size: 11px;
+  color: var(--fg-faint);
+  padding: 2px 4px;
+  font-style: italic;
+}
+.cd-offline-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+  margin-top: 2px;
+  border-top: 1px solid var(--mist);
+  font-size: 10px;
+  color: var(--fg-faint);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.cd-offline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px dashed var(--mist);
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.cd-discovered-list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cd-discovered-list li {
+  font-size: 11px;
+  color: var(--fg-dim);
+  line-height: 1.4;
+}
+.cd-discovered-list li strong { color: var(--fg); font-weight: 600; }
 .composer-route-tabs {
   display: inline-flex;
   padding: 2px;

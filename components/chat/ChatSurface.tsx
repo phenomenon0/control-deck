@@ -929,10 +929,21 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
         liveSpeechQueued = pushPhrase(candidate.text) || liveSpeechQueued;
       }
     };
+    // Only the chat-capable local engines round-trip through the per-request
+    // baseURL override in /api/chat. comfyui isn't an LLM and cloud routes
+    // ignore providerId entirely, so this guard is enough.
+    const chatProviderId =
+      prefs.providerId === "ollama" ||
+      prefs.providerId === "vllm" ||
+      prefs.providerId === "llamacpp" ||
+      prefs.providerId === "lm-studio"
+        ? prefs.providerId
+        : undefined;
     const result = await agentRun.send(messageContent, {
       messages: apiMessages,
       threadId,
       model: selectedModel,
+      providerId: chatProviderId,
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
       systemPrompt: prefs.systemPrompt,
       preset: prefs.localModelPreset,

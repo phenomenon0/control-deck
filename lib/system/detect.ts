@@ -155,10 +155,14 @@ function getCpuInfo(): { cores: number; model: string; isIntel: boolean } {
  * Heuristic: Apple Silicon → metal, NVIDIA GPU → cuda, AMD GPU detected → rocm,
  * anything else → cpu. We don't shell out for arch detection on darwin since
  * system_profiler already gave us the Apple-Silicon signal via unifiedMemory.
+ *
+ * Intel Macs (Iris / discrete Radeon Pro) intentionally fall through to "cpu":
+ * the T1_MAC stack assumes whisper.cpp + CoreML on the Apple Neural Engine,
+ * which doesn't exist pre-Apple-Silicon. CPU tier is the honest match.
  */
 function detectBackend(gpu: GpuInfo | null): InferenceBackend {
   if (process.platform === "darwin") {
-    return gpu?.unifiedMemory ? "metal" : gpu ? "metal" : "cpu";
+    return gpu?.unifiedMemory ? "metal" : "cpu";
   }
   if (gpu) {
     const n = gpu.name.toLowerCase();

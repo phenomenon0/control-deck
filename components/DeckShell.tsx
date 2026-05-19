@@ -104,6 +104,11 @@ function DeckShellInner({ children }: { children: React.ReactNode }) {
   const canvasDocked = canvas.isOpen && canvas.mode === "docked";
   const canvasFloating = canvas.isOpen && canvas.mode === "floating";
 
+  // Onboarding is a first-run takeover — render the flow naked, no chrome.
+  if (pathname?.startsWith("/deck/onboarding")) {
+    return <>{children}</>;
+  }
+
   return (
     <div
       className={`app ${showThreads ? "app--chat" : "app--compact"} ${

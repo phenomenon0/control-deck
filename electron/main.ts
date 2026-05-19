@@ -19,7 +19,10 @@ import {
   startTerminalService,
   getTerminalServiceConfig,
 } from "./services/terminal-service";
-import { startVoiceCoreSupervisor } from "./services/voice-core-supervisor";
+import {
+  startVoiceCoreSupervisor,
+  type VoiceCoreSupervisorState,
+} from "./services/voice-core-supervisor";
 import { startAgentTsSupervisor } from "./services/agent-ts-supervisor";
 
 const IS_DEV = !app.isPackaged;
@@ -236,7 +239,13 @@ let portalBridgeSecret: string | null = null;
 let themedBrowser: ThemedBrowserRegistry | null = null;
 let remoteDesktopClient: RemoteDesktopClient | null = null;
 let terminalService: { kill: () => void } | null = null;
-let voiceCoreService: { kill: () => void } | null = null;
+let voiceCoreService:
+  | {
+      kill: () => void;
+      getState?: () => VoiceCoreSupervisorState;
+      restart?: () => VoiceCoreSupervisorState;
+    }
+  | null = null;
 let agentTsService: { kill: () => void } | null = null;
 
 function resolveRemoteDesktopHelper(): string {
@@ -965,6 +974,19 @@ ipcMain.handle("terminal:config", () => {
     wsBaseUrl: cfg.wsBaseUrl,
     token: cfg.token,
   };
+});
+
+// Supervisor introspection + operator-initiated reset. The settings page
+// (and onboarding "voice broken" branch) calls these to surface give-up state
+// and offer a "try again" button without forcing the user to relaunch the app.
+ipcMain.handle("voice-core:state", () => {
+  if (!voiceCoreService?.getState) return { available: false } as const;
+  return { available: true, ...voiceCoreService.getState() };
+});
+
+ipcMain.handle("voice-core:restart", () => {
+  if (!voiceCoreService?.restart) return { available: false } as const;
+  return { available: true, ...voiceCoreService.restart() };
 });
 
 app.whenReady().then(async () => {

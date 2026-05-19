@@ -1,0 +1,576 @@
+Control Deck GPU Resource Arbiter UI Brief
+
+Purpose
+
+Design a simple but powerful operational UI for Control Deck's GPU resource
+arbiter. The UI should help a local operator understand, at a glance, which
+GPU models and modality backends are loaded, how much VRAM is available, which
+lane owns each reservation, what will be evicted or downgraded during a swap,
+and whether llama.cpp KV/context capacity is becoming the real constraint.
+
+This is not a marketing page. It should feel like a compact control surface:
+calm, dense, readable, and built for repeated use while testing local models.
+
+
+System Summary
+
+Control Deck runs multiple local AI modalities on one GPU. The resource
+arbiter is the coordination layer that prevents GPU consumers from fighting
+over VRAM.
+
+Every GPU-consuming workflow declares a "lane". A lane is the unit of
+reservation, eviction, restore, and UI grouping.
+
+Current lanes:
+
+- chat: LLM through llama-swap / llama.cpp
+- vision: image understanding, often sharing the chat/llama-swap backend
+- tts: text-to-speech through voice-core
+- stt: speech-to-text through voice-core
+- image: image generation, usually ComfyUI / SDXL / cloud fallback
+- audio: music/audio generation
+- 3d: 3D generation, for example Hunyuan 3D
+- video: future video generation lane
+- omni: speech-to-speech / Qwen omni sidecar
+
+Sticky lanes:
+
+- chat
+- tts
+- stt
+
+Sticky lanes prefer to restore after they are evicted, because they are part
+of the always-useful interactive deck state.
+
+
+Core Concepts
+
+Ledger
+
+The ledger is the live GPU accounting snapshot. It reads:
+
+- total VRAM
+- used VRAM
+- free VRAM
+- configured reserve/headroom
+- live GPU processes
+- arbiter reservations
+- llama.cpp KV/context telemetry when available
+
+Main API:
+
+- GET /api/resource/ledger
+
+The UI should treat this endpoint as the initial state.
+
+Event Stream
+
+The arbiter emits an SSE stream for changes.
+
+Main API:
+
+- GET /api/resource/events
+
+Events:
+
+- ledger: refreshed full snapshot
+- acquire-granted: a lane was admitted
+- acquire-denied: a lane was rejected because it did not fit
+- acquire-queued: a soft acquire is waiting
+- evict-start: a lane is being unloaded or preempted
+- evict-done: unload completed and VRAM should be freed
+- evict-failed: unload failed
+- release: a reservation was released
+- restore-scheduled: an evicted sticky lane should come back later
+- downgrade-swap: a large chat model was swapped down to a smaller fallback
+- oom: a sidecar reported CUDA out-of-memory
+
+Reservation
+
+A reservation is the arbiter's promise that a lane may use a certain estimated
+amount of VRAM.
+
+Important fields:
+
+- ticket: reservation id
+- lane: modality lane
+- estimateMb: expected VRAM use
+- reason: human reason, such as model name or workflow name
+- priority: background, normal, or interactive
+- evicts: none, soft, or hard
+- restoreOnIdle: whether the lane should come back when room opens
+- modelId: optional model/group id
+- swapTo: optional smaller model target for downgrade behavior
+- acquiredAt and lastTouchAt
+- ttlMs
+
+KV Cache Telemetry
+
+The KV cache was recently added to the ledger because VRAM alone was too
+coarse. llama.cpp context capacity can be the hidden limiter even when global
+free VRAM looks acceptable.
+
+KV data comes from llama-swap /running, then llama.cpp /props and /slots for
+each active proxy.
+
+Important fields:
+
+- provider: currently "llamacpp"
+- modelId: llama-swap group id, for example qwen3.5-9b
+- state: ready, loading, etc.
+- proxyUrl: backend llama.cpp server
+- metricsEnabled: whether llama.cpp /metrics is enabled
+- slotCount: number of llama.cpp slots
+- activeSlots: slots currently processing
+- slotContextTokens: context length per slot
+- logicalContextTokens: sum of all slot context capacity
+- decodedTokens: current decoded token hints from slots
+- processUsedMemoryMb: llama.cpp process VRAM when it can be attached safely
+- error: if slots/props cannot be read
+
+Current limitation:
+
+If llama.cpp is not started with --metrics, the UI can still show slot/context
+capacity from /slots and /props, but exact Prometheus-style metrics are off.
+The UI should label this clearly as "metrics off", not as an error.
+
+
+Live Snapshot Example
+
+Example state observed while qwen3.5-9b was running:
+
+- GPU total: 24576 MB
+- GPU used: 13329 MB
+- GPU free: 10793 MB
+- reserve: 2048 MB
+- llama.cpp process VRAM: 9800 MB
+- active model: qwen3.5-9b
+- llama.cpp slots: 4
+- context per slot: 262144 tokens
+- logical context capacity: 1048576 tokens
+- decoded tokens: 4
+- metrics: off
+- active reservations: none at that instant
+
+This is important because the model is loaded and using VRAM even if no
+arbiter reservation is currently held.
+
+
+Arbiter Behavior
+
+Acquire
+
+Every load should call acquire with:
+
+- lane
+- estimateMb
+- reason
+- priority
+- evicts mode
+- optional ttlMs
+- optional restoreOnIdle
+- optional modelId
+- optional swapTo
+
+Admission logic:
+
+1. Refresh the ledger.
+2. If freeMb >= estimateMb + reserveMb, grant immediately.
+3. If it does not fit and evicts is none, deny.
+4. If evicts is soft, queue and wait up to ttlMs.
+5. If evicts is hard, evict allowed lanes, unload the backend, wait for VRAM,
+   then grant if enough memory appears.
+
+Eviction Policy
+
+Read the policy as: "to admit a request on lane X, the arbiter may evict
+reservations on these lanes."
+
+- chat may evict chat only
+- vision may evict vision only
+- tts may evict tts only
+- stt may evict stt only
+- image may evict image, audio, 3d, video
+- audio may evict image, audio, 3d, video
+- 3d may evict image, audio, 3d, chat, vision
+- video may evict image, audio, 3d, video, chat, vision
+- omni may evict chat, vision, tts, stt, omni
+
+Downgrade Swap
+
+The chat lane can avoid full unload by using swapTo. Example:
+
+- current reservation: qwen3.5-35b, 16000 MB
+- swapTo: qwen3.5-9b, 6000 MB
+- a heavy 3d request arrives
+- arbiter unloads 35B
+- arbiter leaves chat occupied by the smaller 9B shape
+- original large model is queued for restore-on-idle
+
+The UI should make this visible as a first-class event, not just an unload.
+Use language like:
+
+"Chat downgraded from qwen3.5-35b to qwen3.5-9b, freeing about 10 GB."
+
+Restore-on-Idle
+
+Evicted sticky lanes may be restored after the heavier workload leaves and
+enough headroom exists. The UI should show pending restores separately from
+active reservations.
+
+OOM Handling
+
+If a sidecar reports OOM, the arbiter emits an oom event and drops reservations
+for that failing lane. The UI should make OOM obvious and show which lane lost
+trust in its reservation.
+
+
+Backend Unload Mapping
+
+The UI should explain actions in terms of lane and backend, not internal code.
+
+Current unload behavior:
+
+- chat and vision: llama-swap first, then Ollama fallback
+- image, audio, 3d, video: ComfyUI /free
+- stt and tts: voice-core engine unload
+- omni: qwen-omni sidecar session delete
+
+Action labels should say what will happen:
+
+- "Unload chat model"
+- "Swap chat to smaller model"
+- "Free ComfyUI cache"
+- "Unload TTS engine"
+- "End omni session"
+
+Avoid vague labels like "clear" or "reset".
+
+
+Primary UI Goals
+
+The UI should answer these questions quickly:
+
+1. What is loaded on the GPU right now?
+2. How much VRAM is actually free after reserve?
+3. Which modality lane owns each reservation?
+4. Is a model loaded without a matching reservation?
+5. Which lane will be evicted if I start a heavy task?
+6. Is chat using a large model, a downgraded model, or queued for restore?
+7. Is the bottleneck VRAM, KV/context slots, queueing, or a failed unload?
+8. Did an OOM happen, and which reservation became invalid?
+9. Are llama.cpp metrics enabled or only slot telemetry available?
+
+
+Recommended UI Layout
+
+Use one main screen. No landing page.
+
+Top band: GPU Budget
+
+Show:
+
+- total VRAM
+- used VRAM
+- free VRAM
+- reserve
+- available after reserve
+- source, such as nvidia-smi
+- poll freshness
+
+Use one horizontal bar:
+
+- used memory
+- free memory
+- reserved headroom band
+- optional warning color if free-after-reserve is low
+
+Second band: Active Model Stack
+
+A dense lane table or lane grid. One row per lane.
+
+Columns:
+
+- lane
+- state: idle, reserved, loaded, queued, evicting, restoring, OOM
+- model or workflow
+- estimate
+- actual process VRAM if known
+- priority
+- eviction mode
+- restore state
+- last touched
+- action menu
+
+The key visual trick:
+
+Separate "reserved" from "observed process". A lane can be loaded in the GPU
+process list even if the arbiter has no reservation, and that mismatch matters.
+
+Third band: KV / Context
+
+Show per llama.cpp model:
+
+- model id
+- state
+- active slots / total slots
+- context per slot
+- logical context tokens
+- decoded tokens
+- process VRAM
+- metrics on/off
+- endpoint health
+
+Use this table only when kvCaches has rows. If no rows exist, show a compact
+empty state: "No llama.cpp KV telemetry from active llama-swap models."
+
+Fourth band: Event Timeline
+
+A short rolling feed. Group noisy ledger refreshes separately or hide them by
+default.
+
+Important event colors:
+
+- green: acquire-granted
+- yellow: queued or restore-scheduled
+- blue: downgrade-swap
+- orange: evict-start / evict-done
+- red: denied, failed, OOM
+
+Fifth band or side panel: What Happens If I Launch This?
+
+This is the powerful part. Provide a small simulator:
+
+- choose target lane
+- choose model/workflow
+- show estimated MB
+- choose priority and evict mode
+- preview decision:
+  - fits now
+  - denied because reserve would be crossed
+  - will evict X
+  - will downgrade chat from A to B
+  - will queue behind lane Y
+
+This panel can be read-only at first. Later it can trigger real acquires.
+
+
+Interaction Model
+
+Default should be observe-first.
+
+Safe actions:
+
+- refresh ledger
+- filter events
+- inspect reservation
+- inspect process
+- simulate acquire
+
+Actions that need explicit confirmation:
+
+- unload a lane
+- force release reservation
+- hard acquire that can evict another lane
+- downgrade swap
+- end omni session
+- free ComfyUI memory
+- restart any service
+
+No service restart should happen from this UI without explicit approval.
+
+
+Visual Design Guidance
+
+Use a quiet operations-dashboard style.
+
+Prefer:
+
+- compact tables
+- clear chips for lanes
+- strong numbers for VRAM
+- small inline trend/freshness indicators
+- stable row heights
+- icons for actions
+- tooltips for technical fields
+- restrained color
+
+Avoid:
+
+- hero pages
+- large decorative cards
+- marketing copy
+- one-color purple/blue gradient dashboards
+- nested cards
+- vague AI assistant prose inside the app
+- text that explains obvious controls
+
+Lane colors can be consistent:
+
+- chat: blue
+- vision: violet
+- tts/stt: green
+- image: orange
+- audio: yellow
+- 3d/video: red/pink
+- omni: lime
+
+Warnings:
+
+- free-after-reserve below 1 GB: caution
+- failed unload: error
+- OOM: error
+- metrics off: neutral warning, not failure
+- loaded-without-reservation: warning
+
+
+Data Shape For UI
+
+LedgerSnapshot:
+
+- at: epoch ms
+- source: nvidia-smi, ps-rss, or unknown
+- totalMb
+- usedMb
+- freeMb
+- reserveMb
+- processes[]
+- kvCaches[]
+- reservations[]
+
+GpuProcess:
+
+- pid
+- processName
+- usedMemoryMb
+- providerHint, such as llamacpp, pytorch, other
+
+Reservation:
+
+- ticket
+- lane
+- estimateMb
+- reason
+- priority
+- evicts
+- restoreOnIdle
+- modelId
+- swapTo
+- acquiredAt
+- lastTouchAt
+- ttlMs
+
+KvCacheTelemetry:
+
+- provider
+- modelId
+- state
+- proxyUrl
+- source
+- metricsEnabled
+- slots[]
+- slotCount
+- activeSlots
+- slotContextTokens
+- logicalContextTokens
+- decodedTokens
+- processUsedMemoryMb
+- error
+
+
+Suggested Component Names
+
+- ResourceOverview
+- GpuBudgetBar
+- LaneMatrix
+- LaneRow
+- ReservationInspector
+- KvContextTable
+- ProcessTable
+- EventTimeline
+- LaunchPreview
+- EvictionPlanPreview
+- BackendHealthBadges
+- ResourceActionMenu
+
+
+Important UX Details
+
+Show both "free VRAM" and "available after reserve".
+
+If freeMb is 10793 and reserveMb is 2048, the useful launch budget is 8745 MB.
+That is the number users need when deciding if a model can load.
+
+Make mismatches visible.
+
+Example mismatch:
+
+- no active chat reservation
+- but llama.cpp process uses 9800 MB
+- and kvCaches shows qwen3.5-9b ready
+
+The UI should show: "Loaded, not reserved" or "Observed outside reservation".
+
+Make downgrade swaps easy to understand.
+
+Do not show only "evict chat". Show:
+
+- current model
+- fallback model
+- estimated freed memory
+- restore status
+
+Make KV cache understandable without overexplaining.
+
+Good labels:
+
+- Slots
+- Active
+- Ctx / Slot
+- Logical Ctx
+- Decoded
+- Metrics
+
+Tooltip examples:
+
+- Ctx / Slot: maximum context tokens per llama.cpp slot.
+- Logical Ctx: total slot context capacity, not necessarily memory currently filled.
+- Metrics off: llama.cpp was not started with --metrics; slot telemetry is still available.
+
+
+MVP Scope
+
+Build the first version as read-only plus simulation.
+
+Must have:
+
+- GPU budget strip
+- lane/reservation table
+- process table
+- KV/context table
+- event timeline
+- launch preview/simulator
+- loaded-without-reservation warning
+
+Can wait:
+
+- real unload buttons
+- real hard-acquire buttons
+- service restart controls
+- historical charts
+- Prometheus metric charts
+
+
+Success Criteria
+
+The UI succeeds if an operator can look at it for five seconds and know:
+
+- what is loaded
+- what lane owns what
+- how much room is available after reserve
+- whether chat is big, small, or waiting to restore
+- whether KV/context capacity matters
+- what would be evicted by launching image, 3d, video, or omni
+- whether a failure is a denial, an unload failure, or an OOM
+
+The UI should make GPU model orchestration feel explicit rather than magical.

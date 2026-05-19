@@ -1,0 +1,49 @@
+platform: windows
+ollama:
+  install:
+    consent:
+      title: "Install Ollama for me"
+      summary: "Installs Ollama via the Windows Package Manager (winget). Requires winget to be installed (preinstalled on Windows 11 and recent Windows 10). If you see an admin prompt, that's the installer asking permission."
+      command_preview: "winget install --exact --id Ollama.Ollama --silent --accept-package-agreements --accept-source-agreements"
+      manual_fallback: "Download the installer from https://ollama.com/download/windows and run it."
+    command:
+      bin: winget
+      # `--exact` blocks winget's disambiguation prompt on substring matches.
+      args:
+        - install
+        - --exact
+        - --id
+        - Ollama.Ollama
+        - --silent
+        - --accept-package-agreements
+        - --accept-source-agreements
+      timeout_ms: 600000
+    verify:
+      bin: ollama
+      args:
+        - --version
+      expect_exit: 0
+  service:
+    # The Ollama installer usually registers a tray app, not a Windows service —
+    # Start-Service typically fails and the orchestrator falls through to the
+    # detached `ollama serve` fallback. We still try because Chocolatey / GPO
+    # deployments do install a real service. pwsh covers minimal Windows installs
+    # without legacy Windows PowerShell.
+    start_attempts:
+      - bin: powershell
+        args: ["-NoProfile", "-Command", "Start-Service -Name Ollama -ErrorAction Stop"]
+      - bin: pwsh
+        args: ["-NoProfile", "-Command", "Start-Service -Name Ollama -ErrorAction Stop"]
+    fallback:
+      bin: ollama
+      args: ["serve"]
+      detach: true
+    health_url: "http://127.0.0.1:11434/api/tags"
+    timeout_ms: 15000
+  pull:
+    throttle_ms: 500
+    timeout_ms: 1800000
+smoke:
+  prompt: "Say the word READY and nothing else."
+  num_predict: 64
+  timeout_ms: 90000

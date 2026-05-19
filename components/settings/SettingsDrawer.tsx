@@ -151,6 +151,31 @@ function useProviderInfo() {
   };
 }
 
+// Probe only local backends — cloud probes would burn API credits.
+function useLocalBackendHealth(open: boolean) {
+  const [health, setHealth] = useState<{ ollama?: boolean; llama_server?: boolean }>({});
+
+  const probe = useCallback(async () => {
+    const one = async (provider: "ollama" | "llama_server") => {
+      try {
+        const res = await fetch("/api/backend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, setActive: false }),
+        });
+        return res.ok && !!(await res.json()).healthy;
+      } catch {
+        return false;
+      }
+    };
+    const [ollama, llama_server] = await Promise.all([one("ollama"), one("llama_server")]);
+    setHealth({ ollama, llama_server });
+  }, []);
+
+  useEffect(() => { if (open) probe(); }, [open, probe]);
+  return { health, refresh: probe };
+}
+
 export function SettingsDrawer() {
   const { prefs, updatePrefs, updateVoicePrefs, settingsOpen, setSettingsOpen } =
     useDeckSettings();
@@ -162,6 +187,8 @@ export function SettingsDrawer() {
     selectProvider,
     availableProviders,
   } = useProviderInfo();
+  const { health: backendHealth, refresh: refreshBackendHealth } =
+    useLocalBackendHealth(settingsOpen);
 
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
@@ -332,7 +359,13 @@ export function SettingsDrawer() {
           <section>
             <SectionHeader>Model</SectionHeader>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {/* Provider */}
+              <SettingRow label="Backend">
+                <BackendPills
+                  active={selectedProvider || "ollama"}
+                  health={backendHealth}
+                  onPick={(p) => { selectProvider(p); refreshBackendHealth(); }}
+                />
+              </SettingRow>
               <SettingRow label="Provider">
                 <AppleSelect
                   value={selectedProvider || "ollama"}
@@ -680,6 +713,52 @@ function PrecisionToggle({
         }}
       />
     </button>
+  );
+}
+
+function BackendPills({
+  active,
+  health,
+  onPick,
+}: {
+  active: string;
+  health: { ollama?: boolean; llama_server?: boolean };
+  onPick: (provider: "ollama" | "llama_server") => void;
+}) {
+  const opts: Array<{ id: "ollama" | "llama_server"; label: string }> = [
+    { id: "ollama", label: "Ollama" },
+    { id: "llama_server", label: "llama.cpp" },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      {opts.map(({ id, label }) => {
+        const on = active === id;
+        const h = health[id];
+        const dot = h === undefined ? "var(--text-muted)" : h ? "var(--accent)" : "#cf4646";
+        return (
+          <button
+            key={id}
+            onClick={() => onPick(id)}
+            title={h === undefined ? "probing…" : h ? "reachable" : "offline"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              padding: "5px 10px",
+              borderRadius: 999,
+              border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
+              background: on ? "var(--bg-tertiary)" : "transparent",
+              color: on ? "var(--text-primary)" : "var(--text-secondary)",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: 999, background: dot }} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

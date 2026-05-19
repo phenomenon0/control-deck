@@ -1,0 +1,45 @@
+platform: linux
+ollama:
+  install:
+    consent:
+      title: "Install Ollama for me"
+      summary: "Runs the official Ollama install script. Adds ~250 MB under /usr/local/bin. You'll see a system password prompt — that's pkexec asking for permission to write to /usr/local."
+      command_preview: "pkexec sh -c 'curl -fsSL https://ollama.com/install.sh | sh'"
+      manual_fallback: "curl -fsSL https://ollama.com/install.sh | sh"
+    command:
+      bin: pkexec
+      args:
+        - sh
+        - -c
+        - "curl -fsSL https://ollama.com/install.sh | sh"
+      timeout_ms: 300000
+    verify:
+      bin: which
+      args:
+        - ollama
+      expect_exit: 0
+  service:
+    start_attempts:
+      - bin: systemctl
+        args: ["--user", "start", "ollama"]
+      - bin: systemctl
+        args: ["start", "ollama"]
+    # Best-effort autostart for reboot survival. Non-zero exits ignored.
+    enable_attempts:
+      - bin: systemctl
+        args: ["--user", "enable", "ollama"]
+      - bin: systemctl
+        args: ["enable", "ollama"]
+    fallback:
+      bin: ollama
+      args: ["serve"]
+      detach: true
+    health_url: "http://127.0.0.1:11434/api/tags"
+    timeout_ms: 15000
+  pull:
+    throttle_ms: 500
+    timeout_ms: 1800000
+smoke:
+  prompt: "Say the word READY and nothing else."
+  num_predict: 64
+  timeout_ms: 60000

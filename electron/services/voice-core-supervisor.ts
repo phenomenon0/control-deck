@@ -1,17 +1,6 @@
-/**
- * Auto-spawn `apps/voice-core` from Electron main when the persisted slot
- * bindings indicate a tier was installed. Mirrors the `terminal-service.ts`
- * pattern: skip if the port is already listening, restart on crash up to 3
- * times in 5 minutes, kill on app quit.
- *
- * Tier read from `${userData}/inference-bindings.json` (or `./data/...` in
- * dev) — same precedence rules as `lib/inference/persistence.ts`.
- *
- * Spawn order:
- *   1. `uv run --directory apps/voice-core voice-core serve` (preferred)
- *   2. `<repo>/.venv-voice-core/bin/python -m voice_core serve` fallback
- *   3. system python3 from PATH if both above are missing
- */
+// Auto-spawn apps/voice-core from Electron main when tier bindings exist.
+// Skip if port already listening; restart up to 3× per 5 min; kill on quit.
+// Spawn order: uv run → repo .venv-voice-core → system python3.
 
 import { app } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -23,16 +12,47 @@ const RESTART_MAX = 3;
 const RESTART_WINDOW_MS = 5 * 60 * 1000;
 const RESTART_DELAY_MS = 2_000;
 
+export interface VoiceCoreSupervisorState {
+  /** True once we've exhausted the restart budget and stopped trying. */
+  gaveUp: boolean;
+  /** How many restarts have happened inside the current rolling window. */
+  restartCount: number;
+  /** Last non-zero exit, if any — for surfacing in the UI when gaveUp=true. */
+  lastExit: { code: number | null; signal: NodeJS.Signals | null; at: number } | null;
+  /** True if a child is currently spawned. */
+  running: boolean;
+}
+
 interface VoiceCoreProc {
   kill(): void;
+  /** Inspect supervisor health for the UI / IPC bridge. */
+  getState(): VoiceCoreSupervisorState;
+  /**
+   * Operator-initiated reset: clears the give-up state and restart history,
+   * then relaunches if a tier is persisted. Returns the post-reset state.
+   */
+  restart(): VoiceCoreSupervisorState;
 }
 
 let proc: ChildProcess | null = null;
 let restarts: number[] = []; // timestamps within current window
 let isShuttingDown = false;
+let gaveUp = false;
+let lastExit: VoiceCoreSupervisorState["lastExit"] = null;
+let lastHost = "127.0.0.1";
+let lastPort = 4245;
 
 interface PersistedBindings {
   selectedTier?: string;
+}
+
+function snapshot(): VoiceCoreSupervisorState {
+  return {
+    gaveUp,
+    restartCount: restarts.length,
+    lastExit,
+    running: proc !== null && !proc.killed,
+  };
 }
 
 export function startVoiceCoreSupervisor(): VoiceCoreProc {
@@ -45,6 +65,8 @@ export function startVoiceCoreSupervisor(): VoiceCoreProc {
 
   const host = process.env.VOICE_CORE_HOST ?? "127.0.0.1";
   const port = Number(process.env.VOICE_CORE_PORT ?? "4245");
+  lastHost = host;
+  lastPort = port;
 
   isPortListening(port, host).then((listening) => {
     if (listening) {
@@ -67,6 +89,24 @@ export function startVoiceCoreSupervisor(): VoiceCoreProc {
         }
       }
       proc = null;
+    },
+    getState: snapshot,
+    restart() {
+      console.log("[voice-core] operator restart: clearing give-up state");
+      gaveUp = false;
+      restarts = [];
+      lastExit = null;
+      if (proc && !proc.killed) {
+        try {
+          proc.kill("SIGTERM");
+        } catch {
+          /* ignore */
+        }
+        proc = null;
+      }
+      const tierNow = readPersistedTier();
+      if (tierNow) launch(lastHost, lastPort, tierNow);
+      return snapshot();
     },
   };
 }
@@ -206,12 +246,14 @@ function launch(host: string, port: number, tier: string): void {
     proc = null;
     if (signal === "SIGTERM" || isShuttingDown) return;
     console.warn(`[voice-core] exited code=${code} signal=${signal}`);
+    lastExit = { code, signal, at: Date.now() };
 
     const now = Date.now();
     restarts = restarts.filter((t) => now - t < RESTART_WINDOW_MS);
     if (restarts.length >= RESTART_MAX) {
+      gaveUp = true;
       console.error(
-        `[voice-core] giving up after ${RESTART_MAX} restarts in ${RESTART_WINDOW_MS / 1000}s`,
+        `[voice-core] giving up after ${RESTART_MAX} restarts in ${RESTART_WINDOW_MS / 1000}s — call restart() to retry`,
       );
       return;
     }

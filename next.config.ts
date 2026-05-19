@@ -11,6 +11,11 @@ const nextConfig: NextConfig = {
   // Pin the tracing root to the project so standalone/server.js lands at the
   // top level instead of mirroring the absolute project path.
   outputFileTracingRoot: path.join(__dirname),
+  // Force-include runtime files the tracer can't see through dynamic
+  // readFileSync paths (recipes resolved via `import.meta.url` + platform).
+  outputFileTracingIncludes: {
+    "/api/onboarding/**/*": ["./lib/onboarding/recipes/*.yaml"],
+  },
   // Keep unrelated project directories out of the standalone bundle.
   outputFileTracingExcludes: {
     "*": [

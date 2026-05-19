@@ -38,6 +38,20 @@ describe("recommendTier", () => {
     expect(r.best).toBe("T3_CPU");
   });
 
+  it("routes Intel Macs (discrete GPU, no unified memory) to T3_CPU", () => {
+    // detectBackend() now returns "cpu" for any darwin GPU without
+    // unifiedMemory — T1_MAC's whisper.cpp+CoreML stack needs the Apple
+    // Neural Engine, which Intel Macs don't have. Recommending T1_MAC
+    // would install a model the user can't actually accelerate.
+    const r = recommendTier({
+      backend: "cpu",
+      gpu: { name: "AMD Radeon Pro 5500M", vram: 4096, unifiedMemory: false },
+      ramGb: 16,
+    });
+    expect(r.best).toBe("T3_CPU");
+    expect(r.scores.T1_MAC).toBe(0);
+  });
+
   it("scales CUDA fit by VRAM tier", () => {
     const sixGb = recommendTier({
       backend: "cuda",

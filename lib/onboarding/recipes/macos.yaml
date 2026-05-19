@@ -1,0 +1,36 @@
+platform: macos
+ollama:
+  install:
+    consent:
+      title: "Install Ollama for me"
+      summary: "Installs Ollama via Homebrew. Requires `brew` to be on PATH already. If not, click the manual command below to install yourself."
+      command_preview: "brew install ollama"
+      manual_fallback: "brew install ollama  # or download from https://ollama.com/download"
+    command:
+      bin: brew
+      args:
+        - install
+        - ollama
+      timeout_ms: 300000
+    verify:
+      bin: which
+      args:
+        - ollama
+      expect_exit: 0
+  service:
+    start_attempts:
+      - bin: brew
+        args: ["services", "start", "ollama"]
+    fallback:
+      bin: ollama
+      args: ["serve"]
+      detach: true
+    health_url: "http://127.0.0.1:11434/api/tags"
+    timeout_ms: 15000
+  pull:
+    throttle_ms: 500
+    timeout_ms: 1800000
+smoke:
+  prompt: "Say the word READY and nothing else."
+  num_predict: 64
+  timeout_ms: 60000

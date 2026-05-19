@@ -33,8 +33,13 @@ INFERENCE_BACKEND="ollama"  # <-- CHANGE THIS TO SWAP: "atlas" or "ollama"
 if [ "$INFERENCE_BACKEND" = "atlas" ]; then
     export OLLAMA_MODEL="llama-3.2-3b-instruct-q4_k_m"
 else
-    export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2}"
+    export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
 fi
+
+# Point agent-ts at the ollama OpenAI-compatible endpoint instead of the
+# default llama-swap :8080. Override by exporting LLM_BASE_URL before invoking.
+export LLM_BASE_URL="${LLM_BASE_URL:-http://localhost:11434/v1}"
+export LLM_MODEL="${LLM_MODEL:-$OLLAMA_MODEL}"
 
 # Colors
 RED='\033[0;31m'

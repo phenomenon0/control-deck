@@ -33,8 +33,10 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const encoder = new TextEncoder();
-  // Hoisted so cancel() can flip it; the generator drops on next yield.
+  // Hoisted so cancel() can flip them. `closed` gates further enqueues; the
+  // AbortController is the real cancel signal threaded into the orchestrator.
   let closed = false;
+  const abortController = new AbortController();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const safeEnqueue = (bytes: Uint8Array) => {
@@ -49,7 +51,11 @@ export async function POST(req: Request): Promise<Response> {
         safeEnqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`));
       }, 15000);
       try {
-        for await (const step of runOnboarding({ tierOverride: body.tier, consents: body.consents })) {
+        for await (const step of runOnboarding({
+          tierOverride: body.tier,
+          consents: body.consents,
+          signal: abortController.signal,
+        })) {
           emit(step);
           if (closed) break;
         }
@@ -68,8 +74,13 @@ export async function POST(req: Request): Promise<Response> {
         try { controller.close(); } catch { /* already closed */ }
       }
     },
-    // Mutex stays held until the generator finishes — quick cancel/retry must not double-pull.
-    cancel() { closed = true; },
+    // Client disconnect — abort the generator so spawned children get killed
+    // and the mutex releases promptly. Without this, a 30-min pull stays
+    // running and blocks retries until it finishes naturally.
+    cancel() {
+      closed = true;
+      try { abortController.abort(); } catch { /* already aborted */ }
+    },
   });
 
   return new Response(stream, {

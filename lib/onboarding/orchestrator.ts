@@ -203,11 +203,23 @@ async function probeOnboardingWith(
 // Run — the actual one-click. Yields Step events.
 
 export async function* runOnboarding(
-  opts: { tierOverride?: TierId; consents?: Consents } = {},
+  opts: { tierOverride?: TierId; consents?: Consents; signal?: AbortSignal } = {},
 ): AsyncGenerator<Step, void, undefined> {
   const t0 = Date.now();
   const stamp = <S extends Step>(s: S): S => ({ ...s, t: Date.now() - t0 });
   const consents = opts.consents ?? {};
+  const signal = opts.signal;
+
+  // Yielded before `return` whenever the caller has aborted mid-run. Lets the
+  // SSE route emit one clean event instead of letting the generator throw.
+  const abortStep = (id: string): Step =>
+    stamp({
+      id,
+      title: "Onboarding cancelled",
+      status: "failed",
+      detail: "Cancelled by client. Click Retry to start over.",
+    });
+  const aborted = (): boolean => Boolean(signal?.aborted);
 
   // Load the recipe once and reuse it for both the probe and the run, so we
   // don't pay the filesystem cost twice and can't observe a TOCTOU swap.
@@ -321,7 +333,7 @@ export async function* runOnboarding(
     });
     let lastInstallEmit = 0;
     let lastLine: string | undefined;
-    for await (const line of streamChild(recipe.ollama.install.command)) {
+    for await (const line of streamChild(recipe.ollama.install.command, signal)) {
       lastLine = line.text;
       const now = Date.now();
       if (line.kind === "exit") {
@@ -350,6 +362,10 @@ export async function* runOnboarding(
         });
       }
     }
+    if (aborted()) {
+      yield abortStep("install-ollama");
+      return;
+    }
     // On Windows the installer writes PATH into the registry, but the running
     // Electron process holds a stale snapshot — refresh it before verify or
     // the new `ollama.exe` won't be visible to subsequent spawns.
@@ -359,6 +375,7 @@ export async function* runOnboarding(
       recipe.ollama.install.verify.bin,
       recipe.ollama.install.verify.args,
       5000,
+      signal,
     );
     if (verifyCode !== (recipe.ollama.install.verify.expect_exit ?? 0)) {
       yield stamp({
@@ -377,10 +394,14 @@ export async function* runOnboarding(
     });
   }
 
+  if (aborted()) {
+    yield abortStep("start-ollama");
+    return;
+  }
   // --- Ollama service ----------------------------------------------------
   if (probe.missing.ollamaService) {
     yield stamp({ id: "start-ollama", title: "Start Ollama service", status: "running" });
-    const started = await startOllamaService(recipe);
+    const started = await startOllamaService(recipe, signal);
     yield stamp({
       id: "start-ollama",
       title: "Start Ollama service",
@@ -410,7 +431,7 @@ export async function* runOnboarding(
     });
     let lastEmitted = 0;
     let sawSuccess = false;
-    for await (const evt of pullOllamaModel(tier.cascade.llm.id)) {
+    for await (const evt of pullOllamaModel(tier.cascade.llm.id, signal)) {
       // Throttle progress emits — Ollama streams hundreds of progress lines.
       const now = Date.now();
       if (evt.status === "running" && now - lastEmitted < throttleMs) continue;
@@ -450,6 +471,10 @@ export async function* runOnboarding(
     });
   }
 
+  if (aborted()) {
+    yield abortStep("voice-core");
+    return;
+  }
   // --- Voice-core ---------------------------------------------------------
   if (probe.missing.voiceCore) {
     // Try to install + spawn voice-core ourselves before giving up. This
@@ -457,7 +482,7 @@ export async function* runOnboarding(
     // isn't running. The supervisor (when present) will pick up the spawn
     // on next launch via the persisted tier file.
     yield stamp({ id: "voice-core", title: "Voice sidecar", status: "running" });
-    for await (const evt of provisionVoiceCore(tier.id)) {
+    for await (const evt of provisionVoiceCore(tier.id, signal)) {
       yield stamp({ id: "voice-core", title: "Voice sidecar", ...evt });
       if (evt.status === "failed") return;
     }
@@ -488,6 +513,10 @@ export async function* runOnboarding(
       : "ready",
   });
 
+  if (aborted()) {
+    yield abortStep("smoke");
+    return;
+  }
   // --- Smoke test ---------------------------------------------------------
   yield stamp({ id: "smoke", title: "Smoke-test the LLM", status: "running" });
   // First inference cold-loads the model from disk into RAM, which dominates
@@ -497,7 +526,7 @@ export async function* runOnboarding(
   if (smokeCfg && probe.hardware.backend === "cpu") {
     smokeCfg.timeout_ms = Math.max(smokeCfg.timeout_ms, 180_000);
   }
-  const smoke = await smokeTestLlm(tier.cascade.llm.id, smokeCfg);
+  const smoke = await smokeTestLlm(tier.cascade.llm.id, smokeCfg, signal);
   yield stamp({
     id: "smoke",
     title: "Smoke-test the LLM",
@@ -535,11 +564,13 @@ export async function readDoneState(): Promise<{
   done: boolean;
   tier?: TierId;
   completedAt?: string;
+  /** True when the user dismissed the gate via Skip rather than completing onboarding. */
+  skipped?: boolean;
   /** Live probe so the gate can detect "done but broken" (service died, port hijacked). */
   ollamaHealthy?: boolean;
 }> {
   if (!existsSync(DONE_FLAG)) return { done: false };
-  let stored: { tier?: TierId; completedAt?: string } = {};
+  let stored: { tier?: TierId; completedAt?: string; skipped?: boolean } = {};
   try {
     const raw = await readFile(DONE_FLAG, "utf8");
     stored = JSON.parse(raw);
@@ -651,14 +682,31 @@ async function refreshWindowsPath(): Promise<void> {
   });
 }
 
+// Known shell-pipeline tools we look for inside a `sh -c '…'` arg. Limited to
+// installers that recipes actually use today — keeps false positives out.
+const PIPELINE_CANDIDATES: readonly string[] = ["curl", "wget", "winget", "powershell"];
+
+// Split a `sh -c '...'`-style arg into shell tokens so we can detect required
+// tools precisely. Strips quotes and pipe / redirection / chaining operators
+// so `curl|wget` and `curl > /tmp/x` both surface their bare commands. Does
+// not implement full POSIX quoting — recipes today use simple commands.
+function shellTokens(arg: string): string[] {
+  return arg
+    .split(/[\s|;&<>()`]+/)
+    .map((t) => t.replace(/^['"]|['"]$/g, ""))
+    .filter(Boolean);
+}
+
 // First missing install dependency, or null if all present. Extracts pipeline
-// tools from shell-piped args (e.g. `sh -c 'curl … | sh'`).
+// tools from shell-piped args (e.g. `sh -c 'curl … | sh'`) via tokenisation
+// so different shell-quoting styles all surface the underlying command.
 async function firstMissingDependency(recipe: Recipe): Promise<string | null> {
   const cmd = recipe.ollama.install.command;
   const required = new Set<string>([cmd.bin]);
   for (const a of cmd.args) {
-    for (const candidate of ["curl", "wget", "winget", "powershell"]) {
-      if (a.includes(candidate + " ")) required.add(candidate);
+    const tokens = shellTokens(a);
+    for (const token of tokens) {
+      if (PIPELINE_CANDIDATES.includes(token)) required.add(token);
     }
   }
   required.add(recipe.ollama.install.verify.bin);
@@ -802,18 +850,27 @@ function engineLoadedOrAvailable(
   return Boolean(slot.available || slot.loaded);
 }
 
-async function startOllamaService(recipe: Recipe | null): Promise<{ ok: boolean; detail: string }> {
+async function startOllamaService(
+  recipe: Recipe | null,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; detail: string }> {
+  const cancelled = (): { ok: false; detail: string } => ({
+    ok: false,
+    detail: "Cancelled while starting Ollama.",
+  });
   const attempts: CommandSpec[] = recipe?.ollama.service.start_attempts ?? [
     { bin: "systemctl", args: ["--user", "start", "ollama"] },
     { bin: "systemctl", args: ["start", "ollama"] },
   ];
   for (const a of attempts) {
-    const code = await runOnce(a.bin, a.args, 5000);
+    if (signal?.aborted) return cancelled();
+    const code = await runOnce(a.bin, a.args, 5000, signal);
     if (code === 0) {
       // Poll up to 10 s for the API to answer.
       for (let i = 0; i < 20; i++) {
+        if (signal?.aborted) return cancelled();
         if (await probeOllamaService()) {
-          await enableServiceAutostart(recipe);
+          await enableServiceAutostart(recipe, signal);
           return { ok: true, detail: `via ${a.bin} ${a.args.join(" ")}` };
         }
         await sleep(500);
@@ -821,7 +878,10 @@ async function startOllamaService(recipe: Recipe | null): Promise<{ ok: boolean;
     }
   }
 
+  if (signal?.aborted) return cancelled();
   // Detached `ollama serve` fallback — won't survive reboot, but unblocks today.
+  // We intentionally let this survive an orchestrator abort: the user is
+  // cancelling the *onboarding flow*, not asking us to kill Ollama itself.
   const fallback: CommandSpec = recipe?.ollama.service.fallback ?? {
     bin: "ollama",
     args: ["serve"],
@@ -836,6 +896,7 @@ async function startOllamaService(recipe: Recipe | null): Promise<{ ok: boolean;
     });
     child.unref();
     for (let i = 0; i < 30; i++) {
+      if (signal?.aborted) return cancelled();
       if (await probeOllamaService()) {
         return {
           ok: true,
@@ -855,12 +916,16 @@ async function startOllamaService(recipe: Recipe | null): Promise<{ ok: boolean;
 
 // Best-effort autostart enable. All failures swallowed — missing unit /
 // non-systemd / sandboxed --user are all expected non-paths.
-async function enableServiceAutostart(recipe: Recipe | null): Promise<void> {
+async function enableServiceAutostart(
+  recipe: Recipe | null,
+  signal?: AbortSignal,
+): Promise<void> {
   const enables = recipe?.ollama.service.enable_attempts;
   if (!enables || enables.length === 0) return;
   for (const cmd of enables) {
+    if (signal?.aborted) return;
     try {
-      await runOnce(cmd.bin, cmd.args, 5000);
+      await runOnce(cmd.bin, cmd.args, 5000, signal);
     } catch {
       /* non-fatal — keep going */
     }
@@ -884,6 +949,7 @@ interface OllamaProgressEvent {
  */
 async function* provisionVoiceCore(
   tierId: TierId,
+  signal?: AbortSignal,
 ): AsyncGenerator<OllamaProgressEvent, void, undefined> {
   // Re-probe first — maybe the supervisor just spawned it.
   if ((await probeVoiceCore()).ok) {
@@ -911,7 +977,11 @@ async function* provisionVoiceCore(
   const venvReady = existsSync(venvBin) || existsSync(venvExe);
   if (!venvReady) {
     yield { status: "running", detail: "installing voice deps (uv sync)…" };
-    const code = await runOnce("uv", ["sync", "--directory", voiceCoreDir], 600_000);
+    const code = await runOnce("uv", ["sync", "--directory", voiceCoreDir], 600_000, signal);
+    if (signal?.aborted) {
+      yield { status: "failed", detail: "Cancelled during voice-deps install." };
+      return;
+    }
     if (code !== 0) {
       yield {
         status: "failed",
@@ -923,10 +993,14 @@ async function* provisionVoiceCore(
   // 2. Spawn detached. Don't unref before the process actually starts —
   // Bun spawn returns immediately, so the unref + poll cycle is safe.
   yield { status: "running", detail: "starting voice sidecar…" };
+  // Keep the child ref so we can kill it if /health never comes up or the
+  // orchestrator is aborted mid-poll — a leaked detached process would hold
+  // port 4245 and silently mask the next attempt as "available".
+  let child: ReturnType<typeof spawn> | null = null;
   try {
     const host = process.env.VOICE_CORE_HOST ?? "127.0.0.1";
     const port = process.env.VOICE_CORE_PORT ?? "4245";
-    const child = spawn(
+    child = spawn(
       "uv",
       ["run", "--directory", voiceCoreDir, "voice-core", "serve", "--host", host, "--port", port, "--tier", tierId],
       { detached: true, stdio: "ignore", env: augmentedEnv(), windowsHide: true },
@@ -936,29 +1010,53 @@ async function* provisionVoiceCore(
     yield { status: "failed", detail: `Failed to spawn voice-core: ${(err as Error).message}` };
     return;
   }
+  const killSpawn = (): void => {
+    if (!child) return;
+    try { child.kill("SIGTERM"); } catch { /* may already be gone */ }
+    setTimeout(() => {
+      try { child?.kill("SIGKILL"); } catch { /* gone */ }
+    }, 2000).unref();
+    child = null;
+  };
   // 3. Poll /health up to 30 s — first start cold-loads the engine.
   for (let i = 0; i < 60; i++) {
+    if (signal?.aborted) {
+      killSpawn();
+      yield { status: "failed", detail: "Cancelled while voice-core was starting." };
+      return;
+    }
     if ((await probeVoiceCore()).ok) {
       yield { status: "done", detail: "started" };
       return;
     }
     await sleep(500);
   }
+  // Health timeout — kill the spawned process so the port doesn't stay held
+  // by a half-broken instance that masks the next retry.
+  killSpawn();
   yield {
     status: "failed",
     detail: "voice-core didn't respond on /health within 30 s. Check apps/voice-core/ logs and click Retry.",
   };
 }
 
-async function* pullOllamaModel(modelId: string): AsyncGenerator<OllamaProgressEvent, void, undefined> {
+async function* pullOllamaModel(
+  modelId: string,
+  signal?: AbortSignal,
+): AsyncGenerator<OllamaProgressEvent, void, undefined> {
   let resp: Response;
   try {
     resp = await fetch(`${OLLAMA_URL}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: modelId, stream: true }),
+      signal,
     });
   } catch (err) {
+    if (signal?.aborted) {
+      yield { status: "failed", detail: "Pull cancelled." };
+      return;
+    }
     yield { status: "failed", detail: (err as Error).message };
     return;
   }
@@ -970,7 +1068,25 @@ async function* pullOllamaModel(modelId: string): AsyncGenerator<OllamaProgressE
   const decoder = new TextDecoder();
   let buf = "";
   while (true) {
-    const { value, done } = await reader.read();
+    if (signal?.aborted) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      yield { status: "failed", detail: "Pull cancelled — retry resumes from the partial cache." };
+      return;
+    }
+    let value: Uint8Array | undefined;
+    let done: boolean;
+    try {
+      const read = await reader.read();
+      value = read.value;
+      done = read.done;
+    } catch (err) {
+      if (signal?.aborted) {
+        yield { status: "failed", detail: "Pull cancelled — retry resumes from the partial cache." };
+        return;
+      }
+      yield { status: "failed", detail: (err as Error).message };
+      return;
+    }
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     let nl = buf.indexOf("\n");
@@ -1019,12 +1135,18 @@ async function* pullOllamaModel(modelId: string): AsyncGenerator<OllamaProgressE
 async function smokeTestLlm(
   modelId: string,
   smoke?: { prompt: string; num_predict: number; timeout_ms: number },
+  signal?: AbortSignal,
 ): Promise<{ ok: boolean; detail: string }> {
   const cfg = smoke ?? {
     prompt: "Say the word READY and nothing else.",
     num_predict: 64,
     timeout_ms: 60_000,
   };
+  // Combine the smoke-test timeout with the orchestrator-level cancel so
+  // either trigger aborts the fetch cleanly.
+  const fetchSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(cfg.timeout_ms)])
+    : AbortSignal.timeout(cfg.timeout_ms);
   try {
     const start = Date.now();
     const r = await fetch(`${OLLAMA_URL}/api/generate`, {
@@ -1037,7 +1159,7 @@ async function smokeTestLlm(
         think: false,
         options: { num_predict: cfg.num_predict, temperature: 0 },
       }),
-      signal: AbortSignal.timeout(cfg.timeout_ms),
+      signal: fetchSignal,
     });
     if (!r.ok) {
       return { ok: false, detail: `ollama /api/generate → ${r.status}` };
@@ -1054,6 +1176,8 @@ async function smokeTestLlm(
     };
   } catch (err) {
     const e = err as Error;
+    // External cancel wins over the timeout message — keep the copy honest.
+    if (signal?.aborted) return { ok: false, detail: "Cancelled by client." };
     if (e.name === "AbortError" || /aborted|timeout/i.test(e.message)) {
       return {
         ok: false,
@@ -1074,8 +1198,15 @@ interface ChildLine {
 /**
  * Spawn a child and yield each stdout/stderr line followed by a final exit event.
  * Used for the Ollama install so we can stream curl progress into the UI.
+ *
+ * Pass `signal` from `runOnboarding` to kill the child when the caller cancels
+ * (e.g. SSE client disconnect). Without that, a 30-minute install holds the
+ * onboarding mutex until it completes naturally.
  */
-async function* streamChild(cmd: CommandSpec): AsyncGenerator<ChildLine, void, undefined> {
+async function* streamChild(
+  cmd: CommandSpec,
+  signal?: AbortSignal,
+): AsyncGenerator<ChildLine, void, undefined> {
   const child = spawn(cmd.bin, cmd.args, {
     stdio: ["ignore", "pipe", "pipe"],
     env: augmentedEnv(),
@@ -1116,25 +1247,42 @@ async function* streamChild(cmd: CommandSpec): AsyncGenerator<ChildLine, void, u
   pipe(child.stdout!, "stdout");
   pipe(child.stderr!, "stderr");
 
+  const killChild = (): void => {
+    if (exited) return;
+    try { child.kill("SIGTERM"); } catch { /* may already be gone */ }
+    setTimeout(() => {
+      if (!exited) { try { child.kill("SIGKILL"); } catch { /* gone */ } }
+    }, 2000).unref();
+  };
+
   const timeoutMs = cmd.timeout_ms ?? 300_000;
-  const timer = setTimeout(() => {
-    if (!exited) {
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 2000).unref();
-    }
-  }, timeoutMs);
+  const timer = setTimeout(killChild, timeoutMs);
   timer.unref?.();
+
+  // External cancel — kill the child immediately so we don't burn the mutex
+  // waiting for a multi-minute installer that nobody's watching.
+  let onAbort: (() => void) | null = null;
+  if (signal) {
+    if (signal.aborted) {
+      killChild();
+    } else {
+      onAbort = () => killChild();
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
 
   child.on("exit", (code) => {
     exited = true;
     exitCode = code;
     clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
     push({ kind: "exit", text: "", code });
   });
   child.on("error", (err) => {
     if (exited) return;
     exited = true;
     clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
     push({ kind: "exit", text: err.message, code: null });
   });
 
@@ -1159,20 +1307,55 @@ function trimLine(s: string): string {
   return clean.length > 80 ? clean.slice(-80) : clean;
 }
 
-function runOnce(cmd: string, args: string[], timeoutMs: number): Promise<number | null> {
+function runOnce(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<number | null> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { stdio: "ignore", env: augmentedEnv(), windowsHide: true });
+    let settled = false;
+    const settle = (code: number | null): void => {
+      if (settled) return;
+      settled = true;
+      if (onAbort && signal) signal.removeEventListener("abort", onAbort);
+      resolve(code);
+    };
+    const killEscalating = (): void => {
+      try { child.kill("SIGTERM"); } catch { /* may already be gone */ }
+      // Some installers ignore SIGTERM under signal masks. Force-kill after 2s
+      // so the orchestrator doesn't wedge forever.
+      setTimeout(() => {
+        if (!settled) { try { child.kill("SIGKILL"); } catch { /* gone */ } }
+      }, 2000).unref();
+    };
     const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      resolve(null);
+      killEscalating();
+      settle(null);
     }, timeoutMs);
+    let onAbort: (() => void) | null = null;
+    if (signal) {
+      if (signal.aborted) {
+        killEscalating();
+        clearTimeout(timer);
+        settle(null);
+      } else {
+        onAbort = () => {
+          killEscalating();
+          clearTimeout(timer);
+          settle(null);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    }
     child.on("exit", (code) => {
       clearTimeout(timer);
-      resolve(code);
+      settle(code);
     });
     child.on("error", () => {
       clearTimeout(timer);
-      resolve(null);
+      settle(null);
     });
   });
 }

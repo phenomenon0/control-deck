@@ -130,7 +130,11 @@ export function sanitizeWorkflowInput(input: ComfyWorkflowInput): ComfyWorkflowI
     description: normalizeOptionalText(input.description),
     format,
     uiWorkflowJson,
-    comfyPath: uiWorkflowJson ? normalizeComfyWorkflowPath(input.comfyPath ?? `${slug}.json`) : undefined,
+    comfyPath: uiWorkflowJson
+      ? input.comfyPath
+        ? normalizeComfyWorkflowPath(input.comfyPath)
+        : `workflows/${slug}.json`
+      : undefined,
     tags,
     lane,
     estimateMb: normalizeEstimate(input.estimateMb, lane),
@@ -294,7 +298,10 @@ function normalizeComfyWorkflowPath(path: string): string {
   if (parts.length !== 2 || parts[0] !== "workflows" || !parts[1].endsWith(".json")) {
     throw new Error("Comfy workflow path must be workflows/<name>.json");
   }
-  return `workflows/${normalizeWorkflowSlug(parts[1].replace(/\.json$/i, ""))}.json`;
+  if (parts[1].replace(/\.json$/i, "").trim() === "" || parts[1].includes("..") || /[\\]/.test(parts[1])) {
+    throw new Error("Comfy workflow filename is not allowed");
+  }
+  return `workflows/${parts[1]}`;
 }
 
 function normalizeEstimate(value: number | undefined, lane: ComfyWorkflowLane): number {

@@ -39,6 +39,16 @@ describe("Comfy workflow helpers", () => {
 
     expect(clean.format).toBe("api_prompt");
     expect(clean.uiWorkflowJson).toEqual({ nodes: [], links: [] });
+    expect(clean.comfyPath).toBe("workflows/Flux Draft.json");
+  });
+
+  test("uses normalized slug path when no Comfy path is supplied", () => {
+    const clean = sanitizeWorkflowInput({
+      name: "Flux Draft",
+      workflowJson: { nodes: [], links: [] },
+    });
+
+    expect(clean.format).toBe("ui_graph");
     expect(clean.comfyPath).toBe("workflows/flux-draft.json");
   });
 

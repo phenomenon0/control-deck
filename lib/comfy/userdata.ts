@@ -15,6 +15,10 @@ export function comfyWorkflowPath(slugOrName: string): string {
   return `workflows/${base}.json`;
 }
 
+export function normalizeComfyUserWorkflowPath(path: string): string {
+  return normalizeUserWorkflowPath(path, { normalizeName: false });
+}
+
 export async function listComfyUserWorkflows(): Promise<ComfyUserWorkflowFile[]> {
   const res = await fetch(`${COMFY_URL}/v2/userdata?path=workflows`, {
     cache: "no-store",
@@ -34,7 +38,7 @@ export async function listComfyUserWorkflows(): Promise<ComfyUserWorkflowFile[]>
 }
 
 export async function getComfyUserWorkflow(path: string): Promise<unknown> {
-  const safePath = normalizeUserWorkflowPath(path, { normalizeName: false });
+  const safePath = normalizeComfyUserWorkflowPath(path);
   const res = await fetch(`${COMFY_URL}/userdata/${encodePath(safePath)}`, {
     cache: "no-store",
     signal: AbortSignal.timeout(4000),
@@ -44,7 +48,7 @@ export async function getComfyUserWorkflow(path: string): Promise<unknown> {
 }
 
 export async function saveComfyUserWorkflow(path: string, workflowJson: unknown): Promise<ComfyUserWorkflowFile> {
-  const safePath = normalizeUserWorkflowPath(path, { normalizeName: true });
+  const safePath = normalizeComfyUserWorkflowPath(path);
   const body = JSON.stringify(workflowJson, null, 2);
   const bytes = Buffer.byteLength(body, "utf8");
   if (bytes > MAX_COMFY_WORKFLOW_BYTES) {
@@ -80,7 +84,7 @@ function normalizeUserWorkflowPath(path: string, options: { normalizeName: boole
   if (options.normalizeName) {
     return `workflows/${normalizeWorkflowSlug(parts[1].replace(/\.json$/i, ""))}.json`;
   }
-  if (parts[1].includes("..") || /[\\]/.test(parts[1])) {
+  if (parts[1].replace(/\.json$/i, "").trim() === "" || parts[1].includes("..") || /[\\]/.test(parts[1])) {
     throw new Error("Comfy workflow filename is not allowed");
   }
   return `workflows/${parts[1]}`;

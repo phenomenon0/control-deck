@@ -72,6 +72,7 @@ interface DraftState {
   lane: WorkflowLane;
   estimateMb: number;
   format: WorkflowFormat | "auto";
+  comfyPath: string;
 }
 
 export interface ComfyPaneHandle {
@@ -88,6 +89,7 @@ const emptyDraft: DraftState = {
   lane: "image",
   estimateMb: 8000,
   format: "auto",
+  comfyPath: "",
 };
 
 export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, ref) {
@@ -99,6 +101,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
   const [draft, setDraft] = useState<DraftState>(emptyDraft);
   const [jsonText, setJsonText] = useState("");
   const [uiGraphText, setUiGraphText] = useState("");
+  const [comfyFilesError, setComfyFilesError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,9 +140,12 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
     try {
       const res = await fetch("/api/comfy/user-workflows", { cache: "no-store" });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Comfy files unavailable");
       setComfyFiles(Array.isArray(data.files) ? data.files : []);
+      setComfyFilesError(null);
     } catch {
       setComfyFiles([]);
+      setComfyFilesError("Comfy workflow files unavailable.");
     }
   }, []);
 
@@ -233,6 +239,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
       lane: workflow.lane,
       estimateMb: workflow.estimateMb,
       format: workflow.format,
+      comfyPath: workflow.comfyPath ?? "",
     });
     setJsonText(JSON.stringify(workflow.workflowJson, null, 2));
     const graphJson = workflow.uiWorkflowJson ?? (workflow.format === "ui_graph" ? workflow.workflowJson : undefined);
@@ -286,7 +293,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
         format: draft.format === "auto" ? undefined : draft.format,
         workflowJson,
         uiWorkflowJson,
-        comfyPath: selectedWorkflow?.comfyPath,
+        comfyPath: draft.comfyPath || selectedWorkflow?.comfyPath,
       };
       const res = await fetch(draft.id ? `/api/comfy/workflows/${draft.id}` : "/api/comfy/workflows", {
         method: draft.id ? "PUT" : "POST",
@@ -315,15 +322,15 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
           syncError = error instanceof Error ? error.message : "Comfy sync failed.";
         }
       }
-      setNotice(
+      const noticeText =
         syncError
           ? `Saved @workflow/${data.workflow.slug}. Comfy sync failed: ${syncError}`
           : syncFile
             ? `Saved @workflow/${data.workflow.slug} + ${syncFile.path}.`
-            : `Saved @workflow/${data.workflow.slug}.`,
-      );
+            : `Saved @workflow/${data.workflow.slug}.`;
       await Promise.all([fetchWorkflows(), fetchComfyFiles()]);
       selectWorkflow(data.workflow);
+      setNotice(noticeText);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Save failed.");
     } finally {
@@ -457,6 +464,7 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
         name: file.name.replace(/\.json$/i, ""),
         slug: file.name.replace(/\.json$/i, ""),
         format: isUiGraphJson(data.workflowJson) ? "ui_graph" : prev.format,
+        comfyPath: file.path,
       }));
       setNotice(`Imported ${file.path}.`);
     } catch (error) {
@@ -629,7 +637,9 @@ export const ComfyPane = forwardRef<ComfyPaneHandle>(function ComfyPane(_props, 
             <button type="button" style={linkButton} onClick={fetchComfyFiles}>refresh</button>
           </div>
           <div style={workflowList}>
-            {comfyFiles.length === 0 ? (
+            {comfyFilesError ? (
+              <p style={errorText}>{comfyFilesError}</p>
+            ) : comfyFiles.length === 0 ? (
               <p style={empty}>No Comfy workflow files found.</p>
             ) : (
               comfyFiles.slice(0, 8).map((file) => (
@@ -1003,6 +1013,7 @@ const miniAction: React.CSSProperties = {
   background: "rgba(0,0,0,0.22)",
 };
 const empty: React.CSSProperties = { margin: 0, fontSize: 12, opacity: 0.55 };
+const errorText: React.CSSProperties = { margin: 0, fontSize: 12, color: "#ff9a9a" };
 const muted: React.CSSProperties = { fontSize: 11, opacity: 0.55 };
 const mono: React.CSSProperties = { fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11 };
 const jobRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12 };

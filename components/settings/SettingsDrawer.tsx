@@ -19,6 +19,8 @@ import {
   type TypeSet,
   type Warmth,
 } from "@/components/warp/WarpProvider";
+import { useHardwareProviders } from "@/lib/hooks/useHardwareProviders";
+import type { ProviderSnapshot } from "@/lib/hardware/providers/types";
 
 interface ProviderOption {
   id: string;
@@ -151,30 +153,15 @@ function useProviderInfo() {
   };
 }
 
-// Probe only local backends — cloud probes would burn API credits.
-function useLocalBackendHealth(open: boolean) {
-  const [health, setHealth] = useState<{ ollama?: boolean; llama_server?: boolean }>({});
-
-  const probe = useCallback(async () => {
-    const one = async (provider: "ollama" | "llama_server") => {
-      try {
-        const res = await fetch("/api/backend", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider, setActive: false }),
-        });
-        return res.ok && !!(await res.json()).healthy;
-      } catch {
-        return false;
-      }
-    };
-    const [ollama, llama_server] = await Promise.all([one("ollama"), one("llama_server")]);
-    setHealth({ ollama, llama_server });
-  }, []);
-
-  useEffect(() => { if (open) probe(); }, [open, probe]);
-  return { health, refresh: probe };
-}
+// LLM provider id ("llama_server") ↔ hardware adapter id ("llamacpp"). The
+// LLM-side ids drive runtime-override / model selection; the hardware-side
+// ids drive the unified health registry. We map between them in one place
+// rather than fork the two id namespaces.
+const BACKEND_TO_HARDWARE = {
+  ollama: "ollama",
+  llama_server: "llamacpp",
+} as const;
+type BackendId = keyof typeof BACKEND_TO_HARDWARE;
 
 export function SettingsDrawer() {
   const { prefs, updatePrefs, updateVoicePrefs, settingsOpen, setSettingsOpen } =
@@ -187,8 +174,10 @@ export function SettingsDrawer() {
     selectProvider,
     availableProviders,
   } = useProviderInfo();
-  const { health: backendHealth, refresh: refreshBackendHealth } =
-    useLocalBackendHealth(settingsOpen);
+  // Reuse the shared hardware-providers hook so the settings drawer and the
+  // chat composer's RoutePicker share a single 10s health poll. `refetch` is
+  // wired into `onPick` so the dot updates immediately after a backend swap.
+  const { providers, refetch: refreshBackendHealth } = useHardwareProviders();
 
   const [visible, setVisible] = useState(false);
   const [animating, setAnimating] = useState(false);
@@ -362,8 +351,11 @@ export function SettingsDrawer() {
               <SettingRow label="Backend">
                 <BackendPills
                   active={selectedProvider || "ollama"}
-                  health={backendHealth}
-                  onPick={(p) => { selectProvider(p); refreshBackendHealth(); }}
+                  providers={providers}
+                  onPick={(p) => {
+                    selectProvider(p);
+                    void refreshBackendHealth();
+                  }}
                 />
               </SettingRow>
               <SettingRow label="Provider">
@@ -718,42 +710,56 @@ function PrecisionToggle({
 
 function BackendPills({
   active,
-  health,
+  providers,
   onPick,
 }: {
   active: string;
-  health: { ollama?: boolean; llama_server?: boolean };
-  onPick: (provider: "ollama" | "llama_server") => void;
+  providers: ProviderSnapshot[];
+  onPick: (provider: BackendId) => void;
 }) {
-  const opts: Array<{ id: "ollama" | "llama_server"; label: string }> = [
+  const opts: Array<{ id: BackendId; label: string }> = [
     { id: "ollama", label: "Ollama" },
     { id: "llama_server", label: "llama.cpp" },
   ];
+  // Map LLM ids → hardware-adapter ids so we can look the health up in the
+  // unified registry without duplicating the probe.
+  const healthFor = (id: BackendId): boolean | undefined => {
+    const hwId = BACKEND_TO_HARDWARE[id];
+    const snap = providers.find((p) => p.id === hwId);
+    return snap?.health.online;
+  };
   return (
-    <div style={{ display: "flex", gap: 6 }}>
+    <div className="cd-engine-grid" style={{ gap: 6 }}>
       {opts.map(({ id, label }) => {
         const on = active === id;
-        const h = health[id];
-        const dot = h === undefined ? "var(--text-muted)" : h ? "var(--accent)" : "#cf4646";
+        const h = healthFor(id);
+        const dot =
+          h === undefined ? "var(--text-muted)" : h ? "var(--accent)" : "#cf4646";
         return (
           <button
             key={id}
+            type="button"
             onClick={() => onPick(id)}
-            title={h === undefined ? "probing…" : h ? "reachable" : "offline"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              padding: "5px 10px",
-              borderRadius: 999,
-              border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`,
-              background: on ? "var(--bg-tertiary)" : "transparent",
-              color: on ? "var(--text-primary)" : "var(--text-secondary)",
-              cursor: "pointer",
-            }}
+            title={
+              h === undefined
+                ? "probing…"
+                : h
+                  ? `${label} reachable`
+                  : `${label} offline`
+            }
+            className={`cd-model-pill${on ? " is-active" : ""}`}
+            style={{ textTransform: "none", letterSpacing: 0 }}
           >
-            <span style={{ width: 6, height: 6, borderRadius: 999, background: dot }} />
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 999,
+                background: dot,
+                boxShadow: h ? "0 0 6px var(--accent-glow)" : undefined,
+                flexShrink: 0,
+              }}
+            />
             {label}
           </button>
         );

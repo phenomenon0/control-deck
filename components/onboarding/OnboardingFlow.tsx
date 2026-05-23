@@ -180,6 +180,11 @@ export function OnboardingFlow() {
   return (
     <div style={pageStyle}>
       <div style={cardStyle}>
+        {/* Card body is the scroll surface so the action footer below can
+            stay pinned regardless of step-list length. Without this split,
+            long step lists pushed Skip/Retry below the viewport with no
+            way to reach them. */}
+        <div style={cardScrollStyle}>
         <header style={headerStyle}>
           <div style={{ fontSize: 11, letterSpacing: 1.2, opacity: 0.6 }}>FIRST RUN</div>
           <h1 style={{ margin: "4px 0 6px", fontSize: 28, fontWeight: 600 }}>
@@ -229,6 +234,7 @@ export function OnboardingFlow() {
             server — keep this tab open. If it stays stuck, cancel and retry.
           </div>
         ) : null}
+        </div>
 
         <div style={actionsStyle}>
           {finished === "ok" ? (
@@ -466,7 +472,10 @@ function upsertStep(prev: StepEvent[], next: StepEvent): StepEvent[] {
 // Styles (inline so the page renders standalone without the theme provider).
 
 const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
+  // Use viewport height directly (not minHeight) so the flex centering can
+  // never push the card taller than the visible area — overflow is handled
+  // inside the card, not by the page.
+  height: "100vh",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -475,16 +484,31 @@ const pageStyle: React.CSSProperties = {
   color: "var(--text, #eee)",
   fontFamily:
     "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  boxSizing: "border-box",
 };
 
 const cardStyle: React.CSSProperties = {
   width: "100%",
   maxWidth: 560,
+  // Cap the card to the viewport (minus page padding) and lay out as a
+  // flex column so the action footer can stay pinned while the body
+  // scrolls. Without `minHeight: 0`, the body grows past the cap.
+  maxHeight: "calc(100vh - 48px)",
+  display: "flex",
+  flexDirection: "column",
+  minHeight: 0,
   background: "var(--bg-secondary, #14141a)",
   border: "1px solid var(--border, #2a2a35)",
   borderRadius: 12,
-  padding: 28,
   boxShadow: "0 24px 80px rgba(0, 0, 0, 0.45)",
+  overflow: "hidden",
+};
+
+const cardScrollStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: "auto",
+  padding: 28,
 };
 
 const headerStyle: React.CSSProperties = {
@@ -573,7 +597,12 @@ const progressFillStyle: React.CSSProperties = {
 };
 
 const actionsStyle: React.CSSProperties = {
-  marginTop: 24,
+  // Pinned footer below the scrollable body. The divider + matching bg makes
+  // it read as a deliberate action bar even on short content.
+  flexShrink: 0,
+  padding: "16px 28px",
+  borderTop: "1px solid var(--border, #2a2a35)",
+  background: "var(--bg-secondary, #14141a)",
   display: "flex",
   gap: 10,
   flexWrap: "wrap",

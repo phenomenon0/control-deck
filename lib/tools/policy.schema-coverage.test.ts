@@ -29,6 +29,7 @@ describe("bridge tool schema coverage", () => {
     // allowlist is the outer gate.
     const fabricated = decideToolPolicy({ tool: "definitely_not_a_real_tool", args: {} });
     expect(fabricated.decision).toBe("deny");
+    if (fabricated.decision !== "deny") throw new Error("expected deny");
     expect(fabricated.reason).toContain("not exposed");
   });
 
@@ -36,6 +37,7 @@ describe("bridge tool schema coverage", () => {
     // generate_image requires a `prompt` string.
     const bad = decideToolPolicy({ tool: "generate_image", args: {} });
     expect(bad.decision).toBe("deny");
+    if (bad.decision !== "deny") throw new Error("expected deny");
     expect(bad.reason).toBe("invalid args");
     expect(bad.issues).toBeTruthy();
   });
@@ -50,6 +52,7 @@ describe("bridge tool schema coverage", () => {
     // is: valid args make it through to a non-"deny" outcome with the
     // normalized payload preserved.
     expect(ok.decision).not.toBe("deny");
+    if (ok.decision === "deny") throw new Error("unexpected deny");
     expect(ok.normalizedArgs).toMatchObject({ prompt: "a control deck logo" });
   });
 });

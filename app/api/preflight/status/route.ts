@@ -5,6 +5,8 @@
  * plus a summary string. Never blocks longer than PROBE_TIMEOUT_MS per service.
  */
 
+import { AGENTGO_URL } from "@/lib/agentgo/launcher";
+
 const PROBE_TIMEOUT_MS = 1200;
 
 type ServiceStatus = "up" | "down";
@@ -21,7 +23,10 @@ const SERVICES: ServiceSpec[] = [
   {
     key: "agentgo",
     name: "Agent-GO",
-    url: process.env.AGENTGO_HEALTH_URL ?? "http://127.0.0.1:4243/health",
+    // Derive from launcher's resolved URL so preflight and the chat route
+    // can never disagree on the port. Honours AGENT_TS_URL / AGENTGO_URL
+    // env, with the same 4244 default.
+    url: process.env.AGENTGO_HEALTH_URL ?? `${AGENTGO_URL}/health`,
     required: true,
     hint: "Start Agent-GO (e.g. `./start-full-stack.sh` or the bundled binary).",
   },

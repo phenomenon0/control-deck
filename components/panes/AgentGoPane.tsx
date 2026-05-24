@@ -61,16 +61,21 @@ export function AgentGoPane() {
     onError: (e) => console.error("Error:", e),
   });
 
-  // Check server status on mount
+  // Check server status on mount. Probes through the Next preflight endpoint
+  // so this pane never disagrees with the deck's reported agent-ts URL.
   useEffect(() => {
     const checkServer = async () => {
       try {
-        const res = await fetch("http://localhost:4243/health");
-        if (res.ok) {
-          setServerStatus("online");
-        } else {
+        const res = await fetch("/api/preflight/status", { cache: "no-store" });
+        if (!res.ok) {
           setServerStatus("offline");
+          return;
         }
+        const data = (await res.json()) as {
+          services?: Array<{ key: string; status: "up" | "down" }>;
+        };
+        const agentgo = data.services?.find((s) => s.key === "agentgo");
+        setServerStatus(agentgo?.status === "up" ? "online" : "offline");
       } catch {
         setServerStatus("offline");
       }
@@ -447,7 +452,6 @@ export function AgentGoPane() {
             </form>
             <p className="text-xs text-[var(--text-muted)] mt-2 text-center">
               Mode: <span className="font-medium">{mode}</span> |
-              Port: <span className="font-mono">4243</span> |
               Workspace: current directory
             </p>
           </div>

@@ -1,11 +1,13 @@
 /**
  * Agent-GO Client
- * 
+ *
  * HTTP/SSE client for the Agent-GO server.
- * Connects to localhost:4243 by default.
+ * Default port 4244 must match lib/agentgo/launcher.ts and
+ * electron/services/agent-ts-supervisor.ts — see agent-ts-port.test.ts.
  */
 
-const AGENTGO_URL = process.env.AGENTGO_URL || "http://localhost:4243";
+const AGENTGO_URL =
+  process.env.AGENT_TS_URL || process.env.AGENTGO_URL || "http://localhost:4244";
 
 /**
  * Retry configuration for Agent-GO fetches.

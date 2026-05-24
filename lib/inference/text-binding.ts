@@ -11,11 +11,15 @@
  * lets API routes overlay the binding on top of the legacy config so that
  * "bind text::primary to X" actually drives chat output to provider X.
  *
- * Returns null when no binding is set (caller should keep its fallback).
+ * Returns null when no binding is set OR when the binding points at a
+ * local provider whose daemon is unreachable (so callers fall through to
+ * the env-based default instead of routing every chat at a dead URL).
+ * See binding-health.ts for the probe contract.
  */
 import { ensureBootstrap, getSlot } from "./bootstrap";
 import { applyPersistedBindings } from "./persistence";
 import { PROVIDERS, type ProviderType, type ProviderConfig } from "@/lib/llm/providers";
+import { probeBindingHealth, warnOnceForUnreachableBinding } from "./binding-health";
 
 export function resolveTextProviderFromBinding(): ProviderConfig | null {
   ensureBootstrap();
@@ -35,4 +39,24 @@ export function resolveTextProviderFromBinding(): ProviderConfig | null {
     baseURL: binding.config.baseURL ?? info.defaultBaseURL,
     model: binding.config.model,
   };
+}
+
+/**
+ * Async variant that drops the binding when its local target is unreachable.
+ * Chat routes should prefer this — it preserves intent when the daemon is
+ * up and gracefully falls back when it isn't, instead of failing every
+ * request with "Cannot connect to API".
+ *
+ * Cloud providers are always considered reachable here (their auth errors
+ * are surfaced at request time). The probe is TTL-cached so this is cheap.
+ */
+export async function resolveTextProviderFromBindingChecked(): Promise<ProviderConfig | null> {
+  const cfg = resolveTextProviderFromBinding();
+  if (!cfg) return null;
+  const health = await probeBindingHealth(cfg);
+  if (!health.reachable) {
+    warnOnceForUnreachableBinding(cfg, health);
+    return null;
+  }
+  return cfg;
 }

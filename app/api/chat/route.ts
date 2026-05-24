@@ -48,7 +48,7 @@ import {
 } from "@/lib/agui/db";
 import { getDefaultModel, getProviderConfig } from "@/lib/llm";
 import { resolveProviderUrl } from "@/lib/hardware/settings";
-import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
+import { resolveTextProviderFromBindingChecked } from "@/lib/inference/text-binding";
 import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
@@ -449,8 +449,10 @@ export async function POST(req: Request) {
   // `text::primary` via the Modalities panel (or PUT /api/inference/bindings),
   // that intent should drive every chat request. Without this overlay the
   // chat route silently ignores the slot bindings, so "swap LLM provider in
-  // settings" does nothing for the typed surface.
-  const textBinding = resolveTextProviderFromBinding();
+  // settings" does nothing for the typed surface. Use the *Checked variant
+  // so a binding pointing at an offline local daemon falls through to the
+  // env default instead of breaking every chat call.
+  const textBinding = await resolveTextProviderFromBindingChecked();
   if (textBinding) {
     providerCfg.primary = textBinding;
   }

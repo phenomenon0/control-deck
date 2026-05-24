@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>One cockpit for every surface your agent needs to touch.</b><br>
-  Chat, code, terminal, browser, native apps, live music, vision — behind a single UI.
+  Chat, code, terminal, browser, native apps, vision — behind a single UI.
 </p>
 
 ---
@@ -15,8 +15,10 @@ whole machine — browser tabs, terminals, native windows, media pipelines.
 Think: **Warp terminal + Linear's keyboard speed + an agent runtime**, with
 the lid off.
 
-> ⚠️ Every tool call goes through an approval gate. Your agent never runs
-> code, opens a window, or touches a file without you seeing the diff.
+> ⚠️ Every side-effectful tool call routes through a policy gate. Read
+> tools (`read_local_file`, `GET http_fetch`, `workspace_*` queries)
+> surface in the timeline but don't block. You see the diff before any
+> write, exec, or network mutation lands.
 
 ## What it does
 
@@ -27,9 +29,8 @@ the lid off.
 - 🖥️ **Drive your computer** — on Linux and macOS, agents can locate,
   click, type, and screen-grab through native accessibility APIs.
 - 🌐 **Browse with themed Chromium windows** — agents open tabs as
-  first-class CDP targets you can inspect live.
-- 🎧 **Live-music rig built in** — Tone.js transport, mixer, FX chains on
-  the same surface as chat.
+  regular Electron browser windows. Flip on `CONTROL_DECK_DEVTOOLS_PORT`
+  to make them first-class CDP targets a browser-harness can drive.
 - ⚡ **One keystroke away** — command palette (`Cmd/Ctrl+K`) reaches every
   pane, every tool, every setting.
 
@@ -46,7 +47,7 @@ Point it at local Ollama:
 ```env
 LLM_PROVIDER=ollama
 LLM_BASE_URL=http://localhost:11434/v1
-LLM_MODEL=qwen2.5:7b
+LLM_MODEL=qwen3:8b
 ```
 
 Or drop in any cloud key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
@@ -75,9 +76,10 @@ else's SDK — most of the interesting parts are built.
 Every tool is a **Zod schema → executor switch → bridge registration**.
 `lib/tools/definitions.ts` is the single source of truth; `executor.ts`
 dispatches; `app/api/tools/bridge/route.ts` exposes an allowlist to the
-Agent-GO runtime. Adding a tool is a ~20-line change and the chat UI
-picks it up automatically — type-safe for the LLM-visible manifest;
-input validation at the bridge is planned.
+agent-ts runtime. Adding a tool is a ~20-line change and the chat UI
+picks it up automatically. Bridge dispatch validates every call against
+the tool's Zod schema; tools without a registered schema are refused
+(`lib/tools/policy.schema-coverage.test.ts` keeps that contract honest).
 
 Interrupts, approvals, and diffs are not bolted on. The same executor
 emits `pending → approved | rejected → running → done` events that the
@@ -148,9 +150,9 @@ LM Studio `/v1`, OpenRouter, Groq, DeepSeek…) plug in through the
 - **Next.js 16** + **React 19** (App Router, RSC, streaming) on **Bun**
 - **better-sqlite3** for threads, messages, runs, plugin state
 - **node-pty** for real shells in the terminal pane
-- **Tone.js** for the live-music engine
 - **ComfyUI** bridge for image/video workflows
-- **SearXNG** for search (self-hosted, no API key)
+- **Pluggable search**: bring your own SearXNG, or fall back to
+  DuckDuckGo + public SearXNG instances (no API key required either way)
 - **Zod 4** everywhere a boundary crosses
 - **Tailwind 4** with a custom Warp-inspired palette
 

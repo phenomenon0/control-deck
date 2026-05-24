@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToolCallDiff } from "./ToolCallDiff";
+import { useScheduledPoll } from "@/lib/hooks/useScheduledPoll";
 
 interface Approval {
   id: string;
@@ -65,11 +66,7 @@ export function ApprovalsQueue() {
     setLoading(false);
   }, [filter]);
 
-  useEffect(() => {
-    reload();
-    const id = setInterval(reload, 5000);
-    return () => clearInterval(id);
-  }, [reload]);
+  useScheduledPoll(reload, { intervalMs: 5000 });
 
   const decide = useCallback(
     async (id: string, decision: "approved" | "denied", note?: string) => {

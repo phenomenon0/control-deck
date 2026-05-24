@@ -11,7 +11,8 @@
  * the other direction.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useScheduledPoll } from "@/lib/hooks/useScheduledPoll";
 import { InspectorShell, type InspectorItem } from "../shared/InspectorShell";
 
 type Transport = "stdio" | "http";
@@ -166,11 +167,9 @@ export function MCPServersTab() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    reload();
-    const t = setInterval(reload, 4000);
-    return () => clearInterval(t);
-  }, [reload]);
+  // 4s was aggressive when used naively (kept firing on hidden cockpit windows).
+  // The shared hook gates on visibility and adds in-flight coalescing.
+  useScheduledPoll(reload, { intervalMs: 4000 });
 
   const selected = useMemo(
     () => servers.find((s) => s.id === selectedId) ?? null,

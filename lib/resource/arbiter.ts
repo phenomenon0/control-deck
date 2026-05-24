@@ -147,8 +147,29 @@ export function ensureArbiterBooted(): void {
   state.booted = true;
   setReservationProvider(() => Array.from(state.reservations.values()));
   startLedgerPolling();
+  // ttlSweepTimer is created lazily by ensureTtlSweepRunning when the first
+  // reservation lands. With zero reservations the sweep has nothing to do —
+  // running it every 5s wakes the event loop for no reason. dcb950d added
+  // the same auto-pause to the ledger; this finishes the pair.
+}
+
+function ensureTtlSweepRunning(): void {
+  const state = getState();
+  if (state.ttlSweepTimer) return;
   state.ttlSweepTimer = setInterval(() => sweepTtl(), 5_000);
   state.ttlSweepTimer.unref?.();
+}
+
+function maybePauseTtlSweep(): void {
+  const state = getState();
+  if (!state.ttlSweepTimer) return;
+  // Keep the sweep alive while anything could come back: queued requests
+  // get processed by pumpQueue, restore entries by maybeRestore, both
+  // outside this loop. Only the active-reservation set drives the sweep.
+  if (state.reservations.size === 0 && state.restoreQueue.length === 0) {
+    clearInterval(state.ttlSweepTimer);
+    state.ttlSweepTimer = null;
+  }
 }
 
 export async function acquire(req: AcquireRequest): Promise<AcquireResult> {
@@ -266,6 +287,7 @@ export function release(ticket: string): boolean {
   });
   pumpQueue();
   void maybeRestore();
+  maybePauseTtlSweep();
   return true;
 }
 
@@ -289,6 +311,7 @@ export async function reportOom(lane: LaneId, error: string): Promise<void> {
   await doUnload(lane).catch(() => null);
   await refreshSnapshot();
   pumpQueue();
+  maybePauseTtlSweep();
 }
 
 export function snapshot() {
@@ -327,6 +350,7 @@ function grant(
     ttlMs,
   };
   reservations.set(ticket, r);
+  ensureTtlSweepRunning();
   emit({
     kind: "acquire-granted",
     at: now,
@@ -587,6 +611,7 @@ function sweepTtl(): void {
     void doUnload(r.lane, r.modelId).catch(() => null);
   }
   void maybeRestore();
+  maybePauseTtlSweep();
 }
 
 export const __test = {
@@ -609,6 +634,8 @@ export const __test = {
   get reservations() { return getState().reservations; },
   get restoreQueue() { return getState().restoreQueue; },
   get queue() { return getState().queue; },
+  get ttlSweepRunning() { return getState().ttlSweepTimer !== null; },
+  forceSweepTtl() { sweepTtl(); },
   EVICTABLE_BY,
   PANIC_RESERVE_MB,
 };

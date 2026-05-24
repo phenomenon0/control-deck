@@ -24,14 +24,15 @@ function formatModelName(model: string): string {
   return model;
 }
 
+/**
+ * Outer wrapper. Owns the open/close animation lifecycle but mounts NO
+ * data hooks itself — useSystemStats, useModels, etc. all run inside
+ * InspectorSheetContent, which only renders when the sheet is actually
+ * mounted. This is the renderer-side analogue of the arbiter's idle-pause:
+ * close the sheet → its 10s system-stats poll stops, instead of running
+ * forever in the background.
+ */
 export function InspectorSheet({ open, onClose }: InspectorSheetProps) {
-  const { threadId, model, isLoading, toolCalls, artifacts } = useChatInspectorData();
-  const { stats: systemStats } = useSystemStats();
-  const { models } = useModels();
-  const { prefs, updatePrefs } = useDeckSettings();
-  const [expandedArtifact, setExpandedArtifact] = useState<Artifact | null>(null);
-
-  // Track mount state for animation
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
 
@@ -50,10 +51,24 @@ export function InspectorSheet({ open, onClose }: InspectorSheetProps) {
     }
   }, [open]);
 
+  if (!mounted) return null;
+  return <InspectorSheetContent visible={visible} onClose={onClose} />;
+}
+
+interface InspectorSheetContentProps {
+  visible: boolean;
+  onClose: () => void;
+}
+
+function InspectorSheetContent({ visible, onClose }: InspectorSheetContentProps) {
+  const { threadId, model, isLoading, toolCalls, artifacts } = useChatInspectorData();
+  const { stats: systemStats } = useSystemStats();
+  const { models } = useModels();
+  const { prefs, updatePrefs } = useDeckSettings();
+  const [expandedArtifact, setExpandedArtifact] = useState<Artifact | null>(null);
+
   const onlineServices = systemStats?.services.filter((s) => s.status === "online").length ?? 0;
   const totalServices = systemStats?.services.length ?? 0;
-
-  if (!mounted) return null;
 
   return (
     <>

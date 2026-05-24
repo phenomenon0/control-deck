@@ -723,7 +723,11 @@ async function createWindow(): Promise<void> {
       sandbox: true,
       webSecurity: true,
       webviewTag: true,
-      backgroundThrottling: false,
+      // Let Chromium throttle timers/rAF when the window is hidden.
+      // When the cockpit isn't focused, polling/animation loops drop to
+      // ~1Hz instead of running at full rate — saves significant battery
+      // on laptops. Audio worklets keep running regardless of this flag.
+      backgroundThrottling: true,
     },
   });
 

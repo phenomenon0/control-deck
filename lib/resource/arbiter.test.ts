@@ -219,6 +219,65 @@ describe("arbiter.acquire — downgrade swap", () => {
   });
 });
 
+describe("arbiter ttl sweep auto-pause", () => {
+  test("sweep is not running until the first grant lands", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    expect(arbiterTest.ttlSweepRunning).toBe(false);
+
+    const granted = await acquire({ lane: "chat", estimateMb: 4000, reason: "warm" });
+    expect(granted.status).toBe("granted");
+    expect(arbiterTest.ttlSweepRunning).toBe(true);
+  });
+
+  test("releasing the last reservation pauses the sweep", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    const granted = await acquire({ lane: "chat", estimateMb: 4000, reason: "warm" });
+    expect(granted.status).toBe("granted");
+    expect(arbiterTest.ttlSweepRunning).toBe(true);
+
+    if (granted.status !== "granted" || !granted.ticket) {
+      throw new Error("expected granted ticket");
+    }
+    release(granted.ticket);
+    expect(arbiterTest.ttlSweepRunning).toBe(false);
+  });
+
+  test("sweepTtl with TTL expiry pauses itself when nothing remains", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    const granted = await acquire({
+      lane: "chat",
+      estimateMb: 4000,
+      reason: "warm",
+      ttlMs: 1, // expire on the very next sweep
+    });
+    expect(granted.status).toBe("granted");
+    expect(arbiterTest.ttlSweepRunning).toBe(true);
+
+    // Wait past the TTL, then force a sweep — verifies the sweep clears the
+    // reservation AND pauses itself in one pass.
+    await new Promise((r) => setTimeout(r, 10));
+    arbiterTest.forceSweepTtl();
+
+    expect(arbiterTest.reservations.size).toBe(0);
+    expect(arbiterTest.ttlSweepRunning).toBe(false);
+  });
+
+  test("OOM cleanup of every reservation pauses the sweep", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    const a = await acquire({ lane: "chat", estimateMb: 4000, reason: "a" });
+    expect(a.status).toBe("granted");
+    expect(arbiterTest.ttlSweepRunning).toBe(true);
+
+    await reportOom("chat", "cuda OOM");
+    expect(arbiterTest.reservations.size).toBe(0);
+    expect(arbiterTest.ttlSweepRunning).toBe(false);
+  });
+});
+
 describe("arbiter.reportOom", () => {
   test("drops every reservation on the failing lane", async () => {
     setFree(20_000);

@@ -38,18 +38,6 @@ const VoiceHealthPane = dynamic(
   () => import("@/components/voice-health/VoiceHealthPane").then((m) => m.VoiceHealthPane),
   { ssr: false, loading: () => <SurfaceLoading label="Health" /> },
 );
-const StageSurface = dynamic(
-  () => import("@/components/voice-stage/StageSurface").then((m) => m.StageSurface),
-  { ssr: false, loading: () => <SurfaceLoading label="Stage" /> },
-);
-const TapeSurface = dynamic(
-  () => import("@/components/voice-tape/TapeSurface").then((m) => m.TapeSurface),
-  { ssr: false, loading: () => <SurfaceLoading label="Tape" /> },
-);
-const ForumSurface = dynamic(
-  () => import("@/components/voice-forum/ForumSurface").then((m) => m.ForumSurface),
-  { ssr: false, loading: () => <SurfaceLoading label="Forum" /> },
-);
 
 const AUDIO_TABS: readonly { id: VoiceTab; label: string }[] = [
   { id: "live", label: "Live" },
@@ -57,9 +45,6 @@ const AUDIO_TABS: readonly { id: VoiceTab; label: string }[] = [
   { id: "voices", label: "Voices" },
   { id: "studio", label: "Studio" },
   { id: "health", label: "Health" },
-  { id: "stage", label: "Stage" },
-  { id: "tape", label: "Tape" },
-  { id: "forum", label: "Forum" },
 ];
 
 function SurfaceLoading({ label }: { label: string }) {
@@ -112,9 +97,6 @@ function ActiveAudioSurface({ tab }: { tab: VoiceTab }) {
   if (tab === "studio") return <StudioPane />;
   if (tab === "voices") return <LibraryPane />;
   if (tab === "health") return <VoiceHealthPane />;
-  if (tab === "stage") return <StageSurface />;
-  if (tab === "tape") return <TapeSurface />;
-  if (tab === "forum") return <ForumSurface />;
   return <LiveVoiceSurface />;
 }
 

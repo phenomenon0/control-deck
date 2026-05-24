@@ -21,10 +21,7 @@ export type VoiceTab =
   | "newsroom"
   | "voices"
   | "studio"
-  | "health"
-  | "stage"
-  | "tape"
-  | "forum";
+  | "health";
 
 const TAB_IDS: ReadonlySet<string> = new Set([
   "live",
@@ -32,14 +29,15 @@ const TAB_IDS: ReadonlySet<string> = new Set([
   "voices",
   "studio",
   "health",
-  "stage",
-  "tape",
-  "forum",
 ]);
+
+// Back-compat: old stage/tape/forum tabs are gone; fall back to live.
+const RETIRED_TABS: ReadonlySet<string> = new Set(["stage", "tape", "forum"]);
 
 function normalizeTab(raw: string | null): VoiceTab {
   if (raw === "assistant" || raw === "voice" || raw === "conductor") return "live";
   if (raw === "library") return "voices";
+  if (raw && RETIRED_TABS.has(raw)) return "live";
   if (raw && TAB_IDS.has(raw)) return raw as VoiceTab;
   return "live";
 }
@@ -55,9 +53,6 @@ export interface VoiceWorkspace {
   jumpToVoices: (opts?: { assetId?: string }) => void;
   jumpToStudio: (opts?: { assetId?: string; jobId?: string }) => void;
   jumpToHealth: () => void;
-  jumpToStage: () => void;
-  jumpToTape: () => void;
-  jumpToForum: () => void;
   /** Voice + chat surface. */
   jumpToLive: (opts?: { assetId?: string }) => void;
   /** @deprecated use jumpToLive */
@@ -111,9 +106,6 @@ export function useVoiceWorkspace(): VoiceWorkspace {
           job: opts?.jobId ?? null,
         }),
       jumpToHealth: () => replace({ tab: "health", asset: null, job: null }),
-      jumpToStage: () => replace({ tab: "stage", asset: null, job: null }),
-      jumpToTape: () => replace({ tab: "tape", asset: null, job: null }),
-      jumpToForum: () => replace({ tab: "forum", asset: null, job: null }),
       jumpToLive,
       jumpToAssistant: jumpToLive,
       jumpToLibrary: jumpToVoices,

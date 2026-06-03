@@ -1,10 +1,6 @@
-import { Suspense } from "react";
-import { CapabilitiesPane } from "@/components/panes/CapabilitiesPane";
+import { redirect } from "next/navigation";
 
-export default function CapabilitiesPage() {
-  return (
-    <Suspense fallback={null}>
-      <CapabilitiesPane />
-    </Suspense>
-  );
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

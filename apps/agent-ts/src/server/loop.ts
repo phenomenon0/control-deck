@@ -58,6 +58,31 @@ const SIDE_EFFECT_TOOLS = new Set<string>([
 
 const HIGH_RISK_TOOLS = new Set<string>(["bash", "execute_code"]);
 
+// ── Lite agent: curated tool set ──────────────────────────────────────────────
+// The full native+skills+bridge+mcp tool list bloats the prompt (re-prefilled
+// every step on a small local model) and tempts the model into tool-call loops.
+// "Lite" trims to a few high-value tools: image generation + vital coding.
+// Override the set with DECK_AGENT_TOOL_ALLOWLIST="a,b,c"; enable the default
+// lite set with DECK_AGENT_TOOLS=lite.
+const LITE_TOOLS = new Set<string>([
+  "generate_image", // image (bridge → ComfyUI)
+  "read_file",
+  "write_file",
+  "edit_file",
+  "bash",
+  "grep",
+  "glob",
+]);
+
+function applyToolAllowlist<T extends { name: string }>(tools: T[]): T[] {
+  const raw = process.env.DECK_AGENT_TOOL_ALLOWLIST?.trim();
+  let allow: Set<string> | null = null;
+  if (raw) allow = new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  else if (process.env.DECK_AGENT_TOOLS === "lite") allow = LITE_TOOLS;
+  if (!allow) return tools;
+  return tools.filter((t) => allow!.has(t.name));
+}
+
 function approvalPolicy(toolName: string): {
   required: boolean;
   riskLevel: RiskLevel;
@@ -134,15 +159,21 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
           })
         : Promise.resolve([]),
     ]);
-    const tools = [
+    const tools = applyToolAllowlist([
       ...nativeTools(jail),
       ...skillsTools(jail),
       ...domainSkillsTools(jail),
       ...bridgeToolsList,
       ...mcpToolsList,
-    ];
+    ]);
 
-    const bootstrap = await readBootstrap(jail);
+    // Bootstrap (SOUL/USER/MEMORY/AGENTS/TOOLS.md) is ~2k tokens re-prefilled
+    // every step. In lite mode (or with DECK_AGENT_NO_BOOTSTRAP=1) skip it to
+    // cut prefill latency on small local models — the steering SYSTEM_PROMPT
+    // alone keeps replies fast and direct.
+    const skipBootstrap =
+      process.env.DECK_AGENT_NO_BOOTSTRAP === "1" || process.env.DECK_AGENT_TOOLS === "lite";
+    const bootstrap = skipBootstrap ? { prefix: "", loaded: [] } : await readBootstrap(jail);
     const systemPrompt = bootstrap.prefix
       ? `${SYSTEM_PROMPT}\n\n${bootstrap.prefix}`
       : SYSTEM_PROMPT;

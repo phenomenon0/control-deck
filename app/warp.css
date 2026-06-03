@@ -10469,3 +10469,88 @@ button.composer-free-provider-chip:not(.is-on):not(:disabled):hover {
 .compare-selector-go:disabled { opacity: 0.4; cursor: default; }
 .compare-selector-go:not(:disabled):hover { background: rgba(106,176,255,0.25); }
 .thread-prompt-note { color: var(--text-muted); font-size: 12px; }
+
+/* ════════════════ v2 terminal — theme-aware wterm palette ═══════════════════
+ * The wterm element defines --term-* ON ITSELF (.wterm { --term-bg:#1e1e1e }),
+ * so an inherited value loses; we override at .cd-term-screen .wterm specificity.
+ * bg/fg/cursor/font derive from the deck tokens → the terminal reskins with the
+ * cascade exactly like every other surface (no JS, no observer, no #0a0a0a). The
+ * 16-colour ANSI ramp is curated per base mode: a warm dark ramp (the deck's
+ * established palette) by default, a readable light ramp under html.light, and a
+ * green-mono ramp for hacker. Setting vars on .cd-term-screen too lets the faux
+ * screen (no .wterm child) pick up the same values. */
+.cd-term-screen,
+.cd-term-screen .wterm {
+  --term-bg: var(--bg-inset, var(--bg));
+  --term-fg: var(--text-primary);
+  --term-cursor: rgb(var(--accent-rgb));
+  --term-font-family: var(--font-mono);
+  --term-font-size: var(--font-size-sm, 13px);
+  --term-line-height: 1.34;
+  --term-row-height: 19px;
+  /* warm dark ANSI ramp (default) */
+  --term-color-0: #1c1a17;
+  --term-color-1: #d87c68;
+  --term-color-2: #8ca36e;
+  --term-color-3: #c9a96b;
+  --term-color-4: #7fa1c9;
+  --term-color-5: #b79ac8;
+  --term-color-6: #7fb9b5;
+  --term-color-7: #e8e0d3;
+  --term-color-8: #6b625a;
+  --term-color-9: #f0a48c;
+  --term-color-10: #a8bf87;
+  --term-color-11: #dfc38a;
+  --term-color-12: #97b7de;
+  --term-color-13: #ceb5df;
+  --term-color-14: #9cd4cf;
+  --term-color-15: #f5efe7;
+}
+.cd-term-screen .wterm {
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+}
+
+/* Light themes (deck light + light brands) — dark-on-light ANSI ramp. */
+html.light .cd-term-screen,
+html.light .cd-term-screen .wterm {
+  --term-color-0: #383a42;
+  --term-color-1: #e45649;
+  --term-color-2: #50a14f;
+  --term-color-3: #b58900;
+  --term-color-4: #4078f2;
+  --term-color-5: #a626a4;
+  --term-color-6: #0184bc;
+  --term-color-7: #4a4d57;
+  --term-color-8: #a0a1a7;
+  --term-color-9: #e45649;
+  --term-color-10: #50a14f;
+  --term-color-11: #b58900;
+  --term-color-12: #4078f2;
+  --term-color-13: #a626a4;
+  --term-color-14: #0184bc;
+  --term-color-15: #1c1d22;
+}
+
+/* Hacker — green-mono CRT ramp. */
+:root[data-theme="hacker"] .cd-term-screen,
+:root[data-theme="hacker"] .cd-term-screen .wterm {
+  --term-cursor: #00ff66;
+  --term-color-0: #001b0d;
+  --term-color-1: #ff5f56;
+  --term-color-2: #00ff66;
+  --term-color-3: #b6ff00;
+  --term-color-4: #3ad6a0;
+  --term-color-5: #00d98b;
+  --term-color-6: #2bffb0;
+  --term-color-7: #9dffc4;
+  --term-color-8: #2f6b48;
+  --term-color-9: #ff7b72;
+  --term-color-10: #6dffa0;
+  --term-color-11: #d8ff5e;
+  --term-color-12: #5ce8be;
+  --term-color-13: #4dffb0;
+  --term-color-14: #80ffd0;
+  --term-color-15: #e8ffe8;
+}

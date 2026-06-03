@@ -97,6 +97,61 @@ export interface DeckPrefs {
    * shown in LocalModelsPanel and consumed by the voice route resolver.
    */
   localModelPreset: LocalModelPreset;
+
+  // ── v2 Settings surface fields ───────────────────────────────────────────
+  // Added when the v2 SettingsSurface was promoted to the live deck. Some are
+  // already enforced (fontScale, model routing, voice, theme); others are
+  // persist-only until a server consumer reads them — marked PERSIST-ONLY.
+  /** Interface type scale applied across the deck. */
+  fontScale: "small" | "default" | "large";
+  /** PERSIST-ONLY: quick/cheap model for titles/routing/summaries. */
+  fastModel: string;
+  /** PERSIST-ONLY: speech-to-text model id (voice runtime resolves its own). */
+  sttModel: string;
+  /** PERSIST-ONLY: vision model id for image understanding in chat. */
+  visionModel: string;
+  /** PERSIST-ONLY: text-to-image model id (ComfyUI surface drives generation). */
+  imageModel: string;
+  /** PERSIST-ONLY: sampling temperature, 0–1. */
+  temperature: number;
+  /** PERSIST-ONLY: max completion tokens per run. */
+  maxTokens: number;
+  /** PERSIST-ONLY: per-run cost ceiling. */
+  costBudget: number;
+  /** PERSIST-ONLY: run tools without asking first. */
+  autoExecuteTools: boolean;
+  /** PERSIST-ONLY: when the agent must stop and ask. */
+  approvalMode: "never" | "ask" | "cost" | "side-effect";
+  /** PERSIST-ONLY: ask before a tool call past this cost. */
+  costThreshold: number;
+  /** Providers the user disabled in Settings → Hardware; filtered from pickers. */
+  disabledProviders: ProviderId[];
+  /** PERSIST-ONLY: VRAM headroom to keep free (MB). */
+  vramReserveMb: number;
+  /** PERSIST-ONLY: extra folders the offline GGUF scanner walks. */
+  ggufRoots: string;
+  /** PERSIST-ONLY: collect power/thermal metrics. */
+  powerMetrics: boolean;
+  /** PERSIST-ONLY: anonymous usage analytics. */
+  analytics: boolean;
+  /** PERSIST-ONLY: send crash/error reports. */
+  errorReporting: boolean;
+  /** PERSIST-ONLY: telemetry retention (days). */
+  telemetryRetentionDays: number;
+  /** PERSIST-ONLY: run history retention (days). */
+  runRetentionDays: number;
+  /** PERSIST-ONLY: upload retention (days). */
+  uploadRetentionDays: number;
+  /** PERSIST-ONLY: extra folders scanned for agent rules. */
+  rulesRoots: string;
+  /** PERSIST-ONLY: compact tool-result glyph encoding (confirm server hook). */
+  glyphEncoding: boolean;
+  /** PERSIST-ONLY: thread compaction (confirm server hook). */
+  threadCompaction: boolean;
+  /** PERSIST-ONLY: skills subsystem enabled. */
+  skillsEnabled: boolean;
+  /** PERSIST-ONLY: memory subsystem enabled. */
+  memoryEnabled: boolean;
 }
 
 export type LocalModelPreset = "quick" | "balanced" | "quality";
@@ -155,6 +210,34 @@ const DEFAULT_PREFS: DeckPrefs = {
   theme: "dark",
   voice: DEFAULT_VOICE_PREFS,
   localModelPreset: "balanced",
+
+  // v2 Settings surface defaults (backfilled into older stored prefs by the
+  // `...DEFAULT_PREFS, ...rest` spread in migratePrefs — no migration code needed).
+  fontScale: "default",
+  fastModel: "",
+  sttModel: "",
+  visionModel: "",
+  imageModel: "",
+  temperature: 0.7,
+  maxTokens: 4096,
+  costBudget: 5,
+  autoExecuteTools: false,
+  approvalMode: "cost",
+  costThreshold: 0.5,
+  disabledProviders: [],
+  vramReserveMb: 2048,
+  ggufRoots: "",
+  powerMetrics: true,
+  analytics: false,
+  errorReporting: true,
+  telemetryRetentionDays: 30,
+  runRetentionDays: 90,
+  uploadRetentionDays: 30,
+  rulesRoots: "",
+  glyphEncoding: false,
+  threadCompaction: true,
+  skillsEnabled: true,
+  memoryEnabled: true,
 };
 
 const PREFS_KEY = "deck.prefs";
@@ -297,6 +380,12 @@ function applyRootPrefs(reduceMotion: boolean, theme: ThemeName) {
   const root = document.documentElement;
   root.dataset.reduceMotion = reduceMotion ? "1" : "0";
   root.dataset.theme = theme;
+  // DeckSettings owns the .dark/.light classes too (CSS keys off both these and
+  // [data-theme]). "hacker" is dark-based, so it takes .dark (the :not(.light)
+  // base) plus its own [data-theme="hacker"] overrides. Warp no longer writes
+  // these — see WarpProvider.
+  root.classList.toggle("light", theme === "light");
+  root.classList.toggle("dark", theme !== "light");
 }
 
 const DeckSettingsContext = createContext<DeckSettingsContextValue | null>(null);

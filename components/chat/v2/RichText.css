@@ -1,0 +1,111 @@
+/* RichText (v2) — markdown output styling, token-driven, flat. */
+.rt-prose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* Self-sufficient theming: body uses the theme's sans font + text color, so
+     RichText flips per theme even outside a ChatMessage (e.g. its own story). */
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+.rt-prose > :first-child { margin-top: 0; }
+.rt-prose > :last-child { margin-bottom: 0; }
+.rt-prose p { margin: 0; }
+.rt-prose a {
+  color: rgb(var(--accent-rgb));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rt-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-tertiary);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+}
+.rt-prose pre {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+.rt-prose pre code {
+  background: none;
+  padding: 0;
+}
+.rt-prose ul,
+.rt-prose ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.rt-prose ul { list-style: disc; }
+.rt-prose ol { list-style: decimal; }
+.rt-prose h1,
+.rt-prose h2,
+.rt-prose h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 0.25rem 0;
+  line-height: 1.25;
+}
+.rt-prose h1 { font-size: var(--font-size-lg); }
+.rt-prose h2 { font-size: var(--font-size-md); }
+.rt-prose h3 { font-size: var(--font-size-base); }
+.rt-prose blockquote {
+  margin: 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.rt-prose strong { font-weight: 600; }
+.rt-prose em { font-style: italic; }
+.rt-prose hr {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: 0.5rem 0;
+}
+.rt-prose table {
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.rt-prose th,
+.rt-prose td {
+  border: 1px solid var(--border-subtle);
+  padding: 0.4em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.rt-prose th {
+  font-weight: var(--fw-strong, 600);
+  background: var(--bg-tertiary);
+}
+.rt-prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Streaming caret, used by ChatMessage. */
+.rt-caret {
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  background: rgb(var(--accent-rgb));
+  vertical-align: text-bottom;
+  animation: rt-blink 1s steps(2, start) infinite;
+}
+@keyframes rt-blink {
+  50% { opacity: 0; }
+}

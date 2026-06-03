@@ -135,6 +135,16 @@ function launch(host: string, port: number): void {
       ...process.env,
       AGENT_TS_HOST: host,
       AGENT_TS_PORT: String(port),
+      // agent-ts defaults LLM_BASE_URL to llama-swap :8080 (apps/agent-ts main.ts),
+      // but the deck runs Ollama by default on :11434. Without this the chat run
+      // hangs against a dead :8080 endpoint. Mirror start-full-stack.sh: point it
+      // at Ollama's OpenAI-compatible endpoint unless the user explicitly overrode
+      // LLM_BASE_URL. Per-request providerId still overrides per turn.
+      LLM_BASE_URL: process.env.LLM_BASE_URL ?? "http://localhost:11434/v1",
+      // Default model: qwen3.5:4b — the researched best fit for a base-M3/16GB
+      // deck (fast, fits with the app running, strong tool-use). Override via env.
+      LLM_MODEL:
+        process.env.LLM_MODEL ?? process.env.NEXT_PUBLIC_DEFAULT_MODEL ?? "qwen3.5:4b",
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,

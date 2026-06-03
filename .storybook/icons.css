@@ -1,0 +1,29 @@
+/* Per-theme icon treatment — decided per family by agents. Each theme's icons
+ * echo its typographic weight (thin 300 → hairline, heavy 700 → bold), its
+ * geometry (technical families = square caps + miter joins; humanist = round),
+ * and its idle contrast. CSS stroke-* on the SVGs overrides the components'
+ * stroke attributes, so the warp icons + the inline cd-* SVGs all re-weight.
+ */
+
+:root[data-theme="claude"]       { --icon-sw: 1.5;  --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="vercel"]       { --icon-sw: 1.75; --icon-cap: butt;  --icon-join: miter; --icon-idle: var(--text-primary); }
+:root[data-theme="linear"]       { --icon-sw: 1.75; --icon-cap: butt;  --icon-join: miter; --icon-idle: var(--text-secondary); }
+:root[data-theme="spotify"]      { --icon-sw: 2.25; --icon-cap: round; --icon-join: round; --icon-idle: var(--text-primary); }
+:root[data-theme="elevenlabs"]   { --icon-sw: 1.25; --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="stripe"]       { --icon-sw: 1.25; --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="notion"]       { --icon-sw: 1.75; --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="ferrari"]      { --icon-sw: 2;    --icon-cap: butt;  --icon-join: miter; --icon-idle: var(--text-primary); }
+:root[data-theme="playstation"]  { --icon-sw: 1.25; --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="velvet-light"] { --icon-sw: 1.6;  --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="velvet-dark"]  { --icon-sw: 1.5;  --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="velvet-deep"]  { --icon-sw: 1.5;  --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="homey"]        { --icon-sw: 1.6;  --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="academia"]     { --icon-sw: 1.75; --icon-cap: round; --icon-join: round; --icon-idle: var(--text-secondary); }
+:root[data-theme="industrial"]   { --icon-sw: 2;    --icon-cap: butt;  --icon-join: miter; --icon-idle: var(--text-primary); }
+
+/* Apply to the rail + chat-surface icons so every theme's icons match its family. */
+:root.cd-bridged :is(.cd-rail, .cd-sidebar, .cd-composer, .cd-header) svg {
+  stroke-width: var(--icon-sw, 1.6);
+  stroke-linecap: var(--icon-cap, round);
+  stroke-linejoin: var(--icon-join, round);
+}

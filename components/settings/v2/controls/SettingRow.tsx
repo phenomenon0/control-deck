@@ -1,0 +1,92 @@
+"use client";
+
+/**
+ * SettingRow — one labeled control line.
+ *
+ * Label (+ optional description + badge) on the left, the control on the right.
+ * At `comfortable` density the control drops below the label (Physical
+ * archetype: roomier, stacked). Carries `cd-settings-row` + `data-density` so
+ * regimes.css can re-space per theme.
+ *
+ * `htmlFor` wires the visible label to the control's input id for a11y; pass the
+ * same id you gave the primitive.
+ */
+
+import type { ReactNode } from "react";
+
+import type { Density } from "./types";
+
+export interface SettingRowBadge {
+  text: string;
+  /** Visual weight of the badge. */
+  tone?: "accent" | "muted" | "warn";
+}
+
+export interface SettingRowProps {
+  label: string;
+  description?: string;
+  badge?: SettingRowBadge;
+  control: ReactNode;
+  /** Wire the label to the control's input id. */
+  htmlFor?: string;
+  density?: Density;
+}
+
+const BADGE_STYLE: Record<NonNullable<SettingRowBadge["tone"]>, React.CSSProperties> = {
+  accent: { background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", borderColor: "transparent" },
+  muted: { background: "var(--bg-tertiary)", color: "var(--text-muted)", borderColor: "var(--border-subtle)" },
+  warn: { background: "transparent", color: "#d29922", borderColor: "#d29922" },
+};
+
+export function SettingRow({ label, description, badge, control, htmlFor, density = "default" }: SettingRowProps) {
+  const stacked = density === "comfortable";
+  return (
+    <div
+      className={`cd-settings-row flex gap-3 ${
+        stacked ? "flex-col items-stretch" : "flex-row items-center justify-between"
+      } ${density === "compact" ? "py-1.5" : density === "comfortable" ? "py-3" : "py-2"}`}
+      data-density={density}
+    >
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex items-center gap-2">
+          <label
+            htmlFor={htmlFor}
+            className="text-[var(--text-primary)]"
+            style={{
+              fontSize: density === "comfortable" ? "var(--font-size-base)" : "var(--font-size-sm)",
+              fontWeight: "var(--fw-label, 500)",
+            }}
+          >
+            {label}
+          </label>
+          {badge && (
+            <span
+              className="cd-settings-row-badge inline-block rounded-[var(--radius-sm)] border px-1 py-px uppercase"
+              style={{
+                ...BADGE_STYLE[badge.tone ?? "muted"],
+                fontFamily: "var(--font-mono)",
+                fontSize: "calc(var(--font-size-xs) - 1px)",
+                letterSpacing: "var(--tracking-label, 0.02em)",
+              }}
+            >
+              {badge.text}
+            </span>
+          )}
+        </div>
+        {description && (
+          <span
+            className="text-[var(--text-muted)]"
+            style={{ fontSize: "var(--font-size-xs)", lineHeight: "var(--lh-body, 1.5)" }}
+          >
+            {description}
+          </span>
+        )}
+      </div>
+      <div className={`cd-settings-row-control flex shrink-0 items-center ${stacked ? "justify-start" : "justify-end"}`}>
+        {control}
+      </div>
+    </div>
+  );
+}
+
+export default SettingRow;

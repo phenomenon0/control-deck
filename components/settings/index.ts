@@ -7,5 +7,4 @@ export {
   type VoiceMode,
 } from "./DeckSettingsProvider";
 
-export { SettingsDrawer } from "./SettingsDrawer";
 export { AudioDevicePicker } from "./AudioDevicePicker";

@@ -1,7 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -67,6 +67,156 @@ function nowIso(): string {
 }
 
 const IS_WIN = process.platform === "win32";
+
+// ── tmux backing ────────────────────────────────────────────────────────────
+// Each session's shell runs inside a real tmux session named `deck-<id>` on a
+// dedicated tmux server socket (`control-deck`), so it survives terminal-service
+// restarts (re-adopted on boot) and is attachable from any shell:
+//   tmux -L control-deck attach -t deck-<id>
+// We keep our own client-side split layout + status bar — tmux just owns the
+// shell + scrollback. If tmux isn't installed (or is disabled / on Windows),
+// every path falls back to spawning the bare shell directly via node-pty.
+const TMUX_SOCKET = process.env.CONTROL_DECK_TMUX_SOCKET || "control-deck";
+const TMUX_DISABLED = process.env.CONTROL_DECK_TMUX === "0";
+const TMUX_CONF = path.join(os.tmpdir(), "control-deck.tmux.conf");
+// Our minimal tmux config — passed via `-f` so tmux NEVER loads the user's
+// ~/.tmux.conf (no plugins, no themes leaking in) and a fresh server boots
+// clean. Critically `status off`: the deck draws its own tmux-style status bar,
+// so tmux's (green by default) must not render into the pane. Styles forced to
+// `default` so the pane inherits the deck's xterm theme, not tmux colors.
+const TMUX_CONF_BODY = [
+  "set -g status off",
+  "set -g window-style default",
+  "set -g window-active-style default",
+  "set -g pane-border-status off",
+  'set -g default-terminal "xterm-256color"',
+  'set -ga terminal-overrides ",xterm-256color:Tc"',
+  "set -g destroy-unattached off",
+  "set -g mouse on",
+  "",
+].join("\n");
+let cachedTmuxBin: string | null | undefined;
+
+function tmuxBin(): string | null {
+  if (cachedTmuxBin !== undefined) return cachedTmuxBin;
+  if (TMUX_DISABLED || IS_WIN) {
+    cachedTmuxBin = null;
+    return null;
+  }
+  // Probe PATH first, then well-known absolute locations. A packaged macOS GUI
+  // app inherits a minimal PATH (no /opt/homebrew/bin), so a bare `tmux` lookup
+  // would miss a Homebrew install — resolving the absolute path makes detection
+  // PATH-independent. Honor an explicit override for unusual installs.
+  const candidates = [
+    process.env.CONTROL_DECK_TMUX_BIN,
+    "tmux",
+    "/opt/homebrew/bin/tmux",
+    "/usr/local/bin/tmux",
+    "/usr/bin/tmux",
+  ].filter((c): c is string => Boolean(c));
+  for (const candidate of candidates) {
+    if (spawnSync(candidate, ["-V"], { stdio: "ignore" }).status === 0) {
+      cachedTmuxBin = candidate;
+      return cachedTmuxBin;
+    }
+  }
+  cachedTmuxBin = null;
+  return null;
+}
+
+function tmuxName(id: string): string {
+  return `deck-${id}`;
+}
+
+function tmuxArgs(...rest: string[]): string[] {
+  // `-f` is honored only when the server first starts (ignored once running),
+  // so it's safe to pass on every invocation — it guarantees the very first
+  // command that boots the server (often new-session) loads our clean config.
+  return ["-f", TMUX_CONF, "-L", TMUX_SOCKET, ...rest];
+}
+
+/** POSIX-quote a single argv token for embedding in a tmux shell-command. */
+function shellQuote(arg: string): string {
+  return /^[A-Za-z0-9_/.:=,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, "'\\''")}'`;
+}
+
+/** Start our tmux server (if needed) and configure it: hide tmux's own status
+ *  line (we draw one), and advertise truecolor so colors match the bare shell. */
+function ensureTmuxServer(): void {
+  const bin = tmuxBin();
+  if (!bin) return;
+  // Write the config first so `-f` (in tmuxArgs) can load it on server start.
+  try {
+    writeFileSync(TMUX_CONF, TMUX_CONF_BODY, { mode: 0o600 });
+  } catch {
+    // Non-fatal — fall through to the live set-options below.
+  }
+  spawnSync(bin, tmuxArgs("start-server"), { stdio: "ignore" });
+  // Belt-and-suspenders: also apply the key options live, in case the server
+  // was already running from a prior session (persistence) — then `-f` is a
+  // no-op and the config wouldn't otherwise take effect.
+  const live: Array<[string, string]> = [
+    ["status", "off"],
+    ["window-style", "default"],
+    ["window-active-style", "default"],
+    ["pane-border-status", "off"],
+    ["default-terminal", "xterm-256color"],
+  ];
+  for (const [name, value] of live) {
+    spawnSync(bin, tmuxArgs("set-option", "-g", name, value), { stdio: "ignore" });
+  }
+  spawnSync(bin, tmuxArgs("set-option", "-ga", "terminal-overrides", ",xterm-256color:Tc"), { stdio: "ignore" });
+}
+
+/** End a tmux session for good (explicit close/kill) — a no-op without tmux. */
+function tmuxKillSession(id: string): void {
+  const bin = tmuxBin();
+  if (!bin) return;
+  spawnSync(bin, tmuxArgs("kill-session", "-t", tmuxName(id)), { stdio: "ignore" });
+}
+
+/** On boot, re-adopt any surviving `deck-*` tmux sessions so closing + reopening
+ *  the app keeps your terminals. Registered detached (pty=null); the tmux client
+ *  re-attaches lazily when the UI first connects a socket. */
+function readoptTmuxSessions(): void {
+  const bin = tmuxBin();
+  if (!bin) return;
+  const result = spawnSync(bin, tmuxArgs("list-sessions", "-F", "#{session_name}\t#{session_path}"), {
+    encoding: "utf8",
+  });
+  if (result.status !== 0 || !result.stdout) return;
+  let count = 0;
+  for (const line of result.stdout.split("\n")) {
+    const [name, sessionPath] = line.trim().split("\t");
+    if (!name?.startsWith("deck-")) continue;
+    const id = name.slice("deck-".length);
+    if (!id || sessions.has(id)) continue;
+    sessions.set(id, {
+      id,
+      label: createShellLabel(),
+      profile: "shell",
+      status: "running",
+      pid: null,
+      cwd: sessionPath || process.env.HOME || process.cwd(),
+      startedAt: nowIso(),
+      lastActiveAt: nowIso(),
+      exitCode: null,
+      error: null,
+      pty: null,
+      sockets: new Set(),
+      history: [],
+      historyBytes: 0,
+      historyEnd: 0,
+      historyStart: 0,
+      chunkEndOffsets: [],
+      generation: 0,
+    });
+    count += 1;
+  }
+  if (count > 0) {
+    console.log(`[terminal-service] re-adopted ${count} tmux session(s) from socket "${TMUX_SOCKET}"`);
+  }
+}
 
 function shellPath(): string {
   if (process.env.SHELL) return process.env.SHELL;
@@ -157,7 +307,9 @@ function commandExists(command: string): boolean {
   return result.status === 0;
 }
 
-function profileLaunchSpec(session: SessionRecord): { file: string; args: string[] } {
+/** The bare command for a profile (no tmux) — a login shell, or the agent CLI
+ *  exec'd inside one so it inherits PATH. */
+function innerLaunchSpec(session: SessionRecord): { file: string; args: string[] } {
   const shell = shellPath();
   if (session.profile === "shell") {
     return { file: shell, args: IS_WIN ? [] : ["-l"] };
@@ -175,6 +327,35 @@ function profileLaunchSpec(session: SessionRecord): { file: string; args: string
   return {
     file: shell,
     args: ["-lc", `exec ${command}`],
+  };
+}
+
+function profileLaunchSpec(session: SessionRecord): { file: string; args: string[] } {
+  const inner = innerLaunchSpec(session);
+  const bin = tmuxBin();
+  if (!bin) return inner;
+
+  // Wrap the shell in a persistent, attachable tmux session: `new-session -A`
+  // is attach-or-create, so this is idempotent — it re-attaches the existing
+  // `deck-<id>` after a terminal-service restart, or creates it the first time.
+  // The shell-command is only honored on create (ignored on re-attach), so it's
+  // safe to always pass it. tmux runs it via `/bin/sh -c`, hence the quoting.
+  const innerCommand = [inner.file, ...inner.args].map(shellQuote).join(" ");
+  return {
+    file: bin,
+    args: tmuxArgs(
+      "new-session",
+      "-A",
+      "-s",
+      tmuxName(session.id),
+      "-x",
+      "120",
+      "-y",
+      "36",
+      "-c",
+      session.cwd,
+      innerCommand,
+    ),
   };
 }
 
@@ -294,6 +475,9 @@ function stopForRestart(session: SessionRecord): void {
 }
 
 function killSession(session: SessionRecord): SessionRecord {
+  // End the tmux session for good — without this, killing the pty would only
+  // detach the client and the shell would survive in tmux.
+  tmuxKillSession(session.id);
   if (session.pty) {
     try {
       session.pty.kill();
@@ -458,6 +642,9 @@ const server = http.createServer(async (request, response) => {
         writeJson(response, request, 404, { error: "Session not found." });
         return;
       }
+      // Restart = a fresh shell: end the old tmux session so `new-session -A`
+      // creates a clean one rather than re-attaching the existing shell.
+      tmuxKillSession(session.id);
       stopForRestart(session);
       startSession(session);
       writeJson(response, request, 200, { session: serializeSession(session) });
@@ -481,6 +668,9 @@ const server = http.createServer(async (request, response) => {
         writeJson(response, request, 404, { error: "Session not found." });
         return;
       }
+      // Explicit delete ends the tmux session (not just a detach), so it won't
+      // be re-adopted on the next boot.
+      tmuxKillSession(route.id);
       if (session.pty) {
         try {
           session.pty.kill();
@@ -529,6 +719,13 @@ server.on("upgrade", (request, socket, head) => {
   if (!session) {
     socket.destroy();
     return;
+  }
+
+  // A re-adopted tmux session is registered detached (pty=null) — spin up its
+  // tmux client now that the UI wants to see it. `new-session -A` re-attaches
+  // the existing shell, and tmux repaints, so scrollback comes back.
+  if (!session.pty && session.status !== "exited" && session.status !== "error") {
+    startSession(session);
   }
 
   wss.handleUpgrade(request, socket, head, (ws) => {
@@ -633,7 +830,15 @@ process.on("SIGTERM", shutdown);
 server.listen(PORT, HOST, () => {
   const baseUrl = `http://${HOST}:${PORT}`;
   const authNote = AUTH_REQUIRED ? "auth: required" : "auth: DISABLED (anyone on 127.0.0.1 can spawn shells)";
-  console.log(`[terminal-service] listening on ${baseUrl} (${os.platform()}) — ${authNote}`);
+  const tmux = tmuxBin();
+  console.log(
+    `[terminal-service] listening on ${baseUrl} (${os.platform()}) — ${authNote} — ` +
+      (tmux ? `tmux-backed (socket "${TMUX_SOCKET}")` : "tmux unavailable, using node-pty directly"),
+  );
+  if (tmux) {
+    ensureTmuxServer();
+    readoptTmuxSessions();
+  }
   if (!AUTH_REQUIRED) {
     console.warn(
       "[terminal-service] TERMINAL_SERVICE_TOKEN is unset. Set it to require Authorization: Bearer on every request.",

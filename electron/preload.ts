@@ -14,6 +14,7 @@ const ALLOWED_INVOKE_CHANNELS = new Set<string>([
   "terminal:config",
   "voice-core:state",
   "voice-core:restart",
+  "deck:save-file",
 ]);
 
 interface BrowserState {

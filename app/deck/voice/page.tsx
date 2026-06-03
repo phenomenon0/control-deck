@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Legacy route. Voice is the default tab of the Audio surface. */
-export default function VoiceLegacyPage() {
-  redirect("/deck/audio");
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

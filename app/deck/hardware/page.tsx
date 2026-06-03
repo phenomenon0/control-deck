@@ -1,10 +1,6 @@
-import { Suspense } from "react";
-import { HardwareRunnerPane } from "@/components/panes/HardwareRunnerPane";
+import { redirect } from "next/navigation";
 
-export default function HardwarePage() {
-  return (
-    <Suspense fallback={null}>
-      <HardwareRunnerPane />
-    </Suspense>
-  );
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

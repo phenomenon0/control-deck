@@ -43,13 +43,35 @@ export function getTerminalServiceConfig(): TerminalServiceConfig | null {
   return currentConfig;
 }
 
+/**
+ * A STABLE token shared across Electron sessions. Persisted to userData so that
+ * when a terminal-service from a prior session is still listening on the port
+ * (we detect this below and don't respawn), THIS session's renderer is handed
+ * the same token the running service was launched with — otherwise every chat
+ * after the first launch hit a 401 "terminal relay offline". Env override wins
+ * (packaged/CI), then the persisted file, then a fresh token (persisted).
+ */
+function resolvePersistentToken(): string {
+  if (process.env.TERMINAL_SERVICE_TOKEN) return process.env.TERMINAL_SERVICE_TOKEN;
+  try {
+    const file = path.join(app.getPath("userData"), "terminal-service-token");
+    const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
+    if (existing) return existing;
+    const token = crypto.randomBytes(32).toString("hex");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, token, { mode: 0o600 });
+    return token;
+  } catch {
+    return crypto.randomBytes(32).toString("hex");
+  }
+}
+
 export function startTerminalService(): TerminalServiceProc {
   const host = process.env.TERMINAL_SERVICE_HOST ?? "127.0.0.1";
   const port = Number(process.env.TERMINAL_SERVICE_PORT ?? "4010");
-  // Generate once per Electron session. Propagated to the child via env,
-  // and to the embedded Next server + renderer via main.ts.
-  const token =
-    process.env.TERMINAL_SERVICE_TOKEN || crypto.randomBytes(32).toString("hex");
+  // Stable across sessions (see resolvePersistentToken). Propagated to the
+  // child via env, and to the embedded Next server + renderer via main.ts.
+  const token = resolvePersistentToken();
   currentConfig = {
     host,
     port,

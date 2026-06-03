@@ -1,0 +1,122 @@
+/* v2 terminal — component-local styling for the faux + live screens. Theme
+ * palette (--term-* ANSI ramp) is supplied by app/warp.css's .cd-term-screen
+ * per-theme rules; this file only carries structural bits the leaves need. */
+
+/* Faux-shell input — must read as terminal text, not a form field. Resets the
+ * global `input { font-family: sans }` + any browser/box chrome so typing feels
+ * flat and inline with the prompt. */
+.cd-term-input {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  font-family: var(--term-font-family, var(--font-mono));
+  line-height: inherit;
+  caret-color: rgb(var(--accent-rgb));
+}
+.cd-term-input:focus,
+.cd-term-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.cd-term-caret {
+  display: inline-block;
+  margin-left: 1px;
+  color: rgb(var(--accent-rgb));
+  animation: cd-term-blink 1.05s steps(2, start) infinite;
+}
+@keyframes cd-term-blink {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cd-term-caret {
+    animation: none;
+  }
+}
+
+/* Focused split pane — accent ring drawn just inside the pane frame. */
+.cd-term-pane {
+  position: relative;
+}
+.cd-term-pane[data-focused="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, rgb(var(--accent-rgb)), transparent 45%);
+}
+
+/* tmux display-panes style #P index badge (only shown when a window is split).
+ * Idle panes are dim; the active pane's badge fills with the accent. */
+.cd-term-pane-index {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono);
+  font-size: calc(var(--font-size-xs) - 1px);
+  line-height: 1.5;
+  text-align: center;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.cd-term-pane:hover .cd-term-pane-index,
+.cd-term-pane-index:hover,
+.cd-term-pane-index:focus-visible {
+  opacity: 1;
+}
+.cd-term-pane-index:focus-visible {
+  outline: 1px solid rgb(var(--accent-rgb));
+  outline-offset: 1px;
+}
+.cd-term-pane-index[data-active="true"] {
+  background: rgb(var(--accent-rgb));
+  color: var(--text-on-accent);
+  box-shadow: none;
+  opacity: 1;
+}
+
+/* Split divider — a thin gutter that brightens on hover/drag. */
+.cd-term-divider {
+  flex: 0 0 auto;
+  position: relative;
+  background: var(--border-subtle);
+  transition: background 0.12s ease;
+}
+.cd-term-divider:hover,
+.cd-term-divider[data-dragging="true"] {
+  background: rgb(var(--accent-rgb));
+}
+.cd-term-divider--row {
+  width: 1px;
+  cursor: col-resize;
+}
+.cd-term-divider--col {
+  height: 1px;
+  cursor: row-resize;
+}
+/* Widen the grabbable hit area without changing the visual line. */
+.cd-term-divider::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+}
+.cd-term-divider--row::after {
+  inset: 0 -3px;
+}
+.cd-term-divider--col::after {
+  inset: -3px 0;
+}

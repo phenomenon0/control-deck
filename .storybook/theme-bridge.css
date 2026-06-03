@@ -1,0 +1,166 @@
+/* VelvetMD + regime + brand (awesome-design-md) theme bridge.
+ *
+ * Each theme sets a small set of BASE tokens; the shared `:root.cd-bridged`
+ * block (applied by the preview decorator to every bridged theme) maps those
+ * onto warp.css's surface vars (--fg / --bg-card / --border / …), which flow
+ * through warp's mappings to --text-primary / --bg-secondary / etc. Without it,
+ * light bridge themes inherited warp's DARK literals → invisible text.
+ *
+ * Brand themes are derived from github.com/voltagent/awesome-design-md DESIGN.md
+ * specs (palette + typography w/ open-font substitutes + corner radius), then
+ * run through an adversarial WCAG-contrast review (every text/bg ≥ 4.5:1, every
+ * onAccent/accent ≥ 4.5:1). Where a theme sets --bg-card / --border explicitly,
+ * it overrides cd-bridged's derived value (equal specificity, later in source).
+ *
+ * `:root[...]` selectors keep specificity above warp.css/globals.
+ */
+
+/* Shared derivation: turn each theme's base palette into warp's surface vars. */
+:root.cd-bridged {
+  --fg: var(--text);
+  --fg-muted: var(--text-dim);
+  --fg-dim: color-mix(in oklab, var(--text-dim), var(--bg) 28%);
+  --fg-faint: color-mix(in oklab, var(--text-dim), var(--bg) 55%);
+  --bg-card: color-mix(in oklab, var(--bg), var(--text) 5%);
+  --bg-elev: color-mix(in oklab, var(--bg), var(--text) 9%);
+  --bg-inset: color-mix(in oklab, var(--bg), var(--text) 14%);
+  --border: color-mix(in oklab, var(--text), transparent 85%);
+}
+
+/* ── VelvetMD foundational ───────────────────────────────────────────────── */
+:root[data-theme="velvet-light"] {
+  --bg: #f4f1eb; --text: #2c2825; --text-dim: #5c5650;
+  --gold: #8b6b4a; --accent: #8b6b4a; --accent-rgb: 139, 107, 74;
+  --text-on-accent: #f4f1eb;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", monospace; --font-size-base: 15px;
+}
+:root[data-theme="velvet-dark"] {
+  --bg: #0a0a09; --text: #c8c4bc; --text-dim: #7a766e;
+  --gold: #a08860; --accent: #a08860; --accent-rgb: 160, 136, 96;
+  --text-on-accent: #0a0a09;
+  --font-sans: "Source Serif 4", Georgia, serif;
+  --font-display: "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace; --font-size-base: 16px;
+}
+:root[data-theme="velvet-deep"] {
+  --bg: #1a1714; --text: #e0d8cc; --text-dim: #a09585;
+  --gold: #d4a04a; --accent: #d4a04a; --accent-rgb: 212, 160, 74;
+  --text-on-accent: #1a1714;
+  --font-sans: "Source Serif 4", Georgia, serif;
+  --font-display: "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace; --font-size-base: 16px;
+}
+
+/* ── Distinct regimes ────────────────────────────────────────────────────── */
+:root[data-theme="homey"] {
+  --bg: #f5efe6; --text: #3a322b; --text-dim: #8a7d6e;
+  --gold: #c2683f; --accent: #c2683f; --accent-rgb: 194, 104, 63;
+  --text-on-accent: #ffffff;
+  --font-sans: "Inter", -apple-system, sans-serif;
+  --font-display: "Inter", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-size-base: 15px; --radius: 18px;
+}
+:root[data-theme="academia"] {
+  --bg: #f7f4ec; --text: #2b2722; --text-dim: #6b6355;
+  --gold: #7a2e2e; --accent: #7a2e2e; --accent-rgb: 122, 46, 46;
+  --text-on-accent: #f7f4ec;
+  --font-sans: "Source Serif 4", Georgia, serif;
+  --font-display: "Source Serif 4", Georgia, serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-size-base: 16px; --radius: 2px;
+}
+:root[data-theme="industrial"] {
+  --bg: #16181b; --text: #d6d9dc; --text-dim: #7c8288;
+  --gold: #ff6a1a; --accent: #ff6a1a; --accent-rgb: 255, 106, 26;
+  --text-on-accent: #16181b;
+  --font-sans: "Space Grotesk", "Inter", sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-size-base: 14px; --radius: 0px;
+}
+
+/* ── Brand themes (awesome-design-md, contrast-reviewed) ─────────────────── */
+:root[data-theme="claude"] {
+  --bg: #faf9f5; --text: #141413; --text-dim: #6c6a64;
+  --gold: #cc785c; --accent: #cc785c; --accent-rgb: 204, 120, 92;
+  --text-on-accent: #141413; --bg-card: #efe9de; --border: #e6dfd8;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-size-base: 16px; --radius: 12px;
+}
+:root[data-theme="vercel"] {
+  --bg: #fafafa; --text: #171717; --text-dim: #888888;
+  --gold: #0070f3; --accent: #0070f3; --accent-rgb: 0, 112, 243;
+  --text-on-accent: #ffffff; --bg-card: #ffffff; --border: #ebebeb;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-base: 16px; --radius: 8px;
+}
+:root[data-theme="linear"] {
+  --bg: #010102; --text: #f7f8f8; --text-dim: #d0d6e0;
+  --gold: #5e6ad2; --accent: #5e6ad2; --accent-rgb: 94, 106, 210;
+  --text-on-accent: #ffffff; --bg-card: #0f1011; --border: #23252a;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Inter", "SF Pro Display", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-size-base: 16px; --radius: 8px;
+}
+:root[data-theme="spotify"] {
+  --bg: #121212; --text: #ffffff; --text-dim: #b3b3b3;
+  --gold: #1ed760; --accent: #1ed760; --accent-rgb: 30, 215, 96;
+  --text-on-accent: #000000; --bg-card: #181818; --border: #4d4d4d;
+  --font-sans: "Inter", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-display: "Inter", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-size-base: 16px; --radius: 8px;
+}
+:root[data-theme="elevenlabs"] {
+  --bg: #f5f5f5; --text: #292524; --text-dim: #777169;
+  --gold: #0c0a09; --accent: #0c0a09; --accent-rgb: 12, 10, 9;
+  --text-on-accent: #ffffff; --bg-card: #ffffff; --border: #e7e5e4;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "EB Garamond", "Times New Roman", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --font-size-base: 16px; --radius: 12px;
+}
+:root[data-theme="stripe"] {
+  --bg: #ffffff; --text: #0d253d; --text-dim: #64748d;
+  --gold: #533afd; --accent: #533afd; --accent-rgb: 83, 58, 253;
+  --text-on-accent: #ffffff; --bg-card: #f6f9fc; --border: #e3e8ee;
+  --font-sans: "Inter", "SF Pro Display", system-ui, -apple-system, sans-serif;
+  --font-display: "Inter", "SF Pro Display", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-size-base: 15px; --radius: 12px;
+}
+:root[data-theme="notion"] {
+  --bg: #ffffff; --text: #1a1a1a; --text-dim: #8a8780;
+  --gold: #5645d4; --accent: #5645d4; --accent-rgb: 86, 69, 212;
+  --text-on-accent: #ffffff; --bg-card: #f6f5f4; --border: #e5e3df;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-size-base: 16px; --radius: 8px;
+}
+:root[data-theme="ferrari"] {
+  --bg: #181818; --text: #ffffff; --text-dim: #969696;
+  --gold: #da291c; --accent: #da291c; --accent-rgb: 218, 41, 28;
+  --text-on-accent: #ffffff; --bg-card: #303030; --border: #303030;
+  --font-sans: "Inter", -apple-system, system-ui, sans-serif;
+  --font-display: "Inter", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-size-base: 14px; --radius: 0px;
+}
+:root[data-theme="playstation"] {
+  --bg: #000000; --text: #ffffff; --text-dim: #cccccc;
+  --gold: #0070d1; --accent: #0070d1; --accent-rgb: 0, 112, 209;
+  --text-on-accent: #ffffff; --bg-card: #181818; --border: #3a3a3a;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Roboto", "Inter", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-base: 16px; --radius: 8px;
+}

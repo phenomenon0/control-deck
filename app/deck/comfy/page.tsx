@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Legacy route. Comfy is now the Visual surface. */
-export default function ComfyLegacyPage() {
-  redirect("/deck/visual");
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

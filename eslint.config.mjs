@@ -1,3 +1,6 @@
+// For more info, see https://github.com/storybookjs/eslint-plugin-storybook#configuration-flat-config-format
+import storybook from "eslint-plugin-storybook";
+
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 
@@ -18,20 +21,17 @@ const migratedNextVitals = nextVitals.map((config) =>
     : config,
 );
 
-export default defineConfig([
-  ...migratedNextVitals,
-  globalIgnores([
-    ".electron-dist/**",
-    ".next/**",
-    ".turbo/**",
-    ".venv*/**",
-    "apps/model-tray/src-tauri/target/**",
-    "build/**",
-    "coverage/**",
-    "dist/**",
-    "dist-electron/**",
-    "llama.cpp/**",
-    "node_modules/**",
-    "out/**",
-  ]),
-]);
+export default defineConfig([...migratedNextVitals, globalIgnores([
+  ".electron-dist/**",
+  ".next/**",
+  ".turbo/**",
+  ".venv*/**",
+  "apps/model-tray/src-tauri/target/**",
+  "build/**",
+  "coverage/**",
+  "dist/**",
+  "dist-electron/**",
+  "llama.cpp/**",
+  "node_modules/**",
+  "out/**",
+]), ...storybook.configs["flat/recommended"]]);

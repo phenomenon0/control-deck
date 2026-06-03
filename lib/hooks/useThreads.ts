@@ -6,6 +6,7 @@ import {
   type Message,
   getStoredThreads,
   setStoredThreads,
+  getStoredActiveThread,
   setStoredActiveThread,
   groupThreadsByDate,
 } from "@/lib/chat/helpers";
@@ -32,12 +33,19 @@ export function useThreads() {
   const [messages, setMessages] = useState<Message[]>([]);
   const fallbackThreadIdRef = useRef<string>(crypto.randomUUID());
 
-  // Init — always start with a fresh new chat
+  // Init — restore the last active thread so leaving and returning to the deck
+  // (or a full reload/restart) reopens the conversation you were in, instead of
+  // dropping you on a blank new chat. The thread-change effect below fetches its
+  // messages. An empty store (first run, or after an explicit New) starts fresh.
   useEffect(() => {
     setThreads(getStoredThreads());
-    setActiveThreadIdState(null);
-    setMessages([]);
-    setStoredActiveThread(null);
+    const restored = getStoredActiveThread();
+    if (restored) {
+      setActiveThreadIdState(restored);
+    } else {
+      setActiveThreadIdState(null);
+      setMessages([]);
+    }
 
     let cancelled = false;
     fetch("/api/threads")

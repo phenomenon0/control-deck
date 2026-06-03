@@ -26,7 +26,43 @@ import {
 import { startAgentTsSupervisor } from "./services/agent-ts-supervisor";
 
 const IS_DEV = !app.isPackaged;
-const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
+const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/all";
+
+/**
+ * Load .env.local into process.env BEFORE supervisors spawn, so the agent-ts /
+ * voice-core / terminal supervisors inherit deck config the renderer's Next
+ * server already reads (LLM_BASE_URL, LLM_MODEL, OLLAMA_BASE_URL,
+ * DECK_AGENT_TOOLS, etc.). Next loads .env.local for the web layer; Electron
+ * main is a separate process and must load it too or the spawned services fall
+ * back to defaults (e.g. ollama:11434, full tool set). Existing env wins.
+ */
+(function loadDotEnvLocal() {
+  if (app.isPackaged) return;
+  for (const candidate of [
+    path.join(process.cwd(), ".env.local"),
+    path.join(__dirname, "..", ".env.local"),
+  ]) {
+    try {
+      if (!fs.existsSync(candidate)) continue;
+      for (const raw of fs.readFileSync(candidate, "utf8").split("\n")) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const eq = line.indexOf("=");
+        if (eq < 0) continue;
+        const key = line.slice(0, eq).trim();
+        let val = line.slice(eq + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (key && process.env[key] === undefined) process.env[key] = val;
+      }
+      console.log(`[electron] loaded env from ${candidate}`);
+      break;
+    } catch {
+      /* ignore */
+    }
+  }
+})();
 
 /**
  * DECK_TOKEN gates every /api/* call in middleware.ts. In packaged builds
@@ -974,6 +1010,23 @@ ipcMain.handle("terminal:config", () => {
     wsBaseUrl: cfg.wsBaseUrl,
     token: cfg.token,
   };
+});
+
+// Save a chat artifact / generated file to disk via the native dialog. The
+// renderer's lib/save-file.ts falls back to a browser download if this is absent.
+ipcMain.handle("deck:save-file", async (event, payload: { name?: string; mimeType?: string; content: string; encoding?: "utf8" | "base64" }) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win ?? undefined as never, {
+      defaultPath: payload.name || "download",
+    });
+    if (canceled || !filePath) return { ok: false };
+    const buf = payload.encoding === "base64" ? Buffer.from(payload.content, "base64") : Buffer.from(payload.content, "utf8");
+    await fs.promises.writeFile(filePath, buf);
+    return { ok: true, filePath };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "save failed" };
+  }
 });
 
 // Supervisor introspection + operator-initiated reset. The settings page

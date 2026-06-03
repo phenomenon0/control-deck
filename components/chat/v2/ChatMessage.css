@@ -1,0 +1,21 @@
+/* ChatMessage (v2) — smooth entry transition. Subtle fade + slide-up,
+   ease-out, close to resting position (per motion best practice). New rows
+   animate on mount; existing rows are untouched by React's keyed reconciler. */
+@keyframes msg-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.msg-enter {
+  animation: msg-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-enter {
+    animation: none;
+  }
+}

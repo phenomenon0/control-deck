@@ -1,5 +1,6 @@
-import { AudioPane } from "@/components/panes/AudioPane";
+import { redirect } from "next/navigation";
 
-export default function AudioPage() {
-  return <AudioPane />;
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

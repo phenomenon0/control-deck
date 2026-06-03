@@ -102,3 +102,12 @@ scripts/terminal-service.js
 # postinstall; the worklet bundle .js stays committed).
 public/audio-worklets/ort-wasm-*.wasm
 public/audio-worklets/ort-wasm-*.mjs
+
+*storybook.log
+storybook-static
+
+# MLX Python venv (382M, recreated by scripts/start-mlx.sh)
+.venv-mlx/
+
+# Throwaway design-process screenshots from the Storybook rebuild loop
+.design-refs/

@@ -1,12 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import dynamic from "next/dynamic";
-
-const TerminalPane = dynamic(
-  () => import("@/components/panes/TerminalPane").then((module) => module.TerminalPane),
-  { ssr: false },
-);
-
-export default function TerminalPage() {
-  return <TerminalPane />;
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

@@ -1,5 +1,6 @@
-import { ControlPane } from "@/components/panes/ControlPane";
+import { redirect } from "next/navigation";
 
-export default function ControlPage() {
-  return <ControlPane />;
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

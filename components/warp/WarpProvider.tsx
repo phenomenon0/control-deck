@@ -81,9 +81,10 @@ export function WarpProvider({ children }: { children: ReactNode }) {
     root.dataset.warmth = tweaks.warmth;
     root.dataset.type = tweaks.type;
     root.dataset.accent = tweaks.accent;
-    root.dataset.theme = tweaks.theme;
-    root.classList.toggle("dark", tweaks.theme === "dark");
-    root.classList.toggle("light", tweaks.theme === "light");
+    // NOTE: `data-theme` + the .dark/.light classes are owned exclusively by
+    // DeckSettingsProvider (it's the only theme source that knows "hacker").
+    // Warp must NOT write them or it clobbers the hacker theme back to
+    // dark/light on every tweak. Warp keeps warmth/type/accent only.
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tweaks));
     } catch {

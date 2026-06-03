@@ -540,6 +540,31 @@ export async function POST(req: Request) {
   saveEvent(runStarted);
   hub.publish(thread, runStarted);
 
+  // Persist the user's turn so the conversation survives a reload/restart —
+  // the thread's message history is otherwise reconstructed only from the live
+  // event stream and lost on navigation. Only the LAST message is new each
+  // call (earlier turns were saved on their own requests), so saving just it
+  // avoids duplicates. createThread above guarantees the FK target exists.
+  const lastUserMsg = messages[messages.length - 1];
+  if (
+    lastUserMsg?.role === "user" &&
+    typeof lastUserMsg.content === "string" &&
+    lastUserMsg.content.trim()
+  ) {
+    try {
+      saveMessage({
+        id: generateId(),
+        threadId: thread,
+        role: "user",
+        content: lastUserMsg.content,
+        runId,
+        metadata: lastUserMsg.metadata,
+      });
+    } catch (err) {
+      console.warn("[Chat] saveMessage(user) failed:", err);
+    }
+  }
+
   // Emit TextMessageStart locally
   const msgStart = createEvent<TextMessageStart>("TextMessageStart", thread, {
     runId,
@@ -585,8 +610,17 @@ export async function POST(req: Request) {
       model: selectedModel,
       api_key: activeConfig.apiKey,
     },
-    tool_bridge_url: buildToolBridgeUrl(req),
-    mcp_url: buildMcpToolsUrl(req),
+    // Agentic tool/MCP layer. On small local models the BUILD-mode tool loop
+    // can stall before the first LLM call, so it's gated behind DECK_AGENT_TOOLS:
+    // set DECK_AGENT_TOOLS=0 for a fast plain-streaming chat (no tools/MCP).
+    // DECK_AGENT_TOOLS: "0" = no tools (plain chat); "lite" = bridge only (e.g.
+    // generate_image) with MCP discovery skipped, agent-ts then trims to its
+    // LITE_TOOLS allowlist; unset/other = full agentic tools + MCP.
+    tool_bridge_url: process.env.DECK_AGENT_TOOLS === "0" ? undefined : buildToolBridgeUrl(req),
+    mcp_url:
+      process.env.DECK_AGENT_TOOLS === "0" || process.env.DECK_AGENT_TOOLS === "lite"
+        ? undefined
+        : buildMcpToolsUrl(req),
   };
 
   // Create SSE streaming response
@@ -754,6 +788,16 @@ export async function POST(req: Request) {
           threadTitle: threadRow?.title || undefined,
         });
         finishRun(runId, 0, 0, 0);
+        // Persist the assistant's reply (the run's accumulated text) so it
+        // reloads with the thread. Reuses the deck's pre-emitted messageId, so
+        // it's unique per run; skip empty replies (e.g. a pure tool-only run).
+        if (fullText.trim()) {
+          try {
+            saveMessage({ id: messageId, threadId: thread, role: "assistant", content: fullText, runId });
+          } catch (err) {
+            console.warn("[Chat] saveMessage(assistant) failed:", err);
+          }
+        }
         saveEvent(runFinished);
         hub.publish(thread, runFinished);
         await safeWriteSSE(runFinished);

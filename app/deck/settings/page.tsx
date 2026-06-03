@@ -1,10 +1,6 @@
-import { Suspense } from "react";
-import { SettingsPane } from "@/components/panes/SettingsPane";
+import { redirect } from "next/navigation";
 
-export default function SettingsPage() {
-  return (
-    <Suspense fallback={null}>
-      <SettingsPane />
-    </Suspense>
-  );
+/** Retired v1 route — the composed deck (/deck/all) is the single surface now. */
+export default function RetiredRoute() {
+  redirect("/deck/all");
 }

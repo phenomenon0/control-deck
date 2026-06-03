@@ -1,0 +1,254 @@
+/* Structural regime layer — goes beyond palette/type to give each regime its
+ * own surface language, via the semantic hooks on the v2 components
+ * (.cd-composer, .cd-bubble, .cd-msg-body) + .rt-prose. Scoped by
+ * :root[data-theme=...] so only that regime is affected; deck themes untouched.
+ */
+
+/* ── Homey — soft, warm, gently elevated ─────────────────────────────────── */
+:root[data-theme="homey"] .cd-bubble {
+  box-shadow: 0 2px 10px rgba(58, 50, 43, 0.08);
+}
+:root[data-theme="homey"] .cd-composer {
+  border-bottom: 0;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  box-shadow: 0 2px 12px rgba(58, 50, 43, 0.07);
+  padding: 12px 14px;
+}
+
+/* ── Academia — paper, classic rule-lines, document-like quotes ──────────── */
+:root[data-theme="academia"] .rt-prose h1,
+:root[data-theme="academia"] .rt-prose h2,
+:root[data-theme="academia"] .rt-prose h3 {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.18em;
+}
+:root[data-theme="academia"] .cd-bubble {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+}
+:root[data-theme="academia"] .cd-composer {
+  border-bottom-width: 2px;
+}
+
+/* ── Industrial — steel, hard edges, HUD corner brackets, accent rail ────── */
+:root[data-theme="industrial"] .cd-bubble {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+}
+:root[data-theme="industrial"] .cd-composer {
+  border-bottom: 0;
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid rgb(var(--accent-rgb));
+  background: var(--bg-secondary);
+  padding: 10px 12px;
+  position: relative;
+}
+/* HUD corner ticks on the composer */
+:root[data-theme="industrial"] .cd-composer::before,
+:root[data-theme="industrial"] .cd-composer::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: rgb(var(--accent-rgb));
+  border-style: solid;
+  pointer-events: none;
+}
+:root[data-theme="industrial"] .cd-composer::before {
+  top: -1px;
+  right: -1px;
+  border-width: 2px 2px 0 0;
+}
+:root[data-theme="industrial"] .cd-composer::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+/* ════════════════ Brand regimes (awesome-design-md) ═════════════════════════
+ * Surface language per the reviewed DESIGN.md specs. Bubbles/composer/send use
+ * the .cd-* hooks; --bg-card/--border/--radius come from theme-bridge.css.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/* Claude — soft hairline cream cards, no shadow, serif headings (no rule). */
+:root[data-theme="claude"] .cd-bubble { border: 1px solid var(--border); }
+
+/* Vercel — white card, 1px hairline + faint stacked shadow; boxed composer. */
+:root[data-theme="vercel"] .cd-bubble {
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+:root[data-theme="vercel"] .cd-composer,
+:root[data-theme="notion"] .cd-composer,
+:root[data-theme="stripe"] .cd-composer,
+:root[data-theme="elevenlabs"] .cd-composer {
+  border-bottom: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  padding: 10px 12px;
+}
+
+/* Linear — charcoal hairline card, depth from the surface ladder (no shadow). */
+:root[data-theme="linear"] .cd-bubble { border: 1px solid var(--border); }
+
+/* Spotify — elevated card + heavy shadow; the send action is a green pill. */
+:root[data-theme="spotify"] .cd-bubble {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+:root[data-theme="spotify"] .cd-composer {
+  border-bottom: 0;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding: 10px 12px;
+}
+
+/* ElevenLabs — white card, hairline + soft shadow; near-black pill send. */
+:root[data-theme="elevenlabs"] .cd-bubble {
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+/* Stripe — soft hairline card with a navy-tinted level-1 lift; pill send. */
+:root[data-theme="stripe"] .cd-bubble {
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 3px rgba(0, 55, 112, 0.08);
+}
+:root[data-theme="stripe"] .cd-composer {
+  box-shadow: 0 1px 3px rgba(0, 55, 112, 0.08);
+}
+
+/* Notion — calm soft hairline card, no shadow, flat boxed composer. */
+:root[data-theme="notion"] .cd-bubble { border: 1px solid var(--border); }
+
+/* Ferrari — hard square cards, uppercase tracked send, depth via brightness. */
+:root[data-theme="ferrari"] .cd-bubble { border: 1px solid var(--border); }
+:root[data-theme="ferrari"] .cd-composer button[type="submit"] {
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+}
+
+/* PlayStation — user bubble fills console blue; send is a full-round pill. */
+:root[data-theme="playstation"] .cd-bubble {
+  background: rgb(var(--accent-rgb));
+  color: var(--text-on-accent);
+}
+
+/* Send-button shape per brand: pill for the brands whose CTA is a pill. */
+:root[data-theme="spotify"] .cd-composer button[type="submit"],
+:root[data-theme="elevenlabs"] .cd-composer button[type="submit"],
+:root[data-theme="stripe"] .cd-composer button[type="submit"],
+:root[data-theme="playstation"] .cd-composer button[type="submit"] {
+  border-radius: 9999px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+/* ════════════════ Active / selected thread — distinct per regime ════════════
+ * Not one inset bar everywhere: each regime uses a different technique —
+ * inside bar (varying thickness), outline ring, accent glow, full fill, or
+ * soft elevation. Base rule first; per-theme overrides win on source order.
+ * ──────────────────────────────────────────────────────────────────────────── */
+:root.cd-bridged .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb));
+}
+
+/* Claude — warm fill + soft 3px coral bar */
+:root[data-theme="claude"] .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: inset 3px 0 0 rgb(var(--accent-rgb));
+}
+/* Vercel — stark inset hairline RING, no accent bar (outline, not inside-bar) */
+:root[data-theme="vercel"] .cd-thread[aria-current="true"] {
+  background: var(--bg-card);
+  box-shadow: inset 0 0 0 1px var(--text-primary);
+}
+/* Linear — thin bar + lavender GLOW */
+:root[data-theme="linear"] .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb)), 0 0 18px -6px rgb(var(--accent-rgb));
+}
+/* Spotify — tinted fill + THICK 4px green rail */
+:root[data-theme="spotify"] .cd-thread[aria-current="true"] {
+  background: var(--bg-elevated);
+  box-shadow: inset 4px 0 0 rgb(var(--accent-rgb));
+}
+/* ElevenLabs — clean full accent-tint fill, no bar */
+:root[data-theme="elevenlabs"] .cd-thread[aria-current="true"] {
+  background: color-mix(in oklab, var(--bg), rgb(var(--accent-rgb)) 9%);
+  box-shadow: none;
+}
+/* Stripe — soft indigo tint + faint lifted glow */
+:root[data-theme="stripe"] .cd-thread[aria-current="true"] {
+  background: color-mix(in oklab, var(--bg), rgb(var(--accent-rgb)) 6%);
+  box-shadow: inset 2px 0 0 rgb(var(--accent-rgb)), 0 1px 8px rgba(83, 58, 253, 0.14);
+}
+/* Notion — calm gray fill only, no bar */
+:root[data-theme="notion"] .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: none;
+}
+/* Ferrari — hard THICK 4px square red rail, denser fill, no glow */
+:root[data-theme="ferrari"] .cd-thread[aria-current="true"] {
+  background: var(--bg-elevated);
+  box-shadow: inset 4px 0 0 rgb(var(--accent-rgb));
+}
+/* PlayStation — full console-blue FILL, inverted text */
+:root[data-theme="playstation"] .cd-thread[aria-current="true"] {
+  background: rgb(var(--accent-rgb));
+  box-shadow: none;
+}
+:root[data-theme="playstation"] .cd-thread[aria-current="true"] span {
+  color: var(--text-on-accent) !important;
+}
+/* Industrial — hard full accent OUTLINE ring + rail */
+:root[data-theme="industrial"] .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb)), inset 3px 0 0 rgb(var(--accent-rgb));
+}
+/* Academia — document-style ink left rule */
+:root[data-theme="academia"] .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: inset 2px 0 0 var(--text-primary);
+}
+/* Homey — soft rounded elevation, faint accent ring */
+:root[data-theme="homey"] .cd-thread[aria-current="true"] {
+  background: var(--bg-tertiary);
+  box-shadow: 0 2px 10px rgba(58, 50, 43, 0.12), inset 0 0 0 1px color-mix(in oklab, rgb(var(--accent-rgb)), transparent 70%);
+}
+
+/* ════════════ tmux status bar — accent (vivid families) vs quiet (editorial) ══
+ * Class lives on RailLayout's TerminalPane bar; theme decides accent vs quiet.
+ * Vivid families (spotify/ferrari/industrial/playstation) keep the bold accent
+ * bar (base rule); editorial/calm families get a quiet surface bar. */
+.cd-tmux-bar,
+.cd-term-bar { background: rgb(var(--accent-rgb)); color: var(--text-on-accent); }
+:root[data-theme="claude"] .cd-tmux-bar,
+:root[data-theme="vercel"] .cd-tmux-bar,
+:root[data-theme="linear"] .cd-tmux-bar,
+:root[data-theme="elevenlabs"] .cd-tmux-bar,
+:root[data-theme="stripe"] .cd-tmux-bar,
+:root[data-theme="notion"] .cd-tmux-bar,
+:root[data-theme="velvet-light"] .cd-tmux-bar,
+:root[data-theme="velvet-dark"] .cd-tmux-bar,
+:root[data-theme="velvet-deep"] .cd-tmux-bar,
+:root[data-theme="academia"] .cd-tmux-bar,
+:root[data-theme="homey"] .cd-tmux-bar,
+:root[data-theme="claude"] .cd-term-bar,
+:root[data-theme="vercel"] .cd-term-bar,
+:root[data-theme="linear"] .cd-term-bar,
+:root[data-theme="elevenlabs"] .cd-term-bar,
+:root[data-theme="stripe"] .cd-term-bar,
+:root[data-theme="notion"] .cd-term-bar,
+:root[data-theme="velvet-light"] .cd-term-bar,
+:root[data-theme="velvet-dark"] .cd-term-bar,
+:root[data-theme="velvet-deep"] .cd-term-bar,
+:root[data-theme="academia"] .cd-term-bar,
+:root[data-theme="homey"] .cd-term-bar {
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+}

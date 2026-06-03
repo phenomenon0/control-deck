@@ -1,0 +1,63 @@
+/* Per-theme typography universe — weights, tracking, line-height, type scale.
+ *
+ * Extracted/extrapolated from each DESIGN.md via multi-agent + a legibility
+ * review (body never < 400, weights valid, sizes/leading in range). Goes beyond
+ * font-family: each theme now has its own weight ladder, letter-spacing, leading
+ * and a base-relative type scale. Applied via :root.cd-bridged + the cd-*/rt-prose
+ * hooks so deck themes (non-bridged) keep globals defaults.
+ */
+
+/* ── Token definitions per theme ─────────────────────────────────────────── */
+:root[data-theme="claude"]       { --fw-body:400; --fw-strong:500; --fw-heading:400; --fw-label:500; --tracking-tight:-0.022em; --tracking-normal:0; --tracking-label:0.125em; --lh-body:1.55; }
+:root[data-theme="vercel"]       { --fw-body:400; --fw-strong:500; --fw-heading:600; --fw-label:400; --tracking-tight:-0.04em;  --tracking-normal:0; --tracking-label:0.08em;  --lh-body:1.5; }
+:root[data-theme="linear"]       { --fw-body:400; --fw-strong:600; --fw-heading:600; --fw-label:500; --tracking-tight:-0.022em; --tracking-normal:-0.003em; --tracking-label:0.03em; --lh-body:1.5; }
+:root[data-theme="spotify"]      { --fw-body:400; --fw-strong:700; --fw-heading:700; --fw-label:600; --tracking-tight:0;        --tracking-normal:0; --tracking-label:0.1em;   --lh-body:1.5; }
+:root[data-theme="elevenlabs"]   { --fw-body:400; --fw-strong:500; --fw-heading:300; --fw-label:600; --tracking-tight:-0.02em;  --tracking-normal:0.01em; --tracking-label:0.08em; --lh-body:1.5; }
+:root[data-theme="stripe"]       { --fw-body:400; --fw-strong:500; --fw-heading:300; --fw-label:400; --tracking-tight:-0.02em;  --tracking-normal:0; --tracking-label:0.01em;  --lh-body:1.4; }
+:root[data-theme="notion"]       { --fw-body:400; --fw-strong:600; --fw-heading:600; --fw-label:600; --tracking-tight:-0.018em; --tracking-normal:0; --tracking-label:0.09em;  --lh-body:1.55; }
+:root[data-theme="ferrari"]      { --fw-body:400; --fw-strong:700; --fw-heading:500; --fw-label:600; --tracking-tight:-0.02em;  --tracking-normal:0; --tracking-label:0.1em;   --lh-body:1.5; }
+:root[data-theme="playstation"]  { --fw-body:400; --fw-strong:500; --fw-heading:300; --fw-label:500; --tracking-tight:0;        --tracking-normal:0.006em; --tracking-label:0.025em; --lh-body:1.5; --font-size-base:15px; }
+:root[data-theme="velvet-light"] { --fw-body:400; --fw-strong:600; --fw-heading:500; --fw-label:500; --tracking-tight:-0.011em; --tracking-normal:0; --tracking-label:0.06em;  --lh-body:1.6; --font-size-base:15px; }
+:root[data-theme="velvet-dark"]  { --fw-body:400; --fw-strong:650; --fw-heading:400; --fw-label:500; --tracking-tight:-0.011em; --tracking-normal:0; --tracking-label:0.1em;   --lh-body:1.6; --font-size-base:16px; }
+:root[data-theme="velvet-deep"]  { --fw-body:400; --fw-strong:600; --fw-heading:400; --fw-label:500; --tracking-tight:-0.011em; --tracking-normal:0; --tracking-label:0.16em;  --lh-body:1.6; --font-size-base:16px; }
+:root[data-theme="homey"]        { --fw-body:400; --fw-strong:600; --fw-heading:500; --fw-label:500; --tracking-tight:-0.01em;  --tracking-normal:0; --tracking-label:0.06em;  --lh-body:1.65; --font-size-base:16px; }
+:root[data-theme="academia"]     { --fw-body:400; --fw-strong:700; --fw-heading:600; --fw-label:500; --tracking-tight:-0.015em; --tracking-normal:0; --tracking-label:0.12em;  --lh-body:1.6; --font-size-base:16px; }
+:root[data-theme="industrial"]   { --fw-body:400; --fw-strong:700; --fw-heading:700; --fw-label:500; --tracking-tight:-0.02em;  --tracking-normal:0; --tracking-label:0.14em;  --lh-body:1.45; }
+
+/* ── Application layer (bridged themes only) ─────────────────────────────── */
+:root.cd-bridged {
+  /* Derive the small/xs steps from each theme's base so the sidebar + meta
+     actually scale per theme (was hard-pinned to globals' 13/12px). */
+  --font-size-sm: calc(var(--font-size-base) - 1px);
+  --font-size-xs: calc(var(--font-size-base) - 2px);
+}
+
+/* Message reading content carries the theme's body weight/leading/tracking. */
+:root.cd-bridged .rt-prose {
+  font-weight: var(--fw-body, 400);
+  line-height: var(--lh-body, 1.6);
+  letter-spacing: var(--tracking-normal, 0);
+}
+:root.cd-bridged .rt-prose :is(h1, h2, h3) {
+  font-weight: var(--fw-heading, 600);
+  letter-spacing: var(--tracking-tight, 0);
+}
+:root.cd-bridged .rt-prose strong {
+  font-weight: var(--fw-strong, 600);
+}
+
+/* Thread titles take the body weight; eyebrow labels take the label weight +
+   the theme's uppercase tracking (Spotify wide, Linear tight, etc.). */
+:root.cd-bridged .cd-thread > span:first-child {
+  font-weight: var(--fw-body, 400);
+}
+:root.cd-bridged .cd-eyebrow {
+  font-weight: var(--fw-label, 500);
+  letter-spacing: var(--tracking-label, 0.08em);
+}
+
+/* Industrial shouts its headings. */
+:root[data-theme="industrial"] .rt-prose :is(h1, h2, h3) {
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}

@@ -283,3 +283,73 @@ export const TextStableAcrossManySplits: Story = {
     }
   },
 };
+
+/* ── breaking cases: many panes, indices, tiny panes ───────────────────────── */
+
+// 11 panes appended into one row (the "I keep hitting split" case). With the
+// splitLeaf clamp none collapse; the layout must stay legible — every pane a
+// real box carrying its tmux #P index badge.
+const manyRow: SplitNode = (() => {
+  let t: SplitNode = makeLeaf("m1");
+  for (let i = 2; i <= 11; i++) {
+    const lastId = t.type === "leaf" ? t.id : t.children[t.children.length - 1].id;
+    t = splitLeaf(t, lastId, "row", `m${i}`).tree;
+  }
+  return t;
+})();
+
+export const ManyPanesInARow: Story = {
+  name: "Many panes (11) in a row — all visible + indexed",
+  render: () => <SplitHarness initial={manyRow} />,
+  play: async ({ canvasElement }) => {
+    const panes = Array.from(canvasElement.querySelectorAll<HTMLElement>("[data-pane-id]"));
+    await expect(panes).toHaveLength(11);
+    for (const p of panes) await expect(p.offsetWidth).toBeGreaterThan(0); // none collapsed
+    // 10 dividers between 11 panes.
+    await expect(within(canvasElement).getAllByRole("separator")).toHaveLength(10);
+    // every pane shows its #P index badge (0..10).
+    const badges = Array.from(canvasElement.querySelectorAll<HTMLElement>(".cd-term-pane-index"));
+    await expect(badges).toHaveLength(11);
+    await expect(badges.map((b) => b.textContent)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+  },
+};
+
+export const PaneIndexBadges: Story = {
+  name: "Pane index badges — shown when split, active highlighted, clickable",
+  render: () => <SplitHarness initial={gridTree} />,
+  play: async ({ canvasElement, userEvent }) => {
+    const badges = Array.from(canvasElement.querySelectorAll<HTMLElement>(".cd-term-pane-index"));
+    await expect(badges).toHaveLength(4);
+    await expect(badges.map((b) => b.textContent)).toEqual(["0", "1", "2", "3"]);
+    // pa (index 0) is focused at start → its badge is the active one.
+    await expect(badges[0]).toHaveAttribute("data-active", "true");
+    // clicking another badge moves focus (and the active highlight) to that pane.
+    await userEvent.click(badges[2]);
+    await expect(badges[2]).toHaveAttribute("data-active", "true");
+    await expect(badges[0]).toHaveAttribute("data-active", "false");
+    await expect(canvasElement.querySelector('[data-pane-id="pc"]')).toHaveAttribute("data-focused", "true");
+  },
+};
+
+// A pane sized to the minimum fraction must still be a real, grabbable box with
+// a working index badge — the layout shouldn't squeeze it out of existence.
+const tinyTree: SplitNode = {
+  type: "group",
+  id: "g-tiny",
+  dir: "row",
+  children: [makeLeaf("big", "big"), makeLeaf("tiny", "tiny")],
+  sizes: [0.9, 0.1],
+};
+
+export const TinyPaneStaysUsable: Story = {
+  name: "Min-size pane — still a focusable box with its badge",
+  render: () => <SplitHarness initial={tinyTree} />,
+  play: async ({ canvasElement, userEvent }) => {
+    const tiny = canvasElement.querySelector<HTMLElement>('[data-pane-id="tiny"]')!;
+    await expect(tiny.offsetWidth).toBeGreaterThan(0);
+    const badge = tiny.querySelector<HTMLElement>(".cd-term-pane-index")!;
+    await expect(badge).not.toBeNull();
+    await userEvent.click(badge);
+    await expect(tiny).toHaveAttribute("data-focused", "true");
+  },
+};

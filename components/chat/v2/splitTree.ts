@@ -131,7 +131,10 @@ export function splitLeaf(
         const half = sizes[idx] / 2;
         sizes[idx] = half;
         sizes.splice(idx + 1, 0, half);
-        return { ...node, children, sizes };
+        // Clamp so repeatedly splitting the same pane can't drive a slice below
+        // MIN (halving is unbounded: 0.5→0.25→0.125…). Clamp is a no-op until a
+        // slice actually dips under MIN, so normal splits keep exact fractions.
+        return { ...node, children, sizes: clampSizes(sizes) };
       }
       // Cross-direction → wrap just the target leaf into a sub-group.
       const children = [...node.children];

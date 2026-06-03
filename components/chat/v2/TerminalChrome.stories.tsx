@@ -197,6 +197,62 @@ export const SplitFromToolbar: Story = {
   },
 };
 
+// Split up to 3 panes, then CLOSE one — the tree must collapse (singleton group
+// folds away), survivors resize to fill, and no pane is left a zero box.
+export const SplitThenClosePane: Story = {
+  name: "Split then close a pane — tree collapses, survivors resize",
+  render: () => <ChromeHarness />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Split right" }));
+    await userEvent.click(canvas.getByRole("button", { name: "Split down" }));
+    await expect(canvasElement.querySelectorAll("[data-pane-id]")).toHaveLength(3);
+
+    // close the focused (newest) pane → its col sub-group collapses to 2 panes
+    await userEvent.click(canvas.getByRole("button", { name: "Close pane" }));
+    const panes = Array.from(canvasElement.querySelectorAll<HTMLElement>("[data-pane-id]"));
+    await expect(panes).toHaveLength(2);
+    for (const p of panes) {
+      await expect(p.offsetWidth).toBeGreaterThan(0);
+      await expect(p.offsetHeight).toBeGreaterThan(0);
+    }
+    // the collapsed col divider is gone — only the outer row divider remains
+    await expect(within(canvasElement).getAllByRole("separator")).toHaveLength(1);
+  },
+};
+
+// Closing a window's LAST pane closes the whole tab (closePane → null → onCloseTab).
+export const CloseLastPaneClosesWindow: Story = {
+  name: "Closing a window's last pane closes its tab",
+  render: () => (
+    <ChromeHarness
+      initial={[
+        { id: "w1", title: "zsh", profile: "shell", layout: makeLeaf("s1") },
+        { id: "w2", title: "Claude", profile: "claude", layout: makeLeaf("s2") },
+      ]}
+    />
+  ),
+  play: async ({ canvas, userEvent }) => {
+    await expect(canvas.getAllByRole("tab")).toHaveLength(2);
+    // w1 active + single pane → Close pane removes the whole window.
+    await userEvent.click(canvas.getByRole("button", { name: "Close pane" }));
+    await expect(canvas.getAllByRole("tab")).toHaveLength(1);
+    await expect(canvas.getByRole("tab", { name: /Claude/ })).toBeInTheDocument();
+  },
+};
+
+// Closing the very last pane of the only window degrades to the empty launcher
+// hint — must not crash on a null layout.
+export const CloseDownToEmpty: Story = {
+  name: "Closing every pane → empty launcher, no crash",
+  render: () => <ChromeHarness />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await expect(canvasElement.querySelectorAll("[data-pane-id]")).toHaveLength(1);
+    await userEvent.click(canvas.getByRole("button", { name: "Close pane" }));
+    await expect(canvas.queryAllByRole("tab")).toHaveLength(0);
+    await expect(canvas.getByText(/No terminal windows/)).toBeInTheDocument();
+  },
+};
+
 export const NewAndCloseTab: Story = {
   render: () => <ChromeHarness />,
   play: async ({ canvas, userEvent }) => {

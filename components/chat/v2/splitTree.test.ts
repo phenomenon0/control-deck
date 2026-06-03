@@ -171,6 +171,69 @@ describe("closePane", () => {
   });
 });
 
+/* ── splitLeaf — breaking cases ──────────────────────────────────────────── */
+
+describe("splitLeaf — breaking cases", () => {
+  test("repeated same-direction split of ONE pane stays usable (clamped, never collapses)", () => {
+    // Each same-dir split halves the target's slice (0.5→0.25→0.125…). Unbounded
+    // that vanishes the pane; clampSizes keeps it usable.
+    let tree: SplitNode = makeLeaf("s1");
+    tree = splitLeaf(tree, tree.id, "row", "s2").tree; // [s1, s2]
+    const s1Id = asGroup(tree).children[0].id;
+    for (let i = 3; i <= 8; i++) tree = splitLeaf(tree, s1Id, "row", `s${i}`).tree; // keep splitting s1
+
+    const g = asGroup(tree);
+    expect(g.children).toHaveLength(8); // 2 + 6 same-pane splits
+    assertSizeInvariant(g); // sum≈1, all > 0
+    // Without the clamp s1's slice would be 0.5/2^5 ≈ 0.0156; clamped it stays
+    // comfortably bigger so the pane is still a real, grabbable box.
+    expect(Math.min(...g.sizes)).toBeGreaterThan(0.05);
+  });
+
+  test("many siblings: 12 panes in a row all stay visible (>10 defeats the hard MIN but none vanish)", () => {
+    let tree: SplitNode = makeLeaf("s1");
+    tree = splitLeaf(tree, tree.id, "row", "s2").tree;
+    for (let i = 3; i <= 12; i++) {
+      const g = asGroup(tree);
+      const lastId = g.children[g.children.length - 1].id;
+      tree = splitLeaf(tree, lastId, "row", `s${i}`).tree;
+    }
+    const g = asGroup(tree);
+    expect(g.children).toHaveLength(12);
+    assertSizeInvariant(g);
+    for (const s of g.sizes) expect(s).toBeGreaterThan(0); // documents the >10 limit: tiny but never 0
+  });
+
+  test("closing the deepest pane in a zig-zag tree collapses its singleton group", () => {
+    let tree: SplitNode = makeLeaf("s1");
+    let target = tree.id;
+    for (const [i, dir] of (["row", "col", "row", "col"] as const).entries()) {
+      const res = splitLeaf(tree, target, dir, `s${i + 2}`);
+      tree = res.tree;
+      target = res.newPaneId;
+    }
+    expect(countLeaves(tree)).toBe(5);
+    const after = closePane(tree, target)!; // remove the deepest leaf
+    expect(after).not.toBeNull();
+    expect(countLeaves(after)).toBe(4);
+    assertSizeInvariant(after);
+  });
+
+  test("closing every pane one by one ends at null (caller closes the tab)", () => {
+    let tree: SplitNode | null = makeLeaf("s1");
+    tree = splitLeaf(tree, tree.id, "row", "s2").tree;
+    tree = splitLeaf(tree, asGroup(tree).children[0].id, "col", "s3").tree;
+    // 3 panes → close until nothing remains
+    let guard = 0;
+    while (tree && guard++ < 10) {
+      const leaf = allLeaves(tree)[0];
+      tree = closePane(tree, leaf.id);
+      if (tree) assertSizeInvariant(tree);
+    }
+    expect(tree).toBeNull();
+  });
+});
+
 /* ── pruneSessions ───────────────────────────────────────────────────────── */
 
 describe("pruneSessions", () => {

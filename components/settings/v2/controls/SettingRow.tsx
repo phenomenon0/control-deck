@@ -14,12 +14,14 @@
 
 import type { ReactNode } from "react";
 
+import { Badge, type BadgeTone } from "@/components/chat/v2/ui";
+
 import type { Density } from "./types";
 
 export interface SettingRowBadge {
   text: string;
   /** Visual weight of the badge. */
-  tone?: "accent" | "muted" | "warn";
+  tone?: BadgeTone;
 }
 
 export interface SettingRowProps {
@@ -31,12 +33,6 @@ export interface SettingRowProps {
   htmlFor?: string;
   density?: Density;
 }
-
-const BADGE_STYLE: Record<NonNullable<SettingRowBadge["tone"]>, React.CSSProperties> = {
-  accent: { background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", borderColor: "transparent" },
-  muted: { background: "var(--bg-tertiary)", color: "var(--text-muted)", borderColor: "var(--border-subtle)" },
-  warn: { background: "transparent", color: "#d29922", borderColor: "#d29922" },
-};
 
 export function SettingRow({ label, description, badge, control, htmlFor, density = "default" }: SettingRowProps) {
   const stacked = density === "comfortable";
@@ -60,17 +56,9 @@ export function SettingRow({ label, description, badge, control, htmlFor, densit
             {label}
           </label>
           {badge && (
-            <span
-              className="cd-settings-row-badge inline-block rounded-[var(--radius-sm)] border px-1 py-px uppercase"
-              style={{
-                ...BADGE_STYLE[badge.tone ?? "muted"],
-                fontFamily: "var(--font-mono)",
-                fontSize: "calc(var(--font-size-xs) - 1px)",
-                letterSpacing: "var(--tracking-label, 0.02em)",
-              }}
-            >
+            <Badge tone={badge.tone ?? "muted"} variant="solid" className="cd-settings-row-badge">
               {badge.text}
-            </span>
+            </Badge>
           )}
         </div>
         {description && (

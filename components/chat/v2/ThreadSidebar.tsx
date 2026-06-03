@@ -15,6 +15,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+import { Button } from "./ui";
+
 export interface ThreadItem {
   id: string;
   title: string;
@@ -79,14 +81,9 @@ export function ThreadSidebar({
           {title}
         </span>
         {onNew && (
-          <button
-            type="button"
-            onClick={onNew}
-            aria-label="New thread"
-            className="cd-sidebar-new flex items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-          >
+          <Button variant="ghost" size="icon" onClick={onNew} aria-label="New thread" className="cd-sidebar-new">
             <PlusIcon />
-          </button>
+          </Button>
         )}
       </header>
 
@@ -152,46 +149,36 @@ export function ThreadSidebar({
                       <span className="text-[var(--text-muted)]" style={META}>
                         delete?
                       </span>
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => { onDelete?.(t.id); setConfirmingId(null); }}
                         aria-label={`Confirm delete ${t.title}`}
-                        className="rounded-[var(--radius-sm)] p-1 transition-colors hover:bg-[var(--bg-elevated)]"
                         style={{ color: "rgb(var(--accent-rgb))" }}
                       >
                         <CheckIcon />
-                      </button>
-                      <button
-                        type="button"
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => setConfirmingId(null)}
                         aria-label="Cancel delete"
-                        className="rounded-[var(--radius-sm)] p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
                       >
                         <XIcon />
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     (onRename || onDelete) && (
                       <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/thread:opacity-100 group-focus-within/thread:opacity-100">
                         {onRename && (
-                          <button
-                            type="button"
-                            onClick={() => beginRename(t)}
-                            aria-label={`Rename ${t.title}`}
-                            className="rounded-[var(--radius-sm)] p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
-                          >
+                          <Button variant="ghost" size="icon" onClick={() => beginRename(t)} aria-label={`Rename ${t.title}`}>
                             <PencilIcon />
-                          </button>
+                          </Button>
                         )}
                         {onDelete && (
-                          <button
-                            type="button"
-                            onClick={() => { setRenamingId(null); setConfirmingId(t.id); }}
-                            aria-label={`Delete ${t.title}`}
-                            className="rounded-[var(--radius-sm)] p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]"
-                          >
+                          <Button variant="ghost" size="icon" onClick={() => { setRenamingId(null); setConfirmingId(t.id); }} aria-label={`Delete ${t.title}`}>
                             <TrashIcon />
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )

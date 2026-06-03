@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AudioLines, ChevronRight, Eye, Image as ImageIcon, Type, X } from "lucide-react";
 
+import { Badge, Button } from "@/components/chat/v2/ui";
 import { ModelCard, type ModelEntry } from "@/components/models/v2/ModelCard";
 import { useWarp } from "@/components/warp/WarpProvider";
 import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
@@ -182,9 +183,9 @@ function DetailPanel({ title, eyebrow, onClose, children }: { title: string; eye
           {eyebrow && <span className="cd-eyebrow uppercase text-[var(--text-muted)]" style={{ fontFamily: "var(--font-mono)", fontSize: "calc(var(--font-size-xs) - 1px)", letterSpacing: "var(--tracking-label, 0.06em)" }}>{eyebrow}</span>}
           <strong className="text-[var(--text-primary)]" style={{ fontSize: "var(--font-size-base)", fontWeight: "var(--fw-strong, 600)" }}>{title}</strong>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close detail" className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close detail" className="shrink-0">
           <X size={15} />
-        </button>
+        </Button>
       </header>
       <div className="flex flex-col gap-4 px-5 py-4">{children}</div>
     </aside>
@@ -785,16 +786,17 @@ export function SettingsSurface() {
                     <div key={m.name} className="flex items-center gap-2 rounded-[var(--radius-sm)] border px-2.5 py-1.5" style={{ borderColor: "var(--border-subtle)" }}>
                       <span className="truncate text-[var(--text-primary)]" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>{m.name}</span>
                       {m.size && <span className="shrink-0 text-[var(--text-muted)]" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>{m.size}</span>}
-                      {m.loaded && <span className="shrink-0 rounded-[var(--radius-sm)] px-1 py-px uppercase" style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", fontFamily: "var(--font-mono)", fontSize: "calc(var(--font-size-xs) - 1px)" }}>loaded</span>}
-                      <button
-                        type="button"
+                      {m.loaded && <Badge tone="accent" variant="solid" className="shrink-0">loaded</Badge>}
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => void providerAction(detailProvider.id, m.loaded ? "unload" : "load", m.name)}
                         disabled={m.loaded ? !detailProvider.capUnload : !detailProvider.capLoad}
-                        className="ml-auto shrink-0 rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-                        style={{ borderColor: "var(--border-subtle)", fontFamily: "var(--font-mono)", fontSize: "calc(var(--font-size-xs) - 1px)" }}
+                        className="ml-auto shrink-0"
+                        style={{ fontFamily: "var(--font-mono)" }}
                       >
                         {m.loaded ? "unload" : "load"}
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -848,9 +850,9 @@ export function SettingsSurface() {
                   <Toggle checked={prefs.powerMetrics} onChange={(v) => updatePrefs({ powerMetrics: v })} label="Power metrics" />
                 </div>
 
-                <button type="button" onClick={() => void freeGpu()} className="mt-1 w-full rounded-[var(--radius-sm)] py-1.5 font-medium" style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>
+                <Button variant="accent" size="sm" onClick={() => void freeGpu()} className="mt-1 w-full py-1.5" style={{ fontFamily: "var(--font-mono)" }}>
                   Free GPU memory
-                </button>
+                </Button>
               </>
             )}
 

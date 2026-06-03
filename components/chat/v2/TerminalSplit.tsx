@@ -31,7 +31,7 @@ export interface TerminalSplitProps {
 }
 
 /** A pane's rect (fractions 0..1 of the whole split container) + tmux #P index. */
-interface PaneBox {
+export interface PaneBox {
   leaf: SplitLeaf;
   x: number;
   y: number;
@@ -56,7 +56,7 @@ interface DividerBox {
 }
 
 /** Walk the tree once, laying out absolute pane + divider boxes. Pure. */
-function computeLayout(
+export function computeLayout(
   node: SplitNode,
   x: number,
   y: number,

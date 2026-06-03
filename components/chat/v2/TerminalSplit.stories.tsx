@@ -353,3 +353,89 @@ export const TinyPaneStaysUsable: Story = {
     await expect(tiny).toHaveAttribute("data-focused", "true");
   },
 };
+
+/* ── no-remount proof: the load-bearing guard against blank-on-split ───────── */
+
+// Harness that splits via a real button so `play` can drive it, and tags each
+// pane's content with a stable `data-probe` node. The blank-on-split bug was a
+// REMOUNT: splitting wrapped a leaf in a new group, swapping the component type
+// at that slot so React tore down + rebuilt the pane (and its live terminal).
+// The flat layout keeps each pane's React position stable, so the SAME DOM node
+// is reused. Asserting node identity (===) is the only check that distinguishes
+// the two implementations.
+function ProbeSplitHarness({ initial, splitId, splitDir }: { initial: SplitNode; splitId: string; splitDir: "row" | "col" }) {
+  const [tree, setTree] = useState<SplitNode>(initial);
+  const [focused, setFocused] = useState<string>(() => firstId(initial));
+  const renderPane = useCallback(
+    (leaf: SplitLeaf) => (
+      <div
+        data-probe={leaf.id}
+        className="flex h-full w-full items-center justify-center text-[var(--text-secondary)]"
+        style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}
+      >
+        {leaf.sessionId}
+      </div>
+    ),
+    [],
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: 360, width: "100%" }}>
+      <button
+        type="button"
+        data-testid="do-split"
+        onClick={() => {
+          const r = splitLeaf(tree, splitId, splitDir, "newsession");
+          setTree(r.tree);
+          setFocused(r.newPaneId);
+        }}
+      >
+        split
+      </button>
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <TerminalSplit node={tree} focusedPaneId={focused} onFocusPane={setFocused} onResize={(g, s) => setTree((t) => setSizes(t, g, s))} renderPane={renderPane} />
+      </div>
+    </div>
+  );
+}
+
+export const SplitDoesNotRemountExistingPane: Story = {
+  name: "Split a bare leaf — existing pane DOM node is REUSED, not remounted",
+  render: () => <ProbeSplitHarness initial={makeLeaf("alpha", "pa")} splitId="pa" splitDir="row" />,
+  play: async ({ canvasElement, userEvent }) => {
+    const probeBefore = canvasElement.querySelector('[data-probe="pa"]');
+    const frameBefore = canvasElement.querySelector('[data-pane-id="pa"]');
+    await expect(probeBefore).not.toBeNull();
+
+    await userEvent.click(canvasElement.querySelector('[data-testid="do-split"]')!);
+
+    await expect(canvasElement.querySelectorAll("[data-pane-id]")).toHaveLength(2);
+    // load-bearing: the SAME DOM nodes persist → React reconciled, never remounted.
+    await expect(canvasElement.querySelector('[data-probe="pa"]')).toBe(probeBefore);
+    await expect(canvasElement.querySelector('[data-pane-id="pa"]')).toBe(frameBefore);
+  },
+};
+
+export const NestedWrapDoesNotRemount: Story = {
+  name: "Cross-direction split (leaf→sub-group wrap) — neither pane remounts",
+  render: () => (
+    <ProbeSplitHarness
+      initial={{ type: "group", id: "g", dir: "row", children: [makeLeaf("alpha", "pa"), makeLeaf("bravo", "pb")], sizes: [0.5, 0.5] }}
+      splitId="pb"
+      splitDir="col"
+    />
+  ),
+  play: async ({ canvasElement, userEvent }) => {
+    const a = canvasElement.querySelector('[data-probe="pa"]');
+    const b = canvasElement.querySelector('[data-probe="pb"]');
+    await expect(a).not.toBeNull();
+    await expect(b).not.toBeNull();
+
+    // splitting pb wraps it into a NEW nested col group — the riskiest restructure
+    await userEvent.click(canvasElement.querySelector('[data-testid="do-split"]')!);
+
+    await expect(canvasElement.querySelectorAll("[data-pane-id]")).toHaveLength(3);
+    // both the wrapped pane AND its untouched sibling keep their exact DOM nodes
+    await expect(canvasElement.querySelector('[data-probe="pb"]')).toBe(b);
+    await expect(canvasElement.querySelector('[data-probe="pa"]')).toBe(a);
+  },
+};

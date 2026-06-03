@@ -11,7 +11,7 @@
  * panes reuse the themed FauxTerminalScreen launcher.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@wterm/react";
 
 import type { TerminalSession } from "@/lib/terminal/types";
@@ -63,6 +63,21 @@ export function LiveTerminalScreen({
   const [dropOver, setDropOver] = useState(false);
   const dragDepthRef = useRef(0);
   const screenRef = useRef<HTMLDivElement>(null);
+
+  // Mount the terminal at the RIGHT size from the start, instead of a fixed
+  // 36-row guess that autoResize then has to correct. On a split, this leaf
+  // remounts fresh and the new pane is already at its final (smaller) size, so
+  // measuring here gives the correct cols/rows immediately — avoiding the
+  // mismeasure where the 36-row grid overflows a half-height pane and the first
+  // line floats mid-pane with a blank band above it.
+  const [initDims, setInitDims] = useState<{ cols: number; rows: number } | null>(null);
+  useLayoutEffect(() => {
+    if (initDims || !session) return;
+    const el = screenRef.current;
+    if (!el) return;
+    const dims = measureGridDims(el);
+    setInitDims(dims ?? { cols: 120, rows: 36 });
+  }, [initDims, session]);
 
   // ⌘-click a URL/path in the output. wterm owns its spans + repaints them, so
   // we resolve the token under the cursor on demand (no overlay) via the caret
@@ -184,24 +199,24 @@ export function LiveTerminalScreen({
       }}
       onDrop={handleDrop}
     >
-      <Terminal
-        key={pane.sessionKey ?? "term"}
-        ref={pane.ref}
-        cols={120}
-        rows={36}
-        autoResize
-        cursorBlink
-        // Fill the flex screen. Without this the `.wterm` root is flex-grow:0 and
-        // sizes to its own 36-row content (~701px); autoResize then measures that
-        // self-sized box and never grows — leaving a dead band below the prompt
-        // and a vertically-misplaced first line after a split/resize. flex-1 gives
-        // it the real pane height so autoResize fits rows to the full pane.
-        className="min-h-0 min-w-0 flex-1"
-        data-hotkeys-ignore="true"
-        onReady={pane.onReady}
-        onResize={pane.onResize}
-        onData={pane.onData}
-      />
+      {initDims && (
+        <Terminal
+          key={pane.sessionKey ?? "term"}
+          ref={pane.ref}
+          cols={initDims.cols}
+          rows={initDims.rows}
+          autoResize
+          cursorBlink
+          // Fill the flex screen. Without this the `.wterm` root is flex-grow:0
+          // and sizes to its own content; flex-1 gives it the real pane height so
+          // wterm's autoResize tracks subsequent drags/window resizes.
+          className="min-h-0 min-w-0 flex-1"
+          data-hotkeys-ignore="true"
+          onReady={pane.onReady}
+          onResize={pane.onResize}
+          onData={pane.onData}
+        />
+      )}
 
       {dropOver && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center" style={{ background: "rgba(var(--accent-rgb), 0.08)" }}>
@@ -240,6 +255,35 @@ export function LiveTerminalScreen({
       )}
     </div>
   );
+}
+
+/**
+ * Measure the wterm cell grid for a screen container → the cols/rows that fill
+ * it. Probes a real `.wterm > .term-grid > .term-row` so the cell inherits the
+ * deck's terminal font (set via `.cd-term-screen .wterm`).
+ */
+function measureGridDims(screen: HTMLElement): { cols: number; rows: number } | null {
+  const w = screen.clientWidth;
+  const h = screen.clientHeight;
+  if (w <= 0 || h <= 0) return null;
+  const probe = document.createElement("div");
+  probe.className = "wterm";
+  probe.style.cssText = "position:absolute;visibility:hidden;left:0;top:0;padding:0";
+  const grid = document.createElement("div");
+  grid.className = "term-grid";
+  const row = document.createElement("div");
+  row.className = "term-row";
+  const span = document.createElement("span");
+  span.textContent = "W";
+  row.appendChild(span);
+  grid.appendChild(row);
+  probe.appendChild(grid);
+  screen.appendChild(probe);
+  const charW = span.getBoundingClientRect().width;
+  const rowH = row.getBoundingClientRect().height;
+  probe.remove();
+  if (charW <= 0 || rowH <= 0) return null;
+  return { cols: Math.max(2, Math.floor(w / charW)), rows: Math.max(2, Math.floor(h / rowH)) };
 }
 
 /** Resolve the text node + offset under a screen point, across caret APIs. */

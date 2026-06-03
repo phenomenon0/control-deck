@@ -89,6 +89,40 @@
   opacity: 1;
 }
 
+/* Per-pane close ✕ — sits just left of the #P badge, revealed on pane hover.
+ * Discoverable way to close a split pane (also: toolbar ✕ / ⌥W). */
+.cd-term-pane-close {
+  position: absolute;
+  top: 4px;
+  right: 30px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.cd-term-pane:hover .cd-term-pane-close,
+.cd-term-pane-close:focus-visible {
+  opacity: 1;
+}
+.cd-term-pane-close:hover {
+  color: var(--err, #f87171);
+  background: color-mix(in oklab, var(--err, #f87171), transparent 86%);
+}
+.cd-term-pane-close:focus-visible {
+  outline: 1px solid rgb(var(--accent-rgb));
+  outline-offset: 1px;
+}
+
 /* Split divider — a thin gutter that brightens on hover/drag. */
 .cd-term-divider {
   flex: 0 0 auto;

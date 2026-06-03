@@ -28,6 +28,8 @@ export interface TerminalSplitProps {
   onFocusPane: (paneId: string) => void;
   onResize: (groupId: string, sizes: number[]) => void;
   renderPane: (leaf: SplitLeaf) => React.ReactNode;
+  /** When set + the window is split, each pane shows a hover ✕ to close it. */
+  onClosePane?: (paneId: string) => void;
 }
 
 /** A pane's rect (fractions 0..1 of the whole split container) + tmux #P index. */
@@ -95,7 +97,7 @@ export function computeLayout(
   });
 }
 
-export function TerminalSplit({ node, focusedPaneId, onFocusPane, onResize, renderPane }: TerminalSplitProps) {
+export function TerminalSplit({ node, focusedPaneId, onFocusPane, onResize, renderPane, onClosePane }: TerminalSplitProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const panes: PaneBox[] = [];
   const dividers: DividerBox[] = [];
@@ -143,6 +145,22 @@ export function TerminalSplit({ node, focusedPaneId, onFocusPane, onResize, rend
                 }}
               >
                 {p.index}
+              </button>
+            )}
+            {split && onClosePane && (
+              <button
+                type="button"
+                className="cd-term-pane-close"
+                aria-label={`Close pane ${p.index}`}
+                title="Close pane (⌥W)"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClosePane(p.leaf.id);
+                }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
               </button>
             )}
             {renderPane(p.leaf)}

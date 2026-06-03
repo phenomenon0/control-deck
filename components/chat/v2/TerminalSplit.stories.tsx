@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { TerminalSplit } from "./TerminalSplit";
 import {
+  closePane,
   makeLeaf,
   nearestInDirection,
   setSizes,
@@ -437,5 +438,62 @@ export const NestedWrapDoesNotRemount: Story = {
     // both the wrapped pane AND its untouched sibling keep their exact DOM nodes
     await expect(canvasElement.querySelector('[data-probe="pb"]')).toBe(b);
     await expect(canvasElement.querySelector('[data-probe="pa"]')).toBe(a);
+  },
+};
+
+/* ── per-pane close ✕ (discoverable pane closing) ──────────────────────────── */
+
+function CloseHarness() {
+  const [tree, setTree] = useState<SplitNode>({
+    type: "group",
+    id: "g",
+    dir: "row",
+    children: [makeLeaf("alpha", "pa"), makeLeaf("bravo", "pb")],
+    sizes: [0.5, 0.5],
+  });
+  const [focused, setFocused] = useState("pa");
+  const renderPane = useCallback(
+    (leaf: SplitLeaf) => (
+      <div className="flex h-full w-full items-center justify-center text-[var(--text-secondary)]" style={{ fontFamily: "var(--font-mono)", fontSize: 12 }}>
+        {leaf.sessionId}
+      </div>
+    ),
+    [],
+  );
+  return (
+    <div style={{ height: 360, width: "100%", display: "flex" }}>
+      <TerminalSplit
+        node={tree}
+        focusedPaneId={focused}
+        onFocusPane={setFocused}
+        onResize={(g, s) => setTree((t) => setSizes(t, g, s))}
+        onClosePane={(id) => {
+          const next = closePane(tree, id);
+          if (next) {
+            setTree(next);
+            setFocused(firstId(next));
+          }
+        }}
+        renderPane={renderPane}
+      />
+    </div>
+  );
+}
+
+export const PerPaneCloseButton: Story = {
+  name: "Each split pane has a hover ✕ that closes it",
+  render: () => <CloseHarness />,
+  play: async ({ canvasElement, userEvent }) => {
+    await expect(canvasElement.querySelectorAll("[data-pane-id]")).toHaveLength(2);
+    // every split pane carries a close affordance
+    await expect(canvasElement.querySelectorAll(".cd-term-pane-close")).toHaveLength(2);
+
+    // clicking pane pb's ✕ closes ONLY pb; pa survives and the tree collapses
+    const pbClose = canvasElement.querySelector<HTMLElement>('[data-pane-id="pb"] .cd-term-pane-close')!;
+    await userEvent.click(pbClose);
+    await expect(canvasElement.querySelectorAll("[data-pane-id]")).toHaveLength(1);
+    await expect(canvasElement.querySelector('[data-pane-id="pa"]')).not.toBeNull();
+    // single pane → no close ✕ (use the tab ✕ / ⌥W to close the last one)
+    await expect(canvasElement.querySelectorAll(".cd-term-pane-close")).toHaveLength(0);
   },
 };

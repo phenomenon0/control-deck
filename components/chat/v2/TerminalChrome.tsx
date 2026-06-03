@@ -252,6 +252,7 @@ export function TerminalChrome({
                     focusedPaneId={isActive ? focusedPaneId : w.focusedPaneId}
                     onFocusPane={isActive ? onFocusPane : NOOP}
                     onResize={isActive ? onResize : NOOP}
+                    onClosePane={isActive ? onClosePane : undefined}
                     renderPane={renderPane}
                   />
                 ),
@@ -259,7 +260,7 @@ export function TerminalChrome({
             })}
           />
         ) : layout ? (
-          <TerminalSplit node={layout} focusedPaneId={focusedPaneId} onFocusPane={onFocusPane} onResize={onResize} renderPane={renderPane} />
+          <TerminalSplit node={layout} focusedPaneId={focusedPaneId} onFocusPane={onFocusPane} onResize={onResize} onClosePane={onClosePane} renderPane={renderPane} />
         ) : (
           <div className="m-auto text-[var(--text-muted)]" style={MONO}>
             No terminal windows — press + to open one.

@@ -95,6 +95,14 @@ export function usePaneSession(
   useEffect(() => {
     terminalReadyRef.current = false;
     pendingOutputRef.current = [];
+    outputBufferRef.current = "";
+    // A freshly (re)mounted pane has a BLANK wterm — e.g. splitting wraps this
+    // leaf in a new group and React remounts it. Reset the byte cursor so the
+    // next connect replays the FULL buffer and rebuilds the screen, instead of
+    // resuming from a stale tail offset (which leaves the pane empty — the "text
+    // disappears on split" bug). Tab-switch keep-alive never remounts, so this
+    // only fires on real (re)mounts / session restarts.
+    if (session) cursors.current.set(session.id, 0);
     setMeta(
       session
         ? {

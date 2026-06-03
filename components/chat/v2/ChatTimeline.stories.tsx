@@ -148,3 +148,30 @@ export const LongScrolling: Story = {
     await expect(canvas.getAllByRole("article")).toHaveLength(20);
   },
 };
+
+// Virtualized: 600 messages, but only the visible window mounts. Pretext seeds
+// each row's height so the scrollbar is stable before measurement. Proves
+// windowing (≪600 articles in the DOM) and that we land at the newest message.
+export const Virtualized: Story = {
+  args: {
+    virtualize: true,
+    messages: Array.from({ length: 600 }, (_, i) => ({
+      id: String(i),
+      role: (i % 3 === 0 ? "user" : "assistant") as TimelineMessage["role"],
+      model: i % 3 === 0 ? undefined : "qwen3:8b",
+      content:
+        i % 5 === 0
+          ? `Message ${i + 1}: a longer turn that wraps across several lines so row heights genuinely vary and the Pretext estimate has to do real work to keep the scroll offsets honest.`
+          : `Message ${i + 1} in a very long thread.`,
+      timestamp: "14:30",
+    })),
+  },
+  play: async ({ canvas }) => {
+    const rendered = canvas.getAllByRole("article");
+    // Only a small window + overscan is in the DOM, not all 600.
+    await expect(rendered.length).toBeGreaterThan(0);
+    await expect(rendered.length).toBeLessThan(60);
+    // Bottom-anchored: the newest message is mounted.
+    await expect(canvas.getByText(/Message 600\b/)).toBeInTheDocument();
+  },
+};

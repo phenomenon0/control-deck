@@ -54,6 +54,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-slot": "^1.2.4",
     "@ricky0123/vad-web": "^0.0.30",
+    "@tanstack/react-virtual": "^3.14.2",
     "@types/ws": "^8.18.1",
     "@wterm/react": "^0.1.9",
     "ai": "^5.0.113",

@@ -10554,3 +10554,24 @@ html.light .cd-term-screen .wterm {
   --term-color-14: #80ffd0;
   --term-color-15: #e8ffe8;
 }
+
+/* ── v2 reduced-motion guard ──────────────────────────────────────────────
+ * The rebuilt deck surfaces (chat/comfy/settings/terminal v2) drive status
+ * dots, spinners and progress bars with Tailwind's animate-pulse/animate-spin/
+ * transition-[width]. The legacy prefers-reduced-motion rules only cover v1
+ * (.ar-*) markup, so these stayed animated. Scope a guard to the `cd-*`
+ * component namespace so every v2 surface honours the OS setting — including
+ * any future animated utility we add inside a cd-* root. The shared primitives
+ * additionally opt in with `motion-safe:`; this covers the hand-rolled spots. */
+@media (prefers-reduced-motion: reduce) {
+  [class*="cd-"] .animate-pulse,
+  [class*="cd-"].animate-pulse,
+  [class*="cd-"] .animate-spin,
+  [class*="cd-"].animate-spin {
+    animation: none !important;
+  }
+  [class*="cd-"] .transition-\[width\],
+  [class*="cd-"].transition-\[width\] {
+    transition: none !important;
+  }
+}

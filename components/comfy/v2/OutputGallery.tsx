@@ -19,6 +19,8 @@
  * per-theme regimes.
  */
 
+import { EmptyState } from "@/components/chat/v2/ui";
+
 import { OutputCard, type GenerationOutput, type OutputCardProps } from "./OutputCard";
 
 export interface OutputGalleryProps
@@ -44,31 +46,14 @@ export function OutputGallery({
 }: OutputGalleryProps) {
   if (outputs.length === 0) {
     return (
-      <div
-        className="cd-gallery flex h-full min-h-0 flex-col items-center justify-center gap-2 px-6 py-12 text-center"
+      <EmptyState
+        className="cd-gallery min-h-0"
         role="status"
-      >
-        {loading ? (
-          <span
-            className="animate-pulse text-[var(--text-muted)]"
-            style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-sm)" }}
-          >
-            loading outputs…
-          </span>
-        ) : (
-          <>
-            <h2
-              className="cd-empty-title m-0 text-[var(--text-primary)]"
-              style={{ fontFamily: "var(--font-display, var(--font-sans))", fontSize: "1.75rem", fontWeight: "var(--fw-heading, 600)" }}
-            >
-              {emptyTitle}
-            </h2>
-            <p className="m-0 text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-sm)" }}>
-              {emptyLabel}
-            </p>
-          </>
-        )}
-      </div>
+        loading={loading}
+        loadingLabel="loading outputs…"
+        title={emptyTitle}
+        description={emptyLabel}
+      />
     );
   }
 

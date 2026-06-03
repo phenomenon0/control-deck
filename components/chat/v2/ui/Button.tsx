@@ -22,7 +22,7 @@ import React, { forwardRef } from "react";
 
 import { cx } from "./cx";
 
-export type ButtonVariant = "accent" | "outline" | "ghost" | "destructive";
+export type ButtonVariant = "accent" | "outline" | "ghost" | "destructive" | "onMedia";
 export type ButtonSize = "sm" | "md" | "icon";
 
 const BASE =
@@ -42,6 +42,8 @@ const VARIANT: Record<ButtonVariant, string> = {
   destructive:
     "border border-[var(--border-subtle)] text-[var(--text-secondary)] " +
     "hover:border-[var(--err,#d05a5a)] hover:text-[var(--err,#d05a5a)]",
+  // Sits over media (e.g. an image result tile) — white, theme-independent.
+  onMedia: "text-white/90 hover:bg-white/15 hover:text-white",
 };
 
 const SIZE: Record<ButtonSize, string> = {

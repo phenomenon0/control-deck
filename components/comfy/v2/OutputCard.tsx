@@ -24,6 +24,8 @@
 
 import React from "react";
 
+import { Button } from "@/components/chat/v2/ui";
+
 export type OutputStatus = "queued" | "generating" | "done" | "error";
 
 export interface GenerationOutput {
@@ -108,14 +110,15 @@ export function OutputCard({
             {error ?? "Generation failed."}
           </span>
           {onRetry && (
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => onRetry(output.id)}
-              className="mt-1 rounded-[var(--radius-sm)] border px-2 py-1 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-              style={{ borderColor: "var(--border-subtle)", fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}
+              className="mt-1"
+              style={{ fontFamily: "var(--font-mono)" }}
             >
               retry
-            </button>
+            </Button>
           )}
         </div>
       ) : (
@@ -161,24 +164,24 @@ export function OutputCard({
             style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.55), transparent)" }}
           >
             {onSendToChat && (
-              <OverlayAction label="Send to chat" onClick={() => onSendToChat(output.id)}>
+              <Button variant="onMedia" size="icon" aria-label="Send to chat" title="Send to chat" onClick={() => onSendToChat(output.id)}>
                 <ChatIcon />
-              </OverlayAction>
+              </Button>
             )}
             {onUseAsInput && (
-              <OverlayAction label="Use as input" onClick={() => onUseAsInput(output.id)}>
+              <Button variant="onMedia" size="icon" aria-label="Use as input" title="Use as input" onClick={() => onUseAsInput(output.id)}>
                 <RecycleIcon />
-              </OverlayAction>
+              </Button>
             )}
             {onDownload && (
-              <OverlayAction label="Download" onClick={() => onDownload(output.id)}>
+              <Button variant="onMedia" size="icon" aria-label="Download" title="Download" onClick={() => onDownload(output.id)}>
                 <DownloadIcon />
-              </OverlayAction>
+              </Button>
             )}
             {onDelete && (
-              <OverlayAction label="Delete" onClick={() => onDelete(output.id)}>
+              <Button variant="onMedia" size="icon" aria-label="Delete" title="Delete" onClick={() => onDelete(output.id)}>
                 <TrashIcon />
-              </OverlayAction>
+              </Button>
             )}
           </div>
           <div
@@ -219,28 +222,6 @@ export function OutputCard({
         </figcaption>
       )}
     </figure>
-  );
-}
-
-function OverlayAction({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="grid h-7 w-7 place-items-center rounded-[var(--radius-sm)] text-white/90 transition-colors hover:bg-white/15 hover:text-white"
-    >
-      {children}
-    </button>
   );
 }
 

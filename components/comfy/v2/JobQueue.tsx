@@ -16,6 +16,8 @@
 
 import React from "react";
 
+import { Button, EmptyState, PanelHeader } from "@/components/chat/v2/ui";
+
 export type JobStatus = "queued" | "running" | "done" | "error";
 
 export interface JobItem {
@@ -62,22 +64,10 @@ export function JobQueue({
 }: JobQueueProps) {
   return (
     <section className="cd-jobqueue flex h-full min-h-0 flex-col" aria-label="Job queue">
-      <header className="flex items-center justify-between gap-2 px-3 py-2">
-        <span
-          className="cd-eyebrow text-[var(--text-secondary)]"
-          style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}
-        >
-          {title}
-        </span>
-        <span className="text-[var(--text-muted)]" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>
-          {loading ? "loading…" : jobs.length || ""}
-        </span>
-      </header>
+      <PanelHeader eyebrow={title} count={loading ? "loading…" : jobs.length || ""} />
 
       {jobs.length === 0 ? (
-        <p className="px-3 py-2 text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-sm)" }}>
-          {loading ? "" : emptyLabel}
-        </p>
+        loading ? null : <EmptyState variant="inline" description={emptyLabel} />
       ) : (
         <ul className="min-h-0 overflow-y-auto" role="list">
           {jobs.map((job) => (
@@ -151,39 +141,29 @@ function JobRow({
 
       <div className="flex shrink-0 items-center gap-0.5 self-start opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {onRetry && job.status === "error" && (
-          <RowAction label={`Retry job ${job.id}`} onClick={() => onRetry(job.id)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Retry job ${job.id}`}
+            title={`Retry job ${job.id}`}
+            onClick={() => onRetry(job.id)}
+          >
             <RetryIcon />
-          </RowAction>
+          </Button>
         )}
         {onCancel && active && (
-          <RowAction label={`Cancel job ${job.id}`} onClick={() => onCancel(job.id)}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Cancel job ${job.id}`}
+            title={`Cancel job ${job.id}`}
+            onClick={() => onCancel(job.id)}
+          >
             <CancelIcon />
-          </RowAction>
+          </Button>
         )}
       </div>
     </li>
-  );
-}
-
-function RowAction({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="grid h-7 w-7 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-    >
-      {children}
-    </button>
   );
 }
 

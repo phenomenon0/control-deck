@@ -24,6 +24,8 @@
 
 import React from "react";
 
+import { Button } from "@/components/chat/v2/ui";
+
 export type StudioEmbedState = "loading" | "ready" | "failed" | "offline" | "placeholder";
 
 export interface ComfyStudioFrameProps {
@@ -96,19 +98,19 @@ export function ComfyStudioFrame({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {onReload && (
-            <BarButton label="Reload Studio" onClick={onReload}>
+            <Button variant="ghost" size="icon" aria-label="Reload Studio" title="Reload Studio" onClick={onReload}>
               <ReloadIcon />
-            </BarButton>
+            </Button>
           )}
           {onCapture && (
-            <BarButton label="Capture graph" onClick={onCapture} disabled={captureBusy}>
+            <Button variant="ghost" size="icon" aria-label="Capture graph" title="Capture graph" onClick={onCapture} disabled={captureBusy}>
               <CaptureIcon />
-            </BarButton>
+            </Button>
           )}
           {onOpenExternal && (
-            <BarButton label="Open ComfyUI externally" onClick={onOpenExternal}>
+            <Button variant="ghost" size="icon" aria-label="Open ComfyUI externally" title="Open ComfyUI externally" onClick={onOpenExternal}>
               <ExternalIcon />
-            </BarButton>
+            </Button>
           )}
         </div>
       </header>
@@ -147,14 +149,14 @@ export function ComfyStudioFrame({
                   {(onReload || onOpenExternal) && (
                     <div className="mt-2 flex items-center gap-2">
                       {onReload && (
-                        <PanelButton label="Retry" onClick={onReload}>
+                        <Button variant="outline" size="sm" aria-label="Retry" onClick={onReload} style={{ fontFamily: "var(--font-mono)" }}>
                           retry
-                        </PanelButton>
+                        </Button>
                       )}
                       {onOpenExternal && (
-                        <PanelButton label="Open externally" onClick={onOpenExternal}>
+                        <Button variant="outline" size="sm" aria-label="Open externally" onClick={onOpenExternal} style={{ fontFamily: "var(--font-mono)" }}>
                           open in browser
-                        </PanelButton>
+                        </Button>
                       )}
                     </div>
                   )}
@@ -232,45 +234,6 @@ function MockNode({ style, accent = false }: { style: React.CSSProperties; accen
         <div className="h-0.5 w-1/2 rounded-full" style={{ background: "var(--border-subtle)" }} />
       </div>
     </div>
-  );
-}
-
-function BarButton({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className="grid h-8 w-8 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-40"
-    >
-      {children}
-    </button>
-  );
-}
-
-function PanelButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      className="rounded-[var(--radius-sm)] border px-2 py-1 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-      style={{ borderColor: "var(--border-subtle)", fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}
-    >
-      {children}
-    </button>
   );
 }
 

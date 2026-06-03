@@ -19,6 +19,8 @@
 
 import React from "react";
 
+import { Badge, Button, EmptyState, PanelHeader } from "@/components/chat/v2/ui";
+
 export type WorkflowFormat = "ui_graph" | "api_prompt";
 export type WorkflowLane = "image" | "audio" | "3d" | "video";
 
@@ -62,22 +64,10 @@ export function WorkflowLibrary({
 }: WorkflowLibraryProps) {
   return (
     <section className="cd-library flex h-full min-h-0 flex-col" aria-label="Workflow library">
-      <header className="flex items-center justify-between gap-2 px-3 py-2">
-        <span
-          className="cd-eyebrow text-[var(--text-secondary)]"
-          style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}
-        >
-          {title}
-        </span>
-        <span className="text-[var(--text-muted)]" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}>
-          {loading ? "loading…" : workflows.length || ""}
-        </span>
-      </header>
+      <PanelHeader eyebrow={title} count={loading ? "loading…" : workflows.length || ""} />
 
       {workflows.length === 0 ? (
-        <p className="px-3 py-2 text-[var(--text-muted)]" style={{ fontSize: "var(--font-size-sm)" }}>
-          {loading ? "" : emptyLabel}
-        </p>
+        loading ? null : <EmptyState variant="inline" description={emptyLabel} />
       ) : (
         <ul className="min-h-0 overflow-y-auto" role="list">
           {workflows.map((wf) => (
@@ -159,63 +149,31 @@ function WorkflowRow({
 
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {onInsertReference && (
-            <RowAction label={`Insert @workflow/${workflow.slug}`} onClick={() => onInsertReference(workflow.id)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={`Insert @workflow/${workflow.slug}`}
+              title={`Insert @workflow/${workflow.slug}`}
+              onClick={() => onInsertReference(workflow.id)}
+            >
               <ClipboardIcon />
-            </RowAction>
+            </Button>
           )}
           {showRun && (
-            <RowAction
-              label={running ? "Running…" : `Run ${workflow.name}`}
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={running ? "Running…" : `Run ${workflow.name}`}
+              title={running ? "Running…" : `Run ${workflow.name}`}
               onClick={() => onRun!(workflow.id)}
               disabled={running}
             >
               {running ? <SpinnerIcon /> : <PlayIcon />}
-            </RowAction>
+            </Button>
           )}
         </div>
       </div>
     </li>
-  );
-}
-
-function Badge({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "accent" }) {
-  return (
-    <span
-      className="rounded-[var(--radius-sm)] border px-1 py-px uppercase"
-      style={{
-        fontSize: "calc(var(--font-size-xs) - 1px)",
-        letterSpacing: "var(--tracking-label, 0.02em)",
-        borderColor: tone === "accent" ? "rgb(var(--accent-rgb))" : "var(--border-subtle)",
-        color: tone === "accent" ? "rgb(var(--accent-rgb))" : "var(--text-muted)",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-function RowAction({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className="grid h-7 w-7 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50"
-    >
-      {children}
-    </button>
   );
 }
 

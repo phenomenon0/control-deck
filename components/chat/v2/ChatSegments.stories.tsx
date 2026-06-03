@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, within } from "storybook/test";
 
+import type { TimelineSegment } from "@/lib/types/agentRun";
+
 import { ChatSegments } from "./ChatSegments";
 import * as F from "./chatSegmentFixtures";
 
@@ -149,3 +151,36 @@ function themed(theme: string): Story {
 export const ThemeClaude = themed("claude");
 export const ThemeHacker = themed("hacker");
 export const ThemeLight = themed("light");
+
+// Virtualized: a long run (400 segments) windowed so only the visible blocks
+// mount. Segments aren't pure text, so Pretext seeds prose heights + a constant
+// for rich blocks, and measured heights correct everything. Proves ≪400 rows in
+// the DOM and that we land on the newest block.
+const MANY: TimelineSegment[] = Array.from({ length: 400 }, (_, i) =>
+  i % 2 === 0
+    ? ({ id: `u${i}`, timestamp: i, type: "user-message", content: `Question ${i + 1} about the dataset.` } as TimelineSegment)
+    : ({
+        id: `m${i}`,
+        timestamp: i,
+        type: "agent-message",
+        messageId: `msg${i}`,
+        content:
+          i % 5 === 0
+            ? `Answer ${i + 1}: a longer reply that wraps across several lines so row heights genuinely vary and the seeded estimate has to do real work keeping the scroll offsets honest.`
+            : `Answer ${i + 1}: short.`,
+        isStreaming: false,
+        complete: true,
+      } as TimelineSegment),
+);
+
+export const Virtualized: Story = {
+  args: { virtualize: true, className: "h-[420px]", segments: MANY },
+  play: async ({ canvas }) => {
+    // bottom-anchored → the newest block is mounted (findByText lets the
+    // scroll-to-bottom + window settle).
+    await canvas.findByText(/Answer 400\b/);
+    const rows = canvas.getByRole("log").querySelectorAll("[data-index]");
+    await expect(rows.length).toBeGreaterThan(0);
+    await expect(rows.length).toBeLessThan(40);
+  },
+};

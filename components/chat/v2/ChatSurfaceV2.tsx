@@ -170,21 +170,25 @@ export function ChatSurfaceV2() {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto h-full max-w-3xl px-4 py-4">
-            {empty ? (
+        {empty ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto h-full max-w-3xl px-4 py-4">
               <EmptyState title="Ask anything." description="Pick a thread, or start a new one." />
-            ) : (
-              <ChatSegments
-                segments={state.segments}
-                pendingApproval={approval ?? undefined}
-                onApprove={handleApprove}
-                onReject={handleReject}
-                onRetry={handleSubmit}
-              />
-            )}
+            </div>
           </div>
-        </div>
+        ) : (
+          // Virtualized: ChatSegments owns the scroll container so the windowing
+          // math is relative to it (no nested overflow wrapper).
+          <ChatSegments
+            virtualize
+            className="min-h-0 flex-1"
+            segments={state.segments}
+            pendingApproval={approval ?? undefined}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onRetry={handleSubmit}
+          />
+        )}
         <div className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
           <div className="mx-auto max-w-3xl px-4 py-3">
             <ChatComposer value={input} onChange={setInput} onSubmit={handleSubmit} streaming={isRunning} onStop={stop} modelLabel={prefs.model || "auto"} placeholder="Message the deck…" onToggleVoice={prefs.voice.enabled ? toggleVoice : undefined} recording={recording} />

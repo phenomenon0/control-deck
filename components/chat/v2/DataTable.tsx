@@ -9,6 +9,8 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
+import { Button } from "./ui";
+
 export interface DataTableProps {
   rows: Array<Record<string, unknown>>;
   columns?: string[];
@@ -62,8 +64,8 @@ export function DataTable({ rows, columns, title }: DataTableProps) {
       <div className="flex items-center gap-2 border-b px-2.5 py-1" style={{ borderColor: "var(--border-subtle)" }}>
         <span className="text-[var(--text-muted)]" style={MONO}>{title ?? `${rows.length} rows`}</span>
         <span className="ml-auto flex gap-1">
-          <button type="button" onClick={exportCsv} className="rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]" style={MONO}>CSV</button>
-          <button type="button" onClick={() => download("table.json", "application/json", JSON.stringify(sorted, null, 2))} className="rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]" style={MONO}>JSON</button>
+          <Button variant="ghost" size="sm" onClick={exportCsv} style={MONO}>CSV</Button>
+          <Button variant="ghost" size="sm" onClick={() => download("table.json", "application/json", JSON.stringify(sorted, null, 2))} style={MONO}>JSON</Button>
         </span>
       </div>
       <div className="overflow-x-auto">

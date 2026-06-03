@@ -24,6 +24,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import React from "react";
 
+import { Button } from "./ui";
+
 export interface ComposerAttachment {
   id: string;
   name: string;
@@ -222,15 +224,15 @@ export function ChatComposer({
         <div className="flex items-center gap-1">
           {onAddFiles && (
             <>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={disabled}
                 aria-label="Attach files"
-                className="rounded-[var(--radius-sm)] p-1 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-40"
               >
                 <PaperclipIcon />
-              </button>
+              </Button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -246,21 +248,17 @@ export function ChatComposer({
             </>
           )}
           {onToggleVoice && (
-            <button
-              type="button"
+            <Button
+              variant={recording ? "accent" : "ghost"}
+              size="icon"
               onClick={onToggleVoice}
               disabled={disabled}
               aria-label={recording ? "Stop voice input" : "Start voice input"}
               aria-pressed={recording}
-              className={`rounded-[var(--radius-sm)] p-1 transition-colors disabled:opacity-40${recording ? " animate-pulse" : ""}`}
-              style={
-                recording
-                  ? { color: "var(--text-on-accent)", background: "rgb(var(--accent-rgb))" }
-                  : { color: "var(--text-secondary)" }
-              }
+              className={recording ? "motion-safe:animate-pulse" : undefined}
             >
               <MicIcon />
-            </button>
+            </Button>
           )}
           {modelLabel && (
             <span
@@ -273,31 +271,29 @@ export function ChatComposer({
         </div>
 
         {streaming ? (
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onStop}
             aria-label="Stop generating"
-            className="rounded-[var(--radius-sm)] border px-3 py-1 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-            style={{ borderColor: "var(--border-subtle)", fontFamily: "var(--font-mono)", fontSize: "var(--font-size-xs)" }}
+            className="px-3"
+            style={{ fontFamily: "var(--font-mono)" }}
           >
             stop
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
             type="submit"
+            variant="accent"
+            size="sm"
             disabled={!canSubmit}
             aria-label="Send message"
             aria-disabled={!canSubmit}
-            className="rounded-[var(--radius-sm)] px-3 py-1 font-medium transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
-            style={{
-              background: "rgb(var(--accent-rgb))",
-              color: "var(--text-on-accent)",
-              fontFamily: "var(--font-mono)",
-              fontSize: "var(--font-size-xs)",
-            }}
+            className="px-3"
+            style={{ fontFamily: "var(--font-mono)" }}
           >
             send
-          </button>
+          </Button>
         )}
       </div>
     </form>

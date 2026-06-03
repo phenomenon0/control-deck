@@ -25,6 +25,7 @@ import type { TimelineSegment } from "@/lib/types/agentRun";
 import { ThreadSidebar, type ThreadItem } from "./ThreadSidebar";
 import { ChatComposer } from "./ChatComposer";
 import { ChatSegments, type PendingApproval } from "./ChatSegments";
+import { EmptyState } from "./ui";
 
 // Voice states where the mic is genuinely open (drives the composer's recording
 // affordance). Transitional/agent/network states must NOT read as "recording".
@@ -172,10 +173,7 @@ export function ChatSurfaceV2() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto h-full max-w-3xl px-4 py-4">
             {empty ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-                <span style={{ fontFamily: "var(--font-display, var(--font-sans))", fontSize: "calc(var(--font-size-base) * 1.6)", color: "var(--text-primary)", fontWeight: "var(--fw-heading, 600)" }}>Ask anything.</span>
-                <span className="text-[var(--text-muted)]" style={{ fontFamily: "var(--font-sans)", fontSize: "var(--font-size-sm)" }}>Pick a thread, or start a new one.</span>
-              </div>
+              <EmptyState title="Ask anything." description="Pick a thread, or start a new one." />
             ) : (
               <ChatSegments
                 segments={state.segments}

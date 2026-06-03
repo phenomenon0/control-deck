@@ -10,6 +10,8 @@ import { useMemo } from "react";
 import { diffLines } from "diff";
 import { Check, X } from "lucide-react";
 
+import { Button } from "./ui";
+
 export interface DiffBlockProps {
   before: string;
   after: string;
@@ -35,14 +37,14 @@ export function DiffBlock({ before, after, language, fileName, onAccept, onRejec
         {(onAccept || onReject) && (
           <span className="ml-auto flex items-center gap-1">
             {onReject && (
-              <button type="button" onClick={onReject} aria-label="Reject diff" className="flex items-center gap-1 rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]" style={{ borderColor: "var(--border-subtle)", ...MONO }}>
+              <Button variant="outline" size="sm" onClick={onReject} aria-label="Reject diff" style={{ ...MONO }}>
                 <X size={11} /> reject
-              </button>
+              </Button>
             )}
             {onAccept && (
-              <button type="button" onClick={onAccept} aria-label="Accept diff" className="flex items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-0.5" style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", ...MONO }}>
+              <Button variant="accent" size="sm" onClick={onAccept} aria-label="Accept diff" style={{ ...MONO }}>
                 <Check size={11} /> accept
-              </button>
+              </Button>
             )}
           </span>
         )}

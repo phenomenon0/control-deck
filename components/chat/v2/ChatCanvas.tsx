@@ -19,6 +19,7 @@ import { Maximize2, Minimize2, Play, Save, Sparkles, MessageSquarePlus, X } from
 import { HtmlPreview } from "./HtmlPreview";
 import { ChartBlock } from "./ChartBlock";
 import { DiffBlock } from "./DiffBlock";
+import { Button } from "./ui";
 
 export interface CanvasConsole {
   stdout?: string;
@@ -152,10 +153,10 @@ export function ChatCanvas({
           </div>
         )}
         {active && onSave && (
-          <button type="button" onClick={() => onSave(active)} aria-label="Save" title="Save" className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"><Save size={14} /></button>
+          <Button variant="ghost" size="icon" onClick={() => onSave(active)} aria-label="Save" title="Save" className="shrink-0"><Save size={14} /></Button>
         )}
         {onToggleFullscreen && (
-          <button type="button" onClick={onToggleFullscreen} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} className="grid h-7 w-7 shrink-0 place-items-center rounded-[var(--radius-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">{fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
+          <Button variant="ghost" size="icon" onClick={onToggleFullscreen} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} className="shrink-0">{fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</Button>
         )}
       </div>
 
@@ -174,20 +175,20 @@ export function ChatCanvas({
                 className="min-w-0 flex-1 rounded-[var(--radius-sm)] border bg-transparent px-2 py-1 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
                 style={{ borderColor: "var(--border-subtle)", ...MONO }}
               />
-              <button type="button" onClick={() => submitAsk(instruction)} className="rounded-[var(--radius-sm)] px-2 py-1" style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", ...MONO }}>send</button>
+              <Button variant="accent" size="sm" onClick={() => submitAsk(instruction)} style={{ ...MONO }}>send</Button>
             </>
           ) : (
             <>
-              <button type="button" onClick={() => setAsking(true)} className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5" style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", ...MONO }}>
+              <Button variant="accent" size="sm" onClick={() => setAsking(true)} style={{ ...MONO }}>
                 <Sparkles size={12} /> Ask AI
-              </button>
+              </Button>
               {PRESETS.map(([label, instr]) => (
-                <button key={label} type="button" onClick={() => submitAsk(instr)} className="rounded-[var(--radius-sm)] border px-2 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]" style={{ borderColor: "var(--border-subtle)", ...MONO }}>{label}</button>
+                <Button key={label} variant="outline" size="sm" onClick={() => submitAsk(instr)} style={{ ...MONO }}>{label}</Button>
               ))}
               {onAddToChat && (
-                <button type="button" onClick={() => onAddToChat({ id: active.id, selection })} className="ml-auto flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]" style={MONO}>
+                <Button variant="ghost" size="sm" onClick={() => onAddToChat({ id: active.id, selection })} className="ml-auto" style={{ ...MONO }}>
                   <MessageSquarePlus size={12} /> add to chat
-                </button>
+                </Button>
               )}
             </>
           )}
@@ -224,9 +225,9 @@ export function ChatCanvas({
                 <span style={{ color: active.console.exitCode === 0 ? "var(--ok, #34d399)" : "var(--err, #f87171)" }}>exit {active.console.exitCode}</span>
               )}
               {onRun && (
-                <button type="button" onClick={() => onRun(active.id)} className="ml-auto flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5" style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", ...MONO }}>
+                <Button variant="accent" size="sm" onClick={() => onRun(active.id)} className="ml-auto" style={{ ...MONO }}>
                   <Play size={11} /> run
-                </button>
+                </Button>
               )}
             </div>
             {consoleOpen && (active.console?.stdout || active.console?.stderr || active.console?.error) && (

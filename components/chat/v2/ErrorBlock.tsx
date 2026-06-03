@@ -2,6 +2,8 @@
 
 import { TriangleAlert } from "lucide-react";
 
+import { Button } from "./ui";
+
 export interface ErrorBlockProps {
   error: string;
   retryable?: boolean;
@@ -22,14 +24,9 @@ export function ErrorBlock({ error, retryable = false, onRetry }: ErrorBlockProp
         {error}
       </span>
       {retryable && onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="shrink-0 rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-          style={{ borderColor: "var(--border-subtle)", ...MONO }}
-        >
+        <Button variant="outline" size="sm" onClick={onRetry} className="shrink-0" style={{ ...MONO }}>
           retry
-        </button>
+        </Button>
       )}
     </div>
   );

@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { Check, Copy, Play, SquarePen } from "lucide-react";
 
+import { Button } from "./ui";
+
 export interface CodeBlockProps {
   code: string;
   language?: string;
@@ -63,16 +65,9 @@ export function CodeBlock({ code, language, onRun, onOpenCanvas }: CodeBlockProp
 
 function Action({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="flex items-center gap-1 rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-      style={MONO}
-    >
+    <Button variant="ghost" size="sm" onClick={onClick} aria-label={label} title={label} style={MONO}>
       {children}
-    </button>
+    </Button>
   );
 }
 

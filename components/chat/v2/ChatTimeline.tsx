@@ -15,6 +15,7 @@
 import { useEffect, useRef } from "react";
 
 import { ChatMessage, type ChatRole } from "./ChatMessage";
+import { EmptyState } from "./ui";
 
 export interface TimelineMessage {
   id: string;
@@ -63,19 +64,7 @@ export function ChatTimeline({
   }
 
   if (count === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-        <h2
-          className="text-[var(--text-primary)]"
-          style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-2xl, 28px)", letterSpacing: "var(--tracking-tight, -0.01em)", fontWeight: "var(--fw-heading, 600)", lineHeight: 1.15 }}
-        >
-          {emptyTitle}
-        </h2>
-        <span className="text-[var(--text-muted)]" style={{ fontFamily: "var(--font-sans)", fontSize: "var(--font-size-sm)" }}>
-          {emptyLabel}
-        </span>
-      </div>
-    );
+    return <EmptyState title={emptyTitle} description={emptyLabel} className="px-6" />;
   }
 
   return (

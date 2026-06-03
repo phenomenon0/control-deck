@@ -11,6 +11,8 @@
 import { useState } from "react";
 import { Check, ShieldAlert, X } from "lucide-react";
 
+import { Button } from "./ui";
+
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface ApprovalRequestProps {
@@ -73,26 +75,12 @@ export function ApprovalRequest({ toolName, args, message, status = "pending", b
             className="min-w-0 flex-1 rounded-[var(--radius-sm)] border bg-transparent px-2 py-1 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             style={{ borderColor: "var(--border-subtle)", ...MONO }}
           />
-          <button
-            type="button"
-            onClick={() => onReject(reason || undefined)}
-            disabled={busy}
-            aria-label="Reject"
-            className="flex items-center gap-1 rounded-[var(--radius-sm)] border px-2 py-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
-            style={{ borderColor: "var(--border-subtle)", ...MONO }}
-          >
+          <Button variant="outline" size="sm" onClick={() => onReject(reason || undefined)} disabled={busy} aria-label="Reject" style={{ ...MONO }}>
             <X size={12} /> reject
-          </button>
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={busy}
-            aria-label="Approve"
-            className="flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 font-medium transition-opacity disabled:opacity-50"
-            style={{ background: "rgb(var(--accent-rgb))", color: "var(--text-on-accent)", ...MONO }}
-          >
+          </Button>
+          <Button variant="accent" size="sm" onClick={onApprove} disabled={busy} aria-label="Approve" style={{ ...MONO }}>
             <Check size={12} /> approve
-          </button>
+          </Button>
         </div>
       )}
 

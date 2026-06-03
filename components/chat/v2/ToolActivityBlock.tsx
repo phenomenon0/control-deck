@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import type { ActivityStep } from "@/lib/types/agentRun";
 
+import { Button } from "./ui";
+
 export interface ToolActivityBlockProps {
   steps: ActivityStep[];
   /** Run an execute_code step (bash etc.) in the terminal. */
@@ -124,14 +126,14 @@ function StepRow({ step, onRun, onOpenCanvas }: { step: ActivityStep; onRun?: To
           </pre>
           <div className="mt-1 flex gap-1">
             {onRun && (
-              <button type="button" onClick={() => onRun(code, language)} className="rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]" style={{ borderColor: "var(--border-subtle)", ...MONO }}>
+              <Button variant="outline" size="sm" onClick={() => onRun(code, language)} style={{ ...MONO }}>
                 run
-              </button>
+              </Button>
             )}
             {onOpenCanvas && (
-              <button type="button" onClick={() => onOpenCanvas(code, language)} className="rounded-[var(--radius-sm)] border px-1.5 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]" style={{ borderColor: "var(--border-subtle)", ...MONO }}>
+              <Button variant="outline" size="sm" onClick={() => onOpenCanvas(code, language)} style={{ ...MONO }}>
                 canvas
-              </button>
+              </Button>
             )}
           </div>
         </div>

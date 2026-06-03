@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Terminal } from "@wterm/react";
+import { Terminal, type WTerm } from "@wterm/react";
 
 import type { TerminalSession } from "@/lib/terminal/types";
 import type { TerminalProfile } from "./terminalTypes";
@@ -79,6 +79,42 @@ export function LiveTerminalScreen({
     else setInitDims((prev) => prev ?? { cols: 120, rows: 36 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pane.sessionKey, session]);
+
+  // Force a clean full repaint after a resize SETTLES. wterm coalesces a
+  // resize's DOM wipe (renderer.setup clears the grid) with the concurrent PTY
+  // writes during a split relayout into a single rAF, so some rows can be left
+  // blank/clipped/floating. Re-applying the settled size re-dirties every row
+  // and produces one uncoalesced full repaint. (Re-applying the SAME size does
+  // not change the pane box, so this never re-triggers the observer → no loop.)
+  const wtRef = useRef<WTerm | null>(null);
+  const repaintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleReady = useCallback(
+    (wt?: WTerm) => {
+      if (wt) wtRef.current = wt;
+      pane.onReady(wt);
+    },
+    [pane],
+  );
+  useEffect(() => {
+    const el = screenRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (repaintTimer.current) clearTimeout(repaintTimer.current);
+      repaintTimer.current = setTimeout(() => {
+        const wt = wtRef.current as
+          | (WTerm & { cols?: number; rows?: number; bridge?: unknown; resize?: (c: number, r: number) => void })
+          | null;
+        if (wt?.bridge && typeof wt.resize === "function" && wt.cols && wt.rows) {
+          wt.resize(wt.cols, wt.rows);
+        }
+      }, 90);
+    });
+    ro.observe(el);
+    return () => {
+      if (repaintTimer.current) clearTimeout(repaintTimer.current);
+      ro.disconnect();
+    };
+  }, []);
 
   // ⌘-click a URL/path in the output. wterm owns its spans + repaints them, so
   // we resolve the token under the cursor on demand (no overlay) via the caret
@@ -213,7 +249,7 @@ export function LiveTerminalScreen({
           // wterm's autoResize tracks subsequent drags/window resizes.
           className="min-h-0 min-w-0 flex-1"
           data-hotkeys-ignore="true"
-          onReady={pane.onReady}
+          onReady={handleReady}
           onResize={pane.onResize}
           onData={pane.onData}
         />

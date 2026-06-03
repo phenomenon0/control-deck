@@ -792,8 +792,13 @@ server.on("upgrade", (request, socket, head) => {
       }
 
       if (message.type === "resize" && session.pty) {
-        const cols = Math.max(20, Math.floor(message.cols));
-        const rows = Math.max(8, Math.floor(message.rows));
+        // The PTY width MUST match what wterm renders, or the shell wraps lines
+        // at one width while the grid shows another → leading characters clip
+        // ("test_x" → "st_x"). The client already drops sub-2 sizes
+        // (isUsableTerminalSize), so floor at 2 to mirror it instead of forcing
+        // a 20-col minimum the renderer doesn't honour.
+        const cols = Math.max(2, Math.floor(message.cols));
+        const rows = Math.max(2, Math.floor(message.rows));
         session.pty.resize(cols, rows);
       }
 

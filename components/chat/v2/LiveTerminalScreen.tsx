@@ -191,6 +191,12 @@ export function LiveTerminalScreen({
         rows={36}
         autoResize
         cursorBlink
+        // Fill the flex screen. Without this the `.wterm` root is flex-grow:0 and
+        // sizes to its own 36-row content (~701px); autoResize then measures that
+        // self-sized box and never grows — leaving a dead band below the prompt
+        // and a vertically-misplaced first line after a split/resize. flex-1 gives
+        // it the real pane height so autoResize fits rows to the full pane.
+        className="min-h-0 min-w-0 flex-1"
         data-hotkeys-ignore="true"
         onReady={pane.onReady}
         onResize={pane.onResize}

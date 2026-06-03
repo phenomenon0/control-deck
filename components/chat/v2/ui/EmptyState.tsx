@@ -21,7 +21,9 @@ import { cx } from "./cx";
 
 export type EmptyStateVariant = "hero" | "inline";
 
-export interface EmptyStateProps extends React.HTMLAttributes<HTMLElement> {
+// Omit the DOM `title` attribute — we repurpose `title` as the heading content
+// (ReactNode), which is incompatible with HTMLAttributes' `title?: string`.
+export interface EmptyStateProps extends Omit<React.HTMLAttributes<HTMLElement>, "title"> {
   variant?: EmptyStateVariant;
   title?: React.ReactNode;
   description?: React.ReactNode;

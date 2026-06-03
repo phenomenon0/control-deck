@@ -15,7 +15,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
-import { Button } from "./ui";
+import { Button, ClampText } from "./ui";
 
 export interface ThreadItem {
   id: string;
@@ -133,9 +133,9 @@ export function ThreadSidebar({
                     }}
                     className="cd-thread group/thread flex cursor-pointer flex-col gap-0.5 px-3 py-2 pr-16 transition-all hover:bg-[var(--bg-tertiary)] focus-visible:bg-[var(--bg-tertiary)] focus-visible:outline-none active:bg-[var(--bg-elevated)]"
                   >
-                    <span className="truncate text-[var(--text-primary)]" style={TITLE}>
+                    <ClampText className="text-[var(--text-primary)]" style={TITLE}>
                       {t.title}
-                    </span>
+                    </ClampText>
                     {t.meta && (
                       <span className="text-[var(--text-muted)]" style={META}>
                         {t.meta}

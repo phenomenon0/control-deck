@@ -15,4 +15,6 @@ export { Panel } from "./Panel";
 export type { PanelProps, PanelBorder, PanelScrollProps } from "./Panel";
 export { PanelHeader, SectionHeading } from "./PanelHeader";
 export type { PanelHeaderProps, SectionHeadingProps } from "./PanelHeader";
+export { ClampText } from "./ClampText";
+export type { ClampTextProps } from "./ClampText";
 export { cx } from "./cx";

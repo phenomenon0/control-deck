@@ -175,6 +175,30 @@ function tmuxKillSession(id: string): void {
   spawnSync(bin, tmuxArgs("kill-session", "-t", tmuxName(id)), { stdio: "ignore" });
 }
 
+/**
+ * Capture the pane's CURRENT visible screen from tmux as an ANSI-colored frame.
+ * The `history` ring is fed only by live PTY bytes and may not contain a
+ * self-contained repaint, so on a fresh/blank attach we paint this instead —
+ * restoring the exact screen rather than replaying a mid-stream byte slice
+ * (the "pane goes blank / shows only post-reconnect text" bug). Empty when tmux
+ * is unavailable or the session doesn't exist yet. `-e` keeps colors, `-J`
+ * joins wrapped lines; capture separates lines with bare `\n`, but terminals
+ * need `\r\n` to return to column 0, so normalize. Trailing blank lines are
+ * trimmed so the cursor doesn't land far below the content.
+ */
+function tmuxCapturePane(id: string): string {
+  const bin = tmuxBin();
+  if (!bin) return "";
+  const result = spawnSync(bin, tmuxArgs("capture-pane", "-p", "-e", "-J", "-t", tmuxName(id)), {
+    encoding: "utf8",
+    maxBuffer: MAX_HISTORY_BYTES,
+  });
+  if (result.status !== 0 || typeof result.stdout !== "string") return "";
+  const frame = result.stdout.replace(/\s+$/u, ""); // drop trailing blank lines/space
+  if (!frame) return "";
+  return frame.replace(/\r?\n/g, "\r\n");
+}
+
 /** On boot, re-adopt any surviving `deck-*` tmux sessions so closing + reopening
  *  the app keeps your terminals. Registered detached (pty=null); the tmux client
  *  re-attaches lazily when the UI first connects a socket. */
@@ -745,21 +769,26 @@ server.on("upgrade", (request, socket, head) => {
     const sinceParam = url.searchParams.get("since");
     const since = sinceParam ? Math.max(0, Number(sinceParam) || 0) : 0;
 
-    if (since > session.historyEnd) {
-      // Cursor is past the live tail — session was restarted under the same id
-      // (new generation). Tell client to clear, then replay full history.
-      sendJson(ws, { type: "reset", reason: "session-restart" });
-      for (const chunk of session.history) {
-        sendJson(ws, { type: "output", data: chunk });
+    // A full repaint is needed when the cursor can't be honored incrementally:
+    // a fresh attach (0), past the live tail (restart), or before retained
+    // history (rotation). In those cases the `history` ring may not hold a
+    // complete frame, so capture the real current screen from tmux and paint it
+    // as a self-contained `repaint` (which pins the client cursor to historyEnd
+    // WITHOUT byte-counting the frame). Falls back to the history dump if tmux
+    // capture is unavailable.
+    const needsFullRepaint = since === 0 || since > session.historyEnd || since < session.historyStart;
+    if (needsFullRepaint) {
+      const frame = tmuxCapturePane(session.id);
+      if (frame) {
+        sendJson(ws, { type: "repaint", data: `\x1b[2J\x1b[3J\x1b[H${frame}`, offset: session.historyEnd });
+      } else {
+        sendJson(ws, { type: "reset", reason: since > session.historyEnd ? "session-restart" : "history-truncated" });
+        for (const chunk of session.history) {
+          sendJson(ws, { type: "output", data: chunk });
+        }
       }
     } else if (since === session.historyEnd) {
       // Fully caught up — nothing to replay.
-    } else if (since < session.historyStart) {
-      // Cursor predates retained history — replay all we have, after a reset.
-      sendJson(ws, { type: "reset", reason: "history-truncated" });
-      for (const chunk of session.history) {
-        sendJson(ws, { type: "output", data: chunk });
-      }
     } else {
       // Resume from the first chunk that ends after `since`.
       let i = 0;

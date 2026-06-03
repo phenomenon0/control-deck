@@ -88,33 +88,59 @@ export function LiveTerminalScreen({
   // not change the pane box, so this never re-triggers the observer → no loop.)
   const wtRef = useRef<WTerm | null>(null);
   const repaintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRepaintRef = useRef(false);
+
+  const forceRepaint = useCallback(() => {
+    const wt = wtRef.current as
+      | (WTerm & { cols?: number; rows?: number; bridge?: unknown; resize?: (c: number, r: number) => void })
+      | null;
+    if (!wt?.bridge || typeof wt.resize !== "function" || !wt.cols || !wt.rows) {
+      // wterm not ready yet (the two-pass mount delays onReady past the resize
+      // settle) — remember to repaint as soon as it is, so the pane can't be
+      // left blank by a resize that landed before onReady with no later resize.
+      pendingRepaintRef.current = true;
+      return;
+    }
+    // Double-rAF so the forced resize runs in a frame AFTER any in-flight write
+    // rAF has drained — otherwise wterm coalesces our setup()+repaint with that
+    // write into one render and some wiped rows stay blank.
+    requestAnimationFrame(() => requestAnimationFrame(() => wt.resize!(wt.cols!, wt.rows!)));
+  }, []);
+
   const handleReady = useCallback(
     (wt?: WTerm) => {
       if (wt) wtRef.current = wt;
       pane.onReady(wt);
+      if (pendingRepaintRef.current) {
+        pendingRepaintRef.current = false;
+        forceRepaint();
+      }
     },
-    [pane],
+    [pane, forceRepaint],
   );
+
   useEffect(() => {
     const el = screenRef.current;
     if (!el) return;
+    const start = { t: 0 };
     const ro = new ResizeObserver(() => {
+      const now = performance.now();
+      if (!repaintTimer.current) start.t = now;
       if (repaintTimer.current) clearTimeout(repaintTimer.current);
+      // Trailing debounce (90ms idle) BUT never starve past 400ms of continuous
+      // resizing (a slow drag) — fire anyway so the pane self-heals mid-drag.
+      const wait = now - start.t > 400 ? 0 : 90;
       repaintTimer.current = setTimeout(() => {
-        const wt = wtRef.current as
-          | (WTerm & { cols?: number; rows?: number; bridge?: unknown; resize?: (c: number, r: number) => void })
-          | null;
-        if (wt?.bridge && typeof wt.resize === "function" && wt.cols && wt.rows) {
-          wt.resize(wt.cols, wt.rows);
-        }
-      }, 90);
+        repaintTimer.current = null;
+        forceRepaint();
+      }, wait);
     });
     ro.observe(el);
     return () => {
       if (repaintTimer.current) clearTimeout(repaintTimer.current);
       ro.disconnect();
     };
-  }, []);
+  }, [forceRepaint]);
 
   // ⌘-click a URL/path in the output. wterm owns its spans + repaints them, so
   // we resolve the token under the cursor on demand (no overlay) via the caret

@@ -78,6 +78,10 @@ export function usePaneSession(
   const pendingOutputRef = useRef<string[]>([]);
   const outputBufferRef = useRef<string>("");
   const byteEncoderRef = useRef<TextEncoder | null>(null);
+  // Set while the service is offline. On reconnect we force a full repaint
+  // (since=0) because the service was restarted and the old byte cursor is
+  // stale — resuming from it would replay nothing (blank pane after restart).
+  const wasOfflineRef = useRef(false);
 
   const [socketState, setSocketState] = useState<SocketState>("disconnected");
   const [transportError, setTransportError] = useState<string | null>(null);
@@ -120,6 +124,7 @@ export function usePaneSession(
   // WebSocket lifecycle.
   useEffect(() => {
     if (!serviceOnline || !sessionId) {
+      if (!serviceOnline) wasOfflineRef.current = true;
       setSocketState("disconnected");
       setTransportError(null);
       socketRef.current?.close();
@@ -131,6 +136,13 @@ export function usePaneSession(
     let cancelled = false;
     setSocketState("connecting");
     setTransportError(null);
+
+    // Reconnecting after the service was offline (restart) → the stored cursor
+    // is from a dead generation; force a full repaint from 0.
+    if (sessionId && wasOfflineRef.current) {
+      cursors.current.set(sessionId, 0);
+      wasOfflineRef.current = false;
+    }
 
     (async () => {
       let wsUrl: string;
@@ -151,10 +163,23 @@ export function usePaneSession(
       socket.addEventListener("open", () => setSocketState("connected"));
 
       socket.addEventListener("message", (event) => {
+        // Ignore messages from a superseded socket (a stale reset/output from an
+        // old connection must not wipe or mis-advance the live one).
+        if (socketRef.current !== socket) return;
         let message: TerminalServerMessage;
         try {
           message = JSON.parse(String(event.data)) as TerminalServerMessage;
         } catch {
+          return;
+        }
+        if (message.type === "repaint") {
+          // A self-contained screen frame from tmux capture-pane. Clear + paint
+          // it, and pin the cursor to the authoritative offset WITHOUT counting
+          // the frame's bytes (it's outside the history stream).
+          outputBufferRef.current = "";
+          cursors.current.set(sessionId, message.offset);
+          if (terminalReadyRef.current) write(message.data);
+          else pendingOutputRef.current = [message.data];
           return;
         }
         if (message.type === "output") {

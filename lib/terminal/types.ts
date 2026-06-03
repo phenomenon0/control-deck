@@ -72,12 +72,27 @@ export interface TerminalResetMessage {
   reason: "history-truncated" | "session-restart";
 }
 
+/**
+ * A complete, self-contained screen frame captured from tmux (`capture-pane`),
+ * sent on a full-repaint attach so a blank/remounted terminal can restore the
+ * EXACT current screen instead of replaying an incomplete byte slice. `offset`
+ * is the authoritative byte cursor at capture time — the client sets its cursor
+ * to this WITHOUT byte-counting the frame (the frame is outside the history
+ * stream), so subsequent live output resumes correctly.
+ */
+export interface TerminalRepaintMessage {
+  type: "repaint";
+  data: string;
+  offset: number;
+}
+
 export type TerminalServerMessage =
   | TerminalOutputMessage
   | TerminalStatusMessage
   | TerminalMetaMessage
   | TerminalExitMessage
-  | TerminalResetMessage;
+  | TerminalResetMessage
+  | TerminalRepaintMessage;
 
 export interface TerminalInputMessage {
   type: "input";

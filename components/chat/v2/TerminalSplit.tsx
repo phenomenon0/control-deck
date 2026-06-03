@@ -1,20 +1,25 @@
 "use client";
 
 /**
- * TerminalSplit — renders a SplitNode as nested flex groups with draggable
- * dividers. Pure/presentational: it knows nothing about sessions or sockets, it
- * just lays panes out, reports focus, and emits resize. Each leaf frame carries
- * `data-pane-id` so the container can do geometry-based ⌘+arrow focus nav
- * (nearestInDirection) by reading the rendered rects — keeping spatial logic out
- * of this layout primitive.
+ * TerminalSplit — renders a SplitNode as panes + draggable dividers.
  *
- * Sizing uses flex-grow ratios (flex-basis:0) so children share space by their
- * `sizes` fractions while 1px dividers stay fixed — no overflow math.
+ * CRITICAL: panes are rendered as a FLAT, stable-keyed list (keyed by pane id)
+ * and positioned ABSOLUTELY from geometry computed off the tree — NOT as nested
+ * recursive components. This is deliberate: when you split a pane, the tree
+ * restructures (a leaf gets wrapped in a new group), and a recursive renderer
+ * would swap the component type at that slot and REMOUNT the pane's terminal
+ * (tearing down + rebuilding its wterm → blank screen, lost scrollback, a re-fit
+ * mismeasure). A flat list keeps every pane's React position stable across any
+ * restructure, so the live terminal node is never torn down — it just moves +
+ * resizes. Dividers are likewise flat + absolutely positioned.
+ *
+ * Each pane frame carries `data-pane-id` so the container can do geometry-based
+ * ⌘+arrow focus nav (nearestInDirection) by reading the rendered rects.
  */
 
 import React, { useCallback, useRef, useState } from "react";
 import type { SplitDir, SplitGroup, SplitLeaf, SplitNode } from "./splitTree";
-import { allLeaves, MIN_PANE_FRACTION } from "./splitTree";
+import { MIN_PANE_FRACTION } from "./splitTree";
 import "./terminal.css";
 
 export interface TerminalSplitProps {
@@ -23,103 +28,139 @@ export interface TerminalSplitProps {
   onFocusPane: (paneId: string) => void;
   onResize: (groupId: string, sizes: number[]) => void;
   renderPane: (leaf: SplitLeaf) => React.ReactNode;
-  /** Injected by TerminalSplit — pane id → tmux #P index, + total pane count. */
-  paneOrder?: Map<string, number>;
-  paneCount?: number;
 }
 
-/** Everything a child needs except which node to render. */
-type SplitChildProps = Omit<TerminalSplitProps, "node">;
-
-export function TerminalSplit(props: TerminalSplitProps) {
-  // Assign each pane its tmux-style #P index (depth-first order) so panes are
-  // first-class + recognizable (display-panes style badge when split).
-  const leaves = allLeaves(props.node);
-  const paneOrder = new Map(leaves.map((l, i) => [l.id, i] as const));
-  return <NodeView {...props} paneOrder={paneOrder} paneCount={leaves.length} />;
+/** A pane's rect (fractions 0..1 of the whole split container) + tmux #P index. */
+interface PaneBox {
+  leaf: SplitLeaf;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  index: number;
 }
 
-function NodeView({ node, ...rest }: TerminalSplitProps) {
-  if (node.type === "leaf") return <LeafView leaf={node} {...rest} />;
-  return <GroupView group={node} {...rest} />;
+/** A divider line between two children of a group. */
+interface DividerBox {
+  group: SplitGroup;
+  /** Sizes index of the child BEFORE this divider. */
+  index: number;
+  dir: SplitDir;
+  /** Boundary line position (container fractions). */
+  x: number;
+  y: number;
+  /** Length of the line along the group's cross-axis (fraction). */
+  len: number;
+  /** The group's span along the DRAG axis, as a fraction of the container. */
+  spanFrac: number;
 }
 
-function LeafView({
-  leaf,
-  focusedPaneId,
-  onFocusPane,
-  renderPane,
-  paneOrder,
-  paneCount,
-}: SplitChildProps & { leaf: SplitLeaf }) {
-  const focused = leaf.id === focusedPaneId;
-  const index = paneOrder?.get(leaf.id);
-  const showIndex = (paneCount ?? 1) > 1 && index != null;
-  return (
-    <div
-      className="cd-term-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-      data-pane-id={leaf.id}
-      data-pane-index={index}
-      data-focused={focused}
-      onPointerDownCapture={() => onFocusPane(leaf.id)}
-      onFocusCapture={() => onFocusPane(leaf.id)}
-    >
-      {showIndex && (
-        <button
-          type="button"
-          className="cd-term-pane-index"
-          data-active={focused}
-          aria-label={`Select pane ${index}`}
-          title={`Select pane ${index}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onFocusPane(leaf.id);
-          }}
-        >
-          {index}
-        </button>
-      )}
-      {renderPane(leaf)}
-    </div>
-  );
+/** Walk the tree once, laying out absolute pane + divider boxes. Pure. */
+function computeLayout(
+  node: SplitNode,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  panes: PaneBox[],
+  dividers: DividerBox[],
+  order: { n: number },
+): void {
+  if (node.type === "leaf") {
+    panes.push({ leaf: node, x, y, w, h, index: order.n++ });
+    return;
+  }
+  const isRow = node.dir === "row";
+  const count = node.children.length;
+  let cum = 0;
+  node.children.forEach((child, i) => {
+    const frac = node.sizes[i] ?? 1 / count;
+    const cx = isRow ? x + w * cum : x;
+    const cy = isRow ? y : y + h * cum;
+    const cw = isRow ? w * frac : w;
+    const ch = isRow ? h : h * frac;
+    computeLayout(child, cx, cy, cw, ch, panes, dividers, order);
+    cum += frac;
+    if (i < count - 1) {
+      dividers.push({
+        group: node,
+        index: i,
+        dir: node.dir,
+        x: isRow ? x + w * cum : x,
+        y: isRow ? y : y + h * cum,
+        len: isRow ? h : w,
+        spanFrac: isRow ? w : h,
+      });
+    }
+  });
 }
 
-function GroupView({ group, ...rest }: SplitChildProps & { group: SplitGroup }) {
+export function TerminalSplit({ node, focusedPaneId, onFocusPane, onResize, renderPane }: TerminalSplitProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isRow = group.dir === "row";
-  const { onResize } = rest;
+  const panes: PaneBox[] = [];
+  const dividers: DividerBox[] = [];
+  computeLayout(node, 0, 0, 1, 1, panes, dividers, { n: 0 });
+  const split = panes.length > 1;
+
+  const handleDrag = useCallback(
+    (group: SplitGroup, index: number, deltaGroupFrac: number) => {
+      const sizes = [...group.sizes];
+      const total = (sizes[index] ?? 0) + (sizes[index + 1] ?? 0);
+      let a = (sizes[index] ?? 0) + deltaGroupFrac;
+      a = Math.max(MIN_PANE_FRACTION, Math.min(total - MIN_PANE_FRACTION, a));
+      sizes[index] = a;
+      sizes[index + 1] = total - a;
+      onResize(group.id, sizes);
+    },
+    [onResize],
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className={`flex min-h-0 min-w-0 flex-1 ${isRow ? "flex-row" : "flex-col"}`}
-    >
-      {group.children.map((child, i) => (
-        <React.Fragment key={child.id}>
+    <div ref={containerRef} className="relative h-full w-full min-h-0 min-w-0">
+      {panes.map((p) => {
+        const focused = p.leaf.id === focusedPaneId;
+        return (
           <div
-            className="flex min-h-0 min-w-0"
-            style={{ flexGrow: group.sizes[i] ?? 1 / group.children.length, flexBasis: 0 }}
+            key={p.leaf.id}
+            className="cd-term-pane flex min-h-0 min-w-0 flex-col overflow-hidden"
+            style={{ position: "absolute", left: `${p.x * 100}%`, top: `${p.y * 100}%`, width: `${p.w * 100}%`, height: `${p.h * 100}%` }}
+            data-pane-id={p.leaf.id}
+            data-pane-index={p.index}
+            data-focused={focused}
+            onPointerDownCapture={() => onFocusPane(p.leaf.id)}
+            onFocusCapture={() => onFocusPane(p.leaf.id)}
           >
-            <NodeView node={child} {...rest} />
+            {split && (
+              <button
+                type="button"
+                className="cd-term-pane-index"
+                data-active={focused}
+                aria-label={`Select pane ${p.index}`}
+                title={`Select pane ${p.index}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFocusPane(p.leaf.id);
+                }}
+              >
+                {p.index}
+              </button>
+            )}
+            {renderPane(p.leaf)}
           </div>
-          {i < group.children.length - 1 && (
-            <Divider
-              dir={group.dir}
-              containerRef={containerRef}
-              onDrag={(deltaFrac) => {
-                const sizes = [...group.sizes];
-                const total = (sizes[i] ?? 0) + (sizes[i + 1] ?? 0);
-                let a = (sizes[i] ?? 0) + deltaFrac;
-                let b = (sizes[i + 1] ?? 0) - deltaFrac;
-                a = Math.max(MIN_PANE_FRACTION, Math.min(total - MIN_PANE_FRACTION, a));
-                b = total - a;
-                sizes[i] = a;
-                sizes[i + 1] = b;
-                onResize(group.id, sizes);
-              }}
-            />
-          )}
-        </React.Fragment>
+        );
+      })}
+
+      {dividers.map((d) => (
+        <Divider
+          key={`${d.group.id}:${d.index}`}
+          dir={d.dir}
+          containerRef={containerRef}
+          spanFrac={d.spanFrac}
+          x={d.x}
+          y={d.y}
+          len={d.len}
+          onDrag={(deltaGroupFrac) => handleDrag(d.group, d.index, deltaGroupFrac)}
+        />
       ))}
     </div>
   );
@@ -128,44 +169,57 @@ function GroupView({ group, ...rest }: SplitChildProps & { group: SplitGroup }) 
 function Divider({
   dir,
   containerRef,
+  spanFrac,
+  x,
+  y,
+  len,
   onDrag,
 }: {
   dir: SplitDir;
   containerRef: React.RefObject<HTMLDivElement | null>;
-  onDrag: (deltaFrac: number) => void;
+  /** Group's span along the drag axis, as a fraction of the container. */
+  spanFrac: number;
+  x: number;
+  y: number;
+  len: number;
+  onDrag: (deltaGroupFrac: number) => void;
 }) {
   const isRow = dir === "row";
   const [dragging, setDragging] = useState(false);
   const last = useRef(0);
 
-  const handleDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      last.current = isRow ? e.clientX : e.clientY;
-      setDragging(true);
-    },
-    [isRow],
-  );
+  const handleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    last.current = isRow ? e.clientX : e.clientY;
+    setDragging(true);
+  }, [isRow]);
 
   const handleMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!dragging) return;
       const rect = containerRef.current?.getBoundingClientRect();
-      const span = rect ? (isRow ? rect.width : rect.height) : 0;
-      if (span <= 0) return;
+      const containerSpan = rect ? (isRow ? rect.width : rect.height) : 0;
+      if (containerSpan <= 0 || spanFrac <= 0) return;
       const pos = isRow ? e.clientX : e.clientY;
       const deltaPx = pos - last.current;
       last.current = pos;
-      onDrag(deltaPx / span);
+      // px → fraction of the whole container → fraction of THIS group's span.
+      onDrag(deltaPx / containerSpan / spanFrac);
     },
-    [dragging, isRow, containerRef, onDrag],
+    [dragging, isRow, containerRef, spanFrac, onDrag],
   );
 
   const stop = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     setDragging(false);
   }, []);
+
+  // The boundary line sits ON the seam; nudge back by half its 1px so it
+  // straddles the gap. Length runs along the group's cross-axis.
+  const style: React.CSSProperties = isRow
+    ? { position: "absolute", left: `${x * 100}%`, top: `${y * 100}%`, height: `${len * 100}%`, transform: "translateX(-0.5px)" }
+    : { position: "absolute", left: `${x * 100}%`, top: `${y * 100}%`, width: `${len * 100}%`, transform: "translateY(-0.5px)" };
 
   return (
     <div
@@ -174,6 +228,7 @@ function Divider({
       role="separator"
       aria-orientation={isRow ? "vertical" : "horizontal"}
       aria-label="Resize panes"
+      style={style}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={stop}

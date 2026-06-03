@@ -65,19 +65,20 @@ export function LiveTerminalScreen({
   const screenRef = useRef<HTMLDivElement>(null);
 
   // Mount the terminal at the RIGHT size from the start, instead of a fixed
-  // 36-row guess that autoResize then has to correct. On a split, this leaf
-  // remounts fresh and the new pane is already at its final (smaller) size, so
-  // measuring here gives the correct cols/rows immediately — avoiding the
-  // mismeasure where the 36-row grid overflows a half-height pane and the first
-  // line floats mid-pane with a blank band above it.
+  // 36-row guess that autoResize then has to correct (which mismeasures and
+  // leaves the first line floating). Re-measure whenever the session changes —
+  // keyed on the SAME sessionKey the <Terminal> uses, so a session swap remounts
+  // the terminal at freshly-measured dims (not stale latched ones).
   const [initDims, setInitDims] = useState<{ cols: number; rows: number } | null>(null);
   useLayoutEffect(() => {
-    if (initDims || !session) return;
+    if (!session) return;
     const el = screenRef.current;
     if (!el) return;
     const dims = measureGridDims(el);
-    setInitDims(dims ?? { cols: 120, rows: 36 });
-  }, [initDims, session]);
+    if (dims) setInitDims(dims);
+    else setInitDims((prev) => prev ?? { cols: 120, rows: 36 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane.sessionKey, session]);
 
   // ⌘-click a URL/path in the output. wterm owns its spans + repaints them, so
   // we resolve the token under the cursor on demand (no overlay) via the caret

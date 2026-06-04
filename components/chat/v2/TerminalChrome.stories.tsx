@@ -14,10 +14,9 @@ import type { TerminalStatusModel } from "./terminalTypes";
  */
 const meta = {
   title: "chat/v2/Terminal/Chrome",
-  component: TerminalChrome,
   parameters: { layout: "fullscreen" },
   tags: ["ai-generated"],
-} satisfies Meta<typeof TerminalChrome>;
+} satisfies Meta;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

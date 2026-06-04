@@ -22,10 +22,9 @@ import {
  */
 const meta = {
   title: "chat/v2/Terminal/Split",
-  component: TerminalSplit,
   parameters: { layout: "fullscreen" },
   tags: ["ai-generated"],
-} satisfies Meta<typeof TerminalSplit>;
+} satisfies Meta;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -293,7 +292,7 @@ export const TextStableAcrossManySplits: Story = {
 const manyRow: SplitNode = (() => {
   let t: SplitNode = makeLeaf("m1");
   for (let i = 2; i <= 11; i++) {
-    const lastId = t.type === "leaf" ? t.id : t.children[t.children.length - 1].id;
+    const lastId: string = t.type === "leaf" ? t.id : t.children[t.children.length - 1].id;
     t = splitLeaf(t, lastId, "row", `m${i}`).tree;
   }
   return t;

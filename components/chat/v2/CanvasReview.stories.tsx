@@ -8,15 +8,15 @@ import { RunReview } from "./RunReview";
 import type { ActivityStep } from "@/lib/types/agentRun";
 import type { Artifact } from "@/lib/types/chat";
 
-const meta = {
+const meta: Meta<Partial<ChatCanvasProps>> = {
   title: "chat/v2/Canvas & review",
   tags: ["ai-generated"],
   parameters: { layout: "fullscreen" },
   args: { onEdit: fn(), onRun: fn(), onAskAI: fn(), onAddToChat: fn(), onSave: fn() },
-} satisfies Meta;
+};
 
 export default meta;
-type Story = StoryObj;
+type Story = StoryObj<Partial<ChatCanvasProps>>;
 
 const BAR_SPEC = {
   $schema: "https://vega.github.io/schema/vega-lite/v6.json",

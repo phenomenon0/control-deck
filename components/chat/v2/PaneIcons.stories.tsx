@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, within } from "storybook/test";
 
-import { DeckRail } from "./DeckRail";
 import { PANE_LABELS, getPaneIcons, type PaneId } from "./paneIcons";
 
 /**
@@ -12,10 +11,9 @@ import { PANE_LABELS, getPaneIcons, type PaneId } from "./paneIcons";
  */
 const meta = {
   title: "chat/v2/Icon canon",
-  component: DeckRail,
   parameters: { layout: "fullscreen" },
   tags: ["ai-generated"],
-} satisfies Meta<typeof DeckRail>;
+} satisfies Meta;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

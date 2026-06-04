@@ -6,6 +6,12 @@ const nextConfig: NextConfig = {
   // compiler (node_modules CSS isn't transpiled by default in v16).
   transpilePackages: ["dockview-react", "dockview"],
   serverExternalPackages: ["better-sqlite3", "koffi", "node-screenshots", "node-pty"],
+  experimental: {
+    // lucide-react is imported by name across ~30 files via a barrel; without
+    // this hint, tree-shaking often pulls the full icon set. radix-ui/slot is
+    // small but ditto. Cuts client bundle weight measurably.
+    optimizePackageImports: ["lucide-react", "@radix-ui/react-slot"],
+  },
   // Embedded-server mode for Electron packaging. Harmless on plain Node deploys.
   output: "standalone",
   // Pin the tracing root to the project so standalone/server.js lands at the

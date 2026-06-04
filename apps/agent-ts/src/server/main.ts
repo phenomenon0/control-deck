@@ -2,7 +2,9 @@
  * agent-ts entrypoint.
  *
  * Identical CLI shape to `agentgo-server`: env-driven config, listens on
- * AGENTGO_PORT (default 4243), graceful shutdown on SIGINT/SIGTERM.
+ * AGENT_TS_PORT (default 4244), graceful shutdown on SIGINT/SIGTERM. The
+ * default must stay in sync with lib/agentgo/launcher.ts and
+ * electron/services/agent-ts-supervisor.ts — see agent-ts-port.test.ts.
  *
  * Phase A wires only the wire layer + a stub runner. The pi-agent-core
  * agent loop comes online in Task #8.
@@ -16,7 +18,7 @@ import { makeLoopRunner } from "./loop.js";
 import { RunManager } from "./runs.js";
 import { RunStore, defaultStorePath } from "./store.js";
 
-const PORT = parseInt(process.env.AGENTGO_PORT ?? process.env.AGENT_TS_PORT ?? "4243", 10);
+const PORT = parseInt(process.env.AGENT_TS_PORT ?? process.env.AGENTGO_PORT ?? "4244", 10);
 const HOST = process.env.AGENTGO_HOST ?? process.env.AGENT_TS_HOST ?? "127.0.0.1";
 
 // Side-effect routes (/runs, /runs/:id/*) require AGENT_TS_TOKEN. When the

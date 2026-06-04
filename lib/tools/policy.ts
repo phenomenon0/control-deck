@@ -85,21 +85,29 @@ export function decideToolPolicy(input: PolicyInput): PolicyDecision {
   const manifest = getManifest(tool);
 
   // Schema validation — preflight catches obvious shape errors here so the
-  // model gets feedback before the bridge actually executes the call.
+  // model gets feedback before the bridge actually executes the call. Every
+  // bridge-exposed tool MUST have a schema; falling through silently when one
+  // is missing was the documented hedge in README and a real exploit surface
+  // if DECK_TOKEN ever leaks. policy.schema-coverage.test.ts locks this.
   const schema = TOOL_SCHEMAS[tool as ToolName];
   let normalizedArgs: unknown = args ?? {};
-  if (schema) {
-    const parsed = schema.safeParse(args ?? {});
-    if (!parsed.success) {
-      return {
-        decision: "deny",
-        risk: manifest.risk,
-        reason: "invalid args",
-        issues: parsed.error.issues,
-      };
-    }
-    normalizedArgs = parsed.data;
+  if (!schema) {
+    return {
+      decision: "deny",
+      risk: manifest.risk,
+      reason: `tool '${tool}' has no validation schema — refusing to dispatch unvalidated args`,
+    };
   }
+  const parsed = schema.safeParse(args ?? {});
+  if (!parsed.success) {
+    return {
+      decision: "deny",
+      risk: manifest.risk,
+      reason: "invalid args",
+      issues: parsed.error.issues,
+    };
+  }
+  normalizedArgs = parsed.data;
 
   // Modality caps. Voice escalates risk because the user can't preview the
   // exact action before it runs — anything high_write or above gets pushed

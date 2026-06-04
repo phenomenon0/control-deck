@@ -50,11 +50,11 @@ use it.
 
 ## Relationship to `lib/agentgo`
 
-`lib/agentgo` talks to the local Go agent on `localhost:4243` and
-defines its own `AgentGoEvent` discriminated union. It structurally
-mirrors `AGUIEvent` but uses the Go server's wire format (flat fields,
-no `DeckPayload` envelope). When adding event types here, mirror them
-there.
+`lib/agentgo` talks to the local agent-ts (formerly Agent-GO) runtime on
+`localhost:4244` and defines its own `AgentGoEvent` discriminated union.
+It structurally mirrors `AGUIEvent` but uses the agent-ts wire format
+(flat fields, no `DeckPayload` envelope). When adding event types here,
+mirror them there.
 
 ## Adding a new event type
 

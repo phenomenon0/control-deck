@@ -36,6 +36,7 @@ import {
 } from "@/lib/audio/audio-routes";
 import type { AudioMode } from "@/lib/audio/audio-modes";
 import type { VoiceApprovalChallenge } from "@/lib/voice/voice-approval";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 
 export interface AudioDockApi {
   session: VoiceSessionApi;
@@ -61,7 +62,12 @@ export interface AudioDockApi {
 const AudioDockContext = createContext<AudioDockApi | null>(null);
 
 export function AudioDockProvider({ children }: { children: ReactNode }) {
-  const session = useVoiceSession({ enabled: true });
+  // Honour the user's voice opt-out. When disabled, useVoiceSession skips
+  // mic/VAD/STT/TTS wiring entirely — no AudioContext, no health probe,
+  // no activity-bus subscriptions. This is the renderer-side counterpart
+  // to voice-core-supervisor's voiceEnabled gate.
+  const { prefs } = useDeckSettings();
+  const session = useVoiceSession({ enabled: prefs.voice.enabled });
 
   const [routeId, setRouteIdState] = useState<string>(DEFAULT_ROUTE_ID);
   const [collapsed, setCollapsed] = useState(false);

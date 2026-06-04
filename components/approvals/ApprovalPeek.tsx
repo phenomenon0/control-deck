@@ -11,8 +11,9 @@
  * Keys are suppressed while the user is typing in an input/textarea/editable.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
+import { useScheduledPoll } from "@/lib/hooks/useScheduledPoll";
 
 interface PendingApproval {
   id: string;
@@ -27,28 +28,15 @@ const POLL_INTERVAL_MS = 4000;
 export function ApprovalPeek() {
   const [pending, setPending] = useState<PendingApproval[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
-  const inFlightRef = useRef(false);
 
   const reload = useCallback(async () => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
-    try {
-      const res = await fetch("/api/agui/approvals?status=pending", { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as { approvals: PendingApproval[] };
-      setPending(data.approvals ?? []);
-    } catch {
-      /* ignore — surface only when API is reachable */
-    } finally {
-      inFlightRef.current = false;
-    }
+    const res = await fetch("/api/agui/approvals?status=pending", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { approvals: PendingApproval[] };
+    setPending(data.approvals ?? []);
   }, []);
 
-  useEffect(() => {
-    reload();
-    const id = setInterval(reload, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [reload]);
+  useScheduledPoll(reload, { intervalMs: POLL_INTERVAL_MS });
 
   // Clear dismissals once their target is gone — so a fresh approval with the
   // same id (highly unlikely) would still show.

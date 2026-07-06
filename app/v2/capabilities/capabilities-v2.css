@@ -1,0 +1,113 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — CAPABILITIES surface. The agent's capability substrate:
+   Skills (prompt-authored playbooks) · Rules (standing instructions every agent
+   obeys) · MCP (external tool servers). Content-only; the shell rail (64px) is
+   provided by app/v2/layout.tsx and shifts this fixed root right. Scoped under
+   `.av2-capabilities`; wrapper carries data-theme="light" (Atlas paper-klein).
+
+   Reuses the proven recipes from tools-v2.css (card / field / tag), the
+   segmented control from models-v2.css, and the Machined-Key switch from
+   design-lab controls.css. The switch + segmented tokens aren't vendored in
+   app/atlas.css, so they're declared on the wrapper below.
+   ============================================================================= */
+
+.av2-capabilities, .av2-capabilities * { box-sizing: border-box; margin: 0; padding: 0; }
+.av2-capabilities {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-reading);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+
+  /* Tier-3 tokens absent from atlas.css — segmented control (from models-v2.css) */
+  --seg-track-fill: rgba(var(--fg-rgb), 0.09);
+  --seg-track-well: 0 1px 2px var(--depth) inset;
+  --seg-key-fill: rgba(var(--acc-rgb), 0.9);
+  --seg-key-line: rgba(var(--acc-rgb), 0.8);
+  --tab-ink-idle: var(--ink-faint);
+
+  /* Machined-Key switch (from design-lab tokens.css) */
+  --ctl-on-fill: rgba(var(--acc-rgb), 0.28);
+  --ctl-on-line: rgba(var(--acc-rgb), 0.5);
+  --track-w: 34px;  --track-h: 18px;
+}
+
+/* ── component recipes (self-contained so the look is exact) ─────────────────── */
+.av2-capabilities .field { position: relative; }
+.av2-capabilities .field__input { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-strong); width: 100%; height: 34px; padding: 0 var(--space-3); border-radius: var(--field-radius); border: 1px solid var(--field-line); background: var(--field-fill); box-shadow: var(--field-well); outline: none; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.av2-capabilities .field__input::placeholder { color: var(--ink-faint); }
+.av2-capabilities .field__input:focus { background: var(--surface-raised); border-color: var(--field-focus-line); box-shadow: var(--field-focus-halo); transform: translateY(var(--field-lift)); }
+
+/* TAG — Engraved Stamp */
+.av2-capabilities .tag { font-family: var(--font-data); font-size: var(--text-xs); padding: 2px 9px; border-radius: var(--radius-xs); background: var(--tag-fill); color: var(--tag-ink); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.av2-capabilities .tag--accent { color: var(--accent-text); background: var(--tag-acc-fill); }
+.av2-capabilities .tag--status::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: rgb(var(--status-rgb, var(--caution-rgb))); }
+.av2-capabilities .tag--positive { --status-rgb: var(--positive-rgb); }
+.av2-capabilities .tag--caution  { --status-rgb: var(--caution-rgb); }
+.av2-capabilities .tag--danger   { --status-rgb: var(--danger-rgb); }
+
+/* ── hero — the serif thesis ─────────────────────────────────────────────────── */
+.av2-capabilities .hero { flex: none; padding: var(--space-6) var(--space-7) var(--space-5); border-bottom: 1px solid var(--line-subtle); }
+.av2-capabilities .eyebrow { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-data); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint); }
+.av2-capabilities .eyebrow::before { content: ""; width: 16px; height: 2px; border-radius: 2px; background: var(--accent); }
+.av2-capabilities .hero h1 { font-family: var(--font-reading); font-weight: 600; font-size: clamp(2.15rem, 4.5vw, 3.2rem); line-height: 1.02; letter-spacing: -0.021em; color: var(--ink-strong); margin: var(--space-2) 0 0; }
+.av2-capabilities .lede { max-width: 62ch; font-family: var(--font-ui); font-size: var(--text-md); line-height: var(--leading-body); color: var(--ink-soft); margin: var(--space-3) 0 0; }
+.av2-capabilities .tally { font-family: var(--font-data); font-size: 12px; color: var(--ink-soft); margin-top: var(--space-4); font-variant-numeric: tabular-nums; }
+.av2-capabilities .tally b { color: var(--ink-strong); font-weight: 600; }
+.av2-capabilities .tally .sep { color: var(--ink-faint); margin: 0 8px; }
+
+/* ── control bar — segmented tabs · live count · search ──────────────────────── */
+.av2-capabilities .bar { flex: none; display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4) var(--space-7); border-bottom: 1px solid var(--line-subtle); }
+.av2-capabilities .spacer { flex: 1; }
+
+.av2-capabilities .seg { position: relative; display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--seg-track-fill); box-shadow: var(--seg-track-well); flex: none; }
+.av2-capabilities .seg-btn { position: relative; display: inline-flex; align-items: center; gap: 7px; background: none; border: 1px solid transparent; border-radius: var(--radius-xs); font-family: var(--font-data); font-size: var(--text-sm); color: var(--tab-ink-idle); padding: 5px var(--space-3); cursor: pointer; transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out); }
+.av2-capabilities .seg-btn:hover:not(.is-active) { color: var(--ink-soft); }
+.av2-capabilities .seg-btn.is-active { color: var(--on-accent); font-weight: 500; background-color: var(--seg-key-fill); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border-color: var(--seg-key-line); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-capabilities .seg-btn.is-active:active { transform: translateY(1px); box-shadow: 0 1px 1px var(--depth); }
+.av2-capabilities .seg-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; z-index: 2; }
+.av2-capabilities .seg-n { font-size: 10px; font-variant-numeric: tabular-nums; opacity: 0.72; }
+.av2-capabilities .seg-btn.is-active .seg-n { opacity: 0.85; }
+
+.av2-capabilities .barmeta { font-family: var(--font-data); font-size: 11.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.av2-capabilities .barmeta b { color: var(--accent-text); font-weight: 600; }
+
+/* ── list — the toggle roster ────────────────────────────────────────────────── */
+.av2-capabilities .list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) var(--space-5) var(--space-8); }
+.av2-capabilities .state { font-family: var(--font-data); font-size: 12px; color: var(--ink-faint); padding: var(--space-6) var(--space-3); }
+.av2-capabilities .state--err { color: color-mix(in srgb, rgb(var(--danger-rgb)) 70%, var(--ink-soft)); }
+
+.av2-capabilities .crow { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-4) var(--space-3); border-bottom: 1px solid var(--line-subtle); transition: background var(--duration-base) var(--ease-out); }
+.av2-capabilities .crow:last-child { border-bottom: none; }
+.av2-capabilities .crow:hover { background: rgba(var(--fg-rgb), calc(var(--alpha-wash) - 0.03)); }
+
+.av2-capabilities .crow__body { flex: 1; min-width: 0; transition: opacity var(--duration-base) var(--ease-out); }
+.av2-capabilities .crow.is-off .crow__body { opacity: 0.44; }
+.av2-capabilities .crow__head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.av2-capabilities .crow__name { font-family: var(--font-data); font-size: 13px; font-weight: 600; color: var(--ink-strong); line-height: var(--leading-tight); word-break: break-word; }
+.av2-capabilities .crow__desc { font-family: var(--font-ui); font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; }
+
+.av2-capabilities .crow__aside { flex: none; display: flex; align-items: center; gap: var(--space-4); padding-top: 1px; }
+.av2-capabilities .crow__meta { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 52px; text-align: right; }
+
+/* SWITCH — Machined Key (design-lab D-007a) */
+.av2-capabilities .ctl { display: inline-flex; align-items: center; cursor: pointer; }
+.av2-capabilities .ctl input { position: absolute; opacity: 0; pointer-events: none; }
+.av2-capabilities .ctl__track { width: var(--track-w); height: var(--track-h); border-radius: 6px; flex: none; position: relative; background: rgba(var(--fg-rgb), 0.09); border: 1px solid rgba(var(--fg-rgb), 0.08); box-shadow: 0 1px 2px var(--depth) inset; transition: background var(--duration-base) var(--ease-out); }
+.av2-capabilities .ctl__track::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(var(--track-h) - 6px); height: calc(var(--track-h) - 6px); border-radius: 3px; background-color: var(--surface-raised); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border: 1px solid rgba(var(--fg-rgb), 0.18); box-shadow: 0 1.5px 0 rgba(var(--fg-rgb), 0.2), 0 2px 3px var(--depth); transition: left var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out); }
+.av2-capabilities .ctl input:checked + .ctl__track { background: rgba(var(--acc-rgb), 0.3); }
+.av2-capabilities .ctl input:checked + .ctl__track::after { left: calc(100% - var(--track-h) + 4px); background-color: rgba(var(--acc-rgb), 0.9); background-image: linear-gradient(0deg, var(--sheen), transparent 60%); border-color: rgba(var(--acc-rgb), 0.8); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-capabilities .ctl:hover input:not(:checked) + .ctl__track { background: rgba(var(--fg-rgb), 0.12); }
+.av2-capabilities .ctl input:focus-visible + .ctl__track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-capabilities .ctl:active .ctl__track::after { transform: translateY(1px); box-shadow: 0 0 0 rgba(var(--fg-rgb), 0.2), 0 1px 1px var(--depth); }
+
+/* ── responsive fold ─────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .av2-capabilities .hero { padding: var(--space-5) var(--space-4) var(--space-4); }
+  .av2-capabilities .bar { flex-wrap: wrap; padding: var(--space-3) var(--space-4); gap: var(--space-3); }
+  .av2-capabilities .field { width: 100% !important; order: 5; }
+  .av2-capabilities .barmeta { order: 4; }
+  .av2-capabilities .list { padding: var(--space-2) var(--space-3) var(--space-8); }
+  .av2-capabilities .crow__meta { display: none; }
+}

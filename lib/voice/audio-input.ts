@@ -15,6 +15,10 @@
 
 import type { MicVAD as MicVADType } from "@ricky0123/vad-web";
 
+type ProbeShape = { mark: (name: string, meta?: Record<string, unknown>) => void };
+const probe = (): ProbeShape | undefined =>
+  (globalThis as { __voiceProbe?: ProbeShape }).__voiceProbe;
+
 export type VadEvent =
   | { type: "speechStart"; at: number }
   | { type: "speechEnd"; at: number; durationMs: number; samples?: Float32Array }
@@ -292,10 +296,14 @@ export class AgentInput {
         onSpeechStart: () => {
           const now = performance.now();
           startedAt.value = now;
+          probe()?.mark("vad_speech_start", { backend: "silero" });
+          probe()?.mark("chunk_first", { backend: "silero" });
           this.emit("vad", { type: "speechStart", at: now });
         },
         onSpeechEnd: (samples: Float32Array) => {
           const now = performance.now();
+          probe()?.mark("vad_speech_end", { backend: "silero", samples: samples.length });
+          probe()?.mark("chunk_last", { backend: "silero", samples: samples.length });
           this.emit("audioFrame", { samples, sampleRate: 16000, at: now });
           this.emit("vad", {
             type: "speechEnd",
@@ -367,6 +375,8 @@ export class AgentInput {
         if (!this.hasSpoken) {
           this.hasSpoken = true;
           this.speechStartAt = now;
+          probe()?.mark("vad_speech_start", { backend: "energy" });
+          probe()?.mark("chunk_first", { backend: "energy" });
           this.emit("vad", { type: "speechStart", at: now });
         }
         this.silenceStartAt = null;
@@ -375,6 +385,8 @@ export class AgentInput {
           this.silenceStartAt = now;
         } else if (now - this.silenceStartAt >= this.silenceTimeoutMs) {
           const startedAt = this.speechStartAt ?? now;
+          probe()?.mark("vad_speech_end", { backend: "energy" });
+          probe()?.mark("chunk_last", { backend: "energy" });
           this.emit("vad", {
             type: "speechEnd",
             at: now,

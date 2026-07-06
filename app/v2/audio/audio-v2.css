@@ -1,0 +1,149 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — AUDIO · a library of audio clips / generations. Surface at
+   /v2/audio.
+   -----------------------------------------------------------------------------
+   Compact players: each clip row is a mono name + prompt, a carved WAVEFORM WELL
+   whose played bars ignite in Klein blue (waveform doubles as the progress bar),
+   a round play/pause control, and mono meta (duration · bitrate · model). A
+   generation bar (Deep-Well field + real model picker) composes new clips.
+
+   Everything is scoped under `.av2-audio` so it never leaks. The wrapper carries
+   data-theme="light" (Atlas paper-klein, app/atlas.css). Base tokens come from
+   atlas.css; a few Tier-3 tokens (progress well, segmented) aren't vendored
+   there, so they're declared once on the wrapper from design-lab tokens.css.
+   ============================================================================= */
+
+.av2-audio, .av2-audio * { box-sizing: border-box; margin: 0; padding: 0; }
+
+.av2-audio {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-ui);
+  overflow: hidden; overflow-y: auto;
+
+  /* PROGRESS / WELL — "Engraved Channel" (design-lab D-017 values) */
+  --progress-track-bg: rgba(var(--fg-rgb), calc(var(--alpha-wash) + 0.03));
+  --progress-track-well: 0 2px 5px var(--depth) inset, 0 1px 0 var(--sheen);
+  /* SEGMENTED — "Machined Key in Carved Track" (design-lab D-018 values) */
+  --seg-track-fill: rgba(var(--fg-rgb), 0.09);
+  --seg-track-well: 0 1px 2px var(--depth) inset;
+  --seg-key-fill: rgba(var(--acc-rgb), 0.9);
+  --seg-key-line: rgba(var(--acc-rgb), 0.8);
+  --tab-ink-idle: var(--ink-faint);
+}
+
+.av2-audio .ic svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; width: 100%; height: 100%; }
+.av2-audio .ic { display: inline-flex; }
+
+.av2-audio .wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-7) var(--space-8); }
+.av2-audio .kicker { font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-faint); }
+
+/* ── shared recipes ─────────────────────────────────────────────────────────── */
+.av2-audio .card { border-radius: var(--card-radius); background: var(--surface-raised); border: 1px solid var(--line-subtle); box-shadow: var(--card-shadow-rest); }
+.av2-audio .tag { font-family: var(--font-data); font-size: 10px; padding: 1px 7px; border-radius: var(--radius-xs); background: var(--tag-fill); color: var(--tag-ink); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; line-height: 1.5; }
+.av2-audio .tag--accent { color: var(--accent-text); background: var(--tag-acc-fill); }
+.av2-audio .tag--dot::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: rgb(var(--status-rgb, var(--caution-rgb))); }
+.av2-audio .tag--live { --status-rgb: var(--positive-rgb); color: color-mix(in srgb, rgb(var(--positive-rgb)) 72%, var(--ink-strong)); }
+.av2-audio .tag--sample { --status-rgb: var(--fg-rgb); color: var(--ink-faint); }
+
+.av2-audio .btn { font-family: var(--font-data); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-audio .btn:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-audio .btn:disabled { opacity: 0.5; cursor: default; }
+.av2-audio .btn .ic { width: 15px; height: 15px; }
+.av2-audio .btn--pri { border-color: var(--btn-pri-line); background: var(--btn-pri-fill); color: var(--accent-text); box-shadow: 0 1px 0 var(--sheen) inset; }
+.av2-audio .btn--pri:hover:not(:disabled) { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
+
+/* ── hero ───────────────────────────────────────────────────────────────────── */
+.av2-audio .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); margin-bottom: var(--space-5); }
+.av2-audio .hero-lede { max-width: 560px; }
+.av2-audio .hero h1 { font-family: var(--font-reading); font-size: var(--text-3xl); font-weight: 600; line-height: 1.05; color: var(--ink-strong); margin: 4px 0 6px; }
+.av2-audio .hero p { font-family: var(--font-ui); font-size: var(--text-md); line-height: var(--leading-body); color: var(--ink-soft); }
+.av2-audio .hero-side { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; flex: none; max-width: 200px; }
+.av2-audio .chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: var(--radius-sm); background: rgba(var(--fg-rgb), var(--alpha-wash)); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); }
+.av2-audio .chip i { font-style: normal; font-family: var(--font-data); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.av2-audio .chip b { font-family: var(--font-data); font-size: 13px; font-weight: 500; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+
+/* ── generation bar ─────────────────────────────────────────────────────────── */
+.av2-audio .genbar { padding: var(--space-4); margin-bottom: var(--space-5); display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.av2-audio .genbar-field { position: relative; flex: 1 1 340px; display: flex; align-items: center; height: var(--field-h-lg); border-radius: var(--field-radius); background: var(--field-fill); box-shadow: var(--field-well); border: 1px solid var(--field-line); transition: box-shadow var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-audio .genbar-field:focus-within { border-color: var(--field-focus-line); box-shadow: var(--field-focus-halo); }
+.av2-audio .genbar-field .ic-lead { width: 17px; height: 17px; margin: 0 6px 0 12px; color: var(--accent-text); flex: none; }
+.av2-audio .gen-input { flex: 1; height: 100%; background: none; border: none; outline: none; font-family: var(--font-ui); font-size: var(--text-md); color: var(--ink-strong); padding-right: 12px; min-width: 0; }
+.av2-audio .gen-input::placeholder { color: var(--ink-faint); }
+.av2-audio .genbar-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+
+.av2-audio .sel { display: inline-flex; align-items: center; gap: 7px; height: var(--field-h-lg); padding: 0 4px 0 12px; border-radius: var(--field-radius); background: var(--field-fill); box-shadow: var(--field-well); border: 1px solid var(--field-line); }
+.av2-audio .sel-lbl { font-family: var(--font-data); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.av2-audio .sel select { appearance: none; -webkit-appearance: none; background: none; border: none; outline: none; font-family: var(--font-data); font-size: var(--text-sm); color: var(--ink-strong); cursor: pointer; padding: 0 22px 0 0; height: 100%; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2357503F' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; background-size: 13px; }
+.av2-audio .genbar .btn { height: var(--field-h-lg); padding: 0 var(--space-4); }
+
+/* ── filter row ─────────────────────────────────────────────────────────────── */
+.av2-audio .filter-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
+.av2-audio .seg { position: relative; display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--seg-track-fill); box-shadow: var(--seg-track-well); flex: none; }
+.av2-audio .seg-btn { position: relative; background: none; border: 1px solid transparent; border-radius: var(--radius-xs); font-family: var(--font-data); font-size: var(--text-sm); color: var(--tab-ink-idle); padding: 5px var(--space-3); cursor: pointer; transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out); }
+.av2-audio .seg-btn:hover:not(.is-active) { color: var(--ink-soft); }
+.av2-audio .seg-btn.is-active { color: var(--on-accent); font-weight: 500; background-color: var(--seg-key-fill); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border-color: var(--seg-key-line); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-audio .seg-btn.is-active:active { transform: translateY(1px); box-shadow: 0 1px 1px var(--depth); }
+.av2-audio .seg-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; z-index: 2; }
+.av2-audio .filter-meta { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+/* ── library ────────────────────────────────────────────────────────────────── */
+.av2-audio .lib { display: flex; flex-direction: column; gap: var(--space-2); }
+.av2-audio .empty { font-family: var(--font-data); font-size: 12px; color: var(--ink-faint); padding: var(--space-6) var(--space-4); border: 1px dashed var(--line-subtle); border-radius: var(--radius-md); background: rgba(var(--fg-rgb), 0.02); text-align: center; }
+
+.av2-audio .clip { display: grid; grid-template-columns: auto minmax(180px, 1.4fr) minmax(180px, 2fr) auto; align-items: center; gap: var(--space-4); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface-raised); border: 1px solid var(--line-subtle); box-shadow: var(--card-shadow-rest); transition: border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out); }
+.av2-audio .clip:hover { border-color: var(--btn-pri-line); box-shadow: var(--card-shadow-hover); }
+.av2-audio .clip.is-active { border-color: var(--btn-pri-line); box-shadow: 0 0 0 1px rgba(var(--acc-rgb), 0.28), var(--card-shadow-hover); }
+.av2-audio .clip.is-queued { opacity: 0.85; }
+
+/* play control — round carved key */
+.av2-audio .play { flex: none; width: 40px; height: 40px; border-radius: var(--radius-full); border: 1px solid var(--btn-pri-line); background: var(--btn-pri-fill); color: var(--accent-text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 1px 0 var(--sheen) inset, 0 1px 3px var(--depth); transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out); }
+.av2-audio .play:hover:not(:disabled) { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
+.av2-audio .play:active:not(:disabled) { transform: translateY(1px); }
+.av2-audio .play:disabled { cursor: default; }
+.av2-audio .clip.is-active .play { background: var(--seg-key-fill); color: var(--on-accent); border-color: var(--seg-key-line); }
+.av2-audio .play .ic { width: 16px; height: 16px; }
+
+/* id column */
+.av2-audio .clip-id { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.av2-audio .clip-name { font-family: var(--font-data); font-size: 12.5px; font-weight: 500; color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av2-audio .clip-prompt { font-family: var(--font-ui); font-size: 11.5px; line-height: 1.35; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* waveform well — carved channel, played bars ignite */
+.av2-audio .wave { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 2px; height: 40px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--progress-track-bg); box-shadow: var(--progress-track-well); cursor: pointer; overflow: hidden; }
+.av2-audio .wave:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-audio .wbar { flex: 1 1 0; min-width: 2px; max-width: 5px; border-radius: 1px; background: rgba(var(--fg-rgb), 0.22); transition: background var(--duration-fast) linear; }
+.av2-audio .wbar.is-played { background: rgba(var(--acc-rgb), 0.82); box-shadow: 0 0 4px rgba(var(--acc-rgb), 0.35); }
+.av2-audio .wave-queued { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.04em; }
+
+/* meta column */
+.av2-audio .clip-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; flex: none; }
+.av2-audio .dur { font-family: var(--font-data); font-size: 12px; font-weight: 500; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.av2-audio .clip.is-active .dur { color: var(--accent-text); }
+.av2-audio .clip-tags { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.av2-audio .clip-sub { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+/* generating spinner */
+.av2-audio .spin { width: 14px; height: 14px; border-radius: var(--radius-full); border: 2px solid rgba(var(--acc-rgb), 0.25); border-top-color: var(--accent); animation: av2-spin 0.7s linear infinite; }
+@keyframes av2-spin { to { transform: rotate(360deg); } }
+
+/* ── fold ────────────────────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .av2-audio .hero { flex-direction: column; }
+  .av2-audio .hero-side { justify-content: flex-start; max-width: none; }
+}
+@media (max-width: 720px) {
+  .av2-audio .wrap { padding: var(--space-5) var(--space-4) var(--space-6); }
+  .av2-audio .clip { grid-template-columns: auto 1fr auto; grid-template-areas: "play id meta" "play wave wave"; row-gap: var(--space-2); column-gap: var(--space-3); }
+  .av2-audio .play { grid-area: play; }
+  .av2-audio .clip-id { grid-area: id; }
+  .av2-audio .wave { grid-area: wave; }
+  .av2-audio .clip-meta { grid-area: meta; }
+  .av2-audio .genbar-field { flex-basis: 100%; }
+  .av2-audio .genbar-controls { width: 100%; }
+  .av2-audio .genbar-controls .btn--pri { margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .av2-audio .spin { animation: none; }
+}

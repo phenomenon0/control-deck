@@ -61,7 +61,7 @@ import { AUDIO_MODES, promptForAudioMode, type AudioMode } from "@/lib/audio/aud
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 interface ChatRequestBody {
-  messages?: Array<{ role: string; content: string; metadata?: MessageMetadata }>;
+  messages?: Array<{ role: string; content: unknown; metadata?: MessageMetadata }>;
   model?: string;
   /**
    * Which local inference engine the user picked in the chat composer
@@ -71,6 +71,7 @@ interface ChatRequestBody {
    */
   providerId?: "ollama" | "vllm" | "llamacpp" | "lm-studio";
   threadId?: string;
+  runId?: string;
   uploadIds?: string[];
   /** User-editable system prompt. Augmented per-model in each route. */
   systemPrompt?: string;
@@ -98,6 +99,51 @@ interface ChatRequestBody {
 
 const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
 const VALID_AUDIO_MODES = new Set<AudioMode>(AUDIO_MODES);
+const VALID_CLIENT_MESSAGE_ROLES = new Set(["user", "assistant"]);
+const RUN_ID_PATTERN = /^[A-Za-z0-9_.\-:]{1,128}$/;
+
+type ClientMessage = { role: "user" | "assistant"; content: string; metadata?: MessageMetadata };
+
+function jsonError(message: string, status = 400): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function normalizeClientMessages(input: ChatRequestBody["messages"]):
+  | { ok: true; messages: ClientMessage[] }
+  | { ok: false; response: Response } {
+  if (!Array.isArray(input) || input.length === 0) {
+    return {
+      ok: false,
+      response: jsonError("messages array is required and must not be empty"),
+    };
+  }
+
+  const messages: ClientMessage[] = [];
+  for (const [index, msg] of input.entries()) {
+    if (!msg || typeof msg !== "object") {
+      return { ok: false, response: jsonError(`messages[${index}] must be an object`) };
+    }
+    if (!VALID_CLIENT_MESSAGE_ROLES.has(msg.role)) {
+      return {
+        ok: false,
+        response: jsonError(`messages[${index}].role must be "user" or "assistant"`),
+      };
+    }
+    if (typeof msg.content !== "string") {
+      return { ok: false, response: jsonError(`messages[${index}].content must be a string`) };
+    }
+    messages.push({
+      role: msg.role as ClientMessage["role"],
+      content: msg.content,
+      metadata: msg.metadata,
+    });
+  }
+
+  return { ok: true, messages };
+}
 
 function coerceAudioMode(value: string | undefined): AudioMode | null {
   if (!value) return null;
@@ -382,10 +428,7 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError("Invalid JSON body");
   }
 
   const {
@@ -393,11 +436,21 @@ export async function POST(req: Request) {
     model,
     providerId,
     threadId,
+    runId: clientRunId,
     uploadIds,
     systemPrompt: clientPrompt,
     preset: presetRaw,
     voice,
   } = body;
+
+  const normalized = normalizeClientMessages(messages);
+  if (!normalized.ok) return normalized.response;
+  const chatMessages = normalized.messages;
+
+  const requestedRunId = clientRunId ?? voice?.runId;
+  if (requestedRunId !== undefined && !RUN_ID_PATTERN.test(requestedRunId)) {
+    return jsonError("runId must be 1-128 chars using letters, numbers, _, ., -, or :");
+  }
 
   if (voice) {
     console.log(
@@ -429,18 +482,10 @@ export async function POST(req: Request) {
   // Skill index = progressive disclosure; the agent calls skill_view for
   // any id it actually needs. Returns "" when no skills or disabled.
   const skillIndex = renderSkillIndex();
-  const workflowReferenceBlock = renderWorkflowReferenceBlock(messages ?? []);
+  const workflowReferenceBlock = renderWorkflowReferenceBlock(chatMessages);
   const systemPrompt = [skillIndex, memoryBlock, workflowReferenceBlock, baseSystemPrompt.trim(), voicePrompt]
     .filter((part): part is string => Boolean(part && part.trim()))
     .join("\n\n");
-
-  // Validate messages array
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return new Response(JSON.stringify({ error: "messages array is required and must not be empty" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
 
   // Get provider config for LLM settings
   const systemProfile = getSystemProfile();
@@ -454,7 +499,7 @@ export async function POST(req: Request) {
   if (textBinding) {
     providerCfg.primary = textBinding;
   }
-  const hasImages = hasImageContent(messages);
+  const hasImages = hasImageContent(chatMessages);
 
   const clientSlot = hasImages && providerCfg.vision ? "vision" : "primary";
   const baseConfig = providerCfg[clientSlot];
@@ -522,13 +567,13 @@ export async function POST(req: Request) {
   // specific run for cancel before the server has a chance to round-trip
   // its own id back. agent-ts already accepts the same id we generate
   // here, so the whole chain shares one runId.
-  const runId = voice?.runId ?? generateId();
+  const runId = requestedRunId ?? generateId();
   const messageId = generateId();
 
   console.log(`[Chat] Starting run via agent-ts: thread=${thread}, model=${selectedModel}`);
 
   // Emit local RunStarted (for immediate UI feedback)
-  const lastMessage = messages[messages.length - 1]?.content;
+  const lastMessage = chatMessages[chatMessages.length - 1]?.content;
   const runStarted = createEvent<RunStarted>("RunStarted", thread, {
     runId,
     model: selectedModel,
@@ -549,7 +594,7 @@ export async function POST(req: Request) {
 
   // Prepare agent-ts request — strip fake patterns from assistant messages
   // to prevent the LLM from learning to fake tool calls (SURFACE.md §4.3)
-  const agentMessagesRaw: AgentGOMessage[] = messages
+  const agentMessagesRaw: AgentGOMessage[] = chatMessages
     .map(m => {
       const rawContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
       const content = m.role === "assistant" ? stripForLLMHistory(rawContent) : rawContent;

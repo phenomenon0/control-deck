@@ -25,6 +25,7 @@ export default defineConfig([
     ".next/**",
     ".turbo/**",
     ".venv*/**",
+    "**/.venv*/**",
     "apps/model-tray/src-tauri/target/**",
     "build/**",
     "coverage/**",

@@ -14,6 +14,7 @@ const ITEMS = [
   { href: "/deck/compare", label: "Compare", icon: Icon.Columns, kbd: "c" },
   { href: "/deck/visual", label: "Visual", icon: Icon.Image, kbd: "3" },
   { href: "/deck/audio", label: "Audio", icon: Icon.Waveform, kbd: "4" },
+  { href: "/deck/voice-lab", label: "Voice Lab", icon: Icon.Mic, kbd: "v" },
   { href: "/deck/models", label: "Models", icon: Icon.Cpu, kbd: "5" },
   { href: "/deck/control", label: "Control", icon: Icon.Layers, kbd: "6" },
   { href: "/deck/workspace", label: "Workspace", icon: Icon.Grid, kbd: "7" },
@@ -81,19 +82,16 @@ const NowPanel = memo(function NowPanel() {
   const activeThread = activeThreadId
     ? threads.find((t) => t.id === activeThreadId)
     : null;
-
-  const [openMin, setOpenMin] = useState<number>(() =>
-    stats ? minutesSince(stats.sessionStart) : 0
-  );
+  const [clockTick, setClockTick] = useState(0);
+  const sessionStart = stats?.sessionStart ?? null;
 
   useEffect(() => {
-    if (!stats) return;
-    setOpenMin(minutesSince(stats.sessionStart));
-    const id = setInterval(() => setOpenMin(minutesSince(stats.sessionStart)), 60_000);
+    const id = setInterval(() => setClockTick((tick) => tick + 1), 60_000);
     return () => clearInterval(id);
-  }, [stats?.sessionStart]);
+  }, []);
 
   const title = activeThread?.title?.trim() || "New thread";
+  const openMin = sessionStart ? minutesSince(sessionStart, clockTick) : 0;
 
   return (
     <div className="nav-now" aria-label="Session status">
@@ -121,7 +119,7 @@ function NowStat({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function minutesSince(iso: string): number {
+function minutesSince(iso: string, _tick = 0): number {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 60_000));

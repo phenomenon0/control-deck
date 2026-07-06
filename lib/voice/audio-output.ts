@@ -16,6 +16,10 @@
 import { SpeechHandle } from "./speech-handle";
 import { int16PcmBytesToFloat32 } from "./streaming-tts";
 
+type ProbeShape = { mark: (name: string, meta?: Record<string, unknown>) => void };
+const probe = (): ProbeShape | undefined =>
+  (globalThis as { __voiceProbe?: ProbeShape }).__voiceProbe;
+
 export interface AgentOutputOptions {
   /** Initial output device id (optional). */
   outputDeviceId?: string | null;
@@ -283,11 +287,18 @@ export class AgentOutput {
     // markSpeaking is internally idempotent (only acts on "pending"). Emit
     // speechStart only the first time the handle actually begins audio so
     // subscribers don't see N speechStart events per utterance.
-    if (handle.state === "pending") {
+    const isFirstChunk = handle.state === "pending";
+    if (isFirstChunk) {
       handle.markSpeaking();
       this.emit("speechStart", { handle });
     }
     source.start(0);
+    if (isFirstChunk) {
+      // Mark right at PCM playback start — the most truthful "user hears it"
+      // timestamp. The FSM also marks audio_started downstream; firstMark()
+      // wins so this one is canonical for spans.
+      probe()?.mark("audio_started");
+    }
   }
 
   /**

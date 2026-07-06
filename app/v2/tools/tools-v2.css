@@ -1,0 +1,108 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — TOOLS surface. Content-only; the shell rail (64px) is
+   provided by app/v2/layout.tsx and shifts this fixed root right. Scoped under
+   `.av2-tools`; wrapper carries data-theme="light" (Atlas paper-klein). Reuses
+   the proven component recipes from tables-v2.css (card / btn / field / tag /
+   table) plus a master-detail layout. CONTROLS Tier-3 tokens aren't vendored in
+   app/atlas.css, but this surface doesn't use the carved checkbox, so none are
+   declared here.
+   ============================================================================= */
+
+.av2-tools, .av2-tools * { box-sizing: border-box; margin: 0; padding: 0; }
+.av2-tools {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-reading);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+/* ── component recipes (self-contained so the look is exact) ─────────────────── */
+.av2-tools .card { border-radius: var(--card-radius); background: var(--surface-raised); border: 1px solid var(--line-subtle); }
+.av2-tools .card--well { background: var(--surface-sunken); border-color: rgba(var(--fg-rgb), 0.06); box-shadow: 0 1px 3px var(--depth) inset, 0 1px 0 var(--sheen); }
+
+/* FIELD — Deep Well */
+.av2-tools .field { position: relative; }
+.av2-tools .field__input { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-strong); width: 100%; height: 34px; padding: 0 var(--space-3); border-radius: var(--field-radius); border: 1px solid var(--field-line); background: var(--field-fill); box-shadow: var(--field-well); outline: none; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.av2-tools .field__input::placeholder { color: var(--ink-faint); }
+.av2-tools .field__input:focus { background: var(--surface-raised); border-color: var(--field-focus-line); box-shadow: var(--field-focus-halo); transform: translateY(var(--field-lift)); }
+
+/* TAG — Engraved Stamp */
+.av2-tools .tag { font-family: var(--font-data); font-size: var(--text-xs); padding: 2px 9px; border-radius: var(--radius-xs); background: var(--tag-fill); color: var(--tag-ink); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.av2-tools .tag--accent { color: var(--accent-text); background: var(--tag-acc-fill); }
+.av2-tools .tag--status::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: rgb(var(--status-rgb, var(--caution-rgb))); }
+.av2-tools .tag--positive { --status-rgb: var(--positive-rgb); }
+.av2-tools .tag--caution  { --status-rgb: var(--caution-rgb); }
+.av2-tools .tag--danger   { --status-rgb: var(--danger-rgb); }
+
+/* ── header ─────────────────────────────────────────────────────────────────── */
+.av2-tools .top { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-5) var(--space-7); border-bottom: 1px solid var(--line-subtle); flex: none; }
+.av2-tools .top h1 { font-family: var(--font-reading); font-size: var(--text-2xl); font-weight: 600; color: var(--ink-strong); }
+.av2-tools .top .count { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); }
+.av2-tools .spacer { flex: 1; }
+
+/* ── body: master list | detail ─────────────────────────────────────────────── */
+.av2-tools .body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; }
+
+/* master list — scrolls independently */
+.av2-tools .list { min-height: 0; overflow-y: auto; padding: var(--space-4) var(--space-5) var(--space-8); border-right: 1px solid var(--line-subtle); }
+.av2-tools .noresult { font-family: var(--font-data); font-size: 12px; color: var(--ink-faint); padding: var(--space-5) var(--space-2); }
+
+/* group header — anchored engraved shelf (menu__section law) */
+.av2-tools .grp { margin-bottom: var(--space-4); }
+.av2-tools .grp__head { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; padding: var(--space-3) var(--space-2) var(--space-2); }
+.av2-tools .grp__head::after { content: ""; flex: 1; height: 1px; background: var(--line-subtle); box-shadow: 0 1px 0 var(--sheen); order: 3; }
+.av2-tools .grp__n { font-size: 9.5px; color: var(--ink-faint); order: 2; }
+
+/* tool row */
+.av2-tools .trow { display: flex; align-items: center; gap: var(--space-3); width: 100%; text-align: left; padding: var(--space-3) var(--space-3); border-radius: var(--radius-md); border: 1px solid transparent; background: transparent; cursor: pointer; position: relative; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-tools .trow:hover { background: rgba(var(--fg-rgb), calc(var(--alpha-wash) - 0.02)); }
+.av2-tools .trow.is-active { background: var(--surface-raised); border-color: var(--line-subtle); }
+.av2-tools .trow.is-active::before { content: ""; position: absolute; left: -1px; top: 9px; bottom: 9px; width: 2px; border-radius: 0 2px 2px 0; background: var(--accent); }
+.av2-tools .trow__main { flex: 1; min-width: 0; }
+.av2-tools .trow__name { display: block; font-family: var(--font-data); font-size: 12.5px; font-weight: 600; color: var(--ink-strong); line-height: var(--leading-tight); }
+.av2-tools .trow.is-active .trow__name { color: var(--accent-text); }
+.av2-tools .trow__desc { display: block; font-family: var(--font-ui); font-size: 11.5px; color: var(--ink-soft); line-height: 1.45; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical; }
+.av2-tools .trow__meta { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* ── detail: signature ──────────────────────────────────────────────────────── */
+.av2-tools .detail { min-height: 0; overflow-y: auto; background: var(--surface-sunken); padding: var(--space-5); }
+.av2-tools .panel { padding: var(--space-5) var(--space-5) var(--space-6); }
+.av2-tools .kicker { font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+.av2-tools .sig { font-family: var(--font-data); font-size: 17px; font-weight: 600; color: var(--ink-strong); margin: 4px 0 0; line-height: 1.35; word-break: break-word; }
+.av2-tools .sig__paren, .av2-tools .sig__comma { color: var(--ink-faint); font-weight: 500; }
+.av2-tools .sig__arg { color: var(--accent-text); font-weight: 500; }
+.av2-tools .sig__opt { color: var(--ink-faint); }
+.av2-tools .desc { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-soft); line-height: var(--leading-body); margin: var(--space-3) 0 var(--space-4); }
+
+.av2-tools .policy { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: var(--space-4); border-bottom: 1px solid var(--line-subtle); }
+
+.av2-tools .sec-label { display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; margin: var(--space-4) 0 var(--space-2); }
+.av2-tools .sec-label__n { font-size: 9.5px; color: var(--ink-faint); }
+
+.av2-tools .noparams { padding: var(--space-3) var(--space-4); font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); border-radius: var(--radius-md); }
+
+/* params table — data at density */
+.av2-tools .ptbl { width: 100%; border-collapse: collapse; }
+.av2-tools .ptbl th { font-family: var(--font-ui); font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); text-align: left; padding: var(--space-2) var(--space-2) var(--space-2) 0; border-bottom: 1px solid rgba(var(--fg-rgb), 0.14); }
+.av2-tools .ptbl th.req, .av2-tools .ptbl td.req { text-align: center; width: 34px; }
+.av2-tools .ptbl td { padding: var(--space-2) var(--space-2) var(--space-2) 0; border-bottom: 1px solid var(--line-subtle); vertical-align: top; }
+.av2-tools .ptbl tr:last-child td { border-bottom: none; }
+.av2-tools .ptbl .pn { font-family: var(--font-data); font-size: 11.5px; font-weight: 600; color: var(--ink-strong); white-space: nowrap; }
+.av2-tools .ptbl .pt { font-family: var(--font-data); font-size: 11px; color: var(--accent-text); white-space: nowrap; }
+.av2-tools .ptbl .pd { font-family: var(--font-ui); font-size: 11.5px; color: var(--ink-soft); line-height: 1.45; }
+.av2-tools .ptbl .pdef { display: inline-block; font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); margin-left: 6px; }
+.av2-tools .dot { display: inline-block; width: 6px; height: 6px; border-radius: var(--radius-full); background: rgba(var(--fg-rgb), 0.22); }
+.av2-tools .dot--req { background: rgb(var(--accent-rgb, var(--acc-rgb))); }
+
+/* ── mobile fold ────────────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .av2-tools .body { grid-template-columns: 1fr; }
+  .av2-tools .detail { display: none; }
+  .av2-tools .list { border-right: none; }
+}
+@media (max-width: 720px) {
+  .av2-tools .top { padding: var(--space-4) var(--space-4); flex-wrap: wrap; }
+  .av2-tools .top .field { width: 100% !important; order: 5; }
+}

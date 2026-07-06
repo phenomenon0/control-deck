@@ -56,7 +56,7 @@ const EVICTABLE_BY: Record<LaneId, ReadonlySet<LaneId>> = {
   vision: new Set<LaneId>(["vision"]),                                   // shares chat lane usually
   tts: new Set<LaneId>(["tts"]),
   stt: new Set<LaneId>(["stt"]),
-  image: new Set<LaneId>(["image", "audio", "3d", "video"]),
+  image: new Set<LaneId>(["image", "audio", "3d", "video", "chat", "vision"]), // image evicts chat ONLY when VRAM is short (waitForFree no-ops if it fits)
   audio: new Set<LaneId>(["image", "audio", "3d", "video"]),
   "3d": new Set<LaneId>(["image", "audio", "3d", "chat", "vision"]),     // 3D evicts chat
   video: new Set<LaneId>(["image", "audio", "3d", "video", "chat", "vision"]), // video evicts everything but voice

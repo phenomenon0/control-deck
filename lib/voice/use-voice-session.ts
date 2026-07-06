@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { useVoiceChat, type UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
-import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
+import { useDeckSettings, type VoicePrefs } from "@/components/settings/DeckSettingsProvider";
 import {
   initialContext,
   reduceVoiceSession,
@@ -89,6 +89,30 @@ export interface StreamingReplyHandle {
   interrupt(): void;
 }
 
+/**
+ * Server-emitted timing frame surfaced to the lab so client + server
+ * marks can be merged onto a single timeline.
+ */
+export interface VoiceTimingFrame {
+  source: "stt" | "tts";
+  phase: string;
+  ms: number;
+  meta?: Record<string, unknown>;
+  /** Client-side `performance.now()` of receipt, for joining with __voiceProbe marks. */
+  receivedAt: number;
+}
+
+export interface VoiceLabOverrides {
+  /** Force STT engine, ignoring tier defaults. */
+  sttEngine?: string | null;
+  /** Override the post-stream correction model (e.g. "whisper-base-en-cpp"). null disables. */
+  correctionEngine?: string | null;
+  /** Per-utterance TTS engine override applied via the streaming reply lane. */
+  ttsEngine?: string | null;
+  /** Append `?debug=timing` to STT/TTS WSs. Required for `subscribeTiming` to fire. */
+  debug?: boolean;
+}
+
 export interface VoiceSessionApi {
   state: VoiceSessionState;
   stateLabel: string;
@@ -141,7 +165,7 @@ export interface VoiceSessionApi {
    * speaking even though the chat runs through `agentRun.send` instead of
    * the voice hook.
    */
-  markAgentRunStarted(): void;
+  markAgentRunStarted(runId?: string): void;
   markAgentRunFinished(): void;
 
   /**
@@ -160,6 +184,15 @@ export interface VoiceSessionApi {
   speak(text: string): Promise<void>;
   queueSpeech(text: string): boolean;
   stopSpeaking(): void;
+
+  /**
+   * Voice-lab surface. `setLabOverrides` re-opens the streaming STT WS with
+   * new params + flips the per-utterance TTS engine; `subscribeTiming`
+   * delivers server-emitted timing frames to the lab. Both are no-ops in
+   * production (the lab is the only caller).
+   */
+  setLabOverrides(overrides: VoiceLabOverrides): void;
+  subscribeTiming(listener: (frame: VoiceTimingFrame) => void): () => void;
 
   /** Underlying `useVoiceChat` handle — needed until T3 finishes the split. */
   voiceChat: UseVoiceChatReturn;
@@ -206,7 +239,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   );
   const setDevices = useCallback(
     (opts: { inputId?: string | null; outputId?: string | null }) => {
-      const next: Partial<typeof prefs.voice> = {};
+      const next: Partial<VoicePrefs> = {};
       if (opts.inputId !== undefined) next.audioInputId = opts.inputId;
       if (opts.outputId !== undefined) next.audioOutputId = opts.outputId;
       if (Object.keys(next).length > 0) updateVoicePrefs(next);
@@ -246,9 +279,34 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     stateRef.current = ctx.state;
   }, [ctx.state]);
 
+  // Voice-lab overrides — captured in refs so client construction reads the
+  // latest values without forcing every consumer to re-render on lab changes.
+  const labSttEngineRef = useRef<string | null>(null);
+  const labCorrectionEngineRef = useRef<string | null | undefined>(undefined);
+  const labTtsEngineRef = useRef<string | null>(null);
+  const labDebugRef = useRef(false);
+  const timingListenersRef = useRef<Set<(frame: VoiceTimingFrame) => void>>(new Set());
+
+  const emitTiming = useCallback((frame: VoiceTimingFrame) => {
+    for (const listener of timingListenersRef.current) {
+      try {
+        listener(frame);
+      } catch (err) {
+        console.warn("[useVoiceSession] timing listener threw:", err);
+      }
+    }
+  }, []);
+
+  const subscribeTiming = useCallback((listener: (frame: VoiceTimingFrame) => void) => {
+    timingListenersRef.current.add(listener);
+    return () => {
+      timingListenersRef.current.delete(listener);
+    };
+  }, []);
+
   const ensureStreamingSttClient = useCallback((): StreamingSttClient | null => {
     if (!useStreamingSttRef.current) return null;
-    const model = sttModelRef.current;
+    const model = labSttEngineRef.current ?? sttModelRef.current;
     if (!model) return null;
     let client = streamingSttRef.current;
     if (client) return client;
@@ -258,12 +316,19 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     // client's 404/503 handler latches correction off after the first failed
     // call, and the timeout bound here prevents a slow host from blocking the
     // turn.
-    const correctionEngine = "faster-whisper";
+    const correctionOverride = labCorrectionEngineRef.current;
+    const correctionEngine =
+      correctionOverride === null ? undefined : (correctionOverride ?? "faster-whisper");
+    const debug = labDebugRef.current;
     client = new StreamingSttClient({
       engine: model,
       language: "en",
       correctionEngine,
       correctionTimeoutMs: 4000,
+      debug,
+      onTiming: debug
+        ? (frame) => emitTiming({ ...frame, source: "stt", receivedAt: performance.now() })
+        : undefined,
       onPartial: (text) => {
         if (text) dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
       },
@@ -287,7 +352,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     streamingSttRef.current = client;
     void client.connect();
     return client;
-  }, [clearSttFinalTimeout]);
+  }, [clearSttFinalTimeout, emitTiming]);
 
   const handleMicFrame = useCallback((frame: Float32Array, sampleRate: number) => {
     const client = ensureStreamingSttClient();
@@ -430,8 +495,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     setContinuousArmed(false);
   }, []);
 
+  const isVoiceChatListening = voiceChat.isListening;
+  const stopVoiceSpeaking = voiceChat.stopSpeaking;
+
   useEffect(() => {
-    if (voiceChat.isListening && !prevIsListening.current) {
+    if (isVoiceChatListening && !prevIsListening.current) {
       // Barge-in: mic activating mid-turn — abort the in-flight LLM fetch
       // *before* we change state so the server-side stream is cut off, not
       // just the audio. The state machine then transitions
@@ -450,7 +518,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         // Stop the non-streaming lane too — fillers + WAV queue live on
         // voiceChat's own AudioContext and would keep playing through a
         // barge-in otherwise.
-        voiceChat.stopSpeaking();
+        stopVoiceSpeaking();
       }
       // New utterance — reset the streaming STT buffer so partials don't
       // bleed across turns.
@@ -460,7 +528,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       streamingSttRef.current?.reset();
       dispatchCtx({ type: "MIC_REQUESTED" });
       dispatchCtx({ type: "MIC_GRANTED" });
-    } else if (!voiceChat.isListening && prevIsListening.current) {
+    } else if (!isVoiceChatListening && prevIsListening.current) {
       // End of utterance — ask the streaming STT to emit its final transcript.
       // The blob-STT path is suppressed when streaming is active, so this is
       // the only thing that produces TRANSCRIPT_FINAL.
@@ -476,8 +544,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         }, 15000);
       }
     }
-    prevIsListening.current = voiceChat.isListening;
-  }, [clearSttFinalTimeout, voiceChat.isListening]);
+    prevIsListening.current = isVoiceChatListening;
+  }, [clearSttFinalTimeout, isVoiceChatListening, stopVoiceSpeaking]);
 
   useEffect(() => {
     if (!enabled || ctx.state !== "transcribing") return;
@@ -777,12 +845,14 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     }
   }, [createAgentOutput]);
 
-  const markAgentRunStarted = useCallback(() => {
+  const markAgentRunStarted = useCallback((runId?: string) => {
+    if (runId) activeRunIdRef.current = runId;
     replyInFlightRef.current = true;
     dispatchCtx({ type: "RUN_STARTED" });
   }, []);
 
   const markAgentRunFinished = useCallback(() => {
+    activeRunIdRef.current = null;
     replyInFlightRef.current = false;
     const state = stateRef.current;
     if (state === "thinking" || state === "speaking") {
@@ -793,7 +863,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   }, []);
 
   const beginStreamingReply = useCallback((): StreamingReplyHandle | null => {
-    const ttsModel = runtime?.route?.tts?.model ?? null;
+    const labTtsEngine = labTtsEngineRef.current;
+    const ttsModel = labTtsEngine ?? runtime?.route?.tts?.model ?? null;
     if (!shouldRouteToVoiceCore(ttsModel)) return null;
 
     if (!agentOutputRef.current) agentOutputRef.current = createAgentOutput();
@@ -812,6 +883,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     speechHandleRef.current = handle;
 
     const jobs: Promise<void>[] = [];
+    const debug = labDebugRef.current;
     const client = new StreamingTtsClient({
       engine: ttsModel ?? undefined,
       voice: currentVoiceId ?? undefined,
@@ -821,6 +893,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       onError: (err) => {
         console.warn("[useVoiceSession] streaming tts error:", err);
       },
+      debug,
+      onTiming: debug
+        ? (frame) => emitTiming({ ...frame, source: "tts", receivedAt: performance.now() })
+        : undefined,
     });
     streamingTtsRef.current = client;
 
@@ -856,7 +932,35 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         detach();
       },
     };
-  }, [createAgentOutput, currentVoiceId, runtime]);
+  }, [createAgentOutput, currentVoiceId, emitTiming, runtime]);
+
+  const setLabOverrides = useCallback((overrides: VoiceLabOverrides) => {
+    let needsSttReopen = false;
+    if (overrides.sttEngine !== undefined && overrides.sttEngine !== labSttEngineRef.current) {
+      labSttEngineRef.current = overrides.sttEngine;
+      needsSttReopen = true;
+    }
+    if (
+      overrides.correctionEngine !== undefined &&
+      overrides.correctionEngine !== labCorrectionEngineRef.current
+    ) {
+      labCorrectionEngineRef.current = overrides.correctionEngine;
+      needsSttReopen = true;
+    }
+    if (overrides.debug !== undefined && overrides.debug !== labDebugRef.current) {
+      labDebugRef.current = overrides.debug;
+      needsSttReopen = true;
+    }
+    if (overrides.ttsEngine !== undefined) {
+      labTtsEngineRef.current = overrides.ttsEngine;
+      // TTS lane is rebuilt per turn, so no teardown needed here.
+    }
+    if (needsSttReopen && streamingSttRef.current) {
+      streamingSttRef.current.close();
+      streamingSttRef.current = null;
+      // Next mic frame call to `ensureStreamingSttClient` rebuilds with the new opts.
+    }
+  }, []);
 
   const startListening = useCallback(async () => {
     if (!enabled) return;
@@ -1055,6 +1159,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       queueSpeech: voiceChat.queueSpeech,
       stopSpeaking: voiceChat.stopSpeaking,
 
+      setLabOverrides,
+      subscribeTiming,
+
       voiceChat,
     }),
     [
@@ -1084,6 +1191,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       markAgentRunFinished,
       beginStreamingReply,
       attachThread,
+      setLabOverrides,
+      subscribeTiming,
     ],
   );
 }

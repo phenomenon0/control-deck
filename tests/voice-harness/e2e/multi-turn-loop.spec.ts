@@ -394,7 +394,6 @@ test.describe("voice multi-turn loop · 3 turns × fake mic + TTS listen-back", 
             marks: w.__voiceProbe?.marks?.().map((m) => ({ name: m.name, t: Math.round(m.t), meta: m.meta })) ?? [],
           };
         });
-        // eslint-disable-next-line no-console
         console.error(
           `\n[turn ${turn}] timeout. orb=${diagnostic.orbState} label="${diagnostic.orbLabel}"\nmarks:`,
           JSON.stringify(diagnostic.marks, null, 2),

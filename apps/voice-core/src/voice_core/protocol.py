@@ -56,6 +56,26 @@ class SttServerError(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Timing (opt-in via ?debug=timing on any streaming WS endpoint)
+# ---------------------------------------------------------------------------
+
+
+class TimingFrame(BaseModel):
+    """Per-phase wall-clock measurement emitted by engines when timing is on.
+
+    Phases use a dotted namespace so the lab UI can group them:
+        stt.inference, stt.partial_emit, stt.final_emit
+        vad.frame_inference, vad.speech_start, vad.speech_end
+        tts.synth_per_phrase, tts.first_chunk_emit, tts.end_emit
+    """
+
+    type: Literal["timing"] = "timing"
+    phase: str
+    ms: float
+    meta: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
 # /tts/stream
 # ---------------------------------------------------------------------------
 

@@ -42,7 +42,12 @@ class ChatterboxEngine(StreamingTts):
         self._loaded = True
 
     def stream(
-        self, text: str, voice: str | None = None, speed: float = 1.0
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        *,
+        enable_timing: bool = False,
     ) -> Iterator[bytes]:
         if not self.available():
             return iter(())

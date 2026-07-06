@@ -1,0 +1,87 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — deck shell. The slim Atlas nav rail that hosts every v2
+   surface. Paper-klein via data-theme="light" on .v2-host. The surface pages
+   keep their own `position: fixed; inset: 0` roots; this shell just reserves
+   the rail's width by shifting those roots right.
+   ============================================================================= */
+
+.v2-host { position: fixed; inset: 0; background: var(--surface-page); }
+
+/* Typography controls (Settings → Appearance). V2AppearanceHost sets --type-scale
+   and --measure inline on .v2-host; here we redefine the Atlas --text-* scale in
+   terms of that multiplier so the font-size control scales every surface at once
+   (rem is html-relative, so a plain font-size on .v2-host can't drive it). */
+.v2-host {
+  --type-scale: 1;
+  --text-xs: calc(0.7333rem * var(--type-scale));
+  --text-sm: calc(0.8666rem * var(--type-scale));
+  --text-md: calc(1rem * var(--type-scale));
+  --text-lg: calc(1.2rem * var(--type-scale));
+  --text-xl: calc(1.4666rem * var(--type-scale));
+  --text-2xl: calc(1.7333rem * var(--type-scale));
+  --text-3xl: calc(2.1333rem * var(--type-scale));
+  --measure: 62ch;
+}
+
+.v2nav {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 64px; z-index: 60;
+  background: var(--surface-raised);
+  border-right: 1px solid var(--line-subtle);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 14px 0 12px;
+}
+.v2nav__mark {
+  width: 20px; height: 20px; margin-bottom: 14px; flex: none;
+  border-radius: 6px;
+  background: var(--accent);
+  box-shadow: 0 1px 0 var(--sheen) inset;
+  transform: rotate(45deg);
+}
+.v2nav__list { display: flex; flex-direction: column; gap: 2px; flex: 1; width: 100%; align-items: center; overflow-y: auto; min-height: 0; scrollbar-width: none; }
+.v2nav__list::-webkit-scrollbar { display: none; }
+.v2nav__item {
+  position: relative;
+  width: 52px; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 8px 0; border-radius: var(--radius-sm);
+  color: var(--ink-soft); text-decoration: none; cursor: pointer;
+  transition: background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out);
+}
+.v2nav__item:hover { background: var(--btn-fill-hover); color: var(--accent-text); }
+.v2nav__item.is-active { color: var(--accent-text); }
+.v2nav__item.is-active::before {
+  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 2px;
+  background: var(--accent); border-radius: 0 2px 2px 0;
+}
+.v2nav__foot { margin-top: auto; }
+.v2nav__ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.v2nav__lbl { font-family: var(--font-data); font-size: 9px; letter-spacing: .03em; }
+
+/* reserve the rail: shift each surface's fixed root right by the rail width.
+   ALSO paint the theme's --surface-texture (grain + atmospheric haze) over each
+   surface's solid --surface-page. Higher specificity than a surface's own
+   `background:` shorthand, so the grain layers on top of its colour. Flat themes
+   set --surface-texture:none → no-op. This is what makes the atmospheric themes
+   actually read as atmospheric instead of flat colour blocks. */
+.v2-host > .av2,
+.v2-host > [class*="av2-"] {
+  left: 64px;
+  background-image: var(--surface-texture, none);
+  background-repeat: repeat;
+}
+
+@media (max-width: 720px) {
+  /* bottom bar. 15 surfaces + settings is too many to divide legibly across a
+     phone, so the row scrolls horizontally with full-width labels rather than
+     crushing every item to an unreadable 3-char stub. */
+  .v2nav { flex-direction: row; align-items: stretch; top: auto; bottom: 0; left: 0; right: 0; width: auto; height: 56px; border-right: none; border-top: 1px solid var(--line-subtle); padding: 0 4px; justify-content: flex-start; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .v2nav::-webkit-scrollbar { display: none; }
+  .v2nav__mark { display: none; }
+  /* flatten the list so every destination + the settings foot becomes a flex
+     sibling on the scrolling nav row */
+  .v2nav__list { display: contents; }
+  .v2nav__item { width: auto; flex: 0 0 auto; min-width: 54px; justify-content: center; padding: 7px 8px; }
+  .v2nav__lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .v2nav__foot { margin-top: 0; }
+  .v2nav__item.is-active::before { left: 9px; right: 9px; top: auto; bottom: 0; width: auto; height: 2px; }
+  .v2-host > .av2, .v2-host > [class*="av2-"] { left: 0; bottom: 56px; }
+}

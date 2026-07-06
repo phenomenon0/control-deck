@@ -260,17 +260,37 @@ class WhisperCppEngine(StreamingStt):
         text = _decode(self._model, audio)
         return {"text": text, "duration": len(audio) / SAMPLE_RATE}
 
-    def open(self, language: str | None = None) -> StreamingSttSession:
+    def open(
+        self,
+        language: str | None = None,
+        *,
+        enable_timing: bool = False,
+    ) -> StreamingSttSession:
         self.load()
-        return _WhisperCppSession(self._model)
+        return _WhisperCppSession(self._model, enable_timing=enable_timing, engine_id=self.meta.id)
 
 
 class _WhisperCppSession(StreamingSttSession):
-    def __init__(self, model):
+    def __init__(self, model, *, enable_timing: bool = False, engine_id: str = "whisper-cpp"):
         self._model = model
         self._buf = bytearray()
         self._last_partial_at = 0.0
         self._last_text = ""
+        self._timing = bool(enable_timing)
+        self._engine_id = engine_id
+
+    def _decode_timed(self, audio):
+        if not self._timing:
+            return _decode(self._model, audio), None
+        t0 = time.perf_counter()
+        text = _decode(self._model, audio)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        return text, {
+            "type": "timing",
+            "phase": "stt.inference",
+            "ms": elapsed_ms,
+            "meta": {"engine": self._engine_id, "samples": len(audio)},
+        }
 
     def push(self, audio_pcm16: bytes) -> Iterator[dict[str, Any]]:
         self._buf.extend(audio_pcm16)
@@ -282,23 +302,34 @@ class _WhisperCppSession(StreamingSttSession):
         if now - self._last_partial_at < PARTIAL_INTERVAL_S:
             return iter(())
         self._last_partial_at = now
-        text = _decode(self._model, audio_utils.pcm16_to_float32(self._buf))
+        text, timing = self._decode_timed(audio_utils.pcm16_to_float32(self._buf))
+        events: list[dict[str, Any]] = []
+        if timing is not None:
+            events.append(timing)
         if text and text != self._last_text:
             self._last_text = text
-            return iter([{"type": "partial", "text": text}])
-        return iter(())
+            events.append({"type": "partial", "text": text})
+        return iter(events)
 
     def flush(self) -> Iterator[dict[str, Any]]:
-        text = _decode(self._model, audio_utils.pcm16_to_float32(self._buf))
+        text, timing = self._decode_timed(audio_utils.pcm16_to_float32(self._buf))
+        events: list[dict[str, Any]] = []
+        if timing is not None:
+            events.append(timing)
         if not text:
-            return iter(())
+            return iter(events)
         self._last_text = text
-        return iter([{"type": "partial", "text": text}])
+        events.append({"type": "partial", "text": text})
+        return iter(events)
 
     def final(self) -> Iterator[dict[str, Any]]:
-        text = _decode(self._model, audio_utils.pcm16_to_float32(self._buf))
+        text, timing = self._decode_timed(audio_utils.pcm16_to_float32(self._buf))
         self.reset()
-        return iter([{"type": "final", "text": text or ""}])
+        events: list[dict[str, Any]] = []
+        if timing is not None:
+            events.append(timing)
+        events.append({"type": "final", "text": text or ""})
+        return iter(events)
 
     def reset(self) -> None:
         self._buf = bytearray()

@@ -476,15 +476,13 @@ export async function* runOnboarding(
     return;
   }
   // --- Voice-core ---------------------------------------------------------
+  // Voice is non-essential for chat. Failures here surface but never block —
+  // the user can still reach the chat surface and fix voice later.
   if (probe.missing.voiceCore) {
-    // Try to install + spawn voice-core ourselves before giving up. This
-    // path covers `next start` deployments where the Electron supervisor
-    // isn't running. The supervisor (when present) will pick up the spawn
-    // on next launch via the persisted tier file.
     yield stamp({ id: "voice-core", title: "Voice sidecar", status: "running" });
     for await (const evt of provisionVoiceCore(tier.id, signal)) {
       yield stamp({ id: "voice-core", title: "Voice sidecar", ...evt });
-      if (evt.status === "failed") return;
+      if (evt.status === "failed") break;
     }
   } else {
     yield stamp({

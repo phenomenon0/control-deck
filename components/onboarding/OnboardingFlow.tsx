@@ -62,7 +62,8 @@ export function OnboardingFlow() {
   const [probeError, setProbeError] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepEvent[]>([]);
   const [running, setRunning] = useState(false);
-  const [finished, setFinished] = useState<"ok" | "fail" | null>(null);
+  // "ok" = full stack ready, "partial" = chat works but voice didn't, "fail" = chat blocked.
+  const [finished, setFinished] = useState<"ok" | "partial" | "fail" | null>(null);
   const [installConsent, setInstallConsent] = useState(true);
   const [showInstallDetail, setShowInstallDetail] = useState(false);
   const [stalled, setStalled] = useState(false);
@@ -146,6 +147,10 @@ export function OnboardingFlow() {
         window.localStorage.setItem(FLAG_KEY, "1");
         // Slight delay so the user sees "Ready in X.Y s" before nav.
         setTimeout(() => router.replace("/deck/chat"), 1200);
+      } else if (sawReady) {
+        // Chat works, voice failed — let the user proceed. Server flag isn't
+        // set (voice incomplete), but localStorage covers the gate fast-path.
+        setFinished("partial");
       } else {
         setFinished("fail");
       }
@@ -235,6 +240,30 @@ export function OnboardingFlow() {
             <button style={successBtn} disabled>
               Done — opening Chat…
             </button>
+          ) : finished === "partial" ? (
+            <>
+              <button
+                style={primaryBtn}
+                onClick={async () => {
+                  try {
+                    await fetch("/api/onboarding/state", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ done: true }),
+                    });
+                  } catch {
+                    /* localStorage hint still covers this session */
+                  }
+                  window.localStorage.setItem(FLAG_KEY, "1");
+                  router.replace("/deck/chat");
+                }}
+              >
+                Continue to Chat (voice unavailable)
+              </button>
+              <button style={ghostBtn} onClick={start}>
+                Retry voice setup
+              </button>
+            </>
           ) : finished === "fail" ? (
             <>
               <button style={primaryBtn} onClick={start}>
@@ -281,7 +310,7 @@ export function OnboardingFlow() {
                 }
               }}
             >
-              I've installed it — check again
+              I&apos;ve installed it — check again
             </button>
           ) : (
             <button style={primaryBtn} onClick={start} disabled={!probe}>
@@ -337,7 +366,7 @@ function MissingList({ probe }: { probe: ProbeResult }) {
   ];
   return (
     <section style={sectionStyle}>
-      <div style={sectionLabelStyle}>WHAT'S NEEDED</div>
+      <div style={sectionLabelStyle}>WHAT&apos;S NEEDED</div>
       <ul style={listStyle}>
         {items.map((it) => (
           <li key={it.label} style={listItemStyle}>
@@ -374,7 +403,7 @@ function ManualInstallPanel({ consent }: { consent: ConsentSpec }) {
         ↗ Download Ollama
       </a>
       <div style={{ fontSize: 11, opacity: 0.55, marginTop: 8 }}>
-        Install it, then click <em>Retry</em> below — we'll continue from where we left off.
+        Install it, then click <em>Retry</em> below — we&apos;ll continue from where we left off.
       </div>
     </section>
   );
@@ -468,9 +497,11 @@ function upsertStep(prev: StepEvent[], next: StepEvent): StepEvent[] {
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
   display: "flex",
-  alignItems: "center",
+  // flex-start (not center) so the card pins to the top and the page scrolls
+  // naturally once the step list grows past the viewport.
+  alignItems: "flex-start",
   justifyContent: "center",
-  padding: 24,
+  padding: "48px 24px",
   background: "var(--bg-primary, #0a0a0c)",
   color: "var(--text, #eee)",
   fontFamily:

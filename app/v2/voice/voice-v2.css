@@ -1,0 +1,248 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — voice. Voice-mode surface (app/v2/voice).
+   -----------------------------------------------------------------------------
+   Focused voice-interaction screen: a large central talk/mic affordance with an
+   Atlas accent ring that pulses when listening, a live transcript (Literata
+   serif for the assistant voice, mono for status lines), voice status
+   (idle/listening/speaking), live model/route chips from /api/voice/runtime, a
+   route-preset selector, and a mic toggle.
+
+   Everything is scoped under `.av2-voice` so nothing leaks into the rest of the
+   deck. The wrapper carries data-theme="light" (= Atlas paper-klein via
+   app/atlas.css), so the subtree resolves the paper-klein tokens even though
+   <html> is dark. Consumes the Atlas tokens defined in app/atlas.css; the
+   CONTROLS Tier-3 tokens (switch) are not vendored there, so they are declared
+   once on the wrapper (design-lab tokens.css values), scoped to this subtree.
+   ============================================================================= */
+
+.av2-voice, .av2-voice * { box-sizing: border-box; margin: 0; padding: 0; }
+.av2-voice {
+  position: fixed; inset: 0; z-index: 40;
+  overflow-y: auto;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-ui);
+  font-size: 14px; line-height: 1.55;
+
+  /* CONTROLS · Machined Key switch — Tier-3 tokens not vendored in app/atlas.css;
+     declared here (design-lab tokens.css values), scoped to this subtree. */
+  --ctl-fill: rgba(var(--fg-rgb), 0.08);
+  --ctl-line: rgba(var(--fg-rgb), 0.1);
+  --ctl-on-fill: rgba(var(--acc-rgb), 0.28);
+  --ctl-on-line: rgba(var(--acc-rgb), 0.5);
+  --track-w: 32px; --track-h: 17px;
+}
+
+.av2-voice .ic svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+/* ── layout shell ──────────────────────────────────────────────────────────── */
+.av2-voice .wrap {
+  min-height: 100%;
+  display: flex; flex-direction: column;
+  gap: var(--space-4);
+  max-width: 940px; margin: 0 auto;
+  padding: var(--space-6) var(--space-6) var(--space-5);
+}
+
+/* ── hero header ───────────────────────────────────────────────────────────── */
+.av2-voice .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); }
+.av2-voice .kicker { font-family: var(--font-data); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint); }
+.av2-voice .hero h1 { font-family: var(--font-reading); font-weight: 600; font-size: var(--text-3xl); line-height: 1.1; color: var(--ink-strong); margin-top: 4px; letter-spacing: -0.01em; }
+.av2-voice .hero p { color: var(--ink-soft); font-size: var(--text-sm); margin-top: 6px; max-width: 46ch; }
+.av2-voice .hero-side { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+
+/* ── engraved status chip (Machined) ───────────────────────────────────────── */
+.av2-voice .backend-chip { font-family: var(--font-data); font-size: 11px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: var(--radius-sm); background: rgba(var(--fg-rgb), var(--alpha-wash)); color: var(--ink-soft); box-shadow: 0 1px 2px var(--depth) inset; white-space: nowrap; }
+.av2-voice .backend-chip .dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: rgb(var(--positive-rgb)); box-shadow: 0 0 5px rgba(var(--positive-rgb), 0.6); }
+.av2-voice .backend-chip--warn .dot { background: rgb(var(--danger-rgb)); box-shadow: 0 0 5px rgba(var(--danger-rgb), 0.6); }
+.av2-voice .backend-chip--idle .dot { background: rgb(var(--caution-rgb)); box-shadow: 0 0 5px rgba(var(--caution-rgb), 0.6); }
+
+/* ── BUTTON — Onyx Chip ────────────────────────────────────────────────────── */
+.av2-voice .btn { font-family: var(--btn-font); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-voice .btn:hover { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-voice .btn:active { background: var(--btn-fill-active); }
+.av2-voice .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-voice .btn--icon { padding: 0 var(--space-3); }
+.av2-voice .btn .ic svg { width: 15px; height: 15px; }
+
+/* ── STAGE — the central talk affordance ───────────────────────────────────── */
+.av2-voice .stage {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-5) 0 var(--space-4);
+  --vlevel: 0;
+}
+
+.av2-voice .halo { position: relative; width: 220px; height: 220px; display: grid; place-items: center; }
+
+/* Atlas accent rings — concentric, animate outward when listening. */
+.av2-voice .halo::before,
+.av2-voice .halo::after,
+.av2-voice .halo .ring3 {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 176px; height: 176px; border-radius: var(--radius-full);
+  border: 1.5px solid rgba(var(--acc-rgb), 0.28);
+  opacity: 0;
+}
+.av2-voice .halo .ring3 { position: absolute; }
+
+/* idle — a single calm resting ring, no pulse */
+.av2-voice .stage[data-phase="idle"] .halo::before { opacity: 0.5; border-color: rgba(var(--fg-rgb), 0.14); }
+
+/* listening — three rings expand outward on a stagger, intensity tracks level */
+.av2-voice .stage[data-phase="listening"] .halo::before,
+.av2-voice .stage[data-phase="listening"] .halo::after,
+.av2-voice .stage[data-phase="listening"] .halo .ring3 {
+  animation: v-ring-listen 1800ms var(--ease-out) infinite;
+}
+.av2-voice .stage[data-phase="listening"] .halo::after { animation-delay: 600ms; }
+.av2-voice .stage[data-phase="listening"] .halo .ring3 { animation-delay: 1200ms; }
+
+/* speaking — a gentler double breath */
+.av2-voice .stage[data-phase="speaking"] .halo::before,
+.av2-voice .stage[data-phase="speaking"] .halo::after {
+  animation: v-ring-speak 2400ms var(--ease-in-out) infinite;
+}
+.av2-voice .stage[data-phase="speaking"] .halo::after { animation-delay: 1200ms; }
+
+@keyframes v-ring-listen {
+  0%   { transform: scale(0.82); opacity: 0.55; }
+  100% { transform: scale(1.28); opacity: 0; }
+}
+@keyframes v-ring-speak {
+  0%, 100% { transform: scale(0.9); opacity: 0.08; }
+  50%      { transform: scale(1.12); opacity: 0.4; }
+}
+
+/* the mic button itself — Floating Paper disc */
+.av2-voice .mic {
+  position: relative; z-index: 1;
+  width: 152px; height: 152px; border-radius: var(--radius-full);
+  display: grid; place-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-subtle);
+  color: var(--ink-soft);
+  cursor: pointer;
+  box-shadow: var(--card-shadow-rest), inset 0 1px 0 var(--sheen);
+  transition: transform var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out);
+}
+.av2-voice .mic svg { width: 46px; height: 46px; }
+.av2-voice .mic:hover { transform: translateY(-2px); border-color: var(--btn-pri-line); color: var(--accent-text); }
+.av2-voice .mic:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 4px; }
+.av2-voice .mic:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* active states glow with the live level (--vlevel set from JS on .stage) */
+.av2-voice .stage[data-phase="listening"] .mic,
+.av2-voice .stage[data-phase="speaking"] .mic {
+  border-color: rgba(var(--acc-rgb), calc(0.4 + var(--vlevel) * 0.45));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--surface-raised) 90%, var(--accent) 10%);
+  box-shadow: var(--card-shadow-rest), inset 0 1px 0 var(--sheen),
+    0 0 0 calc(2px + var(--vlevel) * 10px) rgba(var(--acc-rgb), calc(0.05 + var(--vlevel) * 0.14));
+}
+
+/* phase label + waveform under the disc */
+.av2-voice .phase { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); }
+.av2-voice .phase-label { font-family: var(--font-data); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 8px; }
+.av2-voice .phase-label b { color: var(--accent-text); font-weight: 600; }
+.av2-voice .phase-hint { font-family: var(--font-data); font-size: 10.5px; letter-spacing: 0.05em; color: var(--ink-faint); }
+
+.av2-voice .wave { display: flex; align-items: center; gap: 4px; height: 26px; }
+.av2-voice .wave i { display: block; width: 3px; height: 100%; border-radius: 2px; background: rgba(var(--fg-rgb), 0.18); transform: scaleY(0.28); transform-origin: center; }
+.av2-voice .stage[data-phase="listening"] .wave i,
+.av2-voice .stage[data-phase="speaking"] .wave i { background: var(--accent); animation: v-wave 900ms var(--ease-in-out) infinite; }
+.av2-voice .wave i:nth-child(1) { animation-delay: 0ms; }
+.av2-voice .wave i:nth-child(2) { animation-delay: 120ms; }
+.av2-voice .wave i:nth-child(3) { animation-delay: 240ms; }
+.av2-voice .wave i:nth-child(4) { animation-delay: 90ms; }
+.av2-voice .wave i:nth-child(5) { animation-delay: 300ms; }
+.av2-voice .wave i:nth-child(6) { animation-delay: 180ms; }
+.av2-voice .wave i:nth-child(7) { animation-delay: 60ms; }
+@keyframes v-wave { 0%, 100% { transform: scaleY(0.28); } 50% { transform: scaleY(1); } }
+
+/* ── TRANSCRIPT — Carved Well ──────────────────────────────────────────────── */
+.av2-voice .transcript {
+  flex: 0 1 auto; min-height: 120px; max-height: 34vh; overflow-y: auto;
+  border-radius: var(--card-radius);
+  background: var(--surface-sunken);
+  border: 1px solid rgba(var(--fg-rgb), 0.06);
+  box-shadow: 0 1px 3px var(--depth) inset, 0 1px 0 var(--sheen);
+  padding: var(--space-4) var(--space-5);
+  display: flex; flex-direction: column; gap: var(--space-3);
+  scroll-behavior: smooth;
+}
+.av2-voice .transcript::-webkit-scrollbar { width: 8px; }
+.av2-voice .transcript::-webkit-scrollbar-thumb { background: rgba(var(--fg-rgb), 0.16); border-radius: 4px; }
+
+.av2-voice .t-empty { color: var(--ink-faint); font-family: var(--font-data); font-size: 11px; letter-spacing: 0.06em; text-align: center; padding: var(--space-4) 0; }
+
+.av2-voice .turn { display: grid; grid-template-columns: 40px 1fr; gap: var(--space-3); align-items: baseline; }
+.av2-voice .turn-who { font-family: var(--font-data); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding-top: 2px; }
+.av2-voice .turn--user .turn-who { color: var(--accent-text); }
+.av2-voice .turn--assistant .turn-who { color: var(--ink-faint); }
+
+/* user voice — Plex body */
+.av2-voice .turn--user .turn-text { font-family: var(--font-ui); font-size: 14px; color: var(--ink-body); line-height: 1.55; }
+/* assistant voice — Literata serif, the identity voice */
+.av2-voice .turn--assistant .turn-text { font-family: var(--font-reading); font-size: 15.5px; color: var(--ink-strong); line-height: 1.6; letter-spacing: -0.005em; }
+
+/* streaming cursor for the live assistant line */
+.av2-voice .caret { display: inline-block; width: 2px; height: 1em; background: var(--accent); margin-left: 3px; vertical-align: text-bottom; animation: v-blink 1s steps(2, start) infinite; }
+@keyframes v-blink { 50% { opacity: 0; } }
+
+/* status line — mono, centered, whole-width */
+.av2-voice .turn--status { grid-template-columns: 1fr; }
+.av2-voice .turn--status .turn-text { font-family: var(--font-data); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); text-align: center; }
+
+/* ── DOCK — status + route chips + mic toggle ──────────────────────────────── */
+.av2-voice .dock { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding-top: var(--space-1); }
+
+/* route-preset segmented control */
+.av2-voice .seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--radius-sm); background: rgba(var(--fg-rgb), var(--alpha-wash)); box-shadow: 0 1px 2px var(--depth) inset; }
+.av2-voice .seg button { font-family: var(--font-data); font-size: 11px; letter-spacing: 0.02em; text-transform: capitalize; padding: 5px 11px; border: 0; background: transparent; color: var(--ink-soft); border-radius: var(--radius-xs); cursor: pointer; transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out); }
+.av2-voice .seg button:hover { color: var(--ink-strong); }
+.av2-voice .seg button[aria-selected="true"] { background: var(--surface-raised); color: var(--accent-text); box-shadow: 0 1px 2px var(--depth), 0 1px 0 var(--sheen); }
+.av2-voice .seg button:disabled { opacity: 0.4; cursor: default; }
+
+/* engraved value chip — <i>label</i><b>value</b> */
+.av2-voice .chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: var(--radius-sm); background: rgba(var(--fg-rgb), var(--alpha-wash)); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); white-space: nowrap; }
+.av2-voice .chip i { font-style: normal; font-family: var(--font-data); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.av2-voice .chip b { font-family: var(--font-data); font-size: 11px; font-weight: 500; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.av2-voice .chip--accent b { color: var(--accent-text); }
+
+.av2-voice .dock-spacer { flex: 1 1 auto; }
+
+/* CONTROLS · Machined Key switch */
+.av2-voice .ctl { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.av2-voice .ctl input { position: absolute; opacity: 0; width: 0; height: 0; }
+.av2-voice .ctl__track { position: relative; width: var(--track-w); height: var(--track-h); border-radius: var(--radius-full); background: var(--ctl-fill); border: 1px solid var(--ctl-line); box-shadow: 0 1px 2px var(--depth) inset; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-voice .ctl__track::after { content: ""; position: absolute; top: 1px; left: 1px; width: calc(var(--track-h) - 4px); height: calc(var(--track-h) - 4px); border-radius: var(--radius-full); background: var(--surface-raised); box-shadow: 0 1px 2px var(--depth); transition: transform var(--duration-base) var(--ease-out); }
+.av2-voice .ctl input:checked + .ctl__track { background: var(--ctl-on-fill); border-color: var(--ctl-on-line); }
+.av2-voice .ctl input:checked + .ctl__track::after { transform: translateX(calc(var(--track-w) - var(--track-h))); }
+.av2-voice .ctl input:focus-visible + .ctl__track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-voice .ctl .lbl { font-family: var(--font-data); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-soft); }
+
+/* mic toggle (dock) — mirrors the mute state */
+.av2-voice .mic-toggle.btn { color: var(--ink-strong); }
+.av2-voice .mic-toggle.btn.is-muted { color: rgb(var(--danger-rgb)); border-color: rgba(var(--danger-rgb), 0.4); background: rgba(var(--danger-rgb), 0.08); }
+
+/* ── responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .av2-voice .wrap { padding: var(--space-5) var(--space-4) var(--space-4); }
+  .av2-voice .hero { flex-direction: column; }
+  .av2-voice .halo { width: 180px; height: 180px; }
+  .av2-voice .halo::before, .av2-voice .halo::after, .av2-voice .halo .ring3 { width: 150px; height: 150px; }
+  .av2-voice .mic { width: 126px; height: 126px; }
+  .av2-voice .mic svg { width: 40px; height: 40px; }
+  .av2-voice .dock-spacer { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .av2-voice .halo::before, .av2-voice .halo::after, .av2-voice .halo .ring3,
+  .av2-voice .wave i, .av2-voice .caret { animation: none !important; }
+  .av2-voice .stage[data-phase="listening"] .halo::before,
+  .av2-voice .stage[data-phase="speaking"] .halo::before { opacity: 0.5; }
+  .av2-voice .stage[data-phase="listening"] .wave i,
+  .av2-voice .stage[data-phase="speaking"] .wave i { transform: scaleY(0.7); }
+}

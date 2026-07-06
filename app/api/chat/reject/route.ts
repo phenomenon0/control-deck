@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { decideApproval, getApproval } from "@/lib/agui/db";
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 
 export async function POST(req: Request) {
-  let body: { runId?: string; reason?: string };
+  let body: { runId?: string; approvalId?: string; request_id?: string; reason?: string };
   try {
     body = await req.json();
   } catch {
@@ -10,6 +11,23 @@ export async function POST(req: Request) {
   }
 
   const runId = body.runId;
+  const requestId = body.approvalId ?? body.request_id;
+
+  if (requestId) {
+    const approval = getApproval(requestId);
+    if (approval) {
+      if (approval.status === "pending") {
+        decideApproval(requestId, "denied", body.reason, "chat");
+      }
+      const status = getApproval(requestId)?.status ?? approval.status;
+      return NextResponse.json({
+        rejected: status === "denied",
+        approvalId: requestId,
+        status,
+      });
+    }
+  }
+
   if (!runId) {
     return NextResponse.json({ error: "runId required" }, { status: 400 });
   }
@@ -19,7 +37,7 @@ export async function POST(req: Request) {
     const res = await fetch(`${AGENTGO_URL}/runs/${runId}/reject`, {
       method: "POST",
       headers: withAgentTsAuth({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ reason: body.reason }),
+      body: JSON.stringify({ request_id: requestId, reason: body.reason }),
     });
     const text = await res.text();
     return new NextResponse(text || "{}", {

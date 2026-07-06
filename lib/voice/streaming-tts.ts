@@ -32,6 +32,10 @@ export interface StreamingTtsOptions {
   onEnd?: (info: { utteranceId?: string }) => void;
   onError?: (error: string) => void;
   onClose?: () => void;
+  /** When true, append `?debug=timing` so the sidecar emits `{type:"timing"}`. */
+  debug?: boolean;
+  /** Fires for every server-emitted timing frame. */
+  onTiming?: (frame: { phase: string; ms: number; meta?: Record<string, unknown> }) => void;
 }
 
 export interface SpeakOptions {
@@ -39,6 +43,8 @@ export interface SpeakOptions {
   voice?: string;
   speed?: number;
   utteranceId?: string;
+  /** Per-utterance engine override (the sidecar swaps engines on the fly). */
+  engine?: string;
 }
 
 export class StreamingTtsClient {
@@ -57,6 +63,7 @@ export class StreamingTtsClient {
     const base = this.opts.baseUrl ?? "ws://127.0.0.1:4245";
     const params = new URLSearchParams();
     if (this.opts.engine) params.set("engine", this.opts.engine);
+    if (this.opts.debug) params.set("debug", "timing");
     const url = `${base.replace(/\/$/, "")}/tts/stream${params.toString() ? `?${params}` : ""}`;
     this.connectPromise = new Promise<void>((resolve, reject) => {
       let resolved = false;
@@ -76,6 +83,9 @@ export class StreamingTtsClient {
             sampleRate?: number;
             utteranceId?: string;
             error?: string;
+            phase?: string;
+            ms?: number;
+            meta?: Record<string, unknown>;
           };
           try {
             payload = JSON.parse(e.data);
@@ -96,6 +106,12 @@ export class StreamingTtsClient {
               this.opts.onEnd?.({ utteranceId: payload.utteranceId });
               this.resolvePending(payload.utteranceId);
               this.currentUtteranceId = undefined;
+              break;
+            case "timing":
+              if (typeof payload.phase === "string" && typeof payload.ms === "number") {
+                globalThis.__voiceProbe?.mark(`srv_${payload.phase}`, { ms: payload.ms, ...payload.meta });
+                this.opts.onTiming?.({ phase: payload.phase, ms: payload.ms, meta: payload.meta });
+              }
               break;
             case "error":
               this.opts.onError?.(payload.error ?? "unknown tts error");
@@ -142,13 +158,14 @@ export class StreamingTtsClient {
     const done = new Promise<void>((resolve, reject) => {
       this.pendingUtterances.set(utteranceId, { resolve, reject });
     });
-    const payload = {
+    const payload: Record<string, unknown> = {
       op: "speak",
       text: opts.text,
       voice: opts.voice ?? this.opts.voice,
       speed: opts.speed ?? this.opts.speed ?? 1.0,
       utteranceId,
     };
+    if (opts.engine) payload.engine = opts.engine;
     try {
       this.ws.send(JSON.stringify(payload));
     } catch {

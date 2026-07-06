@@ -269,6 +269,7 @@ def build_app(settings: Settings) -> FastAPI:
         await ws.accept()
         engine_id = ws.query_params.get("engine") or settings.tier.default_streaming_stt
         language = ws.query_params.get("language")
+        enable_timing = ws.query_params.get("debug") == "timing"
         instance = registry.get(engine_id, settings)
         if instance is None or not isinstance(instance, (StreamingStt, SttEngine)):
             await _ws_error(ws, f"unknown stt engine: {engine_id}")
@@ -283,7 +284,7 @@ def build_app(settings: Settings) -> FastAPI:
             await _ws_error(ws, f"stt engine {engine_id} does not support streaming")
             return
 
-        session = instance.open(language=language)
+        session = instance.open(language=language, enable_timing=enable_timing)
         await ws.send_text(
             json.dumps({"type": "ready", "engine": engine_id, "sampleRate": DEFAULT_PCM_SAMPLE_RATE})
         )
@@ -327,7 +328,10 @@ def build_app(settings: Settings) -> FastAPI:
     @app.websocket("/tts/stream")
     async def tts_stream(ws: WebSocket) -> None:
         await ws.accept()
+        # ?engine= overrides the tier default per connection so the Voice Lab
+        # can A/B engines without restarting the sidecar.
         engine_id = ws.query_params.get("engine") or settings.tier.default_tts
+        enable_timing = ws.query_params.get("debug") == "timing"
         instance = registry.get(engine_id, settings)
         if instance is None or not isinstance(instance, (StreamingTts, TtsEngine)):
             await _ws_error(ws, f"unknown tts engine: {engine_id}")
@@ -355,9 +359,17 @@ def build_app(settings: Settings) -> FastAPI:
                 voice = payload.get("voice")
                 speed = float(payload.get("speed", 1.0))
                 utterance_id = payload.get("utteranceId")
+                # Per-utterance engine override (lab can swap engines without
+                # reconnecting). Falls back to the WS-level engine.
+                per_call_engine = payload.get("engine")
+                call_instance = instance
+                if per_call_engine and per_call_engine != engine_id:
+                    candidate = registry.get(per_call_engine, settings)
+                    if isinstance(candidate, (StreamingTts, TtsEngine)) and candidate.available():
+                        call_instance = candidate
                 sample_rate = (
-                    instance.sample_rate
-                    if isinstance(instance, (StreamingTts, TtsEngine))
+                    call_instance.sample_rate
+                    if isinstance(call_instance, (StreamingTts, TtsEngine))
                     else DEFAULT_PCM_SAMPLE_RATE
                 )
                 await ws.send_text(
@@ -370,22 +382,56 @@ def build_app(settings: Settings) -> FastAPI:
                     )
                 )
                 try:
-                    if isinstance(instance, StreamingTts):
-                        for chunk in instance.stream(text, voice=voice, speed=speed):
+                    if isinstance(call_instance, StreamingTts):
+                        first_chunk_sent = False
+                        synth_t0 = time.perf_counter() if enable_timing else 0.0
+                        for chunk in call_instance.stream(
+                            text, voice=voice, speed=speed, enable_timing=enable_timing
+                        ):
                             # Client may have closed the socket mid-stream
                             # (interrupt / barge-in). Bail quietly instead of
                             # blowing up with "Cannot call send once close
                             # has been sent".
                             if ws.application_state != WebSocketState.CONNECTED:
                                 return
+                            # Engines yield timing frames as dicts inline with
+                            # PCM chunks (bytes). Route accordingly.
+                            if isinstance(chunk, dict):
+                                await ws.send_text(json.dumps(chunk))
+                                continue
+                            if enable_timing and not first_chunk_sent:
+                                first_chunk_sent = True
+                                elapsed = (time.perf_counter() - synth_t0) * 1000.0
+                                await ws.send_text(
+                                    json.dumps(
+                                        {
+                                            "type": "timing",
+                                            "phase": "tts.first_chunk_emit",
+                                            "ms": elapsed,
+                                            "meta": {"engine": call_instance.meta.id, "utteranceId": utterance_id},
+                                        }
+                                    )
+                                )
                             await ws.send_bytes(chunk)
                     else:
                         if ws.application_state != WebSocketState.CONNECTED:
                             return
                         await ws.send_bytes(
-                            instance.synthesise(text, voice=voice, speed=speed)
+                            call_instance.synthesise(text, voice=voice, speed=speed)
                         )
                     if ws.application_state == WebSocketState.CONNECTED:
+                        if enable_timing and isinstance(call_instance, StreamingTts):
+                            elapsed = (time.perf_counter() - synth_t0) * 1000.0
+                            await ws.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "timing",
+                                        "phase": "tts.end_emit",
+                                        "ms": elapsed,
+                                        "meta": {"engine": call_instance.meta.id, "utteranceId": utterance_id},
+                                    }
+                                )
+                            )
                         await ws.send_text(
                             json.dumps({"type": "end", "utteranceId": utterance_id})
                         )
@@ -429,6 +475,10 @@ def build_app(settings: Settings) -> FastAPI:
         await ws.accept()
         engine_id = ws.query_params.get("engine") or settings.tier.default_vad
         threshold = float(ws.query_params.get("threshold") or 0.5)
+        # Voice Lab knobs: defaults preserve historical behaviour (250/100 ms).
+        min_silence_ms = int(ws.query_params.get("vad_min_silence_ms") or 250)
+        min_speech_ms = int(ws.query_params.get("vad_min_speech_ms") or 100)
+        enable_timing = ws.query_params.get("debug") == "timing"
         instance = registry.get(engine_id, settings)
         if instance is None or not isinstance(instance, VadEngine):
             await _ws_error(ws, f"unknown vad engine: {engine_id}")
@@ -437,7 +487,12 @@ def build_app(settings: Settings) -> FastAPI:
             await _ws_error(ws, f"vad engine {engine_id} unavailable")
             return
 
-        session = instance.open(threshold=threshold)
+        session = instance.open(
+            threshold=threshold,
+            min_silence_duration=min_silence_ms / 1000.0,
+            min_speech_duration=min_speech_ms / 1000.0,
+            enable_timing=enable_timing,
+        )
         await ws.send_text(
             json.dumps(
                 {
@@ -445,6 +500,8 @@ def build_app(settings: Settings) -> FastAPI:
                     "engine": engine_id,
                     "sampleRate": instance.sample_rate,
                     "threshold": threshold,
+                    "minSilenceMs": min_silence_ms,
+                    "minSpeechMs": min_speech_ms,
                 }
             )
         )

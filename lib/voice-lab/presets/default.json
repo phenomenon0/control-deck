@@ -1,0 +1,50 @@
+[
+  {
+    "name": "fast",
+    "knobs": {
+      "vadThreshold": 0.4,
+      "vadMinSilenceMs": 150,
+      "vadMinSpeechMs": 60,
+      "sttEngine": "sherpa-onnx-streaming",
+      "correctionEngine": null,
+      "ttsEngine": "kokoro-82m",
+      "voice": null,
+      "speed": 1.1,
+      "clientVadThreshold": 0.4,
+      "clientVadMinSpeechFrames": 2,
+      "correctionTimeoutMs": 2000
+    }
+  },
+  {
+    "name": "accurate",
+    "knobs": {
+      "vadThreshold": 0.5,
+      "vadMinSilenceMs": 350,
+      "vadMinSpeechMs": 150,
+      "sttEngine": "sherpa-onnx-streaming",
+      "correctionEngine": "faster-whisper",
+      "ttsEngine": "kokoro-82m",
+      "voice": null,
+      "speed": 1.0,
+      "clientVadThreshold": 0.5,
+      "clientVadMinSpeechFrames": 3,
+      "correctionTimeoutMs": 8000
+    }
+  },
+  {
+    "name": "robust",
+    "knobs": {
+      "vadThreshold": 0.6,
+      "vadMinSilenceMs": 500,
+      "vadMinSpeechMs": 200,
+      "sttEngine": "sherpa-onnx-streaming",
+      "correctionEngine": "whisper-base-en-cpp",
+      "ttsEngine": "kokoro-82m",
+      "voice": null,
+      "speed": 1.0,
+      "clientVadThreshold": 0.6,
+      "clientVadMinSpeechFrames": 4,
+      "correctionTimeoutMs": 6000
+    }
+  }
+]

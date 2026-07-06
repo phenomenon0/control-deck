@@ -75,8 +75,18 @@ class SttEngine(Engine):
 
 class StreamingStt(Engine):
     @abstractmethod
-    def open(self, language: str | None = None) -> "StreamingSttSession":
-        """Allocate a per-connection decoding session."""
+    def open(
+        self,
+        language: str | None = None,
+        *,
+        enable_timing: bool = False,
+    ) -> "StreamingSttSession":
+        """Allocate a per-connection decoding session.
+
+        When `enable_timing=True`, sessions yield extra
+        `{"type":"timing", "phase":..., "ms":...}` frames inline with
+        partial/final frames so the WS handler can ship them as-is.
+        """
 
 
 class StreamingSttSession(ABC):
@@ -120,13 +130,22 @@ class StreamingTts(Engine):
 
     @abstractmethod
     def stream(
-        self, text: str, voice: str | None = None, speed: float = 1.0
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        *,
+        enable_timing: bool = False,
     ) -> Iterator[bytes]:
         """
         Yield Int16 LE PCM chunks per phrase. Implementations should split the
         text into phrases and emit each chunk as soon as synth finishes — that
         way the client gets first-audio-out within the synth time of the
         shortest phrase.
+
+        When `enable_timing=True`, implementations may yield interleaved
+        `{"type":"timing", ...}` dicts which the WS handler routes as JSON
+        rather than binary frames.
         """
 
 
@@ -139,7 +158,14 @@ class VadEngine(Engine):
     sample_rate: int = 16_000
 
     @abstractmethod
-    def open(self, *, threshold: float = 0.5) -> "VadSession":
+    def open(
+        self,
+        *,
+        threshold: float = 0.5,
+        min_silence_duration: float = 0.25,
+        min_speech_duration: float = 0.10,
+        enable_timing: bool = False,
+    ) -> "VadSession":
         ...
 
 

@@ -13,8 +13,13 @@ import {
   updateThreadTitle,
   getArtifactsByThread,
   type ArtifactRow,
+  type MessageMetadata,
 } from "@/lib/agui/db";
 import { ingestMessageForSearch } from "@/lib/chat/session-ingest";
+
+function coerceMetadata(value: unknown): MessageMetadata | undefined {
+  return value && typeof value === "object" ? value as MessageMetadata : undefined;
+}
 
 /**
  * Generate a concise chat title using the fast slot (falls back to primary)
@@ -123,12 +128,18 @@ export async function GET(req: Request) {
 
 // POST /api/threads - Create thread or save message
 export async function POST(req: Request) {
-  const body = await req.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+  }
 
   // Create new thread
   if (body.action === "create") {
-    const id = body.id ?? crypto.randomUUID();
-    createThread(id, body.title);
+    const id = typeof body.id === "string" ? body.id : crypto.randomUUID();
+    const title = typeof body.title === "string" ? body.title : undefined;
+    createThread(id, title);
     return NextResponse.json({ id });
   }
 
@@ -141,6 +152,18 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+    if (typeof threadId !== "string") {
+      return NextResponse.json({ error: "threadId must be a string" }, { status: 400 });
+    }
+    if (role !== "user" && role !== "assistant") {
+      return NextResponse.json(
+        { error: "role must be user or assistant" },
+        { status: 400 }
+      );
+    }
+    if (typeof content !== "string") {
+      return NextResponse.json({ error: "content must be a string" }, { status: 400 });
+    }
 
     // Create thread if it doesn't exist
     if (!getThread(threadId)) {
@@ -148,14 +171,17 @@ export async function POST(req: Request) {
     }
 
     const messageId = id ?? crypto.randomUUID();
+    if (typeof messageId !== "string") {
+      return NextResponse.json({ error: "id must be a string" }, { status: 400 });
+    }
     console.log("[Threads API] Saving message:", { messageId, threadId, role, runId: runId ?? "null", hasMetadata: !!metadata });
     saveMessage({
       id: messageId,
       threadId,
       role,
       content,
-      runId,
-      metadata,
+      runId: typeof runId === "string" ? runId : undefined,
+      metadata: coerceMetadata(metadata),
     });
 
     // Fire-and-forget ingest into the chat-history vector collection so the
@@ -168,8 +194,8 @@ export async function POST(req: Request) {
       threadId,
       role,
       content,
-      runId,
-      metadata,
+      runId: typeof runId === "string" ? runId : undefined,
+      metadata: coerceMetadata(metadata),
     });
 
     // Auto-generate title from first user message using LLM
@@ -188,9 +214,9 @@ export async function POST(req: Request) {
   // Update message content
   if (body.action === "update") {
     const { id, content } = body;
-    if (!id || content === undefined) {
+    if (typeof id !== "string" || typeof content !== "string") {
       return NextResponse.json(
-        { error: "id and content required" },
+        { error: "id and content strings required" },
         { status: 400 }
       );
     }
@@ -201,7 +227,7 @@ export async function POST(req: Request) {
   // Generate/regenerate title for a thread
   if (body.action === "generate-title") {
     const { threadId } = body;
-    if (!threadId) {
+    if (typeof threadId !== "string") {
       return NextResponse.json({ error: "threadId required" }, { status: 400 });
     }
     

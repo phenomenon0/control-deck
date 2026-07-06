@@ -25,6 +25,7 @@ import { useState, type ReactNode } from "react";
 import { Maximize2 } from "lucide-react";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { stripForDisplay } from "@/lib/chat/stripPatterns";
+import { safeMarkdownHref } from "@/lib/chat/safeMarkdownHref";
 
 function CodeBlock({ code, language }: { code: string; language?: string }) {
   const { openCode } = useCanvas();
@@ -121,19 +122,24 @@ function parseInline(text: string, keyPrefix: string = "i"): ReactNode[] {
     // Link: [text](url)
     const linkMatch = remaining.match(/\[([^\]]+)\]\(([^)]+)\)/);
     if (linkMatch && linkMatch.index !== undefined) {
+      const href = safeMarkdownHref(linkMatch[2]);
       candidates.push({
         index: linkMatch.index,
         length: linkMatch[0].length,
-        node: (
+        node: href ? (
           <a
             key={`${keyPrefix}-l${key}`}
-            href={linkMatch[2]}
+            href={href}
             target="_blank"
             rel="noopener noreferrer"
             className="rt-link"
           >
             {linkMatch[1]}
           </a>
+        ) : (
+          <span key={`${keyPrefix}-l${key}`}>
+            {linkMatch[1]}
+          </span>
         ),
       });
     }

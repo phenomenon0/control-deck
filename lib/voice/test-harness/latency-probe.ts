@@ -54,8 +54,26 @@ export const JUNCTIONS = {
   // window and let an e2e harness verify the mic was NOT re-opened during
   // that window.
   TTS_FIRST_CHUNK: "tts_first_chunk",
+  TTS_LAST_CHUNK: "tts_last_chunk",
+  TTS_REQUEST_SENT: "tts_request_sent",
   AUDIO_STARTED: "audio_started",
   AUDIO_STOPPED: "audio_stopped",
+  // LLM legs — POST sent, first streamed token, last token.
+  LLM_REQUEST_SENT: "llm_request_sent",
+  LLM_FIRST_TOKEN: "llm_first_token",
+  LLM_LAST_TOKEN: "llm_last_token",
+  // VAD junctions — the "response gap" the user explicitly named. Fired by
+  // AgentInput on Silero callbacks so the lab can plot speech-end → stt-final
+  // (the dead air that makes chat feel "broken").
+  VAD_SPEECH_START: "vad_speech_start",
+  VAD_SPEECH_END: "vad_speech_end",
+  // Server-emitted timing frames (via ?debug=timing). The probe surfaces them
+  // as marks named "srv_<phase>" so spans can pair them with client marks.
+  SRV_STT_INFERENCE: "srv_stt.inference",
+  SRV_VAD_FRAME: "srv_vad.frame_inference",
+  SRV_TTS_FIRST_CHUNK: "srv_tts.first_chunk_emit",
+  SRV_TTS_END: "srv_tts.end_emit",
+  SRV_TTS_PHRASE: "srv_tts.synth_per_phrase",
 } as const;
 
 /**
@@ -75,14 +93,38 @@ const STANDARD_SPANS: Array<[string, string, string]> = [
   ["mic_stop_to_first_audio", JUNCTIONS.STT_FINAL, JUNCTIONS.TTS_FIRST_CHUNK],
   ["tts_to_speaker", JUNCTIONS.TTS_FIRST_CHUNK, JUNCTIONS.AUDIO_STARTED],
   ["e2e_turn_latency", JUNCTIONS.CHUNK_FIRST, JUNCTIONS.AUDIO_STOPPED],
+  // E2E voice-turn legs — measured by the run-e2e harness (STT → LLM → TTS).
+  ["stt_to_llm", JUNCTIONS.STT_FINAL, JUNCTIONS.LLM_REQUEST_SENT],
+  ["llm_ttft", JUNCTIONS.LLM_REQUEST_SENT, JUNCTIONS.LLM_FIRST_TOKEN],
+  ["llm_total", JUNCTIONS.LLM_REQUEST_SENT, JUNCTIONS.LLM_LAST_TOKEN],
+  ["llm_to_tts", JUNCTIONS.LLM_LAST_TOKEN, JUNCTIONS.TTS_REQUEST_SENT],
+  ["tts_ttft", JUNCTIONS.TTS_REQUEST_SENT, JUNCTIONS.TTS_FIRST_CHUNK],
+  ["tts_total", JUNCTIONS.TTS_REQUEST_SENT, JUNCTIONS.TTS_LAST_CHUNK],
+  ["e2e_voice_turn", JUNCTIONS.CHUNK_FIRST, JUNCTIONS.TTS_LAST_CHUNK],
+  // VAD response gap — the dead air between user finishing speaking and the
+  // STT pipeline producing a final transcript.
+  ["vad_to_stt_final", JUNCTIONS.VAD_SPEECH_END, JUNCTIONS.STT_FINAL],
+  ["vad_speech_duration", JUNCTIONS.VAD_SPEECH_START, JUNCTIONS.VAD_SPEECH_END],
+  // Server-vs-client splits — if (srv_stt.inference) << (stt_ttft) then the
+  // gap is wire/scheduling, not the model.
+  ["stt_wire_overhead", JUNCTIONS.SRV_STT_INFERENCE, JUNCTIONS.STT_PARTIAL_FIRST],
+  ["tts_wire_overhead", JUNCTIONS.SRV_TTS_FIRST_CHUNK, JUNCTIONS.TTS_FIRST_CHUNK],
 ];
 
-export function createProbe(): Probe {
+export interface CreateProbeOptions {
+  /** Fired on every mark, in addition to the internal buffer. Used by the
+   * call lab to react to junctions in real time. */
+  onMark?: (mark: Mark) => void;
+}
+
+export function createProbe(opts: CreateProbeOptions = {}): Probe {
   const startedAt = nowMs();
   const marks: Mark[] = [];
   return {
     mark(name, meta) {
-      marks.push({ name, t: nowMs() - startedAt, meta });
+      const m = { name, t: nowMs() - startedAt, meta };
+      marks.push(m);
+      opts.onMark?.(m);
     },
     reset() {
       marks.length = 0;

@@ -315,6 +315,16 @@ export function ComparePane() {
 
       {columns.length === 0 ? (
         <div className="compare-splash">
+          <div className="compare-ghosts" aria-hidden="true">
+            {Array.from({ length: MAX_COLUMNS }).map((_, i) => (
+              <div key={i} className="compare-ghost">
+                <span className="compare-ghost-head" />
+                <span className="compare-ghost-line" />
+                <span className="compare-ghost-line compare-ghost-line--short" />
+                <span className="compare-ghost-line" />
+              </div>
+            ))}
+          </div>
           <GitCompare size={32} strokeWidth={1} />
           <p className="compare-splash-heading">No columns yet</p>
           <p className="compare-splash-sub">

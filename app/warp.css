@@ -892,7 +892,8 @@ body {
   gap: 8px;
 }
 .inference-leader-metric {
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 28px;
   font-weight: 500;
   color: var(--accent);
@@ -1329,7 +1330,8 @@ body {
   color: var(--text-muted);
 }
 .system-stat-primary {
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 20px;
   font-weight: 500;
   color: var(--fg);
@@ -1647,7 +1649,8 @@ body {
 /* Cloud SOTA strip cards. */
 .cloud-card { border-color: rgba(106, 163, 255, 0.18); }
 .cloud-card-metric {
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 15px;
   font-weight: 500;
   color: var(--accent);
@@ -1740,7 +1743,8 @@ body {
 }
 
 .meter-big {
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 34px;
   font-weight: 400;
   letter-spacing: -0.02em;
@@ -2037,8 +2041,8 @@ body {
 }
 
 .right-rail-btn {
-  width: 42px;
-  min-height: 42px;
+  width: 50px;
+  min-height: 46px;
   border-radius: var(--r-md);
   border: 1px solid var(--mist);
   background: color-mix(in oklch, var(--bg-card) 84%, transparent);
@@ -2046,14 +2050,15 @@ body {
   display: grid;
   place-items: center;
   gap: 4px;
-  padding: 6px 4px;
+  padding: 7px 4px;
   backdrop-filter: blur(12px);
 }
 
 .right-rail-btn span {
-  font-size: 8.5px;
-  letter-spacing: 0.08em;
+  font-size: 8px;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .right-rail-btn:hover,
@@ -2168,15 +2173,15 @@ textarea.input:focus {
   flex: 1;
   overflow-y: auto;
   width: 100%;
-  max-width: 1380px;
+  max-width: 1200px;            /* Atlas measure — content breathes, not full-bleed */
   margin: 0 auto;
-  padding: 36px 48px 120px;
+  padding: 48px 48px 64px;      /* Atlas page rhythm 48/48/64 */
 }
 
 .dashboard-head {
   padding-bottom: 26px;
   border-bottom: 1px solid var(--mist);
-  margin-bottom: 24px;
+  margin-bottom: 32px;          /* Atlas subsection rhythm */
 }
 
 .dashboard-head h1 {
@@ -2197,7 +2202,7 @@ textarea.input:focus {
 }
 
 .dashboard-grid {
-  gap: 14px;
+  gap: 16px;
 }
 
 .dashboard-cell {
@@ -3113,7 +3118,8 @@ textarea.input:focus {
 
 .cs-run-dial-center strong {
   color: var(--fg);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 22px;
   font-weight: 400;
 }
@@ -3138,7 +3144,8 @@ textarea.input:focus {
 .cs-tower-metrics strong {
   display: block;
   color: var(--fg);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 24px;
   font-weight: 400;
   line-height: 1;
@@ -5330,7 +5337,8 @@ textarea.input:focus {
 
 .terminal-overview-value {
   color: var(--fg);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: clamp(17px, 1.8vw, 22px);
   line-height: 1.08;
   letter-spacing: -0.03em;
@@ -7269,7 +7277,8 @@ textarea.input:focus {
   margin-bottom: 6px;
 }
 .capabilities-stat-value {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 20px;
   font-weight: 500;
   color: var(--text-primary);
@@ -8049,7 +8058,8 @@ textarea.input:focus {
   border-radius: 3px;
 }
 .capabilities-source-count {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 14px;
   color: var(--text-primary);
   font-weight: 500;
@@ -8447,7 +8457,8 @@ textarea.input:focus {
   color: var(--text-muted);
 }
 .hardware-kpi-value {
-  font-family: var(--font-display, inherit);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 26px;
   font-weight: 500;
   color: var(--text-primary);
@@ -10369,6 +10380,40 @@ button.composer-free-provider-chip:not(.is-on):not(:disabled):hover {
   font-size: 13px;
   color: var(--fg-dim, #888);
   margin: 0;
+}
+/* Ghost preview columns — fill the empty-state void and teach the
+   side-by-side layout before any column is added. */
+.compare-ghosts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  width: min(760px, 72%);
+  margin-bottom: 6px;
+  opacity: 0.55;
+}
+.compare-ghost {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-height: 128px;
+  padding: 12px 11px;
+  border: 1px dashed var(--mist, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-md, 10px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent);
+}
+.compare-ghost-head {
+  height: 8px;
+  width: 58%;
+  border-radius: 999px;
+  background: var(--mist-strong, rgba(255, 255, 255, 0.14));
+}
+.compare-ghost-line {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--mist, rgba(255, 255, 255, 0.06));
+}
+.compare-ghost-line--short {
+  width: 60%;
 }
 
 /* Thread selector */

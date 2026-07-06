@@ -23,7 +23,6 @@
 import { downsamplePcmFloat32To16k, float32ToInt16Bytes } from "@/lib/voice/audio-input";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __voiceProbe: { mark(name: string, meta?: Record<string, unknown>): void } | undefined;
 }
 
@@ -71,6 +70,13 @@ export interface StreamingSttOptions {
   correctionBufferCapBytes?: number;
   /** Fires after each final with timing + which path emitted (corrected or fallback). */
   onCorrectionLatency?: (info: { latencyMs: number; corrected: boolean; bufferBytes: number }) => void;
+  /**
+   * When true, append `?debug=timing` to the WS URL so the sidecar emits
+   * `{type:"timing", phase, ms, meta}` frames. Production stays off.
+   */
+  debug?: boolean;
+  /** Fires for every server-emitted timing frame; only when `debug` is set. */
+  onTiming?: (frame: { phase: string; ms: number; meta?: Record<string, unknown> }) => void;
 }
 
 type Op = "flush" | "final" | "reset";
@@ -130,6 +136,7 @@ export class StreamingSttClient {
     const params = new URLSearchParams();
     if (this.opts.engine) params.set("engine", this.opts.engine);
     if (this.opts.language) params.set("language", this.opts.language);
+    if (this.opts.debug) params.set("debug", "timing");
     const url = `${base.replace(/\/$/, "")}/stt/stream${params.toString() ? `?${params}` : ""}`;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       let resolved = false;
@@ -142,7 +149,16 @@ export class StreamingSttClient {
       };
       ws.onmessage = (e) => {
         if (typeof e.data !== "string") return;
-        let payload: { type?: string; text?: string; error?: string; engine?: string; sampleRate?: number };
+        let payload: {
+          type?: string;
+          text?: string;
+          error?: string;
+          engine?: string;
+          sampleRate?: number;
+          phase?: string;
+          ms?: number;
+          meta?: Record<string, unknown>;
+        };
         try {
           payload = JSON.parse(e.data);
         } catch {
@@ -173,6 +189,12 @@ export class StreamingSttClient {
           case "final":
             globalThis.__voiceProbe?.mark("stt_final", { text: payload.text });
             this.handleStreamFinal(payload.text ?? "");
+            break;
+          case "timing":
+            if (typeof payload.phase === "string" && typeof payload.ms === "number") {
+              globalThis.__voiceProbe?.mark(`srv_${payload.phase}`, { ms: payload.ms, ...payload.meta });
+              this.opts.onTiming?.({ phase: payload.phase, ms: payload.ms, meta: payload.meta });
+            }
             break;
           case "error":
             this.opts.onError?.(payload.error ?? "unknown error");

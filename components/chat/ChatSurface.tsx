@@ -69,7 +69,9 @@ function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
 }
 
 function formatModelLabel(model: string): string {
-  if (!model) return "model pending";
+  // No pinned model → routing resolves one per-request. "auto" reads as
+  // intentional; the old "model pending" looked broken on a healthy deck.
+  if (!model) return "auto";
   const parts = model.split(/[/\\]/);
   return parts[parts.length - 1].replace(/\.gguf$/i, "");
 }
@@ -106,6 +108,20 @@ function collectActivitySteps(
   return segments
     .filter((segment): segment is AgentActivitySegment => segment.type === "agent-activity")
     .flatMap((segment) => segment.steps);
+}
+
+function summarizeToolSteps(steps: ActivityStep[]) {
+  return steps
+    .filter((step) => step.status !== "running")
+    .map((step) => ({
+      toolCallId: step.toolCallId,
+      toolName: step.toolName,
+      args: step.args ? truncateArgs(step.args) : undefined,
+      status: step.status as "complete" | "error",
+      durationMs: step.durationMs,
+      success: step.result?.success ?? true,
+      error: step.result?.error,
+    }));
 }
 
 function progressForRun(
@@ -289,23 +305,6 @@ function TowerPanel({
       </div>
     </aside>
   );
-}
-
-/** Extract tool call summaries from segments for persistence */
-function extractToolSummaries(segments: import("@/lib/types/agentRun").TimelineSegment[]) {
-  return segments
-    .filter((s): s is AgentActivitySegment => s.type === "agent-activity")
-    .flatMap((s) => s.steps)
-    .filter((step) => step.status !== "running") // Only persist completed/errored steps
-    .map((step) => ({
-      toolCallId: step.toolCallId,
-      toolName: step.toolName,
-      args: step.args ? truncateArgs(step.args) : undefined,
-      status: step.status as "complete" | "error",
-      durationMs: step.durationMs,
-      success: step.result?.success ?? true,
-      error: step.result?.error,
-    }));
 }
 
 export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: ChatSurfaceProps = {}) {
@@ -895,8 +894,9 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
       }));
 
     // Send via useAgentRun — this POSTs to /api/chat and consumes the SSE stream
+    const clientRunId = crypto.randomUUID();
     if (isVoiceOrigin) {
-      voiceSession.markAgentRunStarted();
+      voiceSession.markAgentRunStarted(clientRunId);
     }
     let liveSpeechQueued = false;
     // Prefer the voice-core PCM streaming lane when the route supports it —
@@ -942,6 +942,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
     const result = await agentRun.send(messageContent, {
       messages: apiMessages,
       threadId,
+      runId: clientRunId,
       model: selectedModel,
       providerId: chatProviderId,
       uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
@@ -950,6 +951,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
       voice: isVoiceOrigin
         ? {
             turnId: crypto.randomUUID(),
+            runId: clientRunId,
             routeId: shouldSpeakReply ? dock?.routeId ?? "handsfree-chat" : "dictation",
             mode: shouldSpeakReply ? dock?.mode ?? "chat" : "dictation",
             surface: "chat",
@@ -962,14 +964,11 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
 
     // Persist assistant message on completion
     if (result.ok && result.fullText) {
-      // Extract artifacts and tool call summaries from segments
-      const runArtifacts: Artifact[] = [];
-      for (const seg of agentRun.state.segments) {
-        if (seg.type === "artifact") {
-          runArtifacts.push(seg.artifact);
-        }
-      }
-      const toolCallSummaries = extractToolSummaries(agentRun.state.segments);
+      // Persist from the stream-local capture returned by useAgentRun. Reading
+      // reducer state here is stale because this async callback belongs to the
+      // render that started the run.
+      const runArtifacts: Artifact[] = result.artifacts;
+      const toolCallSummaries = summarizeToolSteps(result.toolCalls);
 
       const assistantMessage: Message = {
         id: assistantId,
@@ -1049,7 +1048,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   }, [
     inputValue, pendingUploads, isRunning, activeThreadId, fallbackThreadId,
     messages, selectedModel, agentRun, voiceChat, voiceSession,
-    prefs.voice, prefs.systemPrompt, prefs.localModelPreset, dock?.mode, dock?.routeId,
+    prefs.providerId, prefs.systemPrompt, prefs.localModelPreset, dock?.mode, dock?.routeId,
     setMessages, setActiveThreadId, setThreads, clearUploads, queueComposerFocus,
   ]);
 

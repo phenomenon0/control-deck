@@ -1,0 +1,139 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — onboarding. Hosted under the v2 shell, right of the 64px
+   Atlas rail. A short first-run flow ported from design-lab/patterns/forms.html
+   + components/{input,controls,button,card,tag}.css: Deep Well fields, mono
+   lowercase_underscore labels, serif step headings, a Machined-Key switch and
+   segmented control, a primary continue button. Scoped under `.av2-onboarding`;
+   the wrapper carries data-theme="light" (Atlas paper-klein via app/atlas.css).
+   CONTROLS + SEGMENTED Tier-3 tokens (not vendored in atlas.css) are declared on
+   the wrapper from design-lab tokens.css values.
+   ============================================================================= */
+
+.av2-onboarding, .av2-onboarding * { box-sizing: border-box; margin: 0; padding: 0; }
+
+.av2-onboarding {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-reading);
+  overflow: hidden;
+
+  /* CONTROLS · Machined Key switch — Tier-3 tokens (design-lab tokens.css) */
+  --ctl-box: 18px;
+  --ctl-radius: var(--radius-xs);
+  --track-w: 32px; --track-h: 17px;
+
+  /* SEGMENTED · Machined Key in Carved Track */
+  --seg-track-fill: rgba(var(--fg-rgb), 0.09);
+  --seg-track-well: 0 1px 2px var(--depth) inset;
+  --seg-key-radius: var(--radius-xs);
+  --seg-key-fill: rgba(var(--acc-rgb), 0.9);
+  --seg-key-line: rgba(var(--acc-rgb), 0.8);
+}
+
+.av2-onboarding .ic svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+/* ── component recipes ──────────────────────────────────────────────────────── */
+
+/* CARD */
+.av2-onboarding .card { border-radius: var(--card-radius); background: var(--surface-raised); border: 1px solid var(--line-subtle); box-shadow: var(--card-shadow-rest); }
+
+/* BUTTON — Onyx Chip */
+.av2-onboarding .btn { font-family: var(--btn-font); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-onboarding .btn:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-onboarding .btn:active:not(:disabled) { background: var(--btn-fill-active); }
+.av2-onboarding .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-onboarding .btn:disabled { cursor: not-allowed; opacity: 0.45; }
+.av2-onboarding .btn--primary { background: var(--btn-pri-fill); border-color: var(--btn-pri-line); color: var(--accent-text); box-shadow: 0 1px 0 var(--sheen) inset; }
+.av2-onboarding .btn--primary:hover:not(:disabled) { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
+.av2-onboarding .btn--ghost { background: transparent; border-color: transparent; color: var(--ink-soft); }
+.av2-onboarding .btn--ghost:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: transparent; }
+
+/* FIELD — Deep Well */
+.av2-onboarding .field { display: flex; flex-direction: column; gap: var(--space-2); }
+.av2-onboarding .field__label { font-family: var(--font-data); font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--ink-soft); }
+.av2-onboarding .field__input { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-strong); height: var(--field-h); width: 100%; padding: 0 var(--space-3); border-radius: var(--field-radius); border: 1px solid var(--field-line); background: var(--field-fill); box-shadow: var(--field-well); outline: none; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.av2-onboarding .field__input::placeholder { color: var(--ink-faint); }
+.av2-onboarding .field__input:hover:not(:disabled):not(:focus) { background: var(--field-fill-hover); }
+.av2-onboarding .field__input:focus { background: var(--surface-raised); border-color: var(--field-focus-line); box-shadow: var(--field-focus-halo); transform: translateY(var(--field-lift)); }
+.av2-onboarding .field__help { font-family: var(--font-data); font-size: var(--text-xs); color: var(--ink-faint); line-height: 1.6; }
+.av2-onboarding textarea.field__input { height: auto; min-height: 84px; padding: var(--space-3); resize: vertical; line-height: 1.55; }
+
+/* SELECT — Deep Well + mono chevron */
+.av2-onboarding .selectwrap { position: relative; }
+.av2-onboarding .selectwrap select.field__input { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 34px; }
+.av2-onboarding .selectwrap .chev { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); pointer-events: none; }
+
+/* CONTROLS — switch (Machined Key) */
+.av2-onboarding .ctl { display: flex; align-items: center; gap: var(--space-3); cursor: pointer; font-size: var(--text-sm); color: var(--ink-body); width: fit-content; }
+.av2-onboarding .ctl input { position: absolute; opacity: 0; pointer-events: none; }
+.av2-onboarding .ctl:has(input:disabled) { cursor: not-allowed; opacity: 0.45; }
+.av2-onboarding .ctl__track { width: var(--track-w); height: var(--track-h); border-radius: 6px; flex: none; position: relative; background: rgba(var(--fg-rgb), 0.09); border: 1px solid rgba(var(--fg-rgb), 0.08); box-shadow: 0 1px 2px var(--depth) inset; transition: background var(--duration-base) var(--ease-out); }
+.av2-onboarding .ctl__track::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(var(--track-h) - 6px); height: calc(var(--track-h) - 6px); border-radius: 3px; background-color: var(--surface-raised); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border: 1px solid rgba(var(--fg-rgb), 0.18); box-shadow: 0 1.5px 0 rgba(var(--fg-rgb), 0.2), 0 2px 3px var(--depth); transition: left var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out); }
+.av2-onboarding .ctl input:checked + .ctl__track { background: rgba(var(--acc-rgb), 0.3); }
+.av2-onboarding .ctl input:checked + .ctl__track::after { left: calc(100% - var(--track-h) + 4px); background-color: rgba(var(--acc-rgb), 0.9); background-image: linear-gradient(0deg, var(--sheen), transparent 60%); border-color: rgba(var(--acc-rgb), 0.8); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-onboarding .ctl input:focus-visible + .ctl__track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* SEGMENTED — Machined Key in Carved Track (React-controlled) */
+.av2-onboarding .seg { position: relative; display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--seg-track-fill); box-shadow: var(--seg-track-well); }
+.av2-onboarding .seg__btn { position: relative; z-index: 1; background: none; border: 1px solid transparent; border-radius: var(--seg-key-radius); font-family: var(--font-data); font-size: var(--text-sm); color: var(--ink-faint); padding: 5px var(--space-3); cursor: pointer; transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-onboarding .seg__btn:hover:not(.is-active) { color: var(--ink-soft); }
+.av2-onboarding .seg__btn.is-active { color: var(--on-accent); font-weight: 500; background-color: var(--seg-key-fill); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border-color: var(--seg-key-line); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-onboarding .seg__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; z-index: 2; }
+
+/* PREVIEW chip — honest marker: toggle isn't persisted to deck.prefs on finish */
+.av2-onboarding .pv { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 8px; padding: 1px 6px; border-radius: var(--radius-xs); font-family: var(--font-data); font-size: 8.5px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1.5; color: var(--ink-faint); background: rgba(var(--fg-rgb), 0.05); border: 1px solid var(--line-subtle); box-shadow: 0 1px 0 var(--sheen); }
+
+/* setting rows inside a step (toggle right, label left) */
+.av2-onboarding .srow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 12px 0; border-top: 1px solid var(--line-subtle); }
+.av2-onboarding .srow:first-of-type { border-top: none; padding-top: 0; }
+.av2-onboarding .srow .st b { font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 600; color: var(--ink-strong); display: block; line-height: var(--leading-tight); }
+.av2-onboarding .srow .st small { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--ink-faint); }
+
+/* ── flow layout ────────────────────────────────────────────────────────────── */
+.av2-onboarding .stage { height: 100%; overflow-y: auto; display: grid; place-items: center; padding: var(--space-7) var(--space-5) var(--space-8); }
+.av2-onboarding .flow { width: 100%; max-width: 560px; }
+
+.av2-onboarding .brand { display: flex; align-items: center; gap: 10px; margin-bottom: var(--space-6); }
+.av2-onboarding .brand .mark { width: 20px; height: 20px; flex: none; border-radius: 6px; background: var(--accent); box-shadow: 0 1px 0 var(--sheen) inset; transform: rotate(45deg); }
+.av2-onboarding .brand .wm { font-family: var(--font-data); font-weight: 700; font-size: 14px; letter-spacing: 0.06em; color: var(--ink-strong); }
+.av2-onboarding .brand .kick { font-family: var(--font-data); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-text); margin-left: auto; }
+
+/* progress rail — mono step chips */
+.av2-onboarding .steps { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-5); }
+.av2-onboarding .step { display: flex; align-items: center; gap: 8px; }
+.av2-onboarding .step .dot { width: 22px; height: 22px; flex: none; border-radius: var(--radius-full); display: grid; place-items: center; font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); background: rgba(var(--fg-rgb), 0.08); border: 1px solid var(--line-subtle); box-shadow: 0 1px 2px var(--depth) inset; }
+.av2-onboarding .step .slabel { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); }
+.av2-onboarding .step.done .dot { background: var(--tag-acc-fill); border-color: rgba(var(--acc-rgb), 0.5); color: var(--accent-text); }
+.av2-onboarding .step.current .dot { background: rgba(var(--acc-rgb), 0.9); border-color: rgba(var(--acc-rgb), 0.8); color: var(--on-accent); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-onboarding .step.current .slabel { color: var(--ink-strong); font-weight: 500; }
+.av2-onboarding .step .bar { width: 26px; height: 1px; background: var(--line-subtle); }
+
+.av2-onboarding .stephead { font-family: var(--font-reading); font-size: var(--text-2xl); font-weight: 600; line-height: 1.25; color: var(--ink-strong); }
+.av2-onboarding .stepsub { color: var(--ink-soft); font-family: var(--font-ui); font-size: var(--text-sm); margin-top: 6px; margin-bottom: var(--space-5); max-width: 52ch; }
+
+.av2-onboarding .panel { padding: var(--space-5); }
+.av2-onboarding .panel .field + .field { margin-top: var(--space-4); }
+.av2-onboarding .formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.av2-onboarding .formgrid .full { grid-column: 1 / -1; }
+.av2-onboarding .formgrid + .rowgroup { margin-top: var(--space-4); }
+
+/* footer nav */
+.av2-onboarding .foot { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-5); }
+.av2-onboarding .foot .spacer { flex: 1; }
+.av2-onboarding .foot .count { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); }
+
+/* finish state */
+.av2-onboarding .done-card { padding: var(--space-6) var(--space-5); text-align: center; }
+.av2-onboarding .done-card .check { width: 44px; height: 44px; margin: 0 auto var(--space-3); border-radius: var(--radius-full); display: grid; place-items: center; background: var(--tag-acc-fill); color: var(--accent-text); }
+.av2-onboarding .done-card h3 { font-family: var(--font-reading); font-size: var(--text-xl); font-weight: 600; color: var(--ink-strong); }
+.av2-onboarding .done-card p { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-soft); margin-top: 6px; margin-bottom: var(--space-4); }
+.av2-onboarding .done-card .codewell { display: inline-block; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface-sunken); border: 1px solid rgba(var(--fg-rgb), 0.06); box-shadow: 0 1px 3px var(--depth) inset; }
+.av2-onboarding .done-card .codewell code { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-soft); }
+
+@media (max-width: 620px) {
+  .av2-onboarding .stage { padding: var(--space-5) var(--space-4) var(--space-7); align-items: start; }
+  .av2-onboarding .formgrid { grid-template-columns: 1fr; }
+  .av2-onboarding .step .slabel { display: none; }
+  .av2-onboarding .step .bar { width: 14px; }
+}

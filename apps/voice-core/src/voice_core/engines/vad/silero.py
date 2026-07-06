@@ -78,7 +78,14 @@ class SileroVadEngine(VadEngine):
         self._loaded = True
         LOG.info("silero VAD model staged")
 
-    def open(self, *, threshold: float = 0.5) -> VadSession:
+    def open(
+        self,
+        *,
+        threshold: float = 0.5,
+        min_silence_duration: float = 0.25,
+        min_speech_duration: float = 0.10,
+        enable_timing: bool = False,
+    ) -> VadSession:
         self.load()
         # Each connection gets its own VAD instance so threshold tweaks don't
         # leak between callers.
@@ -86,23 +93,30 @@ class SileroVadEngine(VadEngine):
             silero_vad=self._sherpa_onnx.SileroVadModelConfig(
                 model=str(_model_path(self._settings)),
                 threshold=float(threshold),
-                min_silence_duration=0.25,
-                min_speech_duration=0.10,
+                min_silence_duration=float(min_silence_duration),
+                min_speech_duration=float(min_speech_duration),
                 window_size=WINDOW,
             ),
             sample_rate=SAMPLE_RATE,
             num_threads=1,
         )
         vad = self._sherpa_onnx.VoiceActivityDetector(cfg, buffer_size_in_seconds=30.0)
-        return _SileroSession(vad)
+        return _SileroSession(vad, enable_timing=enable_timing)
 
 
 class _SileroSession(VadSession):
-    def __init__(self, vad):
+    # Roll up per-frame VAD inference time and emit a single timing frame
+    # every TIMING_ROLLUP_FRAMES inferences. Avoids spamming the WS at 30 Hz.
+    TIMING_ROLLUP_FRAMES = 32  # ~1 s at 32 ms/frame
+
+    def __init__(self, vad, *, enable_timing: bool = False):
         self._vad = vad
         self._buf = np.zeros(0, dtype=np.float32)
         self._speaking = False
         self._speech_started_at = 0.0
+        self._timing = bool(enable_timing)
+        self._frame_total_us = 0.0
+        self._frame_count = 0
 
     def push(self, audio_pcm16: bytes) -> Iterator[dict[str, Any]]:
         if not audio_pcm16:
@@ -115,7 +129,23 @@ class _SileroSession(VadSession):
         while len(self._buf) >= WINDOW:
             frame = self._buf[:WINDOW]
             self._buf = self._buf[WINDOW:]
-            self._vad.accept_waveform(frame)
+            if self._timing:
+                t0 = time.perf_counter()
+                self._vad.accept_waveform(frame)
+                self._frame_total_us += (time.perf_counter() - t0) * 1_000_000.0
+                self._frame_count += 1
+                if self._frame_count >= self.TIMING_ROLLUP_FRAMES:
+                    avg_ms = (self._frame_total_us / self._frame_count) / 1000.0
+                    events.append({
+                        "type": "timing",
+                        "phase": "vad.frame_inference",
+                        "ms": avg_ms,
+                        "meta": {"frames": self._frame_count},
+                    })
+                    self._frame_total_us = 0.0
+                    self._frame_count = 0
+            else:
+                self._vad.accept_waveform(frame)
 
         # sherpa-onnx exposes is_speech_detected() as the rolling state.
         speaking_now = bool(self._vad.is_speech_detected())

@@ -1,5 +1,6 @@
 import { useReducer, useCallback, useRef } from "react";
 import type { LocalPreset } from "@/lib/inference/local-defaults";
+import type { Artifact } from "@/lib/types/chat";
 import type {
   AgentRunState,
   RunAction,
@@ -82,6 +83,32 @@ function updateToolStep(
       };
     }
   );
+}
+
+function extractToolArgs(event: any): Record<string, unknown> | undefined {
+  const raw = event.args?.kind === "json" ? event.args.data : event.args;
+  return raw && typeof raw === "object" ? raw as Record<string, unknown> : undefined;
+}
+
+function extractToolResult(event: any): ActivityStep["result"] {
+  const success = event.success ?? true;
+  let resultData: Record<string, unknown> | undefined;
+  if (event.result?.kind === "json") {
+    resultData = event.result.data as Record<string, unknown>;
+  } else if (event.result?.kind === "glyph") {
+    resultData = { _glyph: event.result.glyph, _approxBytes: event.result.approxBytes };
+  } else if (event.result?.kind === "text") {
+    resultData = { message: event.result.text };
+  } else if (event.result && typeof event.result === "object") {
+    resultData = event.result;
+  }
+
+  return {
+    success,
+    message: resultData?.message as string | undefined,
+    error: success ? undefined : ((resultData?.error as string) ?? "Tool execution failed"),
+    data: resultData,
+  };
 }
 
 export function agentRunReducer(
@@ -399,7 +426,6 @@ export function agentRunReducer(
 
 function dispatchSSEEvent(
   dispatch: React.Dispatch<RunAction>,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   event: any,
 ): void {
   switch (event.type) {
@@ -448,7 +474,7 @@ function dispatchSSEEvent(
 
     case "ToolCallArgs": {
       // Unwrap DeckPayload envelope
-      const args = event.args?.kind === "json" ? event.args.data : event.args;
+      const args = extractToolArgs(event);
       if (args && event.toolCallId) {
         dispatch({ type: "TOOL_ARGS", toolCallId: event.toolCallId, args });
       }
@@ -456,28 +482,10 @@ function dispatchSSEEvent(
     }
 
     case "ToolCallResult": {
-      const success = event.success ?? true;
-      // Extract result data from DeckPayload
-      let resultData: Record<string, unknown> | undefined;
-      if (event.result?.kind === "json") {
-        resultData = event.result.data as Record<string, unknown>;
-      } else if (event.result?.kind === "glyph") {
-        resultData = { _glyph: event.result.glyph, _approxBytes: event.result.approxBytes };
-      } else if (event.result?.kind === "text") {
-        resultData = { message: event.result.text };
-      } else if (event.result && typeof event.result === "object") {
-        resultData = event.result;
-      }
-
       dispatch({
         type: "TOOL_RESULT",
         toolCallId: event.toolCallId,
-        result: {
-          success,
-          message: resultData?.message as string | undefined,
-          error: success ? undefined : ((resultData?.error as string) ?? "Tool execution failed"),
-          data: resultData,
-        },
+        result: extractToolResult(event),
         durationMs: event.durationMs,
       });
       break;
@@ -514,7 +522,6 @@ export interface InterruptRequest {
   runId: string;
   toolCallId: string;
   toolName: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   args?: any;
 }
 
@@ -536,6 +543,7 @@ export interface UseAgentRunReturn {
     options: {
       messages: Array<{ role: string; content: string }>;
       threadId: string;
+      runId?: string;
       model: string;
       /**
        * Local engine the user picked in the RoutePicker. When set, /api/chat
@@ -567,6 +575,10 @@ export interface SendResult {
   fullText: string;
   /** Whether the run completed without error */
   ok: boolean;
+  /** Tool calls observed directly from the SSE stream; safe for persistence. */
+  toolCalls: ActivityStep[];
+  /** Artifacts observed directly from the SSE stream; safe for persistence. */
+  artifacts: Artifact[];
 }
 
 /**
@@ -579,6 +591,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
   const [state, dispatch] = useReducer(agentRunReducer, INITIAL_AGENT_RUN_STATE);
   const abortRef = useRef<AbortController | null>(null);
   const isRunningRef = useRef(false);
+  const currentRunIdRef = useRef<string | null>(null);
 
   // Stable refs for callbacks
   const onInterruptRef = useRef(options?.onInterrupt);
@@ -592,6 +605,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       opts: {
         messages: Array<{ role: string; content: string }>;
         threadId: string;
+        runId?: string;
         model: string;
         /**
          * Local engine the user picked in the RoutePicker. When set, /api/chat
@@ -607,10 +621,20 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       }
     ): Promise<SendResult> => {
       if (isRunningRef.current) {
-        return { threadId: opts.threadId, runId: null, messageId: null, fullText: "", ok: false };
+        return {
+          threadId: opts.threadId,
+          runId: null,
+          messageId: null,
+          fullText: "",
+          ok: false,
+          toolCalls: [],
+          artifacts: [],
+        };
       }
 
       isRunningRef.current = true;
+      const requestedRunId = opts.runId ?? opts.voice?.runId ?? crypto.randomUUID();
+      currentRunIdRef.current = requestedRunId;
 
       // Dispatch user message to the timeline
       dispatch({ type: "SUBMIT", content });
@@ -619,9 +643,79 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       abortRef.current = controller;
 
       let fullText = "";
-      let runId: string | null = null;
+      let runId: string | null = requestedRunId;
       let messageId: string | null = null;
       let threadId = opts.threadId;
+      let runErrored = false;
+      const toolCalls = new Map<string, ActivityStep>();
+      const artifacts: Artifact[] = [];
+
+      // Keep a synchronous copy of streamed tool/artifact state for persistence.
+      // React reducer state updates land in later renders, so reading
+      // agentRun.state after await send() can miss the final stream events.
+      const captureEvent = (event: any) => {
+        switch (event.type) {
+          case "ToolCallStart":
+            if (event.toolCallId) {
+              toolCalls.set(event.toolCallId, {
+                toolCallId: event.toolCallId,
+                toolName: event.toolName ?? "unknown",
+                status: "running",
+                startedAt: Date.now(),
+              });
+            }
+            break;
+          case "ToolCallArgs": {
+            if (!event.toolCallId) break;
+            const args = extractToolArgs(event);
+            if (!args) break;
+            const existing = toolCalls.get(event.toolCallId);
+            toolCalls.set(event.toolCallId, {
+              ...(existing ?? {
+                toolCallId: event.toolCallId,
+                toolName: event.toolName ?? "unknown",
+                status: "running" as const,
+                startedAt: Date.now(),
+              }),
+              args,
+            });
+            break;
+          }
+          case "ToolCallResult": {
+            if (!event.toolCallId) break;
+            const result = extractToolResult(event);
+            const detailsData = (
+              result?.data as { details?: { data?: Record<string, unknown> } } | undefined
+            )?.details?.data;
+            const existing = toolCalls.get(event.toolCallId);
+            toolCalls.set(event.toolCallId, {
+              ...(existing ?? {
+                toolCallId: event.toolCallId,
+                toolName: event.toolName ?? "unknown",
+                status: "running" as const,
+                startedAt: Date.now(),
+              }),
+              status: result?.success !== false ? "complete" : "error",
+              result,
+              durationMs: event.durationMs,
+              args: existing?.args && Object.keys(existing.args).length > 0
+                ? existing.args
+                : detailsData ?? existing?.args,
+            });
+            break;
+          }
+          case "ArtifactCreated":
+            if (event.artifactId && event.url) {
+              artifacts.push({
+                id: event.artifactId,
+                url: event.url,
+                name: event.name ?? "artifact",
+                mimeType: event.mimeType ?? "application/octet-stream",
+              });
+            }
+            break;
+        }
+      };
 
       try {
         const res = await fetch("/api/chat", {
@@ -632,17 +726,19 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             model: opts.model,
             providerId: opts.providerId,
             threadId: opts.threadId,
+            runId: requestedRunId,
             uploadIds: opts.uploadIds,
             systemPrompt: opts.systemPrompt,
             preset: opts.preset,
-            voice: opts.voice,
+            voice: opts.voice ? { ...opts.voice, runId: opts.voice.runId ?? requestedRunId } : undefined,
           }),
           signal: controller.signal,
         });
 
         // Extract IDs from response headers
         threadId = res.headers.get("X-Thread-Id") ?? opts.threadId;
-        runId = res.headers.get("X-Run-Id");
+        runId = res.headers.get("X-Run-Id") ?? requestedRunId;
+        currentRunIdRef.current = runId;
         messageId = res.headers.get("X-Message-Id");
 
         if (!res.ok) {
@@ -677,6 +773,10 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
                 fullText += event.delta;
                 opts.hooks?.onTextDelta?.(event.delta);
               }
+              if (event.type === "RunError") {
+                runErrored = true;
+              }
+              captureEvent(event);
 
               // Handle interrupt events via callbacks (not reducer state)
               if (event.type === "InterruptRequested") {
@@ -698,7 +798,15 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
           }
         }
 
-        return { threadId, runId, messageId, fullText, ok: true };
+        return {
+          threadId,
+          runId,
+          messageId,
+          fullText,
+          ok: !runErrored,
+          toolCalls: Array.from(toolCalls.values()),
+          artifacts,
+        };
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
           // User-initiated stop — already dispatched via stop()
@@ -706,18 +814,37 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           dispatch({ type: "RUN_ERROR", runId: runId ?? "", error: errMsg });
         }
-        return { threadId, runId, messageId, fullText, ok: false };
+        return {
+          threadId,
+          runId,
+          messageId,
+          fullText,
+          ok: false,
+          toolCalls: Array.from(toolCalls.values()),
+          artifacts,
+        };
       } finally {
         abortRef.current = null;
         isRunningRef.current = false;
+        currentRunIdRef.current = null;
       }
     },
     []
   );
 
   const stop = useCallback(() => {
+    const runId = currentRunIdRef.current;
+    if (runId) {
+      void fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
+        method: "POST",
+        keepalive: true,
+      }).catch(() => {
+        /* best-effort: local abort still stops the UI stream */
+      });
+    }
     abortRef.current?.abort();
     abortRef.current = null;
+    currentRunIdRef.current = null;
     dispatch({ type: "STOP" });
   }, []);
 

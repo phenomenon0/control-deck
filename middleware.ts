@@ -56,6 +56,15 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  // Served model endpoints emit a self-contained URL for external tools that
+  // hold only that URL (?token=<DECK_TOKEN>). Permit it on the proxy paths;
+  // the /api/serve management route still requires a header credential.
+  if (req.nextUrl.pathname.startsWith("/api/serve/")) {
+    if (req.nextUrl.searchParams.get("token") === token) {
+      return NextResponse.next();
+    }
+  }
+
   // Same shortcut for the MCP tools surface (agent-ts only sees a URL).
   if (req.nextUrl.pathname === "/api/mcp/tools") {
     if (req.nextUrl.searchParams.get("token") === token) {

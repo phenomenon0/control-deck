@@ -1,0 +1,131 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — TERMINAL surface. Content-only; the 64px shell rail is
+   provided by app/v2/layout.tsx. Scoped under `.av2-term`; wrapper carries
+   data-theme="light" (Atlas paper-klein). A raised window frame around a
+   carved-well screen (surface-sunken, JetBrains mono).
+   ============================================================================= */
+
+.av2-term, .av2-term * { box-sizing: border-box; margin: 0; padding: 0; }
+.av2-term {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-reading);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+.av2-term .tag { font-family: var(--font-data); font-size: var(--text-xs); padding: 2px 9px; border-radius: var(--radius-xs); background: var(--tag-fill); color: var(--tag-ink); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.av2-term .tag--status::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: rgb(var(--status-rgb, var(--caution-rgb))); }
+.av2-term .tag--positive { --status-rgb: var(--positive-rgb); }
+
+/* full-bleed terminal: chrome bar → screen → status strip fill the whole surface
+   (bar/screen/statusbar are direct children of the flex-column .av2-term). */
+
+/* window chrome bar */
+.av2-term .bar { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-5); height: 42px; flex: none; border-bottom: 1px solid var(--line-subtle); background: var(--surface-raised); }
+.av2-term .dots { display: inline-flex; gap: 6px; flex: none; }
+.av2-term .dots i { width: 10px; height: 10px; border-radius: var(--radius-full); background: rgba(var(--fg-rgb), 0.14); box-shadow: 0 1px 0 var(--sheen); }
+.av2-term .dots i:nth-child(1) { background: rgba(var(--danger-rgb), 0.5); }
+.av2-term .dots i:nth-child(2) { background: rgba(var(--caution-rgb), 0.5); }
+.av2-term .dots i:nth-child(3) { background: rgba(var(--positive-rgb), 0.5); }
+
+/* icon dialect + generic icon button */
+.av2-term .ico { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.av2-term .ico--sm { width: 12px; height: 12px; }
+.av2-term .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--ink-soft); cursor: pointer; transition: all var(--duration-base) var(--ease-out); }
+.av2-term .iconbtn:hover { background: var(--btn-fill-hover); color: var(--accent-text); }
+
+/* session tabs — glyph + name + close, plus a new-tab + */
+.av2-term .tabs { display: flex; gap: 2px; align-items: center; }
+.av2-term .wtab { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 11px; color: var(--ink-soft); padding: 5px 6px 5px 9px; border-radius: var(--radius-sm); cursor: pointer; transition: background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-term .wtab:hover { background: var(--btn-fill-hover); }
+.av2-term .wtab.is-active { background: var(--surface-sunken); color: var(--accent-text); box-shadow: 0 1px 2px var(--depth) inset; }
+.av2-term .wtab__glyph { font-size: 12px; line-height: 1; color: var(--ink-faint); flex: none; }
+.av2-term .wtab__glyph--running { color: rgb(var(--positive-rgb)); }
+.av2-term .wtab__glyph--starting { color: rgb(var(--caution-rgb)); }
+.av2-term .wtab__glyph--exited, .av2-term .wtab__glyph--error { color: rgb(var(--danger-rgb)); }
+.av2-term .wtab.is-active .wtab__glyph { color: var(--accent-text); }
+.av2-term .wtab__name { white-space: nowrap; }
+.av2-term .wtab__x { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: none; background: none; color: var(--ink-faint); border-radius: 3px; cursor: pointer; opacity: 0; transition: opacity var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-term .wtab:hover .wtab__x, .av2-term .wtab.is-active .wtab__x { opacity: 1; }
+.av2-term .wtab__x:hover { background: rgba(var(--danger-rgb), 0.15); color: rgb(var(--danger-rgb)); }
+.av2-term .newtab { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: 2px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--ink-soft); cursor: pointer; transition: all var(--duration-base) var(--ease-out); }
+.av2-term .newtab:hover { background: var(--btn-fill-hover); color: var(--accent-text); }
+
+/* common-action launcher cluster */
+.av2-term .launch { display: inline-flex; gap: 2px; align-items: center; flex: none; }
+
+.av2-term .host { margin-left: auto; font-family: var(--font-data); font-size: 11px; color: var(--ink-soft); display: inline-flex; align-items: center; gap: 6px; }
+.av2-term .host .sep { color: var(--ink-faint); margin: 0 4px; opacity: 0.6; }
+
+/* carved-well screen — hosts the live PTY (or a launcher / offline stage) */
+.av2-term .screen { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface-sunken); box-shadow: 0 2px 6px var(--depth) inset; padding: var(--space-3); }
+.av2-term .termhost { flex: 1; min-height: 0; display: flex; }
+
+/* ── live wterm on paper ─────────────────────────────────────────────────────
+   The widget defaults to a black VS Code theme; we mount it with `theme-light`
+   and re-skin its CSS vars onto the paper well: transparent bg, Atlas ink,
+   JetBrains mono, no dark drop-shadow. Grayscale ANSI slots (0/7/8/15) are
+   remapped to Atlas ink so "white" text stays legible on light bg. Specificity
+   (.av2-term .screen .av2-wterm) beats @wterm's `.wterm.theme-light`. */
+.av2-term .screen .av2-wterm {
+  --term-bg: transparent;
+  --term-fg: var(--ink-body);
+  --term-cursor: var(--accent);
+  --term-font-family: var(--font-data);
+  --term-font-size: 13px;
+  --term-line-height: 1.55;
+  --term-row-height: 20px;
+  --term-color-0: var(--ink-strong);
+  --term-color-1: rgb(var(--danger-rgb));
+  --term-color-2: rgb(var(--positive-rgb));
+  --term-color-3: color-mix(in srgb, rgb(var(--caution-rgb)) 82%, var(--ink-strong));
+  --term-color-4: var(--accent);
+  --term-color-6: var(--accent-text);
+  --term-color-7: var(--ink-body);
+  --term-color-8: var(--ink-soft);
+  --term-color-15: var(--ink-strong);
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.av2-term .screen .av2-wterm ::selection { background: rgba(var(--acc-rgb), 0.22); }
+
+/* ── launcher / offline stage ────────────────────────────────────────────── */
+.av2-term .stage { margin: auto; display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-6); text-align: center; max-width: 460px; }
+.av2-term .stage__mark { font-family: var(--font-data); font-size: 22px; color: var(--ink-faint); letter-spacing: 0.1em; }
+.av2-term .stage__title { font-family: var(--font-reading); font-weight: 600; font-size: var(--text-lg); color: var(--ink-strong); }
+.av2-term .stage__body { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-soft); display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.av2-term .stage__cmd { font-family: var(--font-data); font-size: var(--text-xs); padding: 3px 9px; border-radius: var(--radius-xs); background: var(--surface-raised); color: var(--accent-text); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); }
+.av2-term .stage__opts { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; margin-top: var(--space-1); }
+.av2-term .stage__opt { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-data); font-size: var(--text-xs); color: var(--ink-body); padding: 8px 14px; border: 1px solid var(--line-subtle); border-radius: var(--radius-sm); background: var(--surface-raised); box-shadow: 0 1px 0 var(--sheen); cursor: pointer; transition: all var(--duration-base) var(--ease-out); }
+.av2-term .stage__opt:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
+.av2-term .stage__opt:disabled { opacity: 0.5; cursor: default; }
+.av2-term .stage__opt--primary { background: var(--accent); color: var(--surface-page); border-color: var(--accent); }
+.av2-term .stage__opt--primary:hover:not(:disabled) { color: var(--surface-page); filter: brightness(1.06); }
+.av2-term .stage__opt-glyph { font-size: 13px; line-height: 1; }
+.av2-term .stage__btn { font-family: var(--font-data); font-size: var(--text-xs); color: var(--accent-text); padding: 7px 16px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--surface-raised); cursor: pointer; transition: all var(--duration-base) var(--ease-out); }
+.av2-term .stage__btn:hover:not(:disabled) { background: var(--accent); color: var(--surface-page); }
+.av2-term .stage__btn:disabled { opacity: 0.5; cursor: default; }
+.av2-term .stage__err { font-family: var(--font-data); font-size: var(--text-xs); color: rgb(var(--danger-rgb)); max-width: 100%; word-break: break-word; }
+
+/* status strip */
+.av2-term .statusbar { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4); height: 28px; flex: none; border-top: 1px solid var(--line-subtle); background: var(--surface-raised); font-family: var(--font-data); font-size: 10px; }
+.av2-term .statusbar .st { color: var(--ink-faint); letter-spacing: 0.03em; }
+.av2-term .statusbar .st--accent { color: var(--accent-text); font-weight: 600; }
+.av2-term .statusbar .st--ok { color: rgb(var(--positive-rgb)); }
+.av2-term .statusbar .st--err { color: rgb(var(--danger-rgb)); }
+.av2-term .statusbar .sp { flex: 1; }
+
+/* ── mobile ─────────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .av2-term .screen { padding: var(--space-2); }
+  .av2-term .tabs { display: none; }
+  .av2-term .host .tag { display: none; }
+}

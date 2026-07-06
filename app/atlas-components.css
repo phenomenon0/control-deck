@@ -1,0 +1,152 @@
+/* =============================================================================
+   ATLAS COMPONENTS — apply Atlas component *material* to control-deck's bespoke
+   class families across the WHOLE app.
+   -----------------------------------------------------------------------------
+   Control Deck's surfaces are built from dozens of surface-specific families
+   (result-card, tier-card, capabilities-panel, action-btn, tp2-chip, …) rather
+   than shared primitives. Rather than edit each, we match them by TYPE with
+   attribute selectors and override only the material properties (background,
+   hairline, radius, shadow, font) — never layout (display/grid/padding/width) —
+   so every family adopts the Atlas recipe while keeping its own composition:
+
+     *-card / *-panel  → Floating Paper / Carved Panel   (design-lab card.css)
+     *-btn             → Onyx Chip                        (design-lab button.css)
+     *-chip *-pill *-badge → Engraved Stamp               (design-lab tag.css)
+     form controls     → Deep Well                        (design-lab input.css)
+
+   Imported after globals.css + atlas.css so these win the cascade. Semantic
+   text colors are intentionally NOT forced (so danger/success controls keep
+   their hue); only the material changes. To revert: drop the import in layout.
+   ============================================================================= */
+
+/* ── Cards & panels → Floating Paper (calm hairline on raised material) ────── */
+[class*="-card"]:not([class~="bg-card"]):not([class~="card-sub"]),
+[class*="-panel"] {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--card-radius);
+  box-shadow: none;
+  transition: background var(--duration-base) var(--ease-out),
+              border-color var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
+}
+
+/* Recessed variants read as Carved Panels */
+[class*="-well"],
+[class*="-sunken"],
+[class*="code-card"] {
+  background: var(--surface-sunken);
+  border-color: rgba(var(--fg-rgb), 0.06);
+  box-shadow: 0 1px 3px var(--depth) inset, 0 1px 0 var(--sheen);
+}
+
+/* ── Buttons → Onyx Chip (material + mono label; hue preserved) ────────────── */
+[class*="-btn"] {
+  font-family: var(--btn-font);
+  border: 1px solid var(--btn-line);
+  border-radius: var(--btn-radius);
+  background: var(--btn-fill);
+  transition: background var(--duration-base) var(--ease-out),
+              border-color var(--duration-base) var(--ease-out),
+              color var(--duration-base) var(--ease-out);
+}
+[class*="-btn"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--btn-fill-hover);
+  border-color: var(--btn-pri-line);
+}
+[class*="-btn"]:active:not(:disabled) { background: var(--btn-fill-active); }
+[class*="-btn"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── Chips / pills / badges → Engraved Stamp (mono, pressed in; hue preserved) */
+[class*="-chip"],
+[class*="-pill"],
+[class*="-badge"] {
+  font-family: var(--font-data);
+  border: none;
+  border-radius: var(--radius-xs);
+  background: var(--tag-fill);
+  box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen);
+}
+
+/* ── Form controls → Deep Well (only real inputs, not wrapper divs) ────────── */
+input[class*="-input"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+textarea[class*="-input"],
+select[class*="-input"],
+input[class*="-field"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+textarea[class*="-field"],
+select[class*="-field"] {
+  font-family: var(--font-ui);
+  color: var(--ink-strong);
+  border: 1px solid var(--field-line);
+  border-radius: var(--field-radius);
+  background: var(--field-fill);
+  box-shadow: var(--field-well);
+  outline: none;
+  transition: background var(--duration-base) var(--ease-out),
+              border-color var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out);
+}
+input[class*="-input"]:focus, textarea[class*="-input"]:focus, select[class*="-input"]:focus,
+input[class*="-field"]:focus, textarea[class*="-field"]:focus, select[class*="-field"]:focus {
+  background: var(--surface-raised);
+  border-color: var(--field-focus-line);
+  box-shadow: var(--field-focus-halo);
+  outline: none;
+}
+input[class*="-input"]::placeholder, textarea[class*="-input"]::placeholder,
+input[class*="-field"]::placeholder, textarea[class*="-field"]::placeholder {
+  color: var(--ink-faint);
+}
+
+/* ── Editorial headings — Literata (serif) at weight 600 ──────────────────────
+   --font-display now resolves to Literata, which next/font self-hosts at 400/600
+   ONLY. Control-deck's heading sites are declared 400/500; a 500 request with no
+   500 face degrades DOWN to 400 and reads limp. Pin the app-chrome headings to
+   600 (the Atlas display weight). Same selectors as warp.css → equal specificity,
+   later source order (this file imports last) wins. */
+.inference-head h1,
+.inference-modality-heading h2,
+.inference-inspector-head h2,
+.system-profile-head h2,
+.dojo-plate-head h2,
+.canvas-empty h3,
+.pane-title,
+.dashboard-head h1,
+.cs-thread-title,
+.cs-empty-primary,
+.terminal-head h1,
+.terminal-toolbar-title,
+.terminal-offline h2,
+.interrupt-title,
+.terminal-head--slim .terminal-head-title h1,
+.terminal-empty h2,
+.hardware-head h1,
+.capabilities-header-title h1,
+.settings-section-head h1 {
+  font-weight: 600;
+  letter-spacing: 0;   /* Atlas headings carry no tracking */
+}
+
+/* Sub-18px title opts out of serif — Atlas law: reading serif never below 18px */
+.system-suggestions-title { font-family: var(--font-sans); }
+
+/* ── Tier B · mono metadata voice ─────────────────────────────────────────────
+   Atlas sets nav items, timestamps/meta, and lowercase field-labels in
+   JetBrains Mono (sentence-case uppercase eyebrows/stat-labels stay Plex Sans,
+   so they are deliberately NOT listed here). */
+.nav-item,
+.nav-item-label,
+.thread-meta,
+.cs-thread-meta,
+.dojo-plate-meta,
+.local-card-meta,
+.ctx-tool-meta,
+.capabilities-skill-meta,
+.capabilities-sources-meta,
+.chart-card-meta,
+.composer-tweaks-axis-label,
+.cloud-card-kv-label,
+.capabilities-source-label,
+.variant-bar-label {
+  font-family: var(--font-mono);
+}

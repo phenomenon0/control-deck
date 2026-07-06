@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -113,20 +114,38 @@ class SherpaStreamingEngine(StreamingStt):
         finally:
             session.close()
 
-    def open(self, language: str | None = None) -> StreamingSttSession:
+    def open(
+        self,
+        language: str | None = None,
+        *,
+        enable_timing: bool = False,
+    ) -> StreamingSttSession:
         self.load()
-        return _SherpaSession(self._recognizer)
+        return _SherpaSession(self._recognizer, enable_timing=enable_timing)
 
 
 class _SherpaSession(StreamingSttSession):
-    def __init__(self, recognizer):
+    def __init__(self, recognizer, *, enable_timing: bool = False):
         self._recognizer = recognizer
         self._stream = recognizer.create_stream()
         self._last_partial = ""
+        self._timing = bool(enable_timing)
 
     def _decode_loop(self) -> Iterator[dict[str, Any]]:
+        decode_passes = 0
+        if self._timing:
+            t0 = time.perf_counter()
         while self._recognizer.is_ready(self._stream):
             self._recognizer.decode_streams([self._stream])
+            decode_passes += 1
+        if self._timing and decode_passes > 0:
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            yield {
+                "type": "timing",
+                "phase": "stt.inference",
+                "ms": elapsed_ms,
+                "meta": {"engine": "sherpa-onnx-streaming", "passes": decode_passes},
+            }
         text = (self._recognizer.get_result(self._stream) or "").strip()
         if text and text != self._last_partial:
             self._last_partial = text

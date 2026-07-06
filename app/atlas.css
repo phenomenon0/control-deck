@@ -1,0 +1,721 @@
+/* =============================================================================
+   ATLAS — adopt the Atlas design language (design-lab) in Control Deck
+   -----------------------------------------------------------------------------
+   Source of truth: ~/Documents/Project/design-lab (tokens/tokens.css, dist/atlas.css)
+
+   Strategy: vendor Atlas TOKENS only — not its component classes (.card/.btn/
+   .prose/.tag/.menu would collide with control-deck's own classes). Map the
+   app's existing data-theme values onto Atlas themes and alias the live tokens
+   (from app/blog-theme.css) to Atlas semantics:
+
+       dark   → onyx-gold   (near-black × metallic gold)
+       light  → paper-klein (warm cream × International Klein Blue)
+       hacker → bottle-sun surfaces + preserved neon-green accent
+
+   Imported AFTER blog-theme.css so these win the cascade (equal specificity,
+   later source order). To revert: delete the app/atlas.css import in
+   app/layout.tsx (this file is purely additive).
+   ============================================================================= */
+
+/* Departure Mono — self-hosted pixel/bitmap monospace (single weight 400) that
+   powers the "departure" theme's all-mono voice. Served from public/fonts. */
+@font-face {
+  font-family: "Departure Mono";
+  src: url("/fonts/DepartureMono-Regular.woff2") format("woff2"),
+       url("/fonts/DepartureMono-Regular.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Atlas Tier-1 · primitives (theme-independent) ────────────────────────── */
+:root {
+  /* The three font voices — prefer the next/font self-hosted faces (offline in
+     Electron), fall back to the CDN family name then system stacks. */
+  --font-reading: var(--font-literata), "Literata", "Charter", Georgia, serif; /* prose */
+  --font-ui:      var(--font-plex), "IBM Plex Sans", -apple-system, system-ui, sans-serif; /* UI */
+  --font-data:    var(--font-jbmono), "JetBrains Mono", ui-monospace, monospace; /* data/mono */
+
+  /* Type scale — 1.2 minor third on 15px base */
+  --text-xs: 0.7333rem;   /* 11 */
+  --text-sm: 0.8666rem;   /* 13 */
+  --text-md: 1rem;        /* 15 — body */
+  --text-lg: 1.2rem;      /* 18 */
+  --text-xl: 1.4666rem;   /* 22 */
+  --text-2xl: 1.7333rem;  /* 26 */
+  --text-3xl: 2.1333rem;  /* 32 */
+  --leading-body: 1.6;
+  --leading-tight: 1.35;
+
+  /* Spacing — 4px base */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Icon sizing (Atlas 24-grid stroke dialect) */
+  --icon-sm: 14px; --icon-md: 16px; --icon-lg: 20px; --icon-xl: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-fast: 0ms; --duration-base: 0ms; --duration-slow: 0ms; }
+}
+
+/* Font bridge + Atlas elevation. html[data-theme] (0,1,1) beats blog-theme's own
+   html[data-theme] on source order, and beats tokens.css [data-type] (0,1,0) on
+   specificity. Shadows resolve --depth/--sheen which each theme sets below, so
+   elevation becomes theme-aware (lighter on light themes). */
+html[data-theme] {
+  --font-sans:    var(--font-ui);
+  --font-display: var(--font-reading);  /* Atlas identity — serif (Literata) headings */
+  --font-serif:   var(--font-reading);
+  --font-mono:    var(--font-data);
+
+  --bt-font-body:    var(--font-ui);
+  --bt-font-display: var(--font-ui);
+  --bt-font-serif:   var(--font-reading);
+  --bt-font-mono:    var(--font-data);
+
+  --shadow-soft:  0 1px 3px var(--depth);
+  --shadow-lift:  0 4px 14px var(--depth);
+  --shadow-modal: 0 4px 10px var(--depth), 0 32px 64px var(--depth);
+  --shadow-inset: inset 0 1px 0 var(--sheen);
+}
+
+/* ── Atlas Tier-3 · component recipe tokens (theme-independent — resolve the
+   per-theme --fg-rgb/--acc-rgb set below). These drive the ported Atlas
+   component recipes (.btn "Onyx Chip", .input "Deep Well", .card "Floating
+   Paper", .badge "Engraved Stamp") that live in globals.css. ──────────────── */
+:root, [data-theme] {
+  /* channel alias so control-deck's rgba(var(--accent-rgb), …) tracks Atlas */
+  --accent-rgb: var(--acc-rgb);
+
+  /* BUTTON — Onyx Chip */
+  --btn-radius: var(--radius-sm);
+  --btn-font: var(--font-data);
+  --btn-h-sm: 26px;
+  --btn-h-md: 32px;
+  --btn-h-lg: 48px;
+  --btn-fill: rgba(var(--fg-rgb), 0.05);
+  --btn-fill-hover: rgba(var(--fg-rgb), 0.09);
+  --btn-fill-active: rgba(var(--fg-rgb), 0.13);
+  --btn-line: rgba(var(--fg-rgb), 0.12);
+  --btn-pri-fill: rgba(var(--acc-rgb), 0.26);
+  --btn-pri-fill-hover: rgba(var(--acc-rgb), 0.34);
+  --btn-pri-fill-active: rgba(var(--acc-rgb), 0.4);
+  --btn-pri-line: rgba(var(--acc-rgb), 0.55);
+  --btn-pri-line-hover: rgba(var(--acc-rgb), 0.72);
+
+  /* FIELD — Deep Well */
+  --field-radius: var(--radius-sm);
+  --field-h: 36px;
+  --field-h-lg: 48px;
+  --field-fill: rgba(var(--fg-rgb), 0.11);
+  --field-fill-hover: rgba(var(--fg-rgb), 0.14);
+  --field-line: rgba(var(--fg-rgb), 0.05);
+  --field-well: 0 3px 6px -1px var(--depth) inset, 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen);
+  --field-focus-line: rgba(var(--acc-rgb), 0.7);
+  --field-focus-halo: 0 0 0 4px rgba(var(--acc-rgb), 0.16), 0 6px 16px var(--depth);
+  --field-error-halo: 0 0 0 4px rgba(var(--danger-rgb), 0.14);
+  --field-lift: -2px;
+
+  /* CARD — Floating Paper / Carved Panel */
+  --card-radius: var(--radius-lg);
+  --card-shadow-rest: 0 1px 2px var(--depth), 0 4px 12px var(--depth);
+  --card-shadow-hover: 0 2px 4px var(--depth), 0 10px 24px var(--depth);
+  --card-lift: -2px;
+
+  /* TAG — Engraved Stamp */
+  --tag-fill: rgba(var(--fg-rgb), var(--alpha-wash, 0.07));
+  --tag-ink: var(--ink-soft);
+  --tag-acc-fill: rgba(var(--acc-rgb), calc(var(--alpha-wash, 0.07) + 0.08));
+
+  /* Atlas radius scale (so control-deck --radius* map to Atlas steps) */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+}
+
+/* ── DARK → Atlas · onyx-gold ─────────────────────────────────────────────── */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Atlas semantic tokens */
+  --alpha-wash: 0.14;
+  --surface-page:   #0A0A0A;
+  --surface-raised: rgba(255, 255, 255, 0.04);
+  --surface-sunken: rgba(255, 255, 255, 0.02);
+  --fg-rgb: 245, 245, 245;
+  --ink-strong: #F5F5F5;
+  --ink-body:   #DDDDDD;
+  --ink-soft:   #AAAAAA;
+  --ink-faint:  #888888;
+  --line-subtle: rgba(255, 255, 255, 0.10);
+  --acc-rgb: 212, 175, 55;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 62%, var(--ink-strong) 38%);
+  --on-accent: #0A0A0A;
+  --positive-rgb: 0, 158, 96;
+  --caution-rgb: 229, 192, 74;
+  --danger-rgb: 217, 56, 30;
+  --sheen: rgba(255, 255, 255, 0.09);
+  --depth: rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  /* control-deck token aliases (blog-theme.css names) */
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.08);
+  --bg-code:     #0D0D0F;
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: rgb(229, 192, 74);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      rgba(10, 10, 10, 0.92);
+  --white:       var(--ink-strong);
+}
+
+/* ── LIGHT → Atlas · paper-klein ──────────────────────────────────────────── */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --alpha-wash: 0.07;
+  --surface-page:   #F7F3EA;
+  --surface-raised: #FDFAF3;
+  --surface-sunken: #EFE9DB;
+  --fg-rgb: 43, 38, 32;
+  --ink-strong: #2B2620;
+  --ink-body:   #3E362A;
+  --ink-soft:   #57503F;
+  --ink-faint:  #99907C;
+  --line-subtle: #E2DAC8;
+  --acc-rgb: 0, 47, 167;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 62%, var(--ink-strong) 38%);
+  --on-accent: #F7F3EA;
+  --positive-rgb: 0, 158, 96;
+  --caution-rgb: 160, 124, 51;
+  --danger-rgb: 217, 56, 30;
+  --sheen: rgba(255, 255, 255, 0.6);
+  --depth: rgba(43, 38, 32, 0.12);
+  --scrim: rgba(43, 38, 32, 0.45);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.05);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #000);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      rgba(247, 243, 234, 0.92);
+  --white:       var(--ink-strong);
+}
+
+/* ── HACKER → Atlas · bottle-sun surfaces + preserved neon-green accent ─────
+   blog-theme.css keeps hardcoded #00ff88 neon text-shadows for hacker mode, so
+   the accent stays neon green (not bottle-sun's yellow) to keep it coherent. */
+[data-theme="hacker"] {
+  color-scheme: dark;
+
+  --alpha-wash: 0.14;
+  --surface-page:   #0D1F12;
+  --surface-raised: rgba(240, 250, 235, 0.05);
+  --surface-sunken: rgba(0, 0, 0, 0.30);
+  --fg-rgb: 237, 244, 230;
+  --ink-strong: #EDF4E6;
+  --ink-body:   #D3DEC9;
+  --ink-soft:   #A8B89C;
+  --ink-faint:  #77866D;
+  --line-subtle: rgba(237, 244, 230, 0.14);
+  --acc-rgb: 0, 255, 136;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 78%, var(--ink-strong) 22%);
+  --on-accent: #0D1F12;
+  --positive-rgb: 105, 200, 145;
+  --caution-rgb: 229, 192, 74;
+  --danger-rgb: 224, 94, 60;
+  --sheen: rgba(255, 250, 235, 0.12);
+  --depth: rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.09);
+  --bg-code:     rgba(0, 0, 0, 0.30);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.30);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: var(--accent);
+  --gold-dim:    #00AA55;
+  --silver:        #00DDFF;
+  --silver-bright: #00DDFF;
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      #0D1F12;
+  --white:       var(--ink-strong);
+}
+
+/* =============================================================================
+   ADDED ATLAS THEMES (D-006 / D-019) — 8 more selectable data-theme values.
+   Semantic-token halves are copied VERBATIM from design-lab/tokens/tokens.css.
+   The control-deck alias halves derive from --surface-page/--fg-rgb/--acc-rgb/
+   --ink-* so they resolve automatically per theme (the three that were literal
+   in onyx-gold — --bg-code, --gold-bright, --nav-bg — are expressed here as
+   derivations so each new theme gets its own correct color, not onyx's black).
+   Polarity: velvet/espresso/nocturne/midnight-vista/dusk-flame = dark aliases;
+   latte-emerald/powder-persian/palladian-flame = light aliases.
+   ============================================================================= */
+
+/* ── VELVET → Atlas · velvet (plum × rose pink, dark) ─────────────────────────── */
+[data-theme="velvet"] {
+  color-scheme: dark;
+
+  --alpha-wash: 0.14;
+  --surface-page: #16111D;
+  --surface-raised: rgba(255, 255, 255, 0.05);
+  --surface-sunken: rgba(0, 0, 0, 0.3);
+  --fg-rgb: 240, 236, 245;
+  --ink-strong: #F0ECF5;
+  --ink-body: #D9D3E3;
+  --ink-soft: #B9AFCC;
+  --ink-faint: #877D9B;
+  --line-subtle: rgba(255, 255, 255, 0.14);
+  --acc-rgb: 236, 143, 180;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 78%, var(--ink-strong) 22%);
+  --on-accent: #16111D;
+  --positive-rgb: 105, 200, 145;
+  --caution-rgb: 224, 186, 116;
+  --danger-rgb: 235, 106, 100;
+  --sheen: rgba(255, 255, 255, 0.13);
+  --depth: rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.08);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #fff);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── ESPRESSO → Atlas · espresso (coffee × terracotta rose, dark) ─────────────── */
+/* ── PEAT → dusty temperate dark (peat-brown charcoal × muted amber-moss).
+   Matte (very low sheen), heavy fractal grain + a warm haze rising from the
+   foot. Replaces espresso. Atmospheric, not shiny. ─────────────────────────── */
+[data-theme="peat"] {
+  color-scheme: dark;
+
+  --alpha-wash: 0.13;
+  --surface-page: #1B1712;
+  --surface-raised: rgba(238, 228, 210, 0.045);
+  --surface-sunken: rgba(0, 0, 0, 0.32);
+  --fg-rgb: 226, 216, 198;
+  --ink-strong: #E2D8C6;
+  --ink-body: #C7BBA5;
+  --ink-soft: #9C917D;
+  --ink-faint: #6E6558;
+  --line-subtle: rgba(230, 218, 200, 0.1);
+  --acc-rgb: 170, 146, 92;               /* dusty amber-moss / old brass — desaturated */
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 74%, var(--ink-strong) 26%);
+  --on-accent: #1B1712;
+  --positive-rgb: 130, 158, 108;         /* muted moss */
+  --caution-rgb: 190, 158, 96;           /* dusty gold */
+  --danger-rgb: 186, 96, 74;             /* dusty rust */
+  --sheen: rgba(240, 228, 208, 0.04);    /* matte — barely there */
+  --depth: rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.58);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture:
+    radial-gradient(130% 80% at 50% 100%, rgba(170, 146, 92, 0.07), transparent 62%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.09'/></feComponentTransfer></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.08);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #fff);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── TUNDRA → dusty temperate dark (cool slate × faded frost-steel). Matte,
+   fractal grain + a cold mist settling from the top. Replaces nocturne.
+   Overcast, ashen, atmospheric. ───────────────────────────────────────────── */
+[data-theme="tundra"] {
+  color-scheme: dark;
+
+  --alpha-wash: 0.13;
+  --surface-page: #191D21;
+  --surface-raised: rgba(224, 232, 238, 0.045);
+  --surface-sunken: rgba(0, 0, 0, 0.3);
+  --fg-rgb: 214, 222, 226;
+  --ink-strong: #D6DEE2;
+  --ink-body: #B4BEC4;
+  --ink-soft: #868F96;
+  --ink-faint: #5C646A;
+  --line-subtle: rgba(224, 232, 238, 0.1);
+  --acc-rgb: 138, 160, 168;              /* faded steel-teal — dusty, desaturated */
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 74%, var(--ink-strong) 26%);
+  --on-accent: #191D21;
+  --positive-rgb: 120, 168, 140;         /* muted sage */
+  --caution-rgb: 190, 170, 120;          /* dusty sand */
+  --danger-rgb: 190, 110, 96;            /* dusty clay */
+  --sheen: rgba(228, 236, 240, 0.04);    /* matte */
+  --depth: rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture:
+    radial-gradient(130% 75% at 50% 0%, rgba(138, 160, 168, 0.07), transparent 58%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.08'/></feComponentTransfer></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.08);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #fff);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── LATTE-EMERALD → Atlas · latte-emerald (cosmic latte × emerald, light) ────── */
+[data-theme="latte-emerald"] {
+  color-scheme: light;
+
+  --alpha-wash: 0.07;
+  --surface-page: #FFFBEB;
+  --surface-raised: #FFFEF7;
+  --surface-sunken: #F8EDD9;
+  --fg-rgb: 31, 46, 29;
+  --ink-strong: #1F2E1D;
+  --ink-body: #33422F;
+  --ink-soft: #55664B;
+  --ink-faint: #879473;
+  --line-subtle: #E5DDBB;
+  --acc-rgb: 49, 112, 57;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 62%, var(--ink-strong) 38%);
+  --on-accent: #FFFBEB;
+  --positive-rgb: 0, 158, 96;
+  --caution-rgb: 200, 150, 40;
+  --danger-rgb: 204, 75, 36;
+  --sheen: rgba(255, 255, 255, 0.6);
+  --depth: rgba(31, 46, 29, 0.12);
+  --scrim: rgba(31, 46, 29, 0.45);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.05);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #000);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── POWDER-PERSIAN → Atlas · powder-persian (baby powder × persian, light) ───── */
+[data-theme="powder-persian"] {
+  color-scheme: light;
+
+  --alpha-wash: 0.07;
+  --surface-page: #FFFEF9;
+  --surface-raised: #FFFFFF;
+  --surface-sunken: #FFF7D6;
+  --fg-rgb: 20, 32, 78;
+  --ink-strong: #14204E;
+  --ink-body: #2A3560;
+  --ink-soft: #4D577F;
+  --ink-faint: #9297B0;
+  --line-subtle: #ECE7D2;
+  --acc-rgb: 19, 48, 190;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 62%, var(--ink-strong) 38%);
+  --on-accent: #FFFEF9;
+  --positive-rgb: 0, 158, 96;
+  --caution-rgb: 190, 148, 60;
+  --danger-rgb: 210, 70, 60;
+  --sheen: rgba(255, 255, 255, 0.6);
+  --depth: rgba(20, 32, 78, 0.12);
+  --scrim: rgba(20, 32, 78, 0.45);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.05);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #000);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── MIDNIGHT-VISTA → Atlas · midnight-vista (persian midnight × vista, dark) ──── */
+[data-theme="midnight-vista"] {
+  color-scheme: dark;
+
+  --alpha-wash: 0.14;
+  --surface-page: #0A1235;
+  --surface-raised: rgba(235, 240, 255, 0.05);
+  --surface-sunken: rgba(0, 0, 0, 0.32);
+  --fg-rgb: 235, 240, 252;
+  --ink-strong: #EBF0FC;
+  --ink-body: #CBD4EE;
+  --ink-soft: #9FACD6;
+  --ink-faint: #6F7BA6;
+  --line-subtle: rgba(235, 240, 252, 0.14);
+  --acc-rgb: 122, 156, 239;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 78%, var(--ink-strong) 22%);
+  --on-accent: #0A1235;
+  --positive-rgb: 110, 200, 160;
+  --caution-rgb: 222, 186, 110;
+  --danger-rgb: 235, 105, 100;
+  --sheen: rgba(235, 240, 255, 0.12);
+  --depth: rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.05'/></feComponentTransfer></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.08);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #fff);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── PALLADIAN-FLAME → Atlas · palladian-flame (palladian × truffle/flame, light) ── */
+[data-theme="palladian-flame"] {
+  color-scheme: light;
+
+  --alpha-wash: 0.07;
+  --surface-page: #EEE9DF;
+  --surface-raised: #F7F4EC;
+  --surface-sunken: #DDD6C7;
+  --fg-rgb: 27, 38, 50;
+  --ink-strong: #1B2632;
+  --ink-body: #2C3B4D;
+  --ink-soft: #5A6675;
+  --ink-faint: #98A0AA;
+  --line-subtle: #DCD5C6;
+  --acc-rgb: 163, 81, 57;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 62%, var(--ink-strong) 38%);
+  --on-accent: #EEE9DF;
+  --positive-rgb: 0, 140, 90;
+  --caution-rgb: 200, 140, 60;
+  --danger-rgb: 190, 60, 40;
+  --sheen: rgba(255, 255, 255, 0.55);
+  --depth: rgba(27, 38, 50, 0.12);
+  --scrim: rgba(27, 38, 50, 0.45);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: linear-gradient(180deg, transparent 55%, rgba(255, 177, 98, 0.10)), url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.05'/></feComponentTransfer></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.05);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #000);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── DEPARTURE → Departure Mono · warm greige "dossier / retro-technical" light.
+   The identity is the font: all three voices resolve to the self-hosted pixel
+   Departure Mono (V2AppearanceHost force-applies it too; set here for non-v2). ── */
+[data-theme="departure"] {
+  color-scheme: light;
+
+  --font-reading: "Departure Mono", ui-monospace, monospace;
+  --font-ui:      "Departure Mono", ui-monospace, monospace;
+  --font-data:    "Departure Mono", ui-monospace, monospace;
+
+  --alpha-wash: 0.07;
+  --surface-page: #E4E2DA;
+  --surface-raised: #EEEDE6;
+  --surface-sunken: #D7D4C9;
+  --fg-rgb: 26, 25, 22;
+  --ink-strong: #1A1916;
+  --ink-body: #33322C;
+  --ink-soft: #6B6A60;
+  --ink-faint: #9C988C;
+  --line-subtle: #CFCBBF;
+  --acc-rgb: 106, 122, 74;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 62%, var(--ink-strong) 38%);
+  --on-accent: #E4E2DA;
+  --positive-rgb: 90, 120, 70;
+  --caution-rgb: 168, 140, 90;
+  --danger-rgb: 176, 74, 52;
+  --sheen: rgba(255, 255, 255, 0.5);
+  --depth: rgba(26, 25, 22, 0.12);
+  --scrim: rgba(26, 25, 22, 0.45);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: none;
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.05);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #000);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}
+
+/* ── DUSK-FLAME → Atlas · dusk-flame (abyssal anchorfish × burning flame, dark) ── */
+[data-theme="dusk-flame"] {
+  color-scheme: dark;
+
+  --alpha-wash: 0.14;
+  --surface-page: #1B2632;
+  --surface-raised: rgba(238, 233, 223, 0.05);
+  --surface-sunken: rgba(0, 0, 0, 0.3);
+  --fg-rgb: 238, 233, 223;
+  --ink-strong: #EEE9DF;
+  --ink-body: #D4CFC4;
+  --ink-soft: #A5A69E;
+  --ink-faint: #767D82;
+  --line-subtle: rgba(238, 233, 223, 0.13);
+  --acc-rgb: 255, 177, 98;
+  --accent: rgb(var(--acc-rgb));
+  --accent-text: color-mix(in srgb, rgb(var(--acc-rgb)) 78%, var(--ink-strong) 22%);
+  --on-accent: #1B2632;
+  --positive-rgb: 111, 190, 150;
+  --caution-rgb: 222, 180, 110;
+  --danger-rgb: 226, 102, 80;
+  --sheen: rgba(238, 233, 223, 0.11);
+  --depth: rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --focus-ring: rgb(var(--acc-rgb));
+  --surface-texture: linear-gradient(180deg, transparent 45%, rgba(255, 177, 98, 0.14)), url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.05'/></feComponentTransfer></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+
+  --bg:          var(--surface-page);
+  --bg-card:     var(--surface-raised);
+  --bg-hover:    rgba(var(--fg-rgb), 0.08);
+  --bg-code:     var(--surface-sunken);
+  --border:      var(--line-subtle);
+  --border-glow: rgba(var(--acc-rgb), 0.25);
+  --text:        var(--ink-strong);
+  --text-dim:    var(--ink-soft);
+  --gold:        var(--accent);
+  --gold-bright: color-mix(in srgb, var(--accent) 80%, #fff);
+  --gold-dim:    var(--accent-text);
+  --silver:        var(--ink-soft);
+  --silver-bright: var(--ink-strong);
+  --accent-muted:  rgba(var(--acc-rgb), var(--alpha-wash));
+  --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
+  --white:       var(--ink-strong);
+}

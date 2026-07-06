@@ -1,0 +1,139 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — COMPARE · side-by-side model comparison. Surface at /v2/compare.
+   -----------------------------------------------------------------------------
+   Pick 2–3 models; each is a Floating-Paper column. A shared metric matrix runs
+   down the columns (params · quant · VRAM · context · ELO/MMLU/MOS/WER · speed ·
+   cost) and the BETTER VALUE per row is lit in the semantic positive accent.
+
+   Everything is scoped under `.av2-compare` so it never leaks. The wrapper carries
+   data-theme="light" (Atlas paper-klein, app/atlas.css). Base tokens come from
+   atlas.css; the segmented-control Tier-3 tokens aren't vendored there, so they're
+   declared once on the wrapper (design-lab values, as the models surface does).
+   ============================================================================= */
+
+.av2-compare, .av2-compare * { box-sizing: border-box; margin: 0; padding: 0; }
+
+.av2-compare {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-ui);
+  overflow: hidden; overflow-y: auto;
+
+  /* SEGMENTED — "Machined Key in Carved Track" (design-lab) */
+  --seg-track-fill: rgba(var(--fg-rgb), 0.09);
+  --seg-track-well: 0 1px 2px var(--depth) inset;
+  --seg-key-fill: rgba(var(--acc-rgb), 0.9);
+  --seg-key-line: rgba(var(--acc-rgb), 0.8);
+  --tab-ink-idle: var(--ink-faint);
+}
+
+.av2-compare svg.gl { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.av2-compare .ic { display: inline-flex; }
+.av2-compare .wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-7) var(--space-8); }
+.av2-compare .kicker { font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-faint); }
+
+/* ── shared recipes ─────────────────────────────────────────────────────────── */
+.av2-compare .btn { font-family: var(--font-data); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-compare .btn:hover { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-compare .btn--icon { padding: 0 var(--space-3); }
+.av2-compare .tag { font-family: var(--font-data); font-size: 10px; padding: 1px 7px; border-radius: var(--radius-xs); background: var(--tag-fill); color: var(--tag-ink); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.av2-compare .tag--win { color: color-mix(in srgb, rgb(var(--positive-rgb)) 68%, var(--ink-strong)); background: rgba(var(--positive-rgb), 0.14); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); }
+.av2-compare .tag--win svg.gl { width: 10px; height: 10px; }
+
+/* ── hero ───────────────────────────────────────────────────────────────────── */
+.av2-compare .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); margin-bottom: var(--space-5); }
+.av2-compare .hero-lede { max-width: 560px; }
+.av2-compare .hero h1 { font-family: var(--font-reading); font-size: var(--text-3xl); font-weight: 600; line-height: 1.05; color: var(--ink-strong); margin: 4px 0 8px; letter-spacing: -0.01em; }
+.av2-compare .hero p { font-family: var(--font-ui); font-size: var(--text-md); line-height: var(--leading-body); color: var(--ink-soft); }
+.av2-compare .hero-side { display: flex; align-items: center; gap: var(--space-3); flex: none; }
+.av2-compare .src-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 11px; color: var(--ink-soft); padding: 5px 10px; border-radius: var(--radius-full); background: rgba(var(--fg-rgb), var(--alpha-wash)); box-shadow: 0 1px 1px var(--depth) inset; white-space: nowrap; }
+.av2-compare .src-chip .dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: rgb(var(--positive-rgb)); box-shadow: 0 0 5px rgba(var(--positive-rgb), 0.6); }
+.av2-compare .src-chip--warn { color: color-mix(in srgb, rgb(var(--caution-rgb)) 78%, var(--ink-strong)); }
+.av2-compare .src-chip--warn .dot { background: rgb(var(--caution-rgb)); box-shadow: none; }
+
+/* ── controls row ───────────────────────────────────────────────────────────── */
+.av2-compare .controls { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); flex-wrap: wrap; }
+.av2-compare .seg { position: relative; display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--seg-track-fill); box-shadow: var(--seg-track-well); max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.av2-compare .seg::-webkit-scrollbar { display: none; }
+.av2-compare .seg-btn { position: relative; background: none; border: 1px solid transparent; border-radius: var(--radius-xs); font-family: var(--font-data); font-size: var(--text-sm); color: var(--tab-ink-idle); padding: 5px var(--space-3); cursor: pointer; white-space: nowrap; transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out); }
+.av2-compare .seg-btn:hover:not(.is-active) { color: var(--ink-soft); }
+.av2-compare .seg-btn.is-active { color: var(--on-accent); font-weight: 500; background-color: var(--seg-key-fill); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border-color: var(--seg-key-line); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-compare .seg-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; z-index: 2; }
+.av2-compare .controls-right { display: inline-flex; align-items: center; gap: var(--space-4); }
+.av2-compare .legend { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); }
+.av2-compare .legend-mark { width: 10px; height: 10px; border-radius: 3px; background: rgba(var(--positive-rgb), 0.24); box-shadow: 0 0 0 1px rgba(var(--positive-rgb), 0.5) inset; }
+.av2-compare .count { font-family: var(--font-data); font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; background: rgba(var(--fg-rgb), var(--alpha-wash)); border-radius: var(--radius-full); padding: 2px 9px; box-shadow: 0 1px 1px var(--depth) inset; }
+.av2-compare .count--full { color: var(--accent-text); background: var(--tag-acc-fill); }
+.av2-compare .link-btn { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); background: none; border: none; cursor: pointer; padding: 2px; }
+.av2-compare .link-btn:hover { color: var(--accent-text); }
+
+/* ── picker pills ───────────────────────────────────────────────────────────── */
+.av2-compare .pick { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-6); padding-bottom: var(--space-5); border-bottom: 1px solid var(--line-subtle); }
+.av2-compare .pick-empty { font-family: var(--font-data); font-size: 12px; color: var(--ink-faint); padding: 6px 2px; }
+.av2-compare .pill { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-data); font-size: 12px; color: var(--ink-body); background: var(--surface-raised); border: 1px solid var(--line-subtle); border-radius: var(--radius-full); padding: 5px 12px 5px 10px; cursor: pointer; box-shadow: 0 1px 2px var(--depth); transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out), transform var(--duration-fast) var(--ease-out); }
+.av2-compare .pill:hover:not(:disabled) { border-color: var(--btn-pri-line); transform: translateY(-1px); }
+.av2-compare .pill:disabled { opacity: 0.4; cursor: not-allowed; }
+.av2-compare .pill.is-on { color: var(--on-accent); background: var(--seg-key-fill); border-color: var(--seg-key-line); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 4px var(--depth); }
+.av2-compare .pill-dot { width: 7px; height: 7px; border-radius: var(--radius-full); flex: none; }
+.av2-compare .pill-dot--local { background: rgb(var(--positive-rgb)); }
+.av2-compare .pill-dot--cloud { background: var(--accent); }
+.av2-compare .pill.is-on .pill-dot { background: var(--on-accent); }
+.av2-compare .pill-name { font-weight: 500; }
+.av2-compare .pill-prov { font-size: 10px; color: var(--ink-faint); }
+.av2-compare .pill.is-on .pill-prov { color: rgba(var(--fg-rgb), 0.6); }
+.av2-compare .pill-check { display: inline-flex; }
+.av2-compare .pill-check svg.gl { width: 11px; height: 11px; }
+
+/* ── empty prompt ───────────────────────────────────────────────────────────── */
+.av2-compare .prompt { display: flex; align-items: center; justify-content: center; min-height: 240px; border: 1px dashed var(--line-subtle); border-radius: var(--card-radius); background: var(--surface-sunken); }
+.av2-compare .prompt p { font-family: var(--font-ui); font-size: var(--text-md); color: var(--ink-faint); }
+
+/* ── comparison grid ────────────────────────────────────────────────────────────
+   Flex columns. Fixed head + row heights guarantee cross-column alignment. */
+.av2-compare .cmp-grid { display: flex; gap: var(--space-3); align-items: flex-start; }
+.av2-compare .cmp-col { display: flex; flex-direction: column; min-width: 0; }
+.av2-compare .cmp-col--labels { flex: 0 0 156px; }
+.av2-compare .cmp-col--model { flex: 1 1 0; background: var(--surface-raised); border: 1px solid var(--line-subtle); border-radius: var(--card-radius); box-shadow: var(--card-shadow-rest); overflow: hidden; transition: box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.av2-compare .cmp-col--model:hover { box-shadow: var(--card-shadow-hover); transform: translateY(-2px); }
+
+/* column head */
+.av2-compare .cmp-head { position: relative; height: 100px; padding: var(--space-4); display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; border-bottom: 1px solid var(--line-subtle); }
+.av2-compare .cmp-head--labels { justify-content: flex-end; padding: var(--space-4) var(--space-2) var(--space-3) 0; border-bottom-color: transparent; }
+.av2-compare .cmp-head-note { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); }
+.av2-compare .cmp-prov { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 10px; letter-spacing: 0.02em; color: var(--ink-faint); text-transform: lowercase; }
+.av2-compare .cmp-name { font-family: var(--font-reading); font-size: var(--text-lg); font-weight: 600; line-height: 1.1; color: var(--ink-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.av2-compare .cmp-tags { display: inline-flex; gap: 5px; margin-top: 2px; }
+.av2-compare .cmp-remove { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: var(--radius-xs); background: none; color: var(--ink-faint); cursor: pointer; transition: background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-compare .cmp-remove:hover { background: rgba(var(--danger-rgb), 0.12); color: rgb(var(--danger-rgb)); }
+.av2-compare .cmp-remove svg.gl { width: 12px; height: 12px; }
+
+/* rows */
+.av2-compare .cmp-cell { height: 40px; display: flex; align-items: center; padding: 0 var(--space-4); border-bottom: 1px solid var(--line-subtle); font-family: var(--font-data); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.av2-compare .cmp-col--model > div:last-child > .cmp-cell:last-child { border-bottom: none; }
+.av2-compare .cmp-cell--section { height: 28px; padding-left: var(--space-4); font-family: var(--font-data); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); background: rgba(var(--fg-rgb), 0.045); border-bottom: 1px solid var(--line-subtle); display: flex; align-items: center; }
+
+/* label rail cells */
+.av2-compare .cmp-col--labels .cmp-cell { border-bottom-color: transparent; padding: 0 var(--space-2) 0 0; justify-content: flex-end; gap: 5px; color: var(--ink-soft); text-align: right; }
+.av2-compare .cmp-col--labels .cmp-cell--section { justify-content: flex-end; padding: 0 var(--space-2) 0 0; background: none; color: var(--ink-faint); border-bottom-color: transparent; }
+.av2-compare .dir { font-size: 10px; color: var(--ink-faint); }
+
+/* value cells */
+.av2-compare .cmp-cell--val { justify-content: flex-end; gap: 6px; color: var(--ink-body); }
+.av2-compare .cmp-cell--val .val { font-weight: 500; }
+.av2-compare .cmp-cell--na { color: var(--ink-faint); }
+.av2-compare .cmp-cell--win { background: rgba(var(--positive-rgb), 0.11); box-shadow: inset 3px 0 0 rgb(var(--positive-rgb)); }
+.av2-compare .cmp-cell--win .val { color: color-mix(in srgb, rgb(var(--positive-rgb)) 66%, var(--ink-strong)); font-weight: 600; }
+.av2-compare .win-mark { display: inline-flex; color: rgb(var(--positive-rgb)); }
+.av2-compare .win-mark svg.gl { width: 11px; height: 11px; stroke-width: 2.4; }
+
+/* ── citation footer ────────────────────────────────────────────────────────── */
+.av2-compare .cites { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--line-subtle); }
+.av2-compare .cite { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); }
+.av2-compare .cite b { color: var(--ink-soft); font-weight: 500; }
+
+@media (max-width: 720px) {
+  .av2-compare .wrap { padding: var(--space-5) var(--space-4) var(--space-7); }
+  .av2-compare .cmp-col--labels { flex-basis: 108px; }
+  .av2-compare .cmp-cell { padding: 0 var(--space-3); font-size: 11.5px; }
+}

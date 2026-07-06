@@ -1,0 +1,189 @@
+/* =============================================================================
+   ATLAS VISUAL 2 — settings. Hosted under the v2 shell (app/v2/layout.tsx),
+   right of the 64px Atlas nav rail. Ported from design-lab/patterns/settings.html
+   + components/{button,input,controls,card,tag}.css. Everything is scoped under
+   `.av2-settings` so it never leaks into the rest of the deck. The wrapper
+   carries data-theme="light" (= Atlas paper-klein via app/atlas.css), so the
+   subtree resolves the paper tokens even though <html> may be dark. Consumes the
+   Atlas tokens from app/atlas.css; the CONTROLS + SEGMENTED Tier-3 tokens are
+   not vendored there, so they are declared once on the wrapper (design-lab
+   tokens.css values), scoped to this subtree.
+   ============================================================================= */
+
+.av2-settings, .av2-settings * { box-sizing: border-box; margin: 0; padding: 0; }
+
+.av2-settings {
+  position: fixed; inset: 0;
+  background: var(--surface-page);
+  color: var(--ink-body);
+  font-family: var(--font-reading);
+  overflow: hidden;
+
+  /* CONTROLS · Carved Well checkbox + Machined Key switch — Tier-3 tokens not
+     vendored in app/atlas.css; declared here (design-lab tokens.css values). */
+  --ctl-box: 18px;
+  --ctl-radius: var(--radius-xs);
+  --ctl-fill: rgba(var(--fg-rgb), 0.08);
+  --ctl-line: rgba(var(--fg-rgb), 0.1);
+  --ctl-on-fill: rgba(var(--acc-rgb), 0.28);
+  --ctl-on-line: rgba(var(--acc-rgb), 0.5);
+  --track-w: 32px; --track-h: 17px;
+
+  /* SEGMENTED · Machined Key in Carved Track — Tier-3 tokens, same provenance. */
+  --seg-track-fill: rgba(var(--fg-rgb), 0.09);
+  --seg-track-well: 0 1px 2px var(--depth) inset;
+  --seg-key-radius: var(--radius-xs);
+  --seg-key-fill: rgba(var(--acc-rgb), 0.9);
+  --seg-key-line: rgba(var(--acc-rgb), 0.8);
+}
+
+.av2-settings .ic svg { stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+
+/* ── component recipes (self-contained so the look is exact) ────────────────── */
+
+/* CARD — Floating Paper / Carved Panel */
+.av2-settings .card { border-radius: var(--card-radius); background: var(--surface-raised); border: 1px solid var(--line-subtle); }
+.av2-settings .card--well { background: var(--surface-sunken); border-color: rgba(var(--fg-rgb), 0.06); box-shadow: 0 1px 3px var(--depth) inset, 0 1px 0 var(--sheen); }
+
+/* BUTTON — Onyx Chip */
+.av2-settings .btn { font-family: var(--btn-font); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-settings .btn:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-settings .btn:active:not(:disabled) { background: var(--btn-fill-active); }
+.av2-settings .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-settings .btn:disabled { cursor: not-allowed; opacity: 0.45; }
+.av2-settings .btn--primary { background: var(--btn-pri-fill); border-color: var(--btn-pri-line); color: var(--accent-text); box-shadow: 0 1px 0 var(--sheen) inset; }
+.av2-settings .btn--primary:hover:not(:disabled) { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
+.av2-settings .btn--ghost { background: transparent; border-color: transparent; color: var(--ink-soft); }
+.av2-settings .btn--ghost:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: transparent; }
+.av2-settings .btn--danger { background: rgba(var(--danger-rgb), 0.14); border-color: rgba(var(--danger-rgb), 0.4); color: color-mix(in srgb, rgb(var(--danger-rgb)) 70%, var(--ink-strong) 30%); }
+.av2-settings .btn--danger:hover:not(:disabled) { background: rgba(var(--danger-rgb), 0.22); border-color: rgba(var(--danger-rgb), 0.6); }
+.av2-settings .btn--sm { height: var(--btn-h-sm); padding: 0 var(--space-3); font-size: var(--text-xs); }
+
+/* FIELD — Deep Well */
+.av2-settings .field { display: flex; flex-direction: column; gap: var(--space-2); }
+.av2-settings .field__label { font-family: var(--font-data); font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--ink-soft); }
+.av2-settings .field__input { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-strong); height: var(--field-h); width: 100%; padding: 0 var(--space-3); border-radius: var(--field-radius); border: 1px solid var(--field-line); background: var(--field-fill); box-shadow: var(--field-well); outline: none; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out), transform var(--duration-base) var(--ease-out); }
+.av2-settings .field__input::placeholder { color: var(--ink-faint); }
+.av2-settings .field__input:hover:not(:disabled):not(:focus) { background: var(--field-fill-hover); }
+.av2-settings .field__input:focus { background: var(--surface-raised); border-color: var(--field-focus-line); box-shadow: var(--field-focus-halo); transform: translateY(var(--field-lift)); }
+.av2-settings .field__help { font-family: var(--font-data); font-size: var(--text-xs); color: var(--ink-faint); line-height: 1.6; }
+.av2-settings textarea.field__input { height: auto; min-height: 108px; padding: var(--space-3); resize: vertical; line-height: 1.55; }
+
+/* SELECT — Deep Well + mono chevron, native menu */
+.av2-settings .selectwrap { position: relative; }
+.av2-settings .selectwrap select.field__input { appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 34px; }
+.av2-settings .selectwrap .chev { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); pointer-events: none; }
+
+/* STEPPER — machined keys flank the well (forms.html B1) */
+.av2-settings .stepper { display: flex; align-items: stretch; width: 148px; }
+.av2-settings .stepper .field__input { text-align: center; font-family: var(--font-data); border-radius: 0; z-index: 1; }
+.av2-settings .stepper .btn { height: var(--field-h); border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.av2-settings .stepper .btn:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+/* PREVIEW chip — honest marker: control is UI-only, not wired to deck.prefs */
+.av2-settings .pv { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 8px; padding: 1px 6px; border-radius: var(--radius-xs); font-family: var(--font-data); font-size: 8.5px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; line-height: 1.5; color: var(--ink-faint); background: rgba(var(--fg-rgb), 0.05); border: 1px solid var(--line-subtle); box-shadow: 0 1px 0 var(--sheen); }
+
+/* TAG — Engraved Stamp */
+.av2-settings .tag { font-family: var(--font-data); font-size: var(--text-xs); padding: 2px 9px; border-radius: var(--radius-xs); background: var(--tag-fill); color: var(--tag-ink); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); display: inline-flex; align-items: center; gap: 6px; }
+.av2-settings .tag--accent { color: var(--accent-text); background: var(--tag-acc-fill); }
+
+/* CONTROLS — switch (Machined Key) */
+.av2-settings .ctl { display: flex; align-items: center; gap: var(--space-3); cursor: pointer; font-size: var(--text-sm); color: var(--ink-body); width: fit-content; }
+.av2-settings .ctl input { position: absolute; opacity: 0; pointer-events: none; }
+.av2-settings .ctl:has(input:disabled) { cursor: not-allowed; opacity: 0.45; }
+.av2-settings .ctl__track { width: var(--track-w); height: var(--track-h); border-radius: 6px; flex: none; position: relative; background: rgba(var(--fg-rgb), 0.09); border: 1px solid rgba(var(--fg-rgb), 0.08); box-shadow: 0 1px 2px var(--depth) inset; transition: background var(--duration-base) var(--ease-out); }
+.av2-settings .ctl__track::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(var(--track-h) - 6px); height: calc(var(--track-h) - 6px); border-radius: 3px; background-color: var(--surface-raised); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border: 1px solid rgba(var(--fg-rgb), 0.18); box-shadow: 0 1.5px 0 rgba(var(--fg-rgb), 0.2), 0 2px 3px var(--depth); transition: left var(--duration-base) var(--ease-out), background-color var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out); }
+.av2-settings .ctl input:checked + .ctl__track { background: rgba(var(--acc-rgb), 0.3); }
+.av2-settings .ctl input:checked + .ctl__track::after { left: calc(100% - var(--track-h) + 4px); background-color: rgba(var(--acc-rgb), 0.9); background-image: linear-gradient(0deg, var(--sheen), transparent 60%); border-color: rgba(var(--acc-rgb), 0.8); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-settings .ctl input:focus-visible + .ctl__track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* SEGMENTED — Machined Key in Carved Track (React-controlled, no sliding thumb) */
+.av2-settings .seg { position: relative; display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-sm); background: var(--seg-track-fill); box-shadow: var(--seg-track-well); }
+.av2-settings .seg__btn { position: relative; z-index: 1; background: none; border: 1px solid transparent; border-radius: var(--seg-key-radius); font-family: var(--font-data); font-size: var(--text-sm); color: var(--ink-faint); padding: 5px var(--space-3); cursor: pointer; transition: color var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-settings .seg__btn:hover:not(.is-active) { color: var(--ink-soft); }
+.av2-settings .seg__btn.is-active { color: var(--on-accent); font-weight: 500; background-color: var(--seg-key-fill); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border-color: var(--seg-key-line); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); }
+.av2-settings .seg__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; z-index: 2; }
+
+/* ── layout: section sub-nav | settings pane ───────────────────────────────── */
+.av2-settings .shell { display: flex; height: 100%; }
+
+/* section sub-nav (surface-specific — NOT app nav; the shell rail owns that) */
+.av2-settings .side { width: 236px; flex: none; border-right: 1px solid var(--line-subtle); padding: var(--space-7) var(--space-4) var(--space-6); display: flex; flex-direction: column; gap: var(--space-1); overflow-y: auto; }
+.av2-settings .side h1 { font-family: var(--font-reading); font-size: var(--text-xl); font-weight: 600; color: var(--ink-strong); padding: 0 10px; margin-bottom: 2px; }
+.av2-settings .side .kick { font-family: var(--font-data); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); padding: 0 10px; margin-bottom: var(--space-4); }
+.av2-settings .nitem { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius-sm); font-family: var(--font-data); font-size: 12.5px; color: var(--ink-soft); text-decoration: none; cursor: pointer; border: none; background: none; width: 100%; text-align: left; transition: background var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-settings .nitem:hover { background: rgba(var(--fg-rgb), calc(var(--alpha-wash) - 0.02)); color: var(--ink-strong); }
+.av2-settings .nitem.active { background: rgba(var(--acc-rgb), 0.14); color: var(--accent-text); font-weight: 700; }
+.av2-settings .nitem .ic { flex: none; }
+.av2-settings .side-foot { margin-top: auto; padding: var(--space-4) 10px 0; border-top: 1px solid var(--line-subtle); }
+.av2-settings .side-foot .meta { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); line-height: 1.7; display: block; }
+
+/* settings pane — scrolls; the fixed root stays overflow:hidden */
+.av2-settings .main { flex: 1; min-width: 0; overflow-y: auto; padding: var(--space-7) var(--space-7) var(--space-8); }
+.av2-settings .pane { max-width: 760px; margin: 0 auto; }
+.av2-settings .pane > h2 { font-family: var(--font-reading); font-size: var(--text-2xl); font-weight: 600; line-height: var(--leading-title, 1.3); color: var(--ink-strong); }
+.av2-settings .pane > .sub { font-family: var(--font-data); font-size: 11px; color: var(--ink-faint); margin-top: 4px; margin-bottom: var(--space-6); }
+
+.av2-settings .group { margin-bottom: var(--space-6); }
+.av2-settings .group > .glabel { font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); font-family: var(--font-ui); margin-bottom: var(--space-3); }
+.av2-settings .panel { padding: var(--space-5); }
+.av2-settings .formgrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.av2-settings .formgrid .full { grid-column: 1 / -1; }
+
+/* setting rows — label/desc left, control right */
+.av2-settings .srow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: 12px 0; border-top: 1px solid var(--line-subtle); }
+.av2-settings .srow:first-of-type { border-top: none; padding-top: 0; }
+.av2-settings .srow .st { min-width: 0; }
+.av2-settings .srow .st b { font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 600; color: var(--ink-strong); display: block; line-height: var(--leading-tight); }
+.av2-settings .srow .st small { font-family: var(--font-ui); font-size: var(--text-xs); color: var(--ink-faint); line-height: 1.5; }
+.av2-settings .srow .ctlwrap { flex: none; display: flex; align-items: center; gap: var(--space-3); }
+.av2-settings .srow .selectwrap { width: 200px; }
+.av2-settings .srow .selectwrap select.field__input { height: 32px; font-size: var(--text-sm); }
+
+.av2-settings .savebar { display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4); }
+
+/* appearance — theme swatch grid (Light row / Dark row). Each swatch is a
+   static preview of that theme's page × ink × accent, so it reads regardless
+   of the currently-active theme. Active = accent ring. */
+.av2-settings .swatch-rows { display: flex; flex-direction: column; gap: var(--space-5); }
+.av2-settings .swatch-row__label { font-family: var(--font-data); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: var(--space-3); }
+.av2-settings .tsw-grid { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+.av2-settings .tsw { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 64px; padding: 0; background: none; border: none; cursor: pointer; }
+.av2-settings .tsw__chip { position: relative; width: 64px; height: 46px; border-radius: var(--radius-sm); border: 1px solid var(--line-subtle); box-shadow: 0 1px 3px var(--depth), 0 1px 0 var(--sheen) inset; overflow: hidden; transition: transform var(--duration-base) var(--ease-out), box-shadow var(--duration-base) var(--ease-out); }
+.av2-settings .tsw:hover .tsw__chip { transform: translateY(-1px); box-shadow: 0 3px 8px var(--depth), 0 1px 0 var(--sheen) inset; }
+.av2-settings .tsw__ink { position: absolute; left: 9px; top: 11px; width: 28px; height: 4px; border-radius: 2px; opacity: 0.85; }
+.av2-settings .tsw__ink::after { content: ""; position: absolute; left: 0; top: 8px; width: 18px; height: 3px; border-radius: 2px; background: inherit; opacity: 0.55; }
+.av2-settings .tsw__dot { position: absolute; right: 9px; bottom: 9px; width: 15px; height: 15px; border-radius: var(--radius-full); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.14), 0 1px 2px rgba(0, 0, 0, 0.35); }
+.av2-settings .tsw__name { font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.02em; line-height: 1.3; text-align: center; color: var(--ink-faint); }
+.av2-settings .tsw.on .tsw__chip { border-color: var(--accent); box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3px rgba(var(--acc-rgb), 0.6); }
+.av2-settings .tsw.on .tsw__name { color: var(--accent-text); font-weight: 600; }
+.av2-settings .tsw:focus-visible { outline: none; }
+.av2-settings .tsw:focus-visible .tsw__chip { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* RANGE — welled track + machined-key thumb (Atlas), value readout in mono */
+.av2-settings .rng { display: flex; align-items: center; gap: var(--space-3); }
+.av2-settings .rng__in { -webkit-appearance: none; appearance: none; width: 150px; height: 6px; border-radius: var(--radius-full); background: rgba(var(--fg-rgb), 0.12); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); outline: none; cursor: pointer; }
+.av2-settings .rng__in::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: var(--radius-full); background-color: rgba(var(--acc-rgb), 0.95); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); border: 1px solid rgba(var(--acc-rgb), 0.8); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); cursor: pointer; }
+.av2-settings .rng__in::-moz-range-thumb { width: 16px; height: 16px; border: 1px solid rgba(var(--acc-rgb), 0.8); border-radius: var(--radius-full); background-color: rgba(var(--acc-rgb), 0.95); background-image: linear-gradient(180deg, var(--sheen), transparent 60%); box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth); cursor: pointer; }
+.av2-settings .rng__in:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+.av2-settings .rng__val { font-family: var(--font-data); font-size: var(--text-xs); color: var(--ink-soft); min-width: 42px; text-align: right; }
+
+/* code well — echoes the resolved config, mono */
+.av2-settings .codewell { padding: var(--space-3) var(--space-4); margin-top: var(--space-4); border-radius: var(--radius-md); }
+.av2-settings .codewell code { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-soft); line-height: 1.7; }
+
+/* danger zone */
+.av2-settings .panel.danger { border-color: rgba(var(--danger-rgb), 0.35); }
+.av2-settings .panel.danger .glabel-inline { color: color-mix(in srgb, rgb(var(--danger-rgb)) 75%, var(--ink-strong)); font-weight: 600; font-size: var(--text-sm); font-family: var(--font-ui); display: block; line-height: var(--leading-tight); }
+.av2-settings .panel.danger small { color: var(--ink-faint); font-size: var(--text-xs); font-family: var(--font-ui); }
+
+/* ── mobile fold ───────────────────────────────────────────────────────────── */
+@media (max-width: 860px) {
+  .av2-settings .shell { flex-direction: column; }
+  .av2-settings .side { width: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-4) var(--space-4); border-right: none; border-bottom: 1px solid var(--line-subtle); overflow-x: auto; }
+  .av2-settings .side h1 { font-size: var(--text-lg); margin: 0; }
+  .av2-settings .side .kick, .av2-settings .side-foot { display: none; }
+  .av2-settings .nitem { width: auto; }
+  .av2-settings .main { padding: var(--space-5) var(--space-4) var(--space-7); }
+  .av2-settings .formgrid { grid-template-columns: 1fr; }
+}

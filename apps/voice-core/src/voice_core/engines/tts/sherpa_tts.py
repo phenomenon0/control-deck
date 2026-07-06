@@ -77,7 +77,12 @@ class SherpaTtsEngine(StreamingTts):
         LOG.info("sherpa-onnx tts loaded sample_rate=%d", self.sample_rate)
 
     def stream(
-        self, text: str, voice: str | None = None, speed: float = 1.0
+        self,
+        text: str,
+        voice: str | None = None,
+        speed: float = 1.0,
+        *,
+        enable_timing: bool = False,
     ) -> Iterator[bytes]:
         self.load()
         speaker_id = 0

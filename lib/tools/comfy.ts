@@ -7,8 +7,9 @@ import { mkdir, copyFile, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
 import { hub } from "@/lib/agui/hub";
-import { acquire, release } from "@/lib/resource/arbiter";
-import type { LaneId } from "@/lib/resource/types";
+import { acquire, release, snapshot, ensureArbiterBooted } from "@/lib/resource/arbiter";
+import { refreshSnapshot } from "@/lib/resource/ledger";
+import type { LaneId, LedgerSnapshot } from "@/lib/resource/types";
 import {
   createEvent,
   generateId,
@@ -16,6 +17,7 @@ import {
   type ToolCallArgs,
   type ToolCallResult,
   type ArtifactCreated,
+  type StepStarted,
 } from "@/lib/agui/events";
 import { jsonPayload } from "@/lib/agui/payload";
 import { createArtifact, saveEvent } from "@/lib/agui/db";
@@ -139,6 +141,129 @@ export async function ensureVRAM(preset: string): Promise<string | null> {
   }
   
   return null;
+}
+
+/**
+ * Ollama base URL (no /v1, no trailing slash). Mirrors app/api/ollama/ps.
+ */
+function ollamaBase(): string {
+  return (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434")
+    .replace(/\/v1$/, "")
+    .replace(/\/$/, "");
+}
+
+/** First resident Ollama model name, or undefined if none / unreachable. */
+async function ollamaResidentModel(): Promise<string | undefined> {
+  try {
+    const res = await fetch(`${ollamaBase()}/api/ps`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as { models?: Array<{ name?: string }> };
+    return (data.models ?? []).find((m) => m.name)?.name;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Unload an Ollama model via the keep_alive:0 trick. Best-effort. */
+async function ollamaUnload(name: string): Promise<void> {
+  try {
+    await fetch(`${ollamaBase()}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: name, prompt: "", keep_alive: 0, stream: false }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Poll Ollama /api/ps until `name` is gone (confirm freed), refreshing the
+ * VRAM ledger each round, up to 15s. Returns MB freed vs preFreeMb.
+ */
+async function confirmOllamaFreed(name: string, needMb: number, preFreeMb: number): Promise<number> {
+  const deadline = Date.now() + 15_000;
+  let freeMb = preFreeMb;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500));
+    let gone = false;
+    try {
+      const res = await fetch(`${ollamaBase()}/api/ps`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { models?: Array<{ name?: string }> };
+        gone = !(data.models ?? []).some((m) => m.name === name);
+      }
+    } catch {
+      /* keep polling */
+    }
+    try {
+      freeMb = (await refreshSnapshot()).freeMb;
+    } catch {
+      /* keep last reading */
+    }
+    if (gone && freeMb >= needMb) break;
+  }
+  return freeMb - preFreeMb;
+}
+
+/** llama-swap (llama.cpp) base URL — /v1 + trailing slash stripped. */
+function llamaSwapBase(): string {
+  return (process.env.LLAMA_SWAP_BASE_URL ?? "http://localhost:8080")
+    .replace(/\/v1$/, "")
+    .replace(/\/$/, "");
+}
+
+/** llama-swap reachable (and thus possibly holding a resident group)? */
+async function llamaSwapReachable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${llamaSwapBase()}/v1/models`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Unload all running llama-swap models — frees the group holding VRAM.
+ *  Mirrors lib/resource/lane-adapters.ts unloadLlamaSwap() path fallbacks. */
+async function llamaSwapUnloadAll(): Promise<void> {
+  for (const path of ["/api/models/unload", "/unload", "/admin/unload"]) {
+    try {
+      const res = await fetch(`${llamaSwapBase()}${path}`, {
+        method: "POST",
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) return;
+    } catch {
+      /* try the next legacy path */
+    }
+  }
+}
+
+/** Backend-agnostic confirm: poll the VRAM ledger until freeMb >= needMb (~15s).
+ *  Used after a llama-swap unload where there's no per-model /api/ps to check. */
+async function confirmFreedByLedger(needMb: number, preFreeMb: number): Promise<number> {
+  const deadline = Date.now() + 15_000;
+  let freeMb = preFreeMb;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      freeMb = (await refreshSnapshot()).freeMb;
+    } catch {
+      /* keep last reading */
+    }
+    if (freeMb >= needMb) break;
+  }
+  return freeMb - preFreeMb;
 }
 
 export interface ComfyToolContext {
@@ -362,6 +487,67 @@ export async function executeComfyWorkflow(
   // lane can be freed. ensureVRAM stays as a legacy check beneath it.
   const lane = resource?.lane ?? presetToLane(preset);
   const estimateMb = resource?.estimateMb ?? (preset ? (VRAM_REQUIREMENTS[preset] ?? 8000) : 8000);
+  const noun = lane === "audio" ? "audio" : lane === "3d" ? "3D model" : lane === "video" ? "video" : "image";
+
+  // Per-step status emitter. Uses the same createEvent → saveEvent → hub.publish
+  // path as the ToolCallStart/ArtifactCreated events below; the v2 chat taps
+  // these StepStarted events via /api/agui/stream to render the swap chain
+  // inline. StepStarted is not carried by the /api/chat SSE path, so there is
+  // no duplication with the agent's own text.
+  let stepIndex = 0;
+  const emitStep = (description: string) => {
+    const evt = createEvent<StepStarted>("StepStarted", threadId, {
+      runId,
+      stepIndex: stepIndex++,
+      description,
+    });
+    saveEvent(evt);
+    hub.publish(threadId, evt);
+  };
+
+  // --- AUTO-SWAP assessment: only free VRAM when there isn't room. If a small
+  // LLM + this workflow both fit, `fits` is true, nothing is evicted, and no
+  // unload lines show — we just report generating/ready below. ---
+  ensureArbiterBooted();
+  let pre: LedgerSnapshot | undefined;
+  try {
+    pre = await refreshSnapshot();
+  } catch {
+    /* ledger read failed; skip assessment, acquire still guards */
+  }
+  const need = estimateMb + (pre?.reserveMb ?? 0);
+  const fits = !pre || pre.freeMb >= need;
+  const chatRes = pre?.reservations.find((r) => r.lane === "chat" || r.lane === "vision");
+  const arbiterWillEvict = !fits && !!chatRes;
+
+  if (!fits && !chatRes && pre) {
+    // No arbiter chat reservation to evict — the resident LLM is a bare runtime
+    // session (Ollama OR llama-swap) the arbiter can't see. Unload it directly
+    // so acquire's fast path finds room, and confirm VRAM actually freed.
+    let freeMb = pre.freeMb;
+
+    // (a) Ollama keep_alive:0 unload, if a model is resident there.
+    const resident = await ollamaResidentModel();
+    if (resident) {
+      emitStep(`unloading ${resident} to free VRAM…`);
+      await ollamaUnload(resident);
+      const freedMb = await confirmOllamaFreed(resident, need, pre.freeMb);
+      freeMb = pre.freeMb + freedMb;
+      emitStep(`freed ${(Math.max(0, freedMb) / 1024).toFixed(1)} GB`);
+    }
+
+    // (b) Still short? A llama-swap (llama.cpp) group — the deck's BIG models —
+    // is holding the VRAM. Unload all running groups and confirm via the ledger.
+    if (freeMb < need && (await llamaSwapReachable())) {
+      emitStep(`unloading local LLM to free VRAM…`);
+      await llamaSwapUnloadAll();
+      const freedMb = await confirmFreedByLedger(need, freeMb);
+      emitStep(`freed ${(Math.max(0, freedMb) / 1024).toFixed(1)} GB`);
+    }
+  } else if (arbiterWillEvict) {
+    emitStep(`unloading ${chatRes?.modelId ?? "chat model"} to free VRAM…`);
+  }
+
   let comfyTicket: string | undefined;
   try {
     const acq = await acquire({
@@ -380,6 +566,11 @@ export async function executeComfyWorkflow(
       };
     }
     comfyTicket = acq.ticket;
+    // Arbiter did the eviction inside acquire — confirm how much it freed.
+    if (arbiterWillEvict && pre) {
+      const post = snapshot();
+      emitStep(`freed ${(Math.max(0, post.freeMb - pre.freeMb) / 1024).toFixed(1)} GB`);
+    }
   } catch (e) {
     console.warn("[Comfy] arbiter acquire failed, proceeding unguarded:", e);
   }
@@ -413,6 +604,7 @@ export async function executeComfyWorkflow(
 
   try {
     // Queue the prompt
+    emitStep(`generating ${noun}…`);
     const { prompt_id: promptId } = await queuePrompt(workflow);
     console.log(`[Comfy] Queued prompt: ${promptId}`);
 
@@ -479,6 +671,8 @@ export async function executeComfyWorkflow(
 
             artifacts.push({ id: artifactId, url, name: artifactName, mimeType });
           }
+
+          emitStep(`${noun} ready`);
 
           // Emit ToolCallResult
           const result: ComfyToolResult = {

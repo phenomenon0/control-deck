@@ -26,7 +26,9 @@ import {
 import { startAgentTsSupervisor } from "./services/agent-ts-supervisor";
 
 const IS_DEV = !app.isPackaged;
-const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/deck/chat";
+// Atlas Visual 2 is the main UI. Override with CONTROL_DECK_ROUTE; the former
+// deck is at /deck/chat (default on the `legacy-deck-ui` branch).
+const DEFAULT_ROUTE = process.env.CONTROL_DECK_ROUTE ?? "/v2/chat";
 
 /**
  * DECK_TOKEN gates every /api/* call in middleware.ts. In packaged builds

@@ -191,8 +191,8 @@ export function OnboardingFlow() {
             Get Control Deck running
           </h1>
           <p style={{ margin: 0, color: "var(--text-muted, #888)", fontSize: 14 }}>
-            One click installs the right local model for your hardware, wires up
-            voice, and verifies everything works. Usually under 5 minutes.
+            One click installs the right local model for your hardware, checks
+            local voice, and verifies everything works. Usually under 5 minutes.
           </p>
         </header>
 
@@ -360,9 +360,9 @@ function MissingList({ probe }: { probe: ProbeResult }) {
       ok: !probe.missing.llmModel,
       note: `${(probe.llm.sizeMb / 1024).toFixed(1)} GB`,
     },
-    { label: "Voice sidecar reachable", ok: !probe.missing.voiceCore },
-    { label: "STT engine available", ok: !probe.missing.sttEngine },
-    { label: "TTS engine available", ok: !probe.missing.ttsEngine },
+    { label: "Voice (s2s) reachable", ok: !probe.missing.voiceCore },
+    { label: "Realtime STT available", ok: !probe.missing.sttEngine },
+    { label: "Realtime TTS available", ok: !probe.missing.ttsEngine },
   ];
   return (
     <section style={sectionStyle}>

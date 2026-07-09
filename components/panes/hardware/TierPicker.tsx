@@ -210,7 +210,7 @@ export function TierPicker() {
           Detected · {data.profile.backend.toUpperCase()}
           {data.profile.gpu?.name ? ` · ${data.profile.gpu.name}` : ""} · {data.profile.ramGb} GB RAM
           {!data.sidecar.reachable && (
-            <span className="tier-picker-warn"> · sidecar offline (port 4245)</span>
+            <span className="tier-picker-warn"> · s2s offline</span>
           )}
         </span>
       </header>

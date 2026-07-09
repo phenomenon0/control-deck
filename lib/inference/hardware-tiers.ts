@@ -68,7 +68,7 @@ export interface TierBundle {
 }
 
 // ---------------------------------------------------------------------------
-// Model identifiers served by voice-core (apps/voice-core/, port 4245).
+// Legacy voice engine identifiers retained for dormant fallback bindings.
 // Keep in sync with `voice_core.engines.register_all()`.
 
 export const VOICE_ENGINE_IDS = {
@@ -89,7 +89,7 @@ export const VOICE_ENGINE_IDS = {
 
 export type VoiceEngineId = (typeof VOICE_ENGINE_IDS)[keyof typeof VOICE_ENGINE_IDS];
 
-/** Engine ids served by voice-core (port 4245). */
+/** Legacy engine ids served by voice-core. */
 export const VOICE_ENGINES_SIDECAR_IDS: ReadonlySet<string> = new Set([
   VOICE_ENGINE_IDS.WHISPER_TURBO_CPP,
   VOICE_ENGINE_IDS.WHISPER_BASE_EN_CPP,

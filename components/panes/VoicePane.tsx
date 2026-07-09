@@ -290,8 +290,8 @@ export function VoicePane() {
         {/* Info */}
         <div className="card bg-[var(--bg-primary)]">
           <div className="text-xs text-[var(--text-muted)] space-y-2">
-            <p>voice-core must be running on port 4245 for STT/TTS to work.</p>
-            <p>Run: <code className="text-[var(--accent)]">bun run voice:core</code></p>
+            <p>s2s must be reachable for local realtime voice.</p>
+            <p>Start the s2s supervisor or Voice Lab, then check the connection.</p>
             {voiceApiStatus === "disconnected" && (
               <button
                 onClick={checkVoiceApi}

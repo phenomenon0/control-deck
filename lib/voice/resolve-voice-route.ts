@@ -208,7 +208,7 @@ function buildRationale(
 ): string {
   const label = VOICE_ROUTE_PRESET_INFO[preset].label;
   if (!stt && !tts) {
-    return `Selected ${label} → no providers reachable. Configure a provider or start the local voice sidecar.`;
+    return `Selected ${label} → no providers reachable. Configure a provider or start s2s local voice.`;
   }
   if (fallbacks.length === 0) {
     const sttLabel = stt ? `${stt.providerName}${stt.model ? ` (${stt.model})` : ""}` : "none";

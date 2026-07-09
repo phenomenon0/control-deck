@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import type { Modality, SlotBinding } from "../types";
+import { voiceCoreUrl } from "../voice-core/sidecar-url";
 
 export const QWEN_OMNI_PROVIDER_ID = "qwen-omni-local";
 export const QWEN_OMNI_MODEL_ID = "Qwen/Qwen2.5-Omni-7B-AWQ";
@@ -117,7 +118,7 @@ export function qwenOmniBinding(modality: Modality, modelDir = qwenOmniModelDir(
         e2eVoiceAssistant: true,
         sidecarUrl: qwenOmniSidecarUrl(),
         fallbackProviderId: "voice-core",
-        fallbackBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
+        fallbackBaseURL: voiceCoreUrl(),
       },
     },
   };

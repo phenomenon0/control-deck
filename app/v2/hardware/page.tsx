@@ -58,7 +58,7 @@ const SEED_SERVICES: ServiceStatus[] = [
   { name: "Terminal Service", url: "http://127.0.0.1:4010/health", status: "online", latencyMs: 3 },
   { name: "VectorDB", url: "http://localhost:4242", status: "online", latencyMs: 6 },
   { name: "SearxNG", url: "http://localhost:8888/healthz", status: "offline" },
-  { name: "Voice Core", url: "http://127.0.0.1:4245/health", status: "offline" },
+  { name: "Voice (s2s)", url: "/v1/pool", status: "offline" },
 ];
 
 /* ── helpers ──────────────────────────────────────────────────────────────── */

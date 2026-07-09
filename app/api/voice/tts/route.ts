@@ -5,6 +5,7 @@ import { applyPersistedBindings } from "@/lib/inference/persistence";
 import { invokeTts, listTtsVoices } from "@/lib/inference/tts/invoke";
 import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { withMetrics } from "@/lib/inference/metrics";
+import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
 import type { TtsArgs } from "@/lib/inference/tts/types";
 
@@ -29,7 +30,7 @@ function resolveTtsBinding(): TtsBinding {
     providerId: "voice-core",
     config: {
       providerId: "voice-core",
-      baseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
+      baseURL: voiceCoreUrl(),
       extras: { engine: "kokoro-82m", defaultVoiceId: "af_sky" },
     },
     isFallback: true,

@@ -88,10 +88,10 @@ function buildAvailability(modality: "stt" | "tts", omniReady: boolean): Provide
     configured: providerConfigured(p.id, omniReady),
     reachable: null as boolean | null,
   }));
-  // Always include voice-core even when no provider was registered for the
-  // current modality — it's the local fallback and must always be considered.
+  // Dormant fallback: keep voice-core visible only as a legacy path when a
+  // binding still points at it and realtime s2s is unavailable.
   if (!list.some((p) => p.id === "voice-core")) {
-    list.push({ id: "voice-core", name: "voice-core · local", configured: true, reachable: null });
+    list.push({ id: "voice-core", name: "voice-core · legacy fallback", configured: true, reachable: null });
   }
   return list;
 }
@@ -206,7 +206,7 @@ function applyBoundVoiceSlots(
       ? "Qwen Omni is bound for voice. Local CUDA runtime is available."
       : omniSidecarOk
         ? `Qwen Omni is bound for voice. Routing speech turns through the configured Omni sidecar at ${omni.sidecar.baseURL}.`
-        : "Qwen Omni is bound for voice. Full local speech generation needs CUDA or a remote Omni sidecar, so playback/transcription can still fall back to the local voice sidecar."
+        : "Qwen Omni is bound for voice. Full local speech generation needs CUDA or a remote Omni sidecar, so playback/transcription can still fall back to legacy voice-core."
     : resolved.rationale;
   return { stt, tts, usesSidecar, rationale };
 }

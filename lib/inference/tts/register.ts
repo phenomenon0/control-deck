@@ -1,8 +1,8 @@
 /**
  * Text-to-speech providers.
  *
- * voice-core hosts the local engines (Kokoro default, Chatterbox expressive,
- * sherpa-tts). Cloud providers are opt-in via env.
+ * voice-core remains registered as a legacy local fallback. Cloud providers
+ * are opt-in via env.
  *
  * Env vars:
  *   TTS_PROVIDER          voice-core | elevenlabs | openai | cartesia | hume | inworld | deepgram | google
@@ -20,23 +20,25 @@
 
 import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
+import { voiceCoreUrl } from "../voice-core/sidecar-url";
 import { listTtsVoices } from "./invoke";
-import type { InferenceProvider, Modality } from "../types";
+import type { InferenceProvider, InferenceProviderConfig, Modality } from "../types";
 
 const PROVIDERS: InferenceProvider[] = [
   {
     id: "voice-core",
-    name: "voice-core (local sidecar)",
+    name: "voice-core (legacy fallback)",
     description:
-      "Local TTS engines hosted by voice-core (port 4245). Kokoro 82M is the " +
+      "Legacy local TTS engines hosted by voice-core. Kokoro 82M is the " +
       "default natural CPU voice; sherpa-onnx stays as the fast fallback and " +
       "Chatterbox stays optional for expressive output.",
     modalities: ["tts", "stt"],
     requiresApiKey: false,
-    defaultBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
+    defaultBaseURL: voiceCoreUrl(),
     defaultModels: {
       tts: ["kokoro-82m", "sherpa-onnx-tts", "chatterbox"],
     },
+    checkHealth: checkVoiceCoreHealth,
     listModels: async (_m, config) => {
       const voices = await listTtsVoices("voice-core", config);
       return voices.map((v) => v.id);
@@ -180,6 +182,7 @@ export function registerTtsProviders(): void {
       ...p,
       modalities,
       defaultModels: { ...(prior?.defaultModels ?? {}), ...p.defaultModels },
+      checkHealth: prior?.checkHealth ?? p.checkHealth,
     });
   }
 
@@ -200,6 +203,19 @@ export function registerTtsProviders(): void {
         },
       },
     });
+  }
+}
+
+async function checkVoiceCoreHealth(config: InferenceProviderConfig): Promise<boolean> {
+  const base = (config.baseURL ?? voiceCoreUrl()).replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/health`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

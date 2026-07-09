@@ -1,6 +1,6 @@
 /**
- * Speech-to-text providers. Mirrors the tts register pattern: voice-core is
- * the local sidecar default; cloud providers are opt-in via env.
+ * Speech-to-text providers. voice-core remains registered only as a legacy
+ * fallback; cloud providers are opt-in via env.
  *
  * Env vars:
  *   STT_PROVIDER         voice-core | openai | groq | deepgram | cartesia | assemblyai
@@ -16,6 +16,7 @@
 
 import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
+import { voiceCoreUrl } from "../voice-core/sidecar-url";
 import type { InferenceProvider, Modality } from "../types";
 
 interface ProviderSeed {
@@ -24,19 +25,21 @@ interface ProviderSeed {
   description: string;
   requiresApiKey: boolean;
   defaultBaseURL?: string;
+  checkHealth?: InferenceProvider["checkHealth"];
   defaultModels: string[];
 }
 
 const SEEDS: ProviderSeed[] = [
   {
     id: "voice-core",
-    name: "voice-core (local sidecar)",
+    name: "voice-core (legacy fallback)",
     description:
-      "Local STT engines hosted by voice-core (port 4245). Includes Moonshine " +
+      "Legacy local STT engines hosted by voice-core. Includes Moonshine " +
       "(CPU streaming), whisper.cpp (Mac/Metal), Parakeet (CUDA), sherpa-onnx " +
       "streaming, and faster-whisper for final correction.",
     requiresApiKey: false,
-    defaultBaseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
+    defaultBaseURL: voiceCoreUrl(),
+    checkHealth: checkVoiceCoreHealth,
     defaultModels: [
       "sherpa-onnx-streaming",
       "moonshine-tiny",
@@ -104,7 +107,7 @@ export function registerSttProviders(): void {
       requiresApiKey: prior?.requiresApiKey ?? seed.requiresApiKey,
       defaultBaseURL: prior?.defaultBaseURL ?? seed.defaultBaseURL,
       defaultModels: { ...(prior?.defaultModels ?? {}), stt: seed.defaultModels },
-      checkHealth: prior?.checkHealth,
+      checkHealth: prior?.checkHealth ?? seed.checkHealth,
       listModels: prior?.listModels,
     };
     registerProvider(next);
@@ -126,6 +129,19 @@ export function registerSttProviders(): void {
         },
       },
     });
+  }
+}
+
+async function checkVoiceCoreHealth(config: { baseURL?: string }): Promise<boolean> {
+  const base = (config.baseURL ?? voiceCoreUrl()).replace(/\/+$/, "");
+  try {
+    const res = await fetch(`${base}/health`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 

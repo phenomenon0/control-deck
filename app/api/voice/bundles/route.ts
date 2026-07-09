@@ -9,13 +9,11 @@
  *
  * Sources:
  *   - "ollama"     → /api/ollama/tags POST internal call
- *   - "voice-core" → port 4245 /pull (kokoro, moonshine, whisper.cpp, parakeet,
- *                                     sherpa-onnx, faster-whisper, chatterbox)
+ *   - "voice-core" → retired; s2s provides local realtime voice
  *   - "qwen-omni"  → out-of-band; we surface install status only
  *
- * On success the route persists the tier choice and binds the cascade slots
- * via `bindTier()` so the rest of the app immediately routes through the new
- * models.
+ * Voice-core bundle provisioning now returns a retirement error instead of
+ * binding new local voice slots.
  */
 
 import { NextResponse } from "next/server";
@@ -33,12 +31,11 @@ import {
   getSelectedTier,
   readPersistedBindings,
 } from "@/lib/inference/persistence";
-import { bindTier } from "@/lib/inference/voice-core/bind-tier";
-import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 import {
   getQwenOmniStatusAsync,
   QWEN_OMNI_PROVIDER_ID,
 } from "@/lib/inference/omni/local";
+import { s2sLabUrl, s2sUrl } from "@/lib/voice/s2s-url";
 
 export const runtime = "nodejs";
 
@@ -52,10 +49,11 @@ interface OllamaTagsResponse {
   models?: Array<{ name?: string; model?: string }>;
 }
 
-interface VoiceCoreHealth {
-  ok?: boolean;
-  tier?: string | null;
-  engines?: Record<string, { available?: boolean; loaded?: boolean }>;
+interface S2sHealth {
+  ok: boolean;
+  poolUrl: string;
+  labUrl: string;
+  labReachable: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,9 +67,9 @@ export async function GET() {
     ramGb: profile.ram,
   });
 
-  const [ollamaModels, sidecarHealth, omniStatus] = await Promise.all([
+  const [ollamaModels, s2sHealth, omniStatus] = await Promise.all([
     fetchOllamaModels(),
-    fetchVoiceCoreHealth(),
+    fetchS2sHealth(),
     getQwenOmniStatusAsync({ probeRuntime: false, probeSidecar: false }).catch(
       () => null,
     ),
@@ -91,8 +89,8 @@ export async function GET() {
       withOmni: tier.omni ? tierDiskMb(tier, { includeOmni: true }) : null,
     },
     cascade: {
-      stt: laneEntry(tier.cascade.stt, sidecarHealth),
-      tts: laneEntry(tier.cascade.tts, sidecarHealth),
+      stt: laneEntry(tier.cascade.stt, s2sHealth),
+      tts: laneEntry(tier.cascade.tts, s2sHealth),
       llm: ollamaLaneEntry(tier.cascade.llm, ollamaModels),
     },
     omni: tier.omni
@@ -103,7 +101,7 @@ export async function GET() {
           modelId: tier.omni.modelId,
           sizeMb: tier.omni.sizeMb,
           note: tier.omni.note,
-          installed: omniInstalled(tier, sidecarHealth, omniStatus),
+          installed: omniInstalled(tier, s2sHealth, omniStatus),
         }
       : null,
     score: recommendation.scores[tier.id],
@@ -122,8 +120,10 @@ export async function GET() {
     selected,
     tiers,
     sidecar: {
-      url: voiceCoreUrl(),
-      reachable: Boolean(sidecarHealth?.ok),
+      url: s2sHealth.poolUrl,
+      labUrl: s2sHealth.labUrl,
+      reachable: s2sHealth.ok,
+      labReachable: s2sHealth.labReachable,
     },
   });
 }
@@ -228,17 +228,6 @@ export async function POST(req: Request) {
             return;
           }
 
-          // All pulls succeeded — bind the slots so the rest of the app uses
-          // the tier immediately. This is best-effort; a binding failure
-          // should not poison the whole flow.
-          try {
-            bindTier(tierId, { omni: wantOmni });
-            emit({ phase: "bound", tierId, omni: wantOmni });
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            emit({ phase: "bind-warning", tierId, error: msg });
-          }
-
           finish(true);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -301,38 +290,11 @@ async function pullOllama(modelId: string, emit: EmitFn, abort: AbortSignal): Pr
 async function pullVoiceCore(
   modelId: string,
   emit: EmitFn,
-  abort: AbortSignal,
+  _abort: AbortSignal,
 ): Promise<void> {
-  emit({ source: "voice-core", model: modelId, status: "queued" });
-  const url = `${voiceCoreUrl()}/pull`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model_id: modelId }),
-      signal: abort,
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    emit({ source: "voice-core", model: modelId, error: msg });
-    throw new Error(`voice-core ${modelId}: ${msg}`);
-  }
-
-  if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => "");
-    const msg = text || `voice-core returned ${res.status}`;
-    emit({ source: "voice-core", model: modelId, error: msg });
-    throw new Error(`voice-core ${modelId}: ${msg}`);
-  }
-
-  await pipeNdjson(res.body, abort, (line) => {
-    const tagged = { source: "voice-core", model: modelId, ...line };
-    emit(tagged);
-    if (line.error) {
-      throw new Error(`voice-core ${modelId}: ${line.error}`);
-    }
-  });
+  const error = "voice-core retired; s2s provides local voice";
+  emit({ source: "voice-core", model: modelId, error });
+  throw new Error(error);
 }
 
 async function checkQwenOmni(tier: TierBundle, emit: EmitFn): Promise<void> {
@@ -438,16 +400,30 @@ async function fetchOllamaModels(): Promise<Set<string>> {
   }
 }
 
-async function fetchVoiceCoreHealth(): Promise<VoiceCoreHealth | null> {
+async function fetchS2sHealth(): Promise<S2sHealth> {
+  const base = s2sUrl().replace(/\/+$/, "");
+  const lab = s2sLabUrl().replace(/\/+$/, "");
+  const [poolReachable, labReachable] = await Promise.all([
+    probe2xx(`${base}/v1/pool`),
+    probe2xx(`${lab}/v1/voice-lab/status`),
+  ]);
+  return {
+    ok: poolReachable,
+    poolUrl: base,
+    labUrl: lab,
+    labReachable,
+  };
+}
+
+async function probe2xx(url: string): Promise<boolean> {
   try {
-    const res = await fetch(`${voiceCoreUrl()}/health`, {
+    const res = await fetch(url, {
       cache: "no-store",
       signal: AbortSignal.timeout(1500),
     });
-    if (!res.ok) return null;
-    return (await res.json()) as VoiceCoreHealth;
+    return res.ok;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -460,15 +436,14 @@ interface LaneSpec {
   note?: string | null;
 }
 
-function laneEntry(spec: LaneSpec, health: VoiceCoreHealth | null) {
-  const engine = health?.engines?.[spec.id];
+function laneEntry(spec: LaneSpec, _health: S2sHealth) {
   return {
     id: spec.id,
     label: spec.label,
     sizeMb: spec.sizeMb ?? null,
     note: spec.note ?? null,
-    available: Boolean(engine?.available),
-    loaded: Boolean(engine?.loaded),
+    available: false,
+    loaded: false,
   };
 }
 
@@ -495,7 +470,7 @@ function hasOllamaModel(installed: Set<string>, modelId: string): boolean {
 
 function omniInstalled(
   tier: TierBundle,
-  _health: VoiceCoreHealth | null,
+  _health: S2sHealth,
   qwen: { ready: boolean } | null,
 ): boolean {
   if (!tier.omni) return false;

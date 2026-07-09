@@ -509,9 +509,9 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
     initAudioContext();
   }, [enabled, checkVoiceApi, initAudioContext]);
 
-  // Electron can mount the renderer before the auto-spawned voice-core
-  // supervisor finishes binding port 4245. A single failed boot-time probe
-  // used to leave the mic disabled forever even after the sidecar came up.
+  // Electron can mount the renderer before the s2s supervisor is ready. A
+  // single failed boot-time probe used to leave the mic disabled forever even
+  // after local voice came up.
   useEffect(() => {
     if (!enabled || voiceApiStatus === "connected") return;
     const retry = window.setInterval(() => {

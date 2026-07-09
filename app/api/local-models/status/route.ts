@@ -5,7 +5,7 @@
  *   - The recommended default at the requested preset (from local-defaults.ts)
  *   - Whether it's installed locally right now
  *   - Whether the app can pull it directly (true for Ollama tags, false for
- *     sidecar-bundled or unavailable entries)
+ *     s2s-bundled or unavailable entries)
  *   - Per-runner availability info the UI can use to show actionable hints
  *
  * Query params:
@@ -16,7 +16,8 @@
  *     preset,
  *     runners: {
  *       ollama:        { reachable, installed: string[] },
- *       voiceSidecar:  { reachable, wsUrl | null },
+ *       voiceSidecar:  { reachable, wsUrl | null }, // compatibility alias
+ *       s2s:           { reachable, wsUrl | null, baseUrl, labUrl, labReachable },
  *     },
  *     modalities: [
  *       {
@@ -44,41 +45,59 @@ import {
   type OllamaProbe,
 } from "@/lib/inference/ollama-probe";
 import type { Modality } from "@/lib/inference/types";
+import { s2sLabUrl, s2sRealtimeWsUrl, s2sUrl } from "@/lib/voice/s2s-url";
 
 const PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
 
-interface SidecarProbe {
+interface S2sProbe {
   reachable: boolean;
   wsUrl: string | null;
+  baseUrl: string;
+  labUrl: string;
+  labReachable: boolean;
 }
 
-async function probeVoiceSidecar(): Promise<SidecarProbe> {
-  // voice-core speaks over WS on 4245 and exposes /health on the same port.
-  // Probe /health server-side using localhost since this endpoint runs in the
-  // Next server process.
-  const base = process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245";
+async function probeS2sVoice(): Promise<S2sProbe> {
+  const base = s2sUrl().replace(/\/+$/, "");
+  const lab = s2sLabUrl().replace(/\/+$/, "");
+  let poolReachable = false;
+  let labReachable = false;
   try {
-    const res = await fetch(`${base}/health`, {
+    const res = await fetch(`${base}/v1/pool`, {
       cache: "no-store",
       signal: AbortSignal.timeout(1500),
     });
-    if (!res.ok) return { reachable: false, wsUrl: null };
-    const wsUrl = base.replace(/^http/, "ws") + "/ws";
-    return { reachable: true, wsUrl };
+    poolReachable = res.ok;
   } catch {
-    return { reachable: false, wsUrl: null };
+    poolReachable = false;
   }
+  try {
+    const res = await fetch(`${lab}/v1/voice-lab/status`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1500),
+    });
+    labReachable = res.ok;
+  } catch {
+    labReachable = false;
+  }
+  return {
+    reachable: poolReachable,
+    wsUrl: poolReachable ? s2sRealtimeWsUrl() : null,
+    baseUrl: base,
+    labUrl: lab,
+    labReachable,
+  };
 }
 
-function hintFor(runner: LocalRunner, installed: boolean, ollama: OllamaProbe, sidecar: SidecarProbe): string | null {
+function hintFor(runner: LocalRunner, installed: boolean, ollama: OllamaProbe, voice: S2sProbe): string | null {
   if (installed) return null;
   switch (runner) {
     case "ollama":
       return ollama.reachable ? null : "Ollama isn't reachable. Start `ollama serve` to enable local pulls.";
     case "voice-sidecar":
-      return sidecar.reachable
-        ? "Bundled with the local voice service. Launch the voice sidecar to enable."
-        : "voice-core isn't running on :4245. Start the voice service to enable.";
+      return voice.reachable
+        ? "Local voice is served by s2s realtime."
+        : "s2s local voice is not running. Start the s2s supervisor or Voice Lab to enable.";
     case "unavailable":
       return "No local runner wired up yet. Cloud providers still work for this modality.";
     default:
@@ -93,7 +112,7 @@ export async function GET(req: Request) {
     ? (presetParam as LocalPreset)
     : "balanced";
 
-  const [ollama, sidecar] = await Promise.all([probeOllama(), probeVoiceSidecar()]);
+  const [ollama, voice] = await Promise.all([probeOllama(), probeS2sVoice()]);
 
   const modalities = (Object.keys(LOCAL_DEFAULTS) as Modality[]).map((m) => {
     const entry = LOCAL_DEFAULTS[m];
@@ -103,10 +122,7 @@ export async function GET(req: Request) {
     if (def.runner === "ollama" && def.id) {
       installed = ollamaInstalledMatch(def.id, ollama.installed);
     } else if (def.runner === "voice-sidecar" && def.id) {
-      // We can't (yet) ask the sidecar "do you have this engine loaded?" —
-      // treat reachable-sidecar as "bundled model is live". Until the sidecar
-      // exposes a model-list endpoint, this is the best signal we have.
-      installed = sidecar.reachable;
+      installed = voice.reachable;
     }
 
     const canPull = def.runner === "ollama" && ollama.reachable;
@@ -118,13 +134,13 @@ export async function GET(req: Request) {
       default: def,
       installed,
       canPull,
-      hint: hintFor(def.runner, installed, ollama, sidecar),
+      hint: hintFor(def.runner, installed, ollama, voice),
     };
   });
 
   return NextResponse.json({
     preset,
-    runners: { ollama, voiceSidecar: sidecar },
+    runners: { ollama, voiceSidecar: voice, s2s: voice },
     modalities,
   });
 }

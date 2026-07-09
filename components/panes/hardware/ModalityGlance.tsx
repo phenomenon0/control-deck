@@ -90,6 +90,7 @@ export function ModalityGlance({
 
 interface RunnerSnapshot {
   ollama: { reachable: boolean; installed: string[] };
+  /** Compatibility key from /api/local-models/status; backed by s2s now. */
   voiceSidecar: { reachable: boolean; wsUrl: string | null };
 }
 
@@ -204,10 +205,10 @@ function subline({
     return "loaded";
   }
   if (status.installed) {
-    return status.default.runner === "voice-sidecar" ? "sidecar ready" : "installed · idle";
+    return status.default.runner === "voice-sidecar" ? "s2s ready" : "installed · idle";
   }
   if (status.default.runner === "voice-sidecar") {
-    return runners.voiceSidecar.reachable ? "sidecar idle" : "sidecar offline";
+    return runners.voiceSidecar.reachable ? "s2s idle" : "s2s offline";
   }
   if (status.canPull) return "pull-ready";
   if (status.default.runner === "ollama" && !runners.ollama.reachable) return "ollama offline";

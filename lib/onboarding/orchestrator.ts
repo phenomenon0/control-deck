@@ -17,6 +17,7 @@ import {
   type TierBundle,
   type TierId,
 } from "@/lib/inference/hardware-tiers";
+import { s2sLabUrl, s2sUrl } from "@/lib/voice/s2s-url";
 import { loadRecipe, type CommandSpec, type ConsentSpec, type Recipe } from "./recipe";
 
 /** Platform-correct state dir — LOCALAPPDATA on Windows, ~/Library on macOS, XDG on Linux. */
@@ -35,7 +36,6 @@ const STATE_DIR = defaultStateDir();
 const DONE_FLAG = join(STATE_DIR, "onboarding.done");
 
 const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
-const VOICE_CORE_URL = process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245";
 
 export type StepStatus = "running" | "done" | "skipped" | "failed";
 
@@ -121,16 +121,13 @@ async function probeOnboardingWith(
 
   const { recipe, error: recipeError } = loaded;
 
-  const [ollamaPresent, ollamaService, llmModel, voiceCoreHealth, ollamaVersion] = await Promise.all([
+  const [ollamaPresent, ollamaService, llmModel, voiceHealth, ollamaVersion] = await Promise.all([
     binaryOnPath("ollama"),
     probeOllamaService(),
     probeLlmModel(tier.cascade.llm.id),
-    probeVoiceCore(),
+    probeS2sVoice(),
     probeOllamaVersion(),
   ]);
-
-  const sttPresent = engineLoadedOrAvailable(voiceCoreHealth, tier.cascade.stt.id);
-  const ttsPresent = engineLoadedOrAvailable(voiceCoreHealth, tier.cascade.tts.id);
 
   // Decide whether the *machine* can actually run the install command — a
   // vanilla Mac without Homebrew, or a Linux box without pkexec, can't honor
@@ -159,9 +156,11 @@ async function probeOnboardingWith(
       ollama: !ollamaPresent,
       ollamaService: !ollamaService,
       llmModel: !llmModel,
-      voiceCore: !voiceCoreHealth.ok,
-      sttEngine: !sttPresent,
-      ttsEngine: !ttsPresent,
+      // Field name retained for the existing onboarding UI contract. It now
+      // means "the s2s local voice path is not reachable".
+      voiceCore: !voiceHealth.ok,
+      sttEngine: !voiceHealth.ok,
+      ttsEngine: !voiceHealth.ok,
     },
     ollamaVersion,
     // Only surface installPlan when we'd actually use it — the consent panel
@@ -472,43 +471,36 @@ export async function* runOnboarding(
   }
 
   if (aborted()) {
-    yield abortStep("voice-core");
+    yield abortStep("voice-s2s");
     return;
   }
-  // --- Voice-core ---------------------------------------------------------
-  // Voice is non-essential for chat. Failures here surface but never block —
-  // the user can still reach the chat surface and fix voice later.
-  if (probe.missing.voiceCore) {
-    yield stamp({ id: "voice-core", title: "Voice sidecar", status: "running" });
-    for await (const evt of provisionVoiceCore(tier.id, signal)) {
-      yield stamp({ id: "voice-core", title: "Voice sidecar", ...evt });
-      if (evt.status === "failed") break;
-    }
-  } else {
-    yield stamp({
-      id: "voice-core",
-      title: "Voice sidecar",
-      status: "skipped",
-      detail: "reachable",
-    });
-  }
+  // --- Voice (s2s) --------------------------------------------------------
+  // Voice is non-essential for chat. Onboarding never provisions or starts it;
+  // Electron owns supervision, and a missing s2s service only creates a
+  // partial onboarding result.
+  const voiceHealth = await probeS2sVoice();
+  yield stamp({
+    id: "voice-s2s",
+    title: "Voice (s2s)",
+    status: voiceHealth.ok ? "done" : "failed",
+    detail: voiceHealth.ok
+      ? `ready via ${voiceHealth.source === "lab-status" ? "lab supervisor" : "s2s pool"}`
+      : "voice optional — s2s not running",
+  });
 
-  // STT / TTS engines — voice-core ships them; status comes straight from /health.
+  // STT / TTS are covered by the realtime s2s transport now; keep these rows
+  // for the existing onboarding checklist without probing retired engines.
   yield stamp({
     id: "stt",
-    title: `STT · ${tier.cascade.stt.label}`,
-    status: probe.missing.sttEngine ? "failed" : "skipped",
-    detail: probe.missing.sttEngine
-      ? "engine not available — check apps/voice-core/models/"
-      : "ready",
+    title: "STT · realtime",
+    status: voiceHealth.ok ? "done" : "failed",
+    detail: voiceHealth.ok ? "ready via s2s" : "voice optional — s2s not running",
   });
   yield stamp({
     id: "tts",
-    title: `TTS · ${tier.cascade.tts.label}`,
-    status: probe.missing.ttsEngine ? "failed" : "skipped",
-    detail: probe.missing.ttsEngine
-      ? "engine not available — check apps/voice-core/models/"
-      : "ready",
+    title: "TTS · realtime",
+    status: voiceHealth.ok ? "done" : "failed",
+    detail: voiceHealth.ok ? "ready via s2s" : "voice optional — s2s not running",
   });
 
   if (aborted()) {
@@ -533,10 +525,9 @@ export async function* runOnboarding(
   });
   if (!smoke.ok) return;
 
-  // Only mark "done" if the whole stack is healthy. If voice engines are
-  // missing the user can still chat, but we don't want the gate to silently
-  // accept a partially-broken state — re-run prompts them to fix voice.
-  const voiceReady = !probe.missing.sttEngine && !probe.missing.ttsEngine;
+  // Only mark "done" if the whole stack is healthy. If s2s is down the user
+  // can still chat, but we keep the partial state so Retry re-checks voice.
+  const voiceReady = voiceHealth.ok;
   if (voiceReady) {
     await markDone(tier.id);
   }
@@ -547,7 +538,7 @@ export async function* runOnboarding(
     status: "done",
     detail: voiceReady
       ? "Open Chat to start talking."
-      : "Chat works. Voice engines are missing — see apps/voice-core/models/ to add them, or click Skip to dismiss this screen.",
+      : "Chat works. Voice optional — s2s not running.",
   });
 }
 
@@ -817,35 +808,28 @@ async function probeLlmModel(modelId: string): Promise<boolean> {
   }
 }
 
-async function probeVoiceCore(): Promise<{ ok: boolean; engines: Record<string, EngineSlot> }> {
+type VoiceProbeSource = "pool" | "lab-status";
+
+async function probeS2sVoice(): Promise<{ ok: boolean; source: VoiceProbeSource | null }> {
+  if (await probe2xx(`${s2sUrl().replace(/\/+$/, "")}/v1/pool`)) {
+    return { ok: true, source: "pool" };
+  }
+  if (await probe2xx(`${s2sLabUrl().replace(/\/+$/, "")}/v1/voice-lab/status`)) {
+    return { ok: true, source: "lab-status" };
+  }
+  return { ok: false, source: null };
+}
+
+async function probe2xx(url: string): Promise<boolean> {
   try {
-    const r = await fetch(`${VOICE_CORE_URL}/health`, {
+    const r = await fetch(url, {
+      cache: "no-store",
       signal: AbortSignal.timeout(1500),
     });
-    if (!r.ok) return { ok: false, engines: {} };
-    const data = (await r.json()) as {
-      ok?: boolean;
-      engines?: Record<string, EngineSlot>;
-    };
-    return { ok: Boolean(data.ok), engines: data.engines ?? {} };
+    return r.ok;
   } catch {
-    return { ok: false, engines: {} };
+    return false;
   }
-}
-
-interface EngineSlot {
-  id: string;
-  available?: boolean;
-  loaded?: boolean;
-}
-
-function engineLoadedOrAvailable(
-  health: { engines: Record<string, EngineSlot> },
-  id: string,
-): boolean {
-  const slot = health.engines[id];
-  if (!slot) return false;
-  return Boolean(slot.available || slot.loaded);
 }
 
 async function startOllamaService(
@@ -934,108 +918,6 @@ interface OllamaProgressEvent {
   status: StepStatus;
   detail?: string;
   progress?: number;
-}
-
-/**
- * Install voice-core deps via `uv sync` and spawn the sidecar detached, in
- * dev / `next start` environments where the Electron supervisor isn't
- * running. Yields one event per phase so the UI shows real progress instead
- * of staring at "running" for two minutes.
- *
- * Skips installing deps when the venv is already populated. Skips spawn when
- * /health responds (somebody else already started it).
- */
-async function* provisionVoiceCore(
-  tierId: TierId,
-  signal?: AbortSignal,
-): AsyncGenerator<OllamaProgressEvent, void, undefined> {
-  // Re-probe first — maybe the supervisor just spawned it.
-  if ((await probeVoiceCore()).ok) {
-    yield { status: "done", detail: "already running" };
-    return;
-  }
-  const voiceCoreDir = join(process.cwd(), "apps", "voice-core");
-  if (!existsSync(join(voiceCoreDir, "pyproject.toml"))) {
-    yield {
-      status: "failed",
-      detail: `apps/voice-core/ not found under ${process.cwd()}. Run from a Control Deck checkout, or restart the Electron app.`,
-    };
-    return;
-  }
-  if (!(await binaryOnPath("uv"))) {
-    yield {
-      status: "failed",
-      detail: "`uv` is required to install the voice sidecar. Install it from https://astral.sh/uv, then click Retry.",
-    };
-    return;
-  }
-  // 1. uv sync — only emits a step update if it has to do real work.
-  const venvBin = join(voiceCoreDir, ".venv", "bin", "python");
-  const venvExe = join(voiceCoreDir, ".venv", "Scripts", "python.exe");
-  const venvReady = existsSync(venvBin) || existsSync(venvExe);
-  if (!venvReady) {
-    yield { status: "running", detail: "installing voice deps (uv sync)…" };
-    const code = await runOnce("uv", ["sync", "--directory", voiceCoreDir], 600_000, signal);
-    if (signal?.aborted) {
-      yield { status: "failed", detail: "Cancelled during voice-deps install." };
-      return;
-    }
-    if (code !== 0) {
-      yield {
-        status: "failed",
-        detail: `uv sync failed (exit ${code ?? "?"}). Run \`uv sync --directory apps/voice-core\` manually for full output.`,
-      };
-      return;
-    }
-  }
-  // 2. Spawn detached. Don't unref before the process actually starts —
-  // Bun spawn returns immediately, so the unref + poll cycle is safe.
-  yield { status: "running", detail: "starting voice sidecar…" };
-  // Keep the child ref so we can kill it if /health never comes up or the
-  // orchestrator is aborted mid-poll — a leaked detached process would hold
-  // port 4245 and silently mask the next attempt as "available".
-  let child: ReturnType<typeof spawn> | null = null;
-  try {
-    const host = process.env.VOICE_CORE_HOST ?? "127.0.0.1";
-    const port = process.env.VOICE_CORE_PORT ?? "4245";
-    child = spawn(
-      "uv",
-      ["run", "--directory", voiceCoreDir, "voice-core", "serve", "--host", host, "--port", port, "--tier", tierId],
-      { detached: true, stdio: "ignore", env: augmentedEnv(), windowsHide: true },
-    );
-    child.unref();
-  } catch (err) {
-    yield { status: "failed", detail: `Failed to spawn voice-core: ${(err as Error).message}` };
-    return;
-  }
-  const killSpawn = (): void => {
-    if (!child) return;
-    try { child.kill("SIGTERM"); } catch { /* may already be gone */ }
-    setTimeout(() => {
-      try { child?.kill("SIGKILL"); } catch { /* gone */ }
-    }, 2000).unref();
-    child = null;
-  };
-  // 3. Poll /health up to 30 s — first start cold-loads the engine.
-  for (let i = 0; i < 60; i++) {
-    if (signal?.aborted) {
-      killSpawn();
-      yield { status: "failed", detail: "Cancelled while voice-core was starting." };
-      return;
-    }
-    if ((await probeVoiceCore()).ok) {
-      yield { status: "done", detail: "started" };
-      return;
-    }
-    await sleep(500);
-  }
-  // Health timeout — kill the spawned process so the port doesn't stay held
-  // by a half-broken instance that masks the next retry.
-  killSpawn();
-  yield {
-    status: "failed",
-    detail: "voice-core didn't respond on /health within 30 s. Check apps/voice-core/ logs and click Retry.",
-  };
 }
 
 async function* pullOllamaModel(

@@ -26,6 +26,7 @@ import { createArtifact, createUpload, getArtifact, getUpload } from "@/lib/agui
 import { ensureBootstrap, getSlot } from "@/lib/inference/bootstrap";
 import { invokeTts } from "@/lib/inference/tts/invoke";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
+import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 
 import { getStudioEngine } from "./providers";
 import {
@@ -507,7 +508,7 @@ async function cloneVoiceCore(
   config: InferenceProviderConfig,
   opts: { name: string; engineId: string; audio: { blob: Blob; filename: string } },
 ): Promise<string> {
-  const base = config.baseURL ?? (process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245");
+  const base = config.baseURL ?? voiceCoreUrl();
   const form = new FormData();
   form.append("audio", opts.audio.blob, opts.audio.filename);
   form.append("name", opts.name);

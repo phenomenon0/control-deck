@@ -14,9 +14,8 @@
  * ## Runner types
  * - `ollama` — pullable from this app via POST /api/ollama/tags. Status
  *   comes from /api/ollama/ps + /api/ollama/tags (GET).
- * - `voice-sidecar` — engines hosted by the in-repo voice-core service
- *   (port 4245). The app can't pull these directly; it reports whether the
- *   sidecar is up and whether the engine is the one the resolver picked.
+ * - `voice-sidecar` — legacy local voice runner key. The app can't pull these
+ *   directly; status now comes from the s2s realtime pool.
  * - `unavailable` — no local runner wired up today. The UI should show the
  *   modality greyed with a "cloud-only for now" hint.
  */

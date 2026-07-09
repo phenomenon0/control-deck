@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
+import { s2sLabUrl, s2sUrl } from "@/lib/voice/s2s-url";
 
 /**
  * Voice subsystem health probe.
@@ -21,6 +21,7 @@ interface ProviderHealth {
   reachable: boolean | null;
   detail?: string;
   latencyMs?: number;
+  engines?: Array<{ id: string; label: string; mode: "realtime" }>;
 }
 
 async function probe(
@@ -53,17 +54,30 @@ function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response
   return fetch(url, { ...init, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
 }
 
-async function probeVoiceCore(): Promise<ProviderHealth> {
-  const res = await probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
-    fetchWithTimeout(`${voiceCoreUrl()}/health`).catch(() => null),
-  );
+async function probeS2s(): Promise<ProviderHealth> {
+  const poolUrl = `${s2sUrl().replace(/\/+$/, "")}/v1/pool`;
+  const labStatusUrl = `${s2sLabUrl().replace(/\/+$/, "")}/v1/voice-lab/status`;
+  const [pool, lab] = await Promise.all([
+    probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
+      fetchWithTimeout(poolUrl).catch(() => null),
+    ),
+    probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
+      fetchWithTimeout(labStatusUrl).catch(() => null),
+    ),
+  ]);
+  const detail = pool.reachable
+    ? s2sUrl()
+    : lab.reachable
+      ? `pool unreachable; lab supervisor reachable at ${s2sLabUrl()}`
+      : pool.detail;
   return {
-    id: "voice-core",
+    id: "s2s",
     modalities: ["tts", "stt"],
-    configured: true, // local sidecar — always considered configured
-    reachable: res.reachable,
-    detail: res.detail,
-    latencyMs: res.latencyMs,
+    configured: true,
+    reachable: pool.reachable,
+    detail,
+    latencyMs: pool.latencyMs,
+    engines: [{ id: "realtime", label: "Realtime speech-to-speech", mode: "realtime" }],
   };
 }
 
@@ -229,7 +243,7 @@ async function probeAssemblyAi(): Promise<ProviderHealth> {
 
 export async function GET() {
   const providers = await Promise.all([
-    probeVoiceCore(),
+    probeS2s(),
     probeElevenLabs(),
     probeOpenAi(),
     probeCartesia(),
@@ -247,7 +261,7 @@ export async function GET() {
   const unconfigured = providers.filter((p) => !p.configured).map((p) => p.id);
 
   // Back-compat: keep the existing `status` shape so older callers don't break.
-  const sidecar = providers.find((p) => p.id === "voice-core");
+  const sidecar = providers.find((p) => p.id === "s2s");
   const anyReachable = reachable.length > 0;
   const status = anyReachable ? "ok" : "degraded";
 

@@ -176,7 +176,7 @@ export default function VoiceV2Page() {
   const view = route ?? FALLBACK_ROUTE;
   const sttModel = view.stt?.model ?? "—";
   const ttsModel = view.tts?.engine ?? view.tts?.model ?? "—";
-  const sidecarLabel = sidecar === "ok" ? "sidecar · live" : sidecar === "unreachable" ? "sidecar offline" : route ? "sidecar · unknown" : "route offline";
+  const sidecarLabel = sidecar === "ok" ? "s2s · live" : sidecar === "unreachable" ? "s2s offline" : route ? "s2s · unknown" : "route offline";
   const sidecarCls = sidecar === "ok" ? "" : sidecar === "unreachable" || !route ? "backend-chip--warn" : "backend-chip--idle";
 
   const phaseLabel = phase === "idle" ? "Idle" : phase === "listening" ? "Listening" : "Speaking";

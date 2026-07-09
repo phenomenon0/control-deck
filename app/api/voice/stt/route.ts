@@ -5,6 +5,7 @@ import { applyPersistedBindings } from "@/lib/inference/persistence";
 import { invokeStt } from "@/lib/inference/stt/invoke";
 import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { withMetrics } from "@/lib/inference/metrics";
+import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
 
 const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
@@ -27,7 +28,7 @@ function resolveSttBinding(): SttBinding {
     providerId: "voice-core",
     config: {
       providerId: "voice-core",
-      baseURL: process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245",
+      baseURL: voiceCoreUrl(),
     },
     isFallback: true,
   };

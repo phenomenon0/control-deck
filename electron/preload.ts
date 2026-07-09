@@ -12,8 +12,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set<string>([
   "portal:focus_window",
   "portal:click_pixel",
   "terminal:config",
-  "voice-core:state",
-  "voice-core:restart",
+  "s2s:state",
+  "s2s:restart",
 ]);
 
 interface BrowserState {

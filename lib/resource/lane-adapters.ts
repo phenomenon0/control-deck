@@ -22,9 +22,6 @@ const COMFYUI_URL = (): string =>
 const OLLAMA_URL = (): string =>
   process.env.OLLAMA_BASE_URL ?? resolveProviderUrl("ollama");
 
-const VOICE_CORE_URL = (): string =>
-  process.env.VOICE_CORE_URL ?? "http://127.0.0.1:4245";
-
 const QWEN_OMNI_URL = (): string =>
   process.env.QWEN_OMNI_URL ?? "http://127.0.0.1:4247";
 
@@ -133,39 +130,6 @@ async function unloadOllama(): Promise<UnloadResult> {
   }
 }
 
-/**
- * voice-core: POST /engines/<id>/unload. The endpoint is added in this
- * same change. We probe /models for currently-loaded engines and unload
- * each one in the lane kind.
- */
-async function unloadVoiceCore(kind: "stt" | "tts"): Promise<UnloadResult> {
-  const base = VOICE_CORE_URL().replace(/\/$/, "");
-  try {
-    const res = await safeFetch(`${base}/models`, { timeoutMs: 2000 });
-    if (!res.ok) return { ok: false, via: "voice-core /models", error: `${res.status}` };
-    const data = (await res.json()) as Record<string, { kind: string; loaded: boolean }>;
-    const toUnload = Object.entries(data)
-      .filter(([, v]) => v.kind === kind && v.loaded)
-      .map(([id]) => id);
-    if (toUnload.length === 0) return { ok: true, via: `voice-core (nothing in ${kind})` };
-    let allOk = true;
-    for (const id of toUnload) {
-      try {
-        const u = await safeFetch(`${base}/engines/${encodeURIComponent(id)}/unload`, {
-          method: "POST",
-          timeoutMs: 6000,
-        });
-        if (!u.ok) allOk = false;
-      } catch {
-        allOk = false;
-      }
-    }
-    return { ok: allOk, via: `voice-core ${kind} unload` };
-  } catch (e) {
-    return { ok: false, via: `voice-core ${kind}`, error: e instanceof Error ? e.message : "fetch failed" };
-  }
-}
-
 /** qwen-omni-sidecar: DELETE /session is best-effort, optional. */
 async function unloadOmni(): Promise<UnloadResult> {
   const base = QWEN_OMNI_URL().replace(/\/$/, "");
@@ -195,10 +159,6 @@ export async function unloadLane(lane: LaneId, modelId?: string): Promise<Unload
     case "3d":
     case "video":
       return await unloadComfyUI();
-    case "stt":
-      return await unloadVoiceCore("stt");
-    case "tts":
-      return await unloadVoiceCore("tts");
     case "omni":
       return await unloadOmni();
     default:
@@ -210,6 +170,5 @@ export const __test = {
   unloadLlamaSwap,
   unloadComfyUI,
   unloadOllama,
-  unloadVoiceCore,
   unloadOmni,
 };

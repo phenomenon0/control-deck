@@ -20,10 +20,6 @@ import {
   getTerminalServiceConfig,
 } from "./services/terminal-service";
 import {
-  startVoiceCoreSupervisor,
-  type VoiceCoreSupervisorState,
-} from "./services/voice-core-supervisor";
-import {
   startS2sSupervisor,
   type S2sSupervisorState,
 } from "./services/s2s-supervisor";
@@ -245,13 +241,6 @@ let portalBridgeSecret: string | null = null;
 let themedBrowser: ThemedBrowserRegistry | null = null;
 let remoteDesktopClient: RemoteDesktopClient | null = null;
 let terminalService: { kill: () => void } | null = null;
-let voiceCoreService:
-  | {
-      kill: () => void;
-      getState?: () => VoiceCoreSupervisorState;
-      restart?: () => VoiceCoreSupervisorState;
-    }
-  | null = null;
 let s2sService:
   | {
       kill: () => void;
@@ -989,19 +978,6 @@ ipcMain.handle("terminal:config", () => {
   };
 });
 
-// Supervisor introspection + operator-initiated reset. The settings page
-// (and onboarding "voice broken" branch) calls these to surface give-up state
-// and offer a "try again" button without forcing the user to relaunch the app.
-ipcMain.handle("voice-core:state", () => {
-  if (!voiceCoreService?.getState) return { available: false } as const;
-  return { available: true, ...voiceCoreService.getState() };
-});
-
-ipcMain.handle("voice-core:restart", () => {
-  if (!voiceCoreService?.restart) return { available: false } as const;
-  return { available: true, ...voiceCoreService.restart() };
-});
-
 ipcMain.handle("s2s:state", () => {
   if (!s2sService?.getState) return { available: false } as const;
   return { available: true, ...s2sService.getState() };
@@ -1045,13 +1021,6 @@ app.whenReady().then(async () => {
     const detail = err instanceof Error ? err.message : String(err);
     console.error("[electron] terminal service auto-spawn failed:", detail);
     appendCrashLog("supervisor:terminal", detail);
-  }
-  try {
-    voiceCoreService = startVoiceCoreSupervisor();
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    console.error("[electron] voice-core supervisor failed:", detail);
-    appendCrashLog("supervisor:voice-core", detail);
   }
   try {
     s2sService = startS2sSupervisor();
@@ -1109,10 +1078,6 @@ app.on("before-quit", () => {
   if (agentTsService) {
     try { agentTsService.kill(); } catch { /* ignore */ }
     agentTsService = null;
-  }
-  if (voiceCoreService) {
-    try { voiceCoreService.kill(); } catch { /* ignore */ }
-    voiceCoreService = null;
   }
   if (s2sService) {
     try { s2sService.kill(); } catch { /* ignore */ }

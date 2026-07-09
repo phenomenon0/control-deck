@@ -29,6 +29,8 @@ export type VadBackend = "silero" | "energy";
 
 export interface AgentInputOptions {
   inputDeviceId?: string | null;
+  /** Emit raw PCM frames continuously while the mic is open. */
+  audioFrameMode?: "speech-end" | "continuous";
   /** RMS threshold in [0,1]. Used by the energy fallback VAD. */
   silenceThreshold?: number;
   /** ms of sub-threshold audio before declaring end of speech. */
@@ -104,6 +106,7 @@ export class AgentInput {
   private inputDeviceId: string | null;
   private silenceThreshold: number;
   private silenceTimeoutMs: number;
+  private audioFrameMode: "speech-end" | "continuous";
   private vadAssetBasePath: string;
   private forceVadBackend: VadBackend | null;
 
@@ -111,6 +114,9 @@ export class AgentInput {
   private ctx: AudioContext | null;
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private pcmSource: MediaStreamAudioSourceNode | null = null;
+  private pcmNode: ScriptProcessorNode | null = null;
+  private pcmSink: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private rafId: number | null = null;
 
@@ -125,6 +131,7 @@ export class AgentInput {
 
   constructor(options: AgentInputOptions = {}) {
     this.inputDeviceId = options.inputDeviceId ?? null;
+    this.audioFrameMode = options.audioFrameMode ?? "speech-end";
     this.silenceThreshold = options.silenceThreshold ?? 0.01;
     this.silenceTimeoutMs = options.silenceTimeoutMs ?? 1500;
     this.ctx = options.audioContext ?? null;
@@ -174,6 +181,10 @@ export class AgentInput {
     }
     if (this.ctx.state === "suspended") await this.ctx.resume();
 
+    if (this.audioFrameMode === "continuous") {
+      this.startContinuousAudioFrames();
+    }
+
     if (this.forceVadBackend === "energy") {
       this.startEnergyVad();
       return;
@@ -206,6 +217,31 @@ export class AgentInput {
         /* ignore */
       }
       this.source = null;
+    }
+    if (this.pcmNode) {
+      try {
+        this.pcmNode.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.pcmNode.onaudioprocess = null;
+      this.pcmNode = null;
+    }
+    if (this.pcmSource) {
+      try {
+        this.pcmSource.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.pcmSource = null;
+    }
+    if (this.pcmSink) {
+      try {
+        this.pcmSink.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.pcmSink = null;
     }
     if (this.analyser) {
       try {
@@ -304,7 +340,9 @@ export class AgentInput {
           const now = performance.now();
           probe()?.mark("vad_speech_end", { backend: "silero", samples: samples.length });
           probe()?.mark("chunk_last", { backend: "silero", samples: samples.length });
-          this.emit("audioFrame", { samples, sampleRate: 16000, at: now });
+          if (this.audioFrameMode === "speech-end") {
+            this.emit("audioFrame", { samples, sampleRate: 16000, at: now });
+          }
           this.emit("vad", {
             type: "speechEnd",
             at: now,
@@ -349,6 +387,29 @@ export class AgentInput {
     this.currentBackend = "energy";
     this.emit("vadBackendChanged", { backend: "energy" });
     this.tickEnergyVad();
+  }
+
+  private startContinuousAudioFrames(): void {
+    if (!this.ctx || !this.stream || this.pcmNode) return;
+    const ctx = this.ctx;
+    const source = ctx.createMediaStreamSource(this.stream);
+    const node = ctx.createScriptProcessor(4096, 1, 1);
+    const sink = ctx.createGain();
+    sink.gain.value = 0;
+    node.onaudioprocess = (event) => {
+      const channel = event.inputBuffer.getChannelData(0);
+      this.emit("audioFrame", {
+        samples: new Float32Array(channel),
+        sampleRate: event.inputBuffer.sampleRate,
+        at: performance.now(),
+      });
+    };
+    source.connect(node);
+    node.connect(sink);
+    sink.connect(ctx.destination);
+    this.pcmSource = source;
+    this.pcmNode = node;
+    this.pcmSink = sink;
   }
 
   /**

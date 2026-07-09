@@ -225,6 +225,14 @@ export function reduceVoiceSession(
       if (event.type === "RUN_STARTED") {
         return transition(ctx, { state: "thinking" });
       }
+      if (event.type === "INTERRUPT") {
+        return transition(ctx, {
+          state: "interrupted",
+          turnId: ctx.turnId + 1,
+          transcriptFinal: "",
+          transcriptPartial: "",
+        });
+      }
       return ignore(ctx, `event ${event.type} ignored in submitting`);
 
     case "thinking":
@@ -313,7 +321,7 @@ export function reduceVoiceSession(
 }
 
 export function isInterruptible(state: VoiceSessionState): boolean {
-  return state === "speaking" || state === "thinking" || state === "confirming";
+  return state === "speaking" || state === "thinking" || state === "submitting" || state === "confirming";
 }
 
 export function isListening(state: VoiceSessionState): boolean {

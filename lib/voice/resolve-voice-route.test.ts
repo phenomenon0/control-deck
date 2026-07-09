@@ -104,4 +104,16 @@ describe("resolveVoiceRoute", () => {
     expect(r.stt?.providerId).toBe("deepgram");
     expect(r.fallbacksApplied).toContain("stt");
   });
+
+  test("routes to realtime when S2S is reachable before sidecar/gateway", () => {
+    const r = resolveVoiceRoute({
+      preset: "local",
+      sttProviders: [avail("voice-core", "Sidecar")],
+      ttsProviders: [avail("voice-core", "Sidecar")],
+      sidecarReachable: true,
+      s2sReachable: true,
+    });
+    expect(r.transport.mode).toBe("realtime");
+    expect(r.transport.usesSidecar).toBe(false);
+  });
 });

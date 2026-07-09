@@ -23,11 +23,13 @@ import {
   type ProviderAvailability,
   type VoiceRoutePreset,
 } from "@/lib/voice/resolve-voice-route";
+import { s2sUrl, s2sRealtimeWsUrl } from "@/lib/voice/s2s-url";
 import type { SlotBinding } from "@/lib/inference/types";
 
 export const runtime = "nodejs";
 
 const PROBE_TIMEOUT_MS = 1500;
+const S2S_BASE_URL = s2sUrl();
 
 /**
  * Environment variables the registry uses to decide "configured". Kept in one
@@ -63,6 +65,17 @@ async function probeHttpHealth(baseURL: string): Promise<boolean> {
   }
 }
 
+async function probeS2sPool(baseURL: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseURL.replace(/\/+$/, "")}/v1/pool`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 function normalizePreset(raw: string | null): VoiceRoutePreset {
   if (raw && (VOICE_ROUTE_PRESETS as string[]).includes(raw)) return raw as VoiceRoutePreset;
   return "local";
@@ -89,8 +102,9 @@ export async function GET(req: NextRequest) {
 
   const preset = normalizePreset(req.nextUrl.searchParams.get("preset"));
   const voiceCoreBase = voiceCoreUrl();
-  const [voiceCoreOk, omni] = await Promise.all([
+  const [voiceCoreOk, s2sOk, omni] = await Promise.all([
     probeHttpHealth(voiceCoreBase),
+    probeS2sPool(S2S_BASE_URL),
     getQwenOmniStatusAsync({ probeRuntime: true, probeSidecar: true }),
   ]);
 
@@ -106,6 +120,7 @@ export async function GET(req: NextRequest) {
     sttProviders: sttAvailability,
     ttsProviders: ttsAvailability,
     sidecarReachable: voiceCoreOk,
+    s2sReachable: s2sOk,
   });
   const route = applyBoundVoiceSlots(resolved, omni);
   const routeUsesVoiceCore =
@@ -113,8 +128,8 @@ export async function GET(req: NextRequest) {
   const activeWsUrl = routeUsesVoiceCore ? voiceCoreBase.replace(/^http/, "ws") : null;
 
   const transport = {
-    mode: route.usesSidecar ? "local-sidecar" : resolved.transport.mode,
-    wsUrl: route.usesSidecar ? activeWsUrl : null,
+    mode: s2sOk ? "realtime" : route.usesSidecar ? "local-sidecar" : resolved.transport.mode,
+    wsUrl: s2sOk ? s2sRealtimeWsUrl() : route.usesSidecar ? activeWsUrl : null,
     sidecar: (voiceCoreOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
   };
 

@@ -34,6 +34,8 @@ import { SpeechHandle } from "@/lib/voice/speech-handle";
 import { StreamingSttClient } from "@/lib/voice/streaming-stt";
 import { StreamingTtsClient } from "@/lib/voice/streaming-tts";
 import { AgentOutput } from "@/lib/voice/audio-output";
+import { AgentInput } from "@/lib/voice/audio-input";
+import { RealtimeVoiceClient } from "@/lib/voice/realtime-session";
 import { decideSpeakingBridge } from "@/lib/voice/speaking-bridge";
 import {
   createVoiceOwnerId,
@@ -452,8 +454,17 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     return res.arrayBuffer();
   }, [currentVoiceId]);
 
+  // Route + transport snapshot. This is declared before useVoiceChat so the
+  // legacy hook can be disabled when the server-side realtime transport wins.
+  const [runtime, setRuntime] = useState<VoiceRuntimeSnapshot | null>(null);
+  const isRealtime = runtime?.transport.mode === "realtime";
+  const isRealtimeRef = useRef(false);
+  useEffect(() => {
+    isRealtimeRef.current = isRealtime;
+  }, [isRealtime]);
+
   const voiceChat = useVoiceChat({
-    enabled,
+    enabled: enabled && !isRealtime,
     onTranscript: (text) => {
       dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
     },
@@ -499,6 +510,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const stopVoiceSpeaking = voiceChat.stopSpeaking;
 
   useEffect(() => {
+    if (isRealtime) return;
     if (isVoiceChatListening && !prevIsListening.current) {
       // Barge-in: mic activating mid-turn — abort the in-flight LLM fetch
       // *before* we change state so the server-side stream is cut off, not
@@ -545,10 +557,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       }
     }
     prevIsListening.current = isVoiceChatListening;
-  }, [clearSttFinalTimeout, isVoiceChatListening, stopVoiceSpeaking]);
+  }, [clearSttFinalTimeout, isRealtime, isVoiceChatListening, stopVoiceSpeaking]);
 
   useEffect(() => {
-    if (!enabled || ctx.state !== "transcribing") return;
+    if (!enabled || isRealtime || ctx.state !== "transcribing") return;
     const enteredAt = ctx.enteredAt;
     const timer = window.setTimeout(() => {
       if (stateRef.current === "transcribing" && ctx.enteredAt === enteredAt) {
@@ -556,7 +568,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       }
     }, TRANSCRIBING_WATCHDOG_MS);
     return () => window.clearTimeout(timer);
-  }, [ctx.enteredAt, ctx.state, enabled]);
+  }, [ctx.enteredAt, ctx.state, enabled, isRealtime]);
 
   // Thinking watchdog — if AUDIO_STARTED never arrives, fall back to idle
   // instead of leaving the orb frozen. Mirrors the transcribing watchdog.
@@ -572,6 +584,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   }, [ctx.enteredAt, ctx.state, enabled]);
 
   useEffect(() => {
+    if (isRealtime) return;
     const decision = decideSpeakingBridge(
       prevIsSpeaking.current,
       voiceChat.isSpeaking,
@@ -580,31 +593,41 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     );
     if (decision.event) dispatchCtx({ type: decision.event });
     prevIsSpeaking.current = decision.nextPrev;
-  }, [voiceChat.isSpeaking]);
+  }, [isRealtime, voiceChat.isSpeaking]);
 
   useEffect(() => {
+    if (isRealtime) return;
     if (voiceChat.error && voiceChat.error !== prevError.current) {
       dispatchCtx({ type: "FAIL", error: voiceChat.error });
     }
     prevError.current = voiceChat.error;
-  }, [voiceChat.error]);
+  }, [isRealtime, voiceChat.error]);
 
   // Treat WS disconnect as a reconnect prompt.
   useEffect(() => {
+    if (isRealtime) return;
     if (voiceChat.voiceApiStatus === "disconnected") {
       dispatchCtx({ type: "NETWORK_LOST" });
     } else if (voiceChat.voiceApiStatus === "connected") {
       dispatchCtx({ type: "NETWORK_RESTORED" });
     }
-  }, [voiceChat.voiceApiStatus]);
-
-  // Route + transport snapshot
-  const [runtime, setRuntime] = useState<VoiceRuntimeSnapshot | null>(null);
+  }, [isRealtime, voiceChat.voiceApiStatus]);
 
   // Sync streaming-STT activation with the resolved runtime — voice-core
   // engines (moonshine/sherpa-streaming/etc) get the WS partial path. There
   // is no legacy fallback path now that voice-core is the only local backend.
   useEffect(() => {
+    if (isRealtime) {
+      sttModelRef.current = null;
+      useStreamingSttRef.current = false;
+      setUseStreamingStt(false);
+      if (streamingSttRef.current) {
+        clearSttFinalTimeout();
+        streamingSttRef.current.close();
+        streamingSttRef.current = null;
+      }
+      return;
+    }
     const model = runtime?.route?.stt?.model ?? null;
     const next = shouldRouteToVoiceCore(model);
     sttModelRef.current = model;
@@ -615,7 +638,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       streamingSttRef.current.close();
       streamingSttRef.current = null;
     }
-  }, [clearSttFinalTimeout, runtime]);
+  }, [clearSttFinalTimeout, isRealtime, runtime]);
 
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [preset, setPresetState] = useState<VoiceRoutePreset>(initialPreset ?? "local");
@@ -695,6 +718,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   // Latest runId of the in-flight turn — captured via ref so interrupt()
   // stays a stable callback while still able to fire a server-side cancel.
   const activeRunIdRef = useRef<string | null>(null);
+  const activeRunSourceRef = useRef<"chat-surface" | "sse" | null>(null);
   const pendingApprovalRef = useRef<VoiceApprovalChallenge | null>(null);
   // True while ChatSurface's agentRun is streaming a reply. Bridges the
   // inter-phrase gap in the per-phrase TTS lane: `voiceChat.isSpeaking`
@@ -708,6 +732,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   // a ref so the speaking-bridge guard and `interrupt` can tear it down.
   const streamingTtsRef = useRef<StreamingTtsClient | null>(null);
   const streamingHandleSeqRef = useRef(0);
+  const realtimeClientRef = useRef<RealtimeVoiceClient | null>(null);
+  const realtimeInputRef = useRef<AgentInput | null>(null);
+  const [realtimeAudioLevel, setRealtimeAudioLevel] = useState(0);
 
   const createAgentOutput = useCallback(() => {
     const output = new AgentOutput({ outputDeviceId });
@@ -730,6 +757,116 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     });
     return output;
   }, [outputDeviceId]);
+
+  useEffect(() => {
+    const wsUrl = runtime?.transport.wsUrl;
+    if (!enabled || !isRealtime || !wsUrl) return;
+
+    const ensureRealtimeHandle = () => {
+      if (!agentOutputRef.current) agentOutputRef.current = createAgentOutput();
+      let handle = speechHandleRef.current;
+      if (!handle || handle.state === "interrupted" || handle.state === "done") {
+        handle = new SpeechHandle(streamingHandleSeqRef.current++);
+        speechHandleRef.current = handle;
+      }
+      return handle;
+    };
+
+    const client = new RealtimeVoiceClient({
+      wsUrl,
+      callbacks: {
+        onStatus: () => {},
+        onSpeechStarted: () => {
+          void (async () => {
+            const state = stateRef.current;
+            if (state === "speaking" || state === "thinking" || state === "submitting") {
+              await interruptRef.current?.();
+            }
+            sttAttemptIdRef.current += 1;
+            dispatchCtx({ type: "MIC_REQUESTED" });
+            dispatchCtx({ type: "MIC_GRANTED" });
+          })();
+        },
+        onSpeechStopped: () => {
+          dispatchCtx({ type: "VOICE_ENDED" });
+        },
+        onTranscriptionDelta: (text) => {
+          if (text) dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
+        },
+        onTranscriptionCompleted: (text) => {
+          const trimmed = text.trim();
+          dispatchCtx({ type: "TRANSCRIPT_FINAL", text: trimmed });
+        },
+        onResponseCreated: () => {
+          if (!agentOutputRef.current) agentOutputRef.current = createAgentOutput();
+          const prevHandle = speechHandleRef.current;
+          if (prevHandle && prevHandle.state !== "done" && prevHandle.state !== "interrupted") {
+            prevHandle.interrupt("new-realtime-response");
+            agentOutputRef.current.interrupt(prevHandle, "new-realtime-response");
+          }
+          speechHandleRef.current = new SpeechHandle(streamingHandleSeqRef.current++);
+          replyInFlightRef.current = true;
+          dispatchCtx({ type: "RUN_STARTED" });
+        },
+        onAudioDelta: (pcm, sampleRate) => {
+          const output = agentOutputRef.current ?? createAgentOutput();
+          agentOutputRef.current = output;
+          const handle = ensureRealtimeHandle();
+          void output.playPcm16Chunk(handle, pcm, sampleRate);
+        },
+        onAssistantTranscript: () => {},
+        onResponseDone: (status) => {
+          const handle = speechHandleRef.current;
+          replyInFlightRef.current = false;
+          if (!handle) return;
+          if (status === "cancelled") {
+            if (speechHandleRef.current === handle) speechHandleRef.current = null;
+            return;
+          }
+          const output = agentOutputRef.current;
+          if (!output) return;
+          void output.finish(handle).finally(() => {
+            if (speechHandleRef.current === handle && handle.state === "done") {
+              speechHandleRef.current = null;
+            }
+          });
+        },
+        onError: (message) => {
+          dispatchCtx({ type: "FAIL", error: message });
+        },
+      },
+    });
+    client.setMicPaused(true);
+
+    const input = new AgentInput({
+      inputDeviceId,
+      audioFrameMode: "continuous",
+      forceVadBackend: "energy",
+    });
+    const offFrame = input.on("audioFrame", ({ samples, sampleRate }) => {
+      client.appendAudio(samples, sampleRate);
+    });
+    const offLevel = input.on("level", ({ rms }) => {
+      setRealtimeAudioLevel(rms);
+    });
+    const offError = input.on("error", ({ message }) => {
+      dispatchCtx({ type: "FAIL", error: message });
+    });
+
+    realtimeClientRef.current = client;
+    realtimeInputRef.current = input;
+
+    return () => {
+      offFrame();
+      offLevel();
+      offError();
+      if (realtimeClientRef.current === client) realtimeClientRef.current = null;
+      if (realtimeInputRef.current === input) realtimeInputRef.current = null;
+      client.close();
+      void input.stop();
+      setRealtimeAudioLevel(0);
+    };
+  }, [createAgentOutput, enabled, inputDeviceId, isRealtime, runtime?.transport.wsUrl]);
 
   // Tear down STT + output resources on unmount.
   useEffect(() => {
@@ -756,6 +893,26 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     eventSource.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data);
+        if (event.type === "RunStarted") {
+          if (typeof event.runId === "string") {
+            if (activeRunIdRef.current !== event.runId) {
+              activeRunSourceRef.current = "sse";
+            }
+            activeRunIdRef.current = event.runId;
+            replyInFlightRef.current = true;
+          }
+        }
+        if (
+          (event.type === "RunFinished" || event.type === "RunError") &&
+          typeof event.runId === "string" &&
+          event.runId === activeRunIdRef.current
+        ) {
+          if (activeRunSourceRef.current === "sse") {
+            activeRunIdRef.current = null;
+            activeRunSourceRef.current = null;
+            replyInFlightRef.current = false;
+          }
+        }
         if (event.type === "ToolCallStart") {
           setTools((prev) => ({
             ...prev,
@@ -808,11 +965,13 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
               requiredPhrase,
               expiresAt: Date.now() + 60_000,
             };
+            realtimeClientRef.current?.setInterruptEnabled(false);
             setPendingApproval(challenge);
             dispatchCtx({ type: "APPROVAL_CHALLENGE" });
           }
         }
         if (event.type === "InterruptResolved") {
+          realtimeClientRef.current?.setInterruptEnabled(true);
           setPendingApproval(null);
         }
       } catch (err) {
@@ -847,12 +1006,14 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const markAgentRunStarted = useCallback((runId?: string) => {
     if (runId) activeRunIdRef.current = runId;
+    activeRunSourceRef.current = "chat-surface";
     replyInFlightRef.current = true;
     dispatchCtx({ type: "RUN_STARTED" });
   }, []);
 
   const markAgentRunFinished = useCallback(() => {
     activeRunIdRef.current = null;
+    activeRunSourceRef.current = null;
     replyInFlightRef.current = false;
     const state = stateRef.current;
     if (state === "thinking" || state === "speaking") {
@@ -964,6 +1125,32 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const startListening = useCallback(async () => {
     if (!enabled) return;
+    if (isRealtimeRef.current) {
+      await unlockOutput();
+      if (prefs.voice.mode === "vad") armContinuous();
+      if (stateRef.current === "speaking" && interruptRef.current) {
+        await interruptRef.current();
+      }
+      const client = realtimeClientRef.current;
+      const input = realtimeInputRef.current;
+      if (!client || !input) {
+        dispatchCtx({ type: "FAIL", error: "Realtime voice transport is not ready" });
+        return;
+      }
+      dispatchCtx({ type: "MIC_REQUESTED" });
+      client.setMicPaused(true);
+      try {
+        await Promise.all([input.start(), client.connect()]);
+        client.setMicPaused(false);
+        dispatchCtx({ type: "MIC_GRANTED" });
+      } catch (err) {
+        client.setMicPaused(true);
+        await input.stop().catch(() => undefined);
+        const message = err instanceof Error ? err.message : "Could not start realtime voice";
+        dispatchCtx({ type: "MIC_DENIED", error: message });
+      }
+      return;
+    }
     // Take advantage of the gesture that triggered startListening to unlock
     // the output context too — most surfaces wire mic + speak to the same orb.
     void unlockOutput();
@@ -988,11 +1175,17 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const stopListening = useCallback(async () => {
     disarmContinuous();
+    if (isRealtimeRef.current) {
+      realtimeClientRef.current?.setMicPaused(true);
+      setRealtimeAudioLevel(0);
+      return;
+    }
     await voiceChat.stopListening();
   }, [disarmContinuous, voiceChat]);
 
   useEffect(() => {
     if (!enabled) return;
+    if (isRealtime) return;
     if (!continuousArmed) return;
     if (prefs.voice.mode !== "vad") return;
     if (voiceChat.voiceApiStatus !== "connected") return;
@@ -1017,6 +1210,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     voiceChat.isProcessingTTS,
     voiceChat.isSpeaking,
     voiceChat.voiceApiStatus,
+    isRealtime,
   ]);
 
   const confirmApproval = useCallback(
@@ -1030,6 +1224,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       dispatchCtx({
         type: decision === "approved" ? "APPROVAL_GRANTED" : "APPROVAL_REJECTED",
       });
+      realtimeClientRef.current?.setInterruptEnabled(true);
       try {
         const url = decision === "approved" ? "/api/chat/approve" : "/api/chat/reject";
         await fetch(url, {
@@ -1050,6 +1245,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   );
 
   const interrupt = useCallback(async () => {
+    if (isRealtimeRef.current) {
+      realtimeClientRef.current?.cancelResponse();
+    }
     replyInFlightRef.current = false;
     const handle = speechHandleRef.current;
     handle?.interrupt("user-interrupt");
@@ -1059,12 +1257,15 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     streamingTtsRef.current = null;
     if (handle) agentOutputRef.current?.interrupt(handle, "user-interrupt");
     else agentOutputRef.current?.stopAll();
-    voiceChat.stopSpeaking();
-    voiceChat.clearQueue();
+    if (!isRealtimeRef.current) {
+      voiceChat.stopSpeaking();
+      voiceChat.clearQueue();
+    }
     // Tell the server to actually stop the run. Fire-and-forget — the
     // local fetch is already aborted; this just keeps agent-ts from
     // continuing to step after the deck disconnected.
     const runId = activeRunIdRef.current;
+    activeRunSourceRef.current = null;
     if (runId) {
       activeRunIdRef.current = null;
       void fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
@@ -1100,7 +1301,13 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const reset = useCallback(() => {
     disarmContinuous();
+    if (isRealtimeRef.current) {
+      realtimeClientRef.current?.setMicPaused(true);
+      realtimeClientRef.current?.cancelResponse();
+      setRealtimeAudioLevel(0);
+    }
     replyInFlightRef.current = false;
+    activeRunSourceRef.current = null;
     speechHandleRef.current?.interrupt("reset");
     speechHandleRef.current = null;
     dispatchCtx({ type: "RESET" });
@@ -1121,7 +1328,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       stateLabel: labelForState(ctx.state),
       transcriptPartial: ctx.transcriptPartial,
       transcriptFinal: ctx.transcriptFinal,
-      audioLevel: voiceChat.audioLevel,
+      audioLevel: isRealtime ? realtimeAudioLevel : voiceChat.audioLevel,
       isListening: stateIsListening(ctx.state),
       isSpeaking: ctx.state === "speaking",
       isInterruptible: stateIsInterruptible(ctx.state),
@@ -1171,6 +1378,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       ctx.error,
       voiceChat,
       runtime,
+      isRealtime,
+      realtimeAudioLevel,
       runtimeLoading,
       preset,
       latency,

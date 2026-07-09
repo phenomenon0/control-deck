@@ -136,6 +136,7 @@ describe("voice session machine", () => {
   test("isInterruptible is true while thinking or speaking", () => {
     expect(isInterruptible("thinking")).toBe(true);
     expect(isInterruptible("speaking")).toBe(true);
+    expect(isInterruptible("submitting")).toBe(true);
     expect(isInterruptible("idle")).toBe(false);
     expect(isInterruptible("listening")).toBe(false);
   });
@@ -178,6 +179,19 @@ describe("voice session machine", () => {
       { type: "VOICE_ENDED" },
       { type: "TRANSCRIPT_FINAL", text: "the prior question" },
       { type: "RUN_STARTED" },
+      { type: "INTERRUPT" },
+    ]);
+    expect(ctx.state).toBe("interrupted");
+    expect(ctx.transcriptFinal).toBe("");
+    expect(ctx.transcriptPartial).toBe("");
+  });
+
+  test("INTERRUPT from submitting clears transcriptFinal", () => {
+    const ctx = run([
+      { type: "MIC_REQUESTED" },
+      { type: "MIC_GRANTED" },
+      { type: "VOICE_ENDED" },
+      { type: "TRANSCRIPT_FINAL", text: "pending prompt" },
       { type: "INTERRUPT" },
     ]);
     expect(ctx.state).toBe("interrupted");

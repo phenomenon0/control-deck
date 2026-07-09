@@ -66,6 +66,7 @@ export interface ResolverSnapshot {
   sttProviders: ProviderAvailability[];
   ttsProviders: ProviderAvailability[];
   sidecarReachable: boolean;
+  s2sReachable?: boolean;
 }
 
 export interface ResolvedBinding {
@@ -180,7 +181,11 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
   const usesSidecar =
     stt?.providerId === SIDECAR_ID || tts?.providerId === SIDECAR_ID;
   const transportMode: "local-sidecar" | "app-gateway" | "realtime" =
-    usesSidecar ? "local-sidecar" : "app-gateway";
+    snapshot.s2sReachable === true
+      ? "realtime"
+      : usesSidecar
+        ? "local-sidecar"
+        : "app-gateway";
 
   const rationale = buildRationale(snapshot.preset, stt, tts, fallbacksApplied, snapshot);
 
@@ -188,7 +193,7 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
     preset: snapshot.preset,
     stt,
     tts,
-    transport: { mode: transportMode, usesSidecar },
+    transport: { mode: transportMode, usesSidecar: transportMode === "realtime" ? false : usesSidecar },
     fallbacksApplied,
     rationale,
   };

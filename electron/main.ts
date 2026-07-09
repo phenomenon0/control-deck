@@ -23,6 +23,10 @@ import {
   startVoiceCoreSupervisor,
   type VoiceCoreSupervisorState,
 } from "./services/voice-core-supervisor";
+import {
+  startS2sSupervisor,
+  type S2sSupervisorState,
+} from "./services/s2s-supervisor";
 import { startAgentTsSupervisor } from "./services/agent-ts-supervisor";
 
 const IS_DEV = !app.isPackaged;
@@ -246,6 +250,13 @@ let voiceCoreService:
       kill: () => void;
       getState?: () => VoiceCoreSupervisorState;
       restart?: () => VoiceCoreSupervisorState;
+    }
+  | null = null;
+let s2sService:
+  | {
+      kill: () => void;
+      getState?: () => S2sSupervisorState;
+      restart?: () => S2sSupervisorState;
     }
   | null = null;
 let agentTsService: { kill: () => void } | null = null;
@@ -991,6 +1002,16 @@ ipcMain.handle("voice-core:restart", () => {
   return { available: true, ...voiceCoreService.restart() };
 });
 
+ipcMain.handle("s2s:state", () => {
+  if (!s2sService?.getState) return { available: false } as const;
+  return { available: true, ...s2sService.getState() };
+});
+
+ipcMain.handle("s2s:restart", () => {
+  if (!s2sService?.restart) return { available: false } as const;
+  return { available: true, ...s2sService.restart() };
+});
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
 
@@ -1031,6 +1052,13 @@ app.whenReady().then(async () => {
     const detail = err instanceof Error ? err.message : String(err);
     console.error("[electron] voice-core supervisor failed:", detail);
     appendCrashLog("supervisor:voice-core", detail);
+  }
+  try {
+    s2sService = startS2sSupervisor();
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    console.error("[electron] s2s supervisor failed:", detail);
+    appendCrashLog("supervisor:s2s", detail);
   }
   try {
     agentTsService = startAgentTsSupervisor();
@@ -1085,6 +1113,10 @@ app.on("before-quit", () => {
   if (voiceCoreService) {
     try { voiceCoreService.kill(); } catch { /* ignore */ }
     voiceCoreService = null;
+  }
+  if (s2sService) {
+    try { s2sService.kill(); } catch { /* ignore */ }
+    s2sService = null;
   }
   try {
     const handoff = portalHandoffPath();

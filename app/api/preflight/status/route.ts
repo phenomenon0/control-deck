@@ -5,6 +5,8 @@
  * plus a summary string. Never blocks longer than PROBE_TIMEOUT_MS per service.
  */
 
+import { s2sUrl } from "@/lib/voice/s2s-url";
+
 const PROBE_TIMEOUT_MS = 1200;
 
 type ServiceStatus = "up" | "down";
@@ -26,6 +28,13 @@ const SERVICES: ServiceSpec[] = [
       : (process.env.AGENTGO_HEALTH_URL ?? "http://127.0.0.1:4244/health"),
     required: false,
     hint: "Optional: agent-ts on :4244 enables tool runs. Bring up with `./start-full-stack.sh`.",
+  },
+  {
+    key: "s2s",
+    name: "Voice (speech-to-speech)",
+    url: `${s2sUrl().replace(/\/$/, "")}/v1/pool`,
+    required: false,
+    hint: "Optional: speech-to-speech realtime voice on :8765. Started by the desktop shell or `speech-to-speech-lab`.",
   },
   {
     key: "ollama",

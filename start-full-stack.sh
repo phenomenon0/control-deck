@@ -21,6 +21,28 @@ CONTROLDECK_DIR="${CONTROLDECK_DIR:-$HOME/Documents/INIT/control-deck}"
 ATLAS_DIR="${ATLAS_DIR:-$HOME/Documents/Project/Agent-GO/atlas-runtime}"
 AGENT_TS_PORT="${AGENT_TS_PORT:-4244}"
 CONTROLDECK_PORT="${CONTROLDECK_PORT:-3333}"
+S2S_DIR="${S2S_DIR:-$HOME/Documents/Project/footydata/speech-to-speech}"
+S2S_ENABLED="${S2S_ENABLED:-1}"
+S2S_LAB_URL="${S2S_LAB_URL:-}"
+S2S_LAB_HOST="${S2S_LAB_HOST:-}"
+S2S_LAB_PORT="${S2S_LAB_PORT:-}"
+if [ -n "$S2S_LAB_URL" ]; then
+    s2s_lab_authority="${S2S_LAB_URL#*://}"
+    s2s_lab_authority="${s2s_lab_authority%%/*}"
+    if [[ "$s2s_lab_authority" == *:* ]]; then
+        S2S_LAB_HOST="${S2S_LAB_HOST:-${s2s_lab_authority%%:*}}"
+        S2S_LAB_PORT="${S2S_LAB_PORT:-${s2s_lab_authority##*:}}"
+    else
+        S2S_LAB_HOST="${S2S_LAB_HOST:-$s2s_lab_authority}"
+    fi
+fi
+S2S_LAB_HOST="${S2S_LAB_HOST:-127.0.0.1}"
+S2S_LAB_PORT="${S2S_LAB_PORT:-7860}"
+S2S_LAB_URL="${S2S_LAB_URL:-http://$S2S_LAB_HOST:$S2S_LAB_PORT}"
+if [ -n "${S2S_URL:-}" ]; then
+    export S2S_URL
+fi
+export S2S_LAB_URL S2S_DIR S2S_ENABLED
 LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/control-deck}"
 mkdir -p "$LOG_DIR"
 
@@ -99,8 +121,52 @@ check_agent_ts() {
     curl -s http://localhost:$AGENT_TS_PORT/health > /dev/null 2>&1
 }
 
+check_s2s_lab() {
+    curl -s "${S2S_LAB_URL%/}/v1/voice-lab/status" > /dev/null 2>&1
+}
+
 check_controldeck() {
     curl -s http://localhost:$CONTROLDECK_PORT > /dev/null 2>&1
+}
+
+start_s2s() {
+    if [ "$S2S_ENABLED" = "0" ]; then
+        print_warning "s2s disabled (S2S_ENABLED=0)"
+        return 0
+    fi
+
+    if [ ! -d "$S2S_DIR" ]; then
+        print_warning "s2s directory not found at $S2S_DIR; skipping"
+        return 0
+    fi
+
+    if check_s2s_lab; then
+        print_warning "s2s Voice Lab already running at $S2S_LAB_URL"
+        return 0
+    fi
+
+    print_status "Starting s2s Voice Lab..."
+    if command -v uv > /dev/null 2>&1; then
+        HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}" \
+        nohup uv run --directory "$S2S_DIR" speech-to-speech-lab --host "$S2S_LAB_HOST" --port "$S2S_LAB_PORT" > "$LOG_DIR/s2s-lab.log" 2>&1 &
+    elif [ -x "$S2S_DIR/.venv/bin/python" ]; then
+        HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}" \
+        nohup "$S2S_DIR/.venv/bin/python" -m speech_to_speech.api.voice_lab.server --host "$S2S_LAB_HOST" --port "$S2S_LAB_PORT" > "$LOG_DIR/s2s-lab.log" 2>&1 &
+    else
+        print_warning "Skipping s2s: install uv or create $S2S_DIR/.venv"
+        return 0
+    fi
+
+    sleep 3
+
+    if check_s2s_lab; then
+        print_success "s2s Voice Lab started at $S2S_LAB_URL"
+    else
+        print_warning "s2s Voice Lab did not respond yet; continuing"
+        if [ -f "$LOG_DIR/s2s-lab.log" ]; then
+            tail -20 "$LOG_DIR/s2s-lab.log"
+        fi
+    fi
 }
 
 start_servers() {
@@ -130,6 +196,8 @@ start_servers() {
         fi
     fi
 
+    start_s2s
+
     # Start Control Deck
     print_status "Starting Control Deck..."
     if check_controldeck; then
@@ -153,10 +221,12 @@ start_servers() {
     echo ""
     echo -e "  ${GREEN}Control Deck:${NC}  http://localhost:$CONTROLDECK_PORT/deck/chat"
     echo -e "  ${GREEN}agent-ts:${NC}      http://localhost:$AGENT_TS_PORT"
+    echo -e "  ${GREEN}s2s Voice Lab:${NC}  $S2S_LAB_URL"
     echo -e "  ${GREEN}LLM Model:${NC}     $OLLAMA_MODEL"
     echo ""
     echo "Logs:"
     echo "  agent-ts:      tail -f $LOG_DIR/agent-ts.log"
+    echo "  s2s Voice Lab: tail -f $LOG_DIR/s2s-lab.log"
     echo "  Control Deck:  tail -f $LOG_DIR/controldeck.log"
     echo ""
 }
@@ -199,6 +269,16 @@ show_status() {
         echo -e "agent-ts:      ${GREEN}RUNNING${NC} on :$AGENT_TS_PORT ($health)"
     else
         echo -e "agent-ts:      ${RED}STOPPED${NC}"
+    fi
+
+    if [ "$S2S_ENABLED" = "0" ]; then
+        echo -e "s2s Voice Lab: ${YELLOW}DISABLED${NC}"
+    elif [ ! -d "$S2S_DIR" ]; then
+        echo -e "s2s Voice Lab: ${YELLOW}SKIPPED${NC} ($S2S_DIR not found)"
+    elif check_s2s_lab; then
+        echo -e "s2s Voice Lab: ${GREEN}RUNNING${NC} at $S2S_LAB_URL"
+    else
+        echo -e "s2s Voice Lab: ${RED}STOPPED${NC}"
     fi
 
     if check_controldeck; then

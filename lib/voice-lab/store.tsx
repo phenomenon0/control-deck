@@ -39,6 +39,11 @@ export {
   isFieldVisible,
   isNullableConfigKey,
 } from "./config-schema";
+import {
+  LLM_ENDPOINT_OPTIONS,
+  deriveLlmEndpoint,
+  type LlmEndpointId,
+} from "./llm-endpoints";
 export type {
   ConfigGroupId,
   ConfigInput,
@@ -57,7 +62,14 @@ export const LAB_STATUS_POLL_MS = 4_000;
 export const AGENT_LLM_BASE_URL = "http://localhost:3333/api/voice/agent-bridge/default/v1";
 export const REDACTED_SECRET = "********";
 
-export type LlmPreset = "agent" | "direct";
+export {
+  LLM_ENDPOINT_OPTIONS,
+  deriveLlmEndpoint,
+  openAiBaseUrl,
+  type LlmEndpointOption,
+} from "./llm-endpoints";
+
+export type LlmPreset = LlmEndpointId;
 export type PipelineState = "stopped" | "starting" | "running" | "error";
 export type SecretConfigKey = "responses_api_api_key";
 export type SecretFlags = Record<SecretConfigKey, boolean>;
@@ -121,6 +133,9 @@ interface State {
   editedSecrets: SecretFlags;
   llmPreset: LlmPreset;
   directBaseUrl: string;
+  availableModels: string[];
+  modelsReachable: boolean | null;
+  modelsLoading: boolean;
   status: VoiceLabStatus | null;
   usage: Record<string, unknown> | null;
   pipelineState: PipelineState;
@@ -136,6 +151,8 @@ interface State {
 type Action =
   | { type: "SET_KNOB"; key: LaunchConfigKey; value: VoiceLabConfig[LaunchConfigKey] }
   | { type: "SET_LLM_PRESET"; preset: LlmPreset }
+  | { type: "MODELS_LOADING"; preset: LlmPreset }
+  | { type: "MODELS_RESULT"; preset: LlmPreset; baseUrl: string | null; models: string[]; reachable: boolean }
   | { type: "RESET_TO_ACTIVE" }
   | { type: "RESET_TO_DEFAULTS" }
   | { type: "LOAD_KNOBS"; knobs: LabKnobs }
@@ -156,8 +173,11 @@ const INITIAL_STATE: State = {
   activeConfig: cloneConfig(DEFAULT_KNOBS),
   activeRedactions: emptySecretFlags(),
   editedSecrets: emptySecretFlags(),
-  llmPreset: "direct",
+  llmPreset: deriveLlmEndpoint(DEFAULT_KNOBS.responses_api_base_url, AGENT_LLM_BASE_URL),
   directBaseUrl: DEFAULT_DIRECT_LLM_BASE_URL,
+  availableModels: [],
+  modelsReachable: null,
+  modelsLoading: false,
   status: null,
   usage: null,
   pipelineState: "stopped",
@@ -174,42 +194,77 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "SET_KNOB": {
       const knobs = { ...state.knobs, [action.key]: action.value } as LabKnobs;
+      // A hand-edited base URL re-derives the endpoint picker (an unknown URL
+      // reads as Custom; a conventional engine port snaps to that engine).
+      const llmPreset =
+        action.key === "responses_api_base_url"
+          ? deriveLlmEndpoint(stringOr(action.value, ""), AGENT_LLM_BASE_URL)
+          : state.llmPreset;
       const directBaseUrl =
-        action.key === "responses_api_base_url" && state.llmPreset === "direct"
+        action.key === "responses_api_base_url" && llmPreset === "custom"
           ? stringOr(action.value, state.directBaseUrl)
           : state.directBaseUrl;
       const editedSecrets = markSecretEdited(state.editedSecrets, action.key);
       return withDirty({
         ...state,
         knobs,
+        llmPreset,
         directBaseUrl,
         editedSecrets,
+        ...(llmPreset !== state.llmPreset ? { availableModels: [], modelsReachable: null } : null),
         validation: null,
         error: null,
       });
     }
     case "SET_LLM_PRESET": {
       const directBaseUrl =
-        state.llmPreset === "direct"
+        state.llmPreset === "custom"
           ? state.knobs.responses_api_base_url || state.directBaseUrl
           : state.directBaseUrl;
+      // agent → bridge URL; custom → restore the remembered custom URL; engine
+      // presets keep the current URL until MODELS_RESULT delivers the resolved
+      // one. Non-custom presets ride the OpenAI-compatible backend.
+      const nextUrl =
+        action.preset === "agent"
+          ? AGENT_LLM_BASE_URL
+          : action.preset === "custom"
+            ? directBaseUrl || DEFAULT_DIRECT_LLM_BASE_URL
+            : state.knobs.responses_api_base_url;
       const knobs = {
         ...state.knobs,
-        responses_api_base_url:
-          action.preset === "agent" ? AGENT_LLM_BASE_URL : directBaseUrl || DEFAULT_DIRECT_LLM_BASE_URL,
+        llm_backend: action.preset === "custom" ? state.knobs.llm_backend : "chat-completions",
+        responses_api_base_url: nextUrl,
       } as LabKnobs;
       return withDirty({
         ...state,
         knobs,
         llmPreset: action.preset,
         directBaseUrl,
+        availableModels: [],
+        modelsReachable: null,
         validation: null,
         error: null,
       });
     }
+    case "MODELS_LOADING":
+      return state.llmPreset === action.preset ? { ...state, modelsLoading: true } : state;
+    case "MODELS_RESULT": {
+      if (state.llmPreset !== action.preset) return { ...state, modelsLoading: false };
+      const knobs =
+        action.baseUrl !== null
+          ? ({ ...state.knobs, responses_api_base_url: action.baseUrl } as LabKnobs)
+          : state.knobs;
+      return withDirty({
+        ...state,
+        knobs,
+        availableModels: action.models,
+        modelsReachable: action.reachable,
+        modelsLoading: false,
+      });
+    }
     case "RESET_TO_ACTIVE": {
       const mapped = knobsFromLaunchConfig(state.activeConfig, DEFAULT_KNOBS, state.directBaseUrl);
-      return {
+      return resetModelsIfPresetChanged(state, {
         ...state,
         knobs: mapped.knobs,
         llmPreset: mapped.llmPreset,
@@ -218,11 +273,11 @@ function reducer(state: State, action: Action): State {
         dirty: false,
         validation: null,
         error: null,
-      };
+      });
     }
     case "RESET_TO_DEFAULTS": {
       const mapped = knobsFromLaunchConfig(DEFAULT_KNOBS, DEFAULT_KNOBS, state.directBaseUrl);
-      return withDirty({
+      return resetModelsIfPresetChanged(state, withDirty({
         ...state,
         knobs: mapped.knobs,
         llmPreset: mapped.llmPreset,
@@ -230,18 +285,18 @@ function reducer(state: State, action: Action): State {
         editedSecrets: emptySecretFlags(),
         validation: null,
         error: null,
-      });
+      }));
     }
     case "LOAD_KNOBS": {
       const mapped = knobsFromLaunchConfig(action.knobs, state.knobs, state.directBaseUrl);
-      return withDirty({
+      return resetModelsIfPresetChanged(state, withDirty({
         ...state,
         knobs: mapped.knobs,
         llmPreset: mapped.llmPreset,
         directBaseUrl: mapped.directBaseUrl,
         validation: null,
         error: null,
-      });
+      }));
     }
     case "LOAD_STATUS_START":
       return action.silent ? state : { ...state, loading: true, error: null };
@@ -267,7 +322,7 @@ function reducer(state: State, action: Action): State {
           editedSecrets: emptySecretFlags(),
         };
       }
-      return withDirty(next);
+      return resetModelsIfPresetChanged(state, withDirty(next));
     }
     case "LOAD_STATUS_ERROR":
       return { ...state, loading: false, pipelineState: "error", error: action.error };
@@ -278,7 +333,7 @@ function reducer(state: State, action: Action): State {
     case "APPLY_SUCCESS": {
       const activeResult = activeConfigFromStatus(action.status.active_config ?? action.appliedConfig, DEFAULT_KNOBS);
       const mapped = knobsFromLaunchConfig(activeResult.config, DEFAULT_KNOBS, state.directBaseUrl);
-      return {
+      return resetModelsIfPresetChanged(state, {
         ...state,
         knobs: mapped.knobs,
         activeConfig: activeResult.config,
@@ -292,7 +347,7 @@ function reducer(state: State, action: Action): State {
         applying: false,
         dirty: false,
         error: null,
-      };
+      });
     }
     case "APPLY_ERROR":
       return {
@@ -322,6 +377,9 @@ export interface LabStoreApi {
   editedSecrets: SecretFlags;
   llmPreset: LlmPreset;
   directBaseUrl: string;
+  availableModels: string[];
+  modelsReachable: boolean | null;
+  modelsLoading: boolean;
   status: VoiceLabStatus | null;
   usage: Record<string, unknown> | null;
   pipelineState: PipelineState;
@@ -334,6 +392,7 @@ export interface LabStoreApi {
   liveEvents: LabTimingEvent[];
   setKnob(key: LaunchConfigKey, value: VoiceLabConfig[LaunchConfigKey]): void;
   setLlmPreset(preset: LlmPreset): void;
+  refreshModels(): void;
   loadKnobs(knobs: LabKnobs): void;
   resetKnobs(): void;
   resetToActive(): void;
@@ -410,9 +469,43 @@ export function LabStoreProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_KNOB", key, value });
   }, []);
 
+  const fetchModelsFor = useCallback(async (preset: LlmPreset) => {
+    const option = LLM_ENDPOINT_OPTIONS.find((candidate) => candidate.id === preset);
+    if (!option?.provider) return;
+    dispatch({ type: "MODELS_LOADING", preset });
+    try {
+      const res = await fetch(`/api/voice/llm-models?provider=${option.provider}`, { cache: "no-store" });
+      const data = (await res.json()) as { baseUrl?: unknown; models?: unknown; reachable?: unknown };
+      dispatch({
+        type: "MODELS_RESULT",
+        preset,
+        baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : null,
+        models: Array.isArray(data.models)
+          ? data.models.filter((m): m is string => typeof m === "string")
+          : [],
+        reachable: data.reachable === true,
+      });
+    } catch {
+      dispatch({ type: "MODELS_RESULT", preset, baseUrl: null, models: [], reachable: false });
+    }
+  }, []);
+
   const setLlmPreset = useCallback((preset: LlmPreset) => {
     dispatch({ type: "SET_LLM_PRESET", preset });
   }, []);
+
+  const refreshModels = useCallback(() => {
+    void fetchModelsFor(stateRef.current.llmPreset);
+  }, [fetchModelsFor]);
+
+  // Fetch the engine's model list whenever the current endpoint hasn't been
+  // probed yet — covers user selection, URL-derived presets from an active
+  // config, and manual base-URL edits that snap to an engine.
+  useEffect(() => {
+    if (state.modelsReachable === null && !state.modelsLoading) {
+      void fetchModelsFor(state.llmPreset);
+    }
+  }, [state.llmPreset, state.modelsReachable, state.modelsLoading, fetchModelsFor]);
 
   const loadKnobs = useCallback((knobs: LabKnobs) => {
     dispatch({ type: "LOAD_KNOBS", knobs });
@@ -434,6 +527,9 @@ export function LabStoreProvider({ children }: { children: ReactNode }) {
       editedSecrets: state.editedSecrets,
       llmPreset: state.llmPreset,
       directBaseUrl: state.directBaseUrl,
+      availableModels: state.availableModels,
+      modelsReachable: state.modelsReachable,
+      modelsLoading: state.modelsLoading,
       status: state.status,
       usage: state.usage,
       pipelineState: state.pipelineState,
@@ -446,6 +542,7 @@ export function LabStoreProvider({ children }: { children: ReactNode }) {
       liveEvents: state.liveEvents,
       setKnob,
       setLlmPreset,
+      refreshModels,
       loadKnobs,
       resetKnobs,
       resetToActive,
@@ -461,6 +558,7 @@ export function LabStoreProvider({ children }: { children: ReactNode }) {
       state,
       setKnob,
       setLlmPreset,
+      refreshModels,
       loadKnobs,
       resetKnobs,
       resetToActive,
@@ -581,6 +679,11 @@ function activeConfigFromStatus(
   };
 }
 
+function resetModelsIfPresetChanged(prev: State, next: State): State {
+  if (prev.llmPreset === next.llmPreset) return next;
+  return { ...next, availableModels: [], modelsReachable: null, modelsLoading: false };
+}
+
 function withDirty(state: State): State {
   return {
     ...state,
@@ -597,9 +700,9 @@ function withLlmPreset(config: LabKnobs, previousDirectBaseUrl: string): {
   directBaseUrl: string;
 } {
   const configuredBaseUrl = config.responses_api_base_url;
-  const llmPreset: LlmPreset = configuredBaseUrl === AGENT_LLM_BASE_URL ? "agent" : "direct";
+  const llmPreset = deriveLlmEndpoint(configuredBaseUrl, AGENT_LLM_BASE_URL);
   const directBaseUrl =
-    llmPreset === "direct"
+    llmPreset === "custom"
       ? configuredBaseUrl || previousDirectBaseUrl || DEFAULT_DIRECT_LLM_BASE_URL
       : previousDirectBaseUrl || DEFAULT_DIRECT_LLM_BASE_URL;
   return {

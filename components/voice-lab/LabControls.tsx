@@ -9,6 +9,7 @@ import {
   CONFIG_GROUPS,
   DEFAULT_LAUNCH_CONFIG,
   AGENT_LLM_BASE_URL,
+  LLM_ENDPOINT_OPTIONS,
   REDACTED_SECRET,
   isFieldVisible,
   useLabStore,
@@ -23,13 +24,17 @@ export function LabControls() {
   const {
     activeRedactions,
     applying,
+    availableModels,
     dirty,
     editedSecrets,
     error,
     knobs,
     llmPreset,
     loadStatus,
+    modelsLoading,
+    modelsReachable,
     pipelineState,
+    refreshModels,
     resetToActive,
     resetToDefaults,
     setKnob,
@@ -69,7 +74,18 @@ export function LabControls() {
             );
             return (
               <SettingsGroup key={group.id} title={group.label} help={group.help} count={groupFields.length}>
-                {group.id === "llm" ? <LlmPresetPanel value={llmPreset} onChange={setLlmPreset} /> : null}
+                {group.id === "llm" ? (
+                  <LlmPresetPanel
+                    modelName={typeof knobs.model_name === "string" ? knobs.model_name : ""}
+                    models={availableModels}
+                    modelsLoading={modelsLoading}
+                    modelsReachable={modelsReachable}
+                    value={llmPreset}
+                    onChange={setLlmPreset}
+                    onModelChange={(model) => setKnob("model_name", model)}
+                    onRefresh={refreshModels}
+                  />
+                ) : null}
                 {groupFields.length ? (
                   groupFields.map((fieldConfig) => (
                     <ConfigField
@@ -160,32 +176,98 @@ function SettingsGroup({
   );
 }
 
-function LlmPresetPanel({ onChange, value }: { onChange: (value: LlmPreset) => void; value: LlmPreset }) {
+function LlmPresetPanel({
+  modelName,
+  models,
+  modelsLoading,
+  modelsReachable,
+  onChange,
+  onModelChange,
+  onRefresh,
+  value,
+}: {
+  modelName: string;
+  models: string[];
+  modelsLoading: boolean;
+  modelsReachable: boolean | null;
+  onChange: (value: LlmPreset) => void;
+  onModelChange: (model: string) => void;
+  onRefresh: () => void;
+  value: LlmPreset;
+}) {
+  const option = LLM_ENDPOINT_OPTIONS.find((candidate) => candidate.id === value);
+  const isEngine = Boolean(option?.provider);
+  const modelInList = models.includes(modelName);
+
   return (
     <div className="rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] p-2">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">Brain route</span>
-        <span className="font-mono text-[10px] text-[var(--text-muted)]">
-          {value === "agent" ? "agent bridge" : "direct endpoint"}
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">LLM endpoint</span>
+        <span className="truncate font-mono text-[10px] text-[var(--text-muted)]" title={value === "agent" ? AGENT_LLM_BASE_URL : undefined}>
+          {option?.label ?? value}
         </span>
       </div>
-      <div className="grid grid-cols-2 rounded-md border border-[var(--border)] p-0.5">
-        {(["agent", "direct"] as const).map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            className={`rounded px-2 py-1.5 text-xs capitalize ${
-              value === preset
-                ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                : "text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]"
-            }`}
-            title={preset === "agent" ? AGENT_LLM_BASE_URL : "Use the direct Responses API base URL below."}
-            onClick={() => onChange(preset)}
-          >
-            {preset}
-          </button>
+      <select
+        className="min-h-8 w-full min-w-0 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 font-mono text-xs outline-none focus:border-[var(--accent)]"
+        value={value}
+        onChange={(event) => onChange(event.target.value as LlmPreset)}
+      >
+        {LLM_ENDPOINT_OPTIONS.map((endpoint) => (
+          <option key={endpoint.id} value={endpoint.id}>
+            {endpoint.label}
+          </option>
         ))}
-      </div>
+      </select>
+      <p className="mt-1.5 text-[11px] leading-4 text-[var(--text-muted)]">{option?.help}</p>
+
+      {value === "agent" ? (
+        <p className="mt-1.5 text-[11px] leading-4 text-[var(--text-muted)]">
+          The deck's router picks the model — model_name below is ignored by the bridge.
+        </p>
+      ) : null}
+
+      {isEngine && modelsReachable === false && !modelsLoading ? (
+        <p className="mt-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-4 text-amber-300">
+          Engine unreachable — start it, or type a model id into model_name below.
+        </p>
+      ) : null}
+
+      {isEngine && modelsReachable !== false ? (
+        <div className="mt-2 flex items-center gap-1.5">
+          <select
+            aria-label="Model"
+            className="min-h-8 w-full min-w-0 rounded-md border border-[var(--border)] bg-[var(--bg-primary)] px-2 font-mono text-xs outline-none focus:border-[var(--accent)]"
+            value={modelInList ? modelName : ""}
+            onChange={(event) => {
+              if (event.target.value) onModelChange(event.target.value);
+            }}
+          >
+            {!modelInList ? (
+              <option value="" disabled>
+                {modelsLoading
+                  ? "loading models…"
+                  : modelName
+                    ? `${modelName} (not served by this engine)`
+                    : "pick a model"}
+              </option>
+            ) : null}
+            {models.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]"
+            title="Refresh the model list from the engine"
+            onClick={onRefresh}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${modelsLoading ? "animate-spin" : ""}`} aria-hidden="true" />
+            <span className="sr-only">Refresh models</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

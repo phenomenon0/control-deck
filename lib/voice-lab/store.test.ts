@@ -7,9 +7,11 @@ import {
   DEFAULT_KNOBS,
   LAUNCH_CONFIG_KEYS,
   buildLaunchConfig,
+  deriveLlmEndpoint,
   isFieldVisible,
   isLaunchConfigDirty,
   knobsFromLaunchConfig,
+  openAiBaseUrl,
   sanitizeLaunchConfig,
   secretRedactionsFromLaunchConfig,
   type LabKnobs,
@@ -122,7 +124,7 @@ describe("voice lab LaunchConfig schema", () => {
       tts: "qwen3",
     });
 
-    expect(mapped.llmPreset).toBe("direct");
+    expect(mapped.llmPreset).toBe("ollama");
     expect(mapped.directBaseUrl).toBe(DEFAULT_DIRECT_LLM_BASE_URL);
     expect(mapped.knobs.responses_api_api_key).toBe(DEFAULT_KNOBS.responses_api_api_key);
 
@@ -193,6 +195,27 @@ describe("voice lab LaunchConfig schema", () => {
     const defaultReset = knobsFromLaunchConfig(DEFAULT_KNOBS).knobs;
     expect(defaultReset.worker_port).toBe(DEFAULT_KNOBS.worker_port);
     expect(defaultReset.model_name).toBe(DEFAULT_KNOBS.model_name);
+  });
+
+  test("derives the LLM endpoint picker from a configured base URL", () => {
+    expect(deriveLlmEndpoint(AGENT_LLM_BASE_URL, AGENT_LLM_BASE_URL)).toBe("agent");
+    expect(deriveLlmEndpoint("http://localhost:3333/api/voice/agent-bridge/kitchen/v1", AGENT_LLM_BASE_URL)).toBe(
+      "agent",
+    );
+    expect(deriveLlmEndpoint("http://127.0.0.1:11434/v1", AGENT_LLM_BASE_URL)).toBe("ollama");
+    expect(deriveLlmEndpoint("http://127.0.0.1:8080/v1", AGENT_LLM_BASE_URL)).toBe("llamacpp");
+    expect(deriveLlmEndpoint("http://127.0.0.1:8000/v1", AGENT_LLM_BASE_URL)).toBe("vllm");
+    expect(deriveLlmEndpoint("http://127.0.0.1:1234/v1", AGENT_LLM_BASE_URL)).toBe("lm-studio");
+    expect(deriveLlmEndpoint("https://api.example.com/v1", AGENT_LLM_BASE_URL)).toBe("custom");
+    expect(deriveLlmEndpoint("not a url", AGENT_LLM_BASE_URL)).toBe("custom");
+    expect(deriveLlmEndpoint(null, AGENT_LLM_BASE_URL)).toBe("custom");
+  });
+
+  test("normalizes engine base URLs to their OpenAI /v1 root", () => {
+    expect(openAiBaseUrl("http://127.0.0.1:11434")).toBe("http://127.0.0.1:11434/v1");
+    expect(openAiBaseUrl("http://127.0.0.1:8080/")).toBe("http://127.0.0.1:8080/v1");
+    expect(openAiBaseUrl("http://127.0.0.1:8000/v1")).toBe("http://127.0.0.1:8000/v1");
+    expect(openAiBaseUrl("http://127.0.0.1:8000/v1/")).toBe("http://127.0.0.1:8000/v1");
   });
 });
 

@@ -28,6 +28,9 @@ the lid off.
   click, type, and screen-grab through native accessibility APIs.
 - 🌐 **Browse with themed Chromium windows** — agents open tabs as
   first-class CDP targets you can inspect live.
+- 🗣️ **Full-duplex local voice** — speech-to-speech (VAD→STT→LLM→TTS,
+  OpenAI Realtime protocol) with native barge-in; voice turns ride the
+  same agent/tools/approvals spine as typed chat.
 - 🎧 **Live-music rig built in** — Tone.js transport, mixer, FX chains on
   the same surface as chat.
 - ⚡ **One keystroke away** — command palette (`Cmd/Ctrl+K`) reaches every

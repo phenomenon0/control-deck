@@ -130,6 +130,14 @@ probes, or several invoke paths.**
 native tools, the one the model can actually reach). Two implementations of the
 same idea on either side of the process boundary, no shared source of truth.
 
+> **Update 2026-07-09:** T10 and the voice pipeline were resolved by the
+> speech-to-speech migration (branch `voice-s2s`): voice-core is unwired,
+> huggingface/speech-to-speech (OpenAI Realtime WS on :8765, supervised via
+> its Voice Lab control plane on :7860) is the local voice engine, and voice
+> turns ride the agent spine through `/api/voice/agent-bridge`. The Voice Lab
+> orphans were mounted or deleted. See `~/.claude/plans` voice plan + the
+> voice-s2s commit series.
+
 ### T10 — Voice Lab half-landed; dead instrumentation
 
 - Six built components (`LabControls/LabInput/LabConsole/LabTimeline/LabReport/LabPresetIO`,

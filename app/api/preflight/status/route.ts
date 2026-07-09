@@ -19,11 +19,13 @@ interface ServiceSpec {
 
 const SERVICES: ServiceSpec[] = [
   {
-    key: "agentgo",
-    name: "Agent-GO",
-    url: process.env.AGENTGO_HEALTH_URL ?? "http://127.0.0.1:4243/health",
-    required: true,
-    hint: "Start Agent-GO (e.g. `./start-full-stack.sh` or the bundled binary).",
+    key: "agent",
+    name: "Agent runtime",
+    url: process.env.AGENT_TS_URL
+      ? `${process.env.AGENT_TS_URL.replace(/\/$/, "")}/health`
+      : (process.env.AGENTGO_HEALTH_URL ?? "http://127.0.0.1:4244/health"),
+    required: false,
+    hint: "Optional: agent-ts on :4244 enables tool runs. Bring up with `./start-full-stack.sh`.",
   },
   {
     key: "ollama",

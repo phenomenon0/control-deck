@@ -734,6 +734,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   const streamingHandleSeqRef = useRef(0);
   const realtimeClientRef = useRef<RealtimeVoiceClient | null>(null);
   const realtimeInputRef = useRef<AgentInput | null>(null);
+  const realtimeFirstAudioMarkedRef = useRef(false);
   const [realtimeAudioLevel, setRealtimeAudioLevel] = useState(0);
 
   const createAgentOutput = useCallback(() => {
@@ -777,6 +778,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       callbacks: {
         onStatus: () => {},
         onSpeechStarted: () => {
+          globalThis.__voiceProbe?.mark("realtime_speech_started");
           void (async () => {
             const state = stateRef.current;
             if (state === "speaking" || state === "thinking" || state === "submitting") {
@@ -788,16 +790,21 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
           })();
         },
         onSpeechStopped: () => {
+          globalThis.__voiceProbe?.mark("realtime_speech_stopped");
           dispatchCtx({ type: "VOICE_ENDED" });
         },
         onTranscriptionDelta: (text) => {
+          globalThis.__voiceProbe?.mark("realtime_transcript_delta", { text });
           if (text) dispatchCtx({ type: "TRANSCRIPT_PARTIAL", text });
         },
         onTranscriptionCompleted: (text) => {
           const trimmed = text.trim();
+          globalThis.__voiceProbe?.mark("realtime_transcript_final", { text: trimmed });
           dispatchCtx({ type: "TRANSCRIPT_FINAL", text: trimmed });
         },
         onResponseCreated: () => {
+          realtimeFirstAudioMarkedRef.current = false;
+          globalThis.__voiceProbe?.mark("realtime_response_created");
           if (!agentOutputRef.current) agentOutputRef.current = createAgentOutput();
           const prevHandle = speechHandleRef.current;
           if (prevHandle && prevHandle.state !== "done" && prevHandle.state !== "interrupted") {
@@ -809,6 +816,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
           dispatchCtx({ type: "RUN_STARTED" });
         },
         onAudioDelta: (pcm, sampleRate) => {
+          if (!realtimeFirstAudioMarkedRef.current) {
+            realtimeFirstAudioMarkedRef.current = true;
+            globalThis.__voiceProbe?.mark("realtime_first_audio", { sampleRate, bytes: pcm.byteLength });
+          }
           const output = agentOutputRef.current ?? createAgentOutput();
           agentOutputRef.current = output;
           const handle = ensureRealtimeHandle();
@@ -816,6 +827,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         },
         onAssistantTranscript: () => {},
         onResponseDone: (status) => {
+          globalThis.__voiceProbe?.mark("realtime_response_done", { status });
           const handle = speechHandleRef.current;
           replyInFlightRef.current = false;
           if (!handle) return;

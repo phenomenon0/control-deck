@@ -67,13 +67,20 @@ export const JUNCTIONS = {
   // (the dead air that makes chat feel "broken").
   VAD_SPEECH_START: "vad_speech_start",
   VAD_SPEECH_END: "vad_speech_end",
+  // s2s/OpenAI-Realtime-compatible junctions observable in the browser.
+  REALTIME_SPEECH_STARTED: "realtime_speech_started",
+  REALTIME_SPEECH_STOPPED: "realtime_speech_stopped",
+  REALTIME_TRANSCRIPT_DELTA: "realtime_transcript_delta",
+  REALTIME_TRANSCRIPT_FINAL: "realtime_transcript_final",
+  REALTIME_RESPONSE_CREATED: "realtime_response_created",
+  REALTIME_FIRST_AUDIO: "realtime_first_audio",
+  REALTIME_RESPONSE_DONE: "realtime_response_done",
   // Server-emitted timing frames (via ?debug=timing). The probe surfaces them
   // as marks named "srv_<phase>" so spans can pair them with client marks.
   SRV_STT_INFERENCE: "srv_stt.inference",
   SRV_VAD_FRAME: "srv_vad.frame_inference",
   SRV_TTS_FIRST_CHUNK: "srv_tts.first_chunk_emit",
   SRV_TTS_END: "srv_tts.end_emit",
-  SRV_TTS_PHRASE: "srv_tts.synth_per_phrase",
 } as const;
 
 /**
@@ -105,6 +112,11 @@ const STANDARD_SPANS: Array<[string, string, string]> = [
   // STT pipeline producing a final transcript.
   ["vad_to_stt_final", JUNCTIONS.VAD_SPEECH_END, JUNCTIONS.STT_FINAL],
   ["vad_speech_duration", JUNCTIONS.VAD_SPEECH_START, JUNCTIONS.VAD_SPEECH_END],
+  // s2s realtime path: only client-observable protocol events are available.
+  ["speech_stop_to_transcript_final", JUNCTIONS.REALTIME_SPEECH_STOPPED, JUNCTIONS.REALTIME_TRANSCRIPT_FINAL],
+  ["transcript_final_to_response_created", JUNCTIONS.REALTIME_TRANSCRIPT_FINAL, JUNCTIONS.REALTIME_RESPONSE_CREATED],
+  ["response_created_to_first_audio", JUNCTIONS.REALTIME_RESPONSE_CREATED, JUNCTIONS.REALTIME_FIRST_AUDIO],
+  ["speech_stop_to_first_audio", JUNCTIONS.REALTIME_SPEECH_STOPPED, JUNCTIONS.REALTIME_FIRST_AUDIO],
   // Server-vs-client splits — if (srv_stt.inference) << (stt_ttft) then the
   // gap is wire/scheduling, not the model.
   ["stt_wire_overhead", JUNCTIONS.SRV_STT_INFERENCE, JUNCTIONS.STT_PARTIAL_FIRST],
@@ -133,25 +145,32 @@ export function createProbe(opts: CreateProbeOptions = {}): Probe {
       return marks;
     },
     report(opts = {}) {
-      const baseline = opts.baseline ?? JUNCTIONS.CHUNK_FIRST;
-      const baseMark = firstMark(marks, baseline);
-      const deltas: Record<string, number> = {};
-      if (baseMark) {
-        for (const m of marks) {
-          if (m === baseMark) continue;
-          const key = `${m.name}_after_${baseline}`;
-          if (deltas[key] === undefined) deltas[key] = m.t - baseMark.t;
-        }
-      }
-      const spans: Record<string, number> = {};
-      for (const [key, from, to] of STANDARD_SPANS) {
-        const a = firstMark(marks, from);
-        const b = firstMark(marks, to);
-        if (a && b) spans[key] = b.t - a.t;
-      }
-      return { startedAt, marks: [...marks], deltas, spans };
+      return reportFromMarks(marks, { startedAt, baseline: opts.baseline });
     },
   };
+}
+
+export function reportFromMarks(
+  marks: readonly Mark[],
+  opts: { startedAt?: number; baseline?: string } = {},
+): ProbeReport {
+  const baseline = opts.baseline ?? JUNCTIONS.CHUNK_FIRST;
+  const baseMark = firstMark(marks, baseline);
+  const deltas: Record<string, number> = {};
+  if (baseMark) {
+    for (const m of marks) {
+      if (m === baseMark) continue;
+      const key = `${m.name}_after_${baseline}`;
+      if (deltas[key] === undefined) deltas[key] = m.t - baseMark.t;
+    }
+  }
+  const spans: Record<string, number> = {};
+  for (const [key, from, to] of STANDARD_SPANS) {
+    const a = firstMark(marks, from);
+    const b = firstMark(marks, to);
+    if (a && b) spans[key] = b.t - a.t;
+  }
+  return { startedAt: opts.startedAt ?? nowMs(), marks: [...marks], deltas, spans };
 }
 
 function firstMark(marks: readonly Mark[], name: string): Mark | undefined {

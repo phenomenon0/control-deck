@@ -27,7 +27,7 @@ import {
   type ProbeReport,
 } from "@/lib/voice/test-harness/latency-probe";
 
-import type { LabKnobs, LabRun } from "@/lib/voice-lab/store";
+import type { LabKnobs, LabRun, LabTimingEvent } from "@/lib/voice-lab/store";
 
 export interface BatchFixture {
   name: string;
@@ -66,12 +66,10 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 function sttOptsFromKnobs(knobs: LabKnobs, extras: Partial<StreamingSttOptions> = {}): StreamingSttOptions {
   const opts: StreamingSttOptions = {
     debug: true,
-    language: "en",
-    correctionTimeoutMs: knobs.correctionTimeoutMs,
+    language: knobs.stt_language ?? "en",
     ...extras,
   };
-  if (knobs.sttEngine) opts.engine = knobs.sttEngine;
-  if (knobs.correctionEngine !== null) opts.correctionEngine = knobs.correctionEngine;
+  opts.engine = knobs.stt;
   return opts;
 }
 
@@ -81,7 +79,7 @@ export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null
   const probe = createProbe();
   installProbe(probe);
 
-  const serverFrames: LabRun["serverFrames"] = [];
+  const events: LabTimingEvent[] = [];
 
   let finalText = "";
   let resolvedFinal = false;
@@ -111,12 +109,11 @@ export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null
         settleFinal();
       },
       onTiming: (frame) => {
-        serverFrames.push({
+        events.push({
           source: "stt",
-          phase: frame.phase,
-          ms: frame.ms,
-          meta: frame.meta,
-          receivedAt: performance.now(),
+          name: `srv_${frame.phase}`,
+          t: performance.now(),
+          meta: { ms: frame.ms, ...frame.meta },
         });
       },
     }),
@@ -143,16 +140,15 @@ export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null
   if (promptText.trim()) {
     const tts = new StreamingTtsClient({
       debug: true,
-      engine: opts.knobs.ttsEngine ?? undefined,
-      voice: opts.knobs.voice ?? undefined,
-      speed: opts.knobs.speed,
+      engine: opts.knobs.tts,
+      voice: opts.knobs.qwen3_tts_speaker ?? opts.knobs.kokoro_voice,
+      speed: opts.knobs.kokoro_speed,
       onTiming: (frame) => {
-        serverFrames.push({
+        events.push({
           source: "tts",
-          phase: frame.phase,
-          ms: frame.ms,
-          meta: frame.meta,
-          receivedAt: performance.now(),
+          name: `srv_${frame.phase}`,
+          t: performance.now(),
+          meta: { ms: frame.ms, ...frame.meta },
         });
       },
       onError: (err) => {
@@ -161,7 +157,7 @@ export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null
     });
     try {
       await tts.connect();
-      await tts.speak({ text: promptText, speed: opts.knobs.speed });
+      await tts.speak({ text: promptText, speed: opts.knobs.kokoro_speed });
     } catch (err) {
       console.warn("[lab/batch] tts run failed:", err);
     } finally {
@@ -178,7 +174,7 @@ export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null
     knobs: opts.knobs,
     source: opts.fixture.name,
     report,
-    serverFrames,
+    events,
   };
 }
 

@@ -9,12 +9,14 @@ import type {
 
 export const PROFILE_LABEL: Record<TerminalProfile, string> = {
   claude: "Claude",
+  codex: "Codex",
   opencode: "OpenCode",
   shell: "Shell",
 };
 
 export const PROFILE_GLYPH: Record<TerminalProfile, string> = {
   claude: "✦",
+  codex: "◎",
   opencode: "◆",
   shell: "❯",
 };
@@ -172,6 +174,15 @@ export function TabStrip({
             title="New Claude session"
           >
             ✦
+          </button>
+          <button
+            type="button"
+            className="tp2-tab-new tp2-tab-new--mini"
+            onClick={() => onNew("codex")}
+            disabled={!canLaunch || busy}
+            title="New Codex session"
+          >
+            ◎
           </button>
           <button
             type="button"

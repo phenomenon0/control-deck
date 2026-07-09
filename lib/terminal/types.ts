@@ -1,4 +1,4 @@
-export type TerminalProfile = "claude" | "opencode" | "shell";
+export type TerminalProfile = "claude" | "codex" | "opencode" | "shell";
 
 export type TerminalSessionStatus = "starting" | "running" | "exited" | "error";
 

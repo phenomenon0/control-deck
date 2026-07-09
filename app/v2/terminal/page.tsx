@@ -36,8 +36,8 @@ const Ico = ({ name, sm }: { name: string; sm?: boolean }) => (
   <svg className={"ico" + (sm ? " ico--sm" : "")} viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: P[name] }} />
 );
 
-const PROFILE_GLYPH: Record<TerminalProfile, string> = { claude: "✦", opencode: "◆", shell: "❯" };
-const PROFILE_LABEL: Record<TerminalProfile, string> = { claude: "Claude", opencode: "OpenCode", shell: "Shell" };
+const PROFILE_GLYPH: Record<TerminalProfile, string> = { claude: "✦", codex: "◎", opencode: "◆", shell: "❯" };
+const PROFILE_LABEL: Record<TerminalProfile, string> = { claude: "Claude", codex: "Codex", opencode: "OpenCode", shell: "Shell" };
 
 const LAST_SESSION_KEY = "deck:last-terminal-session";
 const OUTPUT_BUFFER_MAX = 64_000;
@@ -338,12 +338,42 @@ export default function TerminalV2Page() {
           ))}
           <button
             className="newtab"
-            aria-label="New session"
+            aria-label="New shell session"
             title="New shell"
             onClick={() => void handleLaunch("shell")}
             disabled={!serviceOnline || busy}
           >
             <Ico name="plus" sm />
+          </button>
+        </div>
+
+        <div className="launch" aria-label="Launch agent session">
+          <button
+            className="newtab"
+            aria-label="New Claude session"
+            title="New Claude session"
+            onClick={() => void handleLaunch("claude")}
+            disabled={!serviceOnline || busy}
+          >
+            {PROFILE_GLYPH.claude}
+          </button>
+          <button
+            className="newtab"
+            aria-label="New Codex session"
+            title="New Codex session"
+            onClick={() => void handleLaunch("codex")}
+            disabled={!serviceOnline || busy}
+          >
+            {PROFILE_GLYPH.codex}
+          </button>
+          <button
+            className="newtab"
+            aria-label="New OpenCode session"
+            title="New OpenCode session"
+            onClick={() => void handleLaunch("opencode")}
+            disabled={!serviceOnline || busy}
+          >
+            {PROFILE_GLYPH.opencode}
           </button>
         </div>
 
@@ -404,6 +434,9 @@ export default function TerminalV2Page() {
               </button>
               <button className="stage__opt" onClick={() => void handleLaunch("claude")} disabled={busy}>
                 <span className="stage__opt-glyph">✦</span>Claude
+              </button>
+              <button className="stage__opt" onClick={() => void handleLaunch("codex")} disabled={busy}>
+                <span className="stage__opt-glyph">◎</span>Codex
               </button>
               <button className="stage__opt" onClick={() => void handleLaunch("opencode")} disabled={busy}>
                 <span className="stage__opt-glyph">◆</span>OpenCode

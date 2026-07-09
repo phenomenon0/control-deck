@@ -817,6 +817,11 @@ function EmptyScreen({
             <span className="tp2-opt-title">Claude</span>
             <span className="tp2-opt-hint">agent session</span>
           </button>
+          <button type="button" className="tp2-opt" onClick={() => onLaunch("codex")}>
+            <span className="tp2-opt-glyph">◎</span>
+            <span className="tp2-opt-title">Codex</span>
+            <span className="tp2-opt-hint">agent session</span>
+          </button>
           <button type="button" className="tp2-opt" onClick={() => onLaunch("opencode")}>
             <span className="tp2-opt-glyph">◆</span>
             <span className="tp2-opt-title">OpenCode</span>

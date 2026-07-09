@@ -1,7 +1,7 @@
 /**
  * /api/terminal/agui — Translate scraped terminal output into AG-UI events.
  *
- * TerminalPane posts lifecycle + text deltas here for `claude` / `opencode`
+ * TerminalPane posts lifecycle + text deltas here for `claude` / `codex` / `opencode`
  * profiles. Each live session gets a stable threadId (`terminal:<sid>`)
  * and a run that spans from first output to exit. Events fan out through
  * the hub + persist to SQLite, so terminal sessions appear in the shared

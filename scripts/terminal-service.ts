@@ -163,7 +163,12 @@ function profileLaunchSpec(session: SessionRecord): { file: string; args: string
     return { file: shell, args: IS_WIN ? [] : ["-l"] };
   }
 
-  const command = session.profile === "claude" ? "claude" : "opencode";
+  const commandByProfile: Record<Exclude<CreateTerminalSessionInput["profile"], "shell">, string> = {
+    claude: "claude",
+    codex: "codex",
+    opencode: "opencode",
+  };
+  const command = commandByProfile[session.profile];
   if (!commandExists(command)) {
     throw new Error(`${command} is not installed or not on PATH for ${shell}.`);
   }
@@ -172,9 +177,10 @@ function profileLaunchSpec(session: SessionRecord): { file: string; args: string
     return { file: command, args: [] };
   }
 
+  const shellCommand = command === "codex" ? "codex --no-alt-screen" : command;
   return {
     file: shell,
-    args: ["-lc", `exec ${command}`],
+    args: ["-lc", `exec ${shellCommand}`],
   };
 }
 
@@ -443,8 +449,8 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/sessions") {
       const body = await readJsonBody<CreateTerminalSessionInput>(request);
-      if (!body.profile || !["claude", "opencode", "shell"].includes(body.profile)) {
-        writeJson(response, request, 400, { error: "profile must be one of claude, opencode, or shell." });
+      if (!body.profile || !["claude", "codex", "opencode", "shell"].includes(body.profile)) {
+        writeJson(response, request, 400, { error: "profile must be one of claude, codex, opencode, or shell." });
         return;
       }
       const session = upsertSession(body);

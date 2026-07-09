@@ -4,7 +4,7 @@
  * useTerminalAgui — client bridge that streams scraped terminal output
  * into Control Deck's AG-UI fabric for agent CLI sessions.
  *
- * Scope: `claude` and `opencode` profiles. Each session lifetime maps to
+ * Scope: `claude`, `codex`, and `opencode` profiles. Each session lifetime maps to
  * one AG-UI run (`threadId = terminal:<sessionId>`, fresh `runId` on each
  * `start()`). Text chunks are stripped of ANSI escapes and forwarded as
  * `TextMessageContent` deltas via `/api/terminal/agui`.
@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { TerminalProfile } from "@/lib/terminal/types";
 
-const SUPPORTED: ReadonlySet<TerminalProfile> = new Set<TerminalProfile>(["claude", "opencode"]);
+const SUPPORTED: ReadonlySet<TerminalProfile> = new Set<TerminalProfile>(["claude", "codex", "opencode"]);
 
 const FLUSH_INTERVAL_MS = 400;
 const FLUSH_MAX_CHARS = 2_048;

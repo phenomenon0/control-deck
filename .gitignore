@@ -1,8 +1,9 @@
 # dependencies (bun install)
 node_modules
 
-# Python virtualenvs (uv / venv)
+# Python virtualenvs (uv / venv) — manifests live in pyenvs/, venvs are disposable
 **/.venv/
+.venv-*/
 
 # Vendored upstream repos (managed as separate clones, not subtrees)
 llama.cpp/

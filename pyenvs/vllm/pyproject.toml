@@ -1,0 +1,12 @@
+[project]
+name = "controldeck-vllm"
+version = "0.1.0"
+description = "vLLM serving env — rebuild with: UV_PROJECT_ENVIRONMENT=../../.venv-vllm uv sync --frozen"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "vllm==0.19.1",
+    "torch==2.10.0",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'linux'"]

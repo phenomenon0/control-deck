@@ -1,0 +1,76 @@
+# Control Deck stack orchestration — run via ./start-full-stack.sh (it sets env
+# defaults, then drives process-compose). Health checks replace the old sleep-N
+# guesses; dependency order replaces startup-order-by-hope.
+#
+# Managed here:   agent-ts, deck (Next.js), s2s Voice Lab
+# Gated only:     ollama (external daemon — we verify, we don't own it)
+# Not managed:    vectordb (:4242), voice-api/chatterbox (:8000) — boot services;
+#                 comfyui (:8188) — manual. See stack.lock.json → hostServices.
+version: "0.5"
+
+processes:
+  ollama-gate:
+    command: |
+      if curl -sf http://localhost:11434/api/tags > /dev/null; then
+        echo "[ollama-gate] ollama is up on :11434"
+      else
+        echo "[ollama-gate] FAIL: ollama not responding on :11434 — start it first (ollama serve, or: sudo systemctl start ollama)"
+        exit 1
+      fi
+    availability:
+      restart: "no"
+
+  agent-ts:
+    command: "bun x tsx apps/agent-ts/src/server/main.ts"
+    environment:
+      - "AGENT_TS_PORT=${AGENT_TS_PORT}"
+      - "LLM_BASE_URL=${LLM_BASE_URL}"
+      - "LLM_MODEL=${LLM_MODEL}"
+      - "OLLAMA_MODEL=${OLLAMA_MODEL}"
+    depends_on:
+      ollama-gate:
+        condition: process_completed_successfully
+    readiness_probe:
+      exec:
+        command: "curl -sf http://127.0.0.1:${AGENT_TS_PORT}/health"
+      initial_delay_seconds: 1
+      period_seconds: 2
+      failure_threshold: 30
+    availability:
+      restart: "on_failure"
+      max_restarts: 3
+    log_location: "${LOG_DIR}/agent-ts.log"
+
+  deck:
+    command: "bun run dev"
+    readiness_probe:
+      exec:
+        command: "curl -sf -o /dev/null http://localhost:${CONTROLDECK_PORT}"
+      initial_delay_seconds: 2
+      period_seconds: 2
+      failure_threshold: 60
+    availability:
+      restart: "on_failure"
+      max_restarts: 3
+    log_location: "${LOG_DIR}/controldeck.log"
+
+  s2s:
+    command: |
+      if [ "$S2S_ENABLED" = "0" ]; then
+        echo "[s2s] disabled (S2S_ENABLED=0)"; exit 0
+      fi
+      if [ ! -d "$S2S_DIR" ]; then
+        echo "[s2s] directory not found at $S2S_DIR; skipping"; exit 0
+      fi
+      exec env HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}" \
+        uv run --directory "$S2S_DIR" speech-to-speech-lab --host "$S2S_LAB_HOST" --port "$S2S_LAB_PORT"
+    readiness_probe:
+      exec:
+        command: "curl -sf ${S2S_LAB_URL}/v1/voice-lab/status"
+      initial_delay_seconds: 2
+      period_seconds: 3
+      failure_threshold: 60
+    availability:
+      restart: "on_failure"
+      max_restarts: 2
+    log_location: "${LOG_DIR}/s2s-lab.log"

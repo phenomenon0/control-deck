@@ -1,0 +1,143 @@
+#!/usr/bin/env bun
+/**
+ * Stack drift doctor — verifies every pin the repo declares actually holds
+ * on this machine, and prints the exact recovery command when it doesn't.
+ *
+ *   bun scripts/doctor.ts          # full check (lockfiles, repos, services)
+ *   bun scripts/doctor.ts --quick  # toolchain + stray-lockfile checks only
+ *
+ * Sources of truth it reads: mise.toml (tool versions), bun.lock,
+ * pyenvs/{omni,vllm} (uv.lock), stack.lock.json (external repos + host services).
+ */
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const ROOT = join(import.meta.dir, "..");
+const QUICK = process.argv.includes("--quick");
+
+type Level = "ok" | "fail" | "warn" | "info";
+let failures = 0;
+function report(level: Level, msg: string, recovery?: string) {
+  const icon = { ok: "\x1b[32m✓\x1b[0m", fail: "\x1b[31m✗\x1b[0m", warn: "\x1b[33m!\x1b[0m", info: "\x1b[34m·\x1b[0m" }[level];
+  console.log(`${icon} ${msg}`);
+  if (recovery) console.log(`    ↳ ${recovery}`);
+  if (level === "fail") failures++;
+}
+
+function sh(cmd: string[], cwd = ROOT): { code: number; out: string } {
+  const r = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  return { code: r.exitCode, out: (r.stdout.toString() + r.stderr.toString()).trim() };
+}
+
+const expand = (p: string) => p.replace(/^~/, homedir());
+
+// ---------------------------------------------------------------- toolchain
+console.log("\n— toolchain (mise.toml) —");
+const mise = readFileSync(join(ROOT, "mise.toml"), "utf8");
+const pins = Object.fromEntries(
+  [...mise.matchAll(/^([\w-]+)\s*=\s*"([^"]+)"/gm)].map((m) => [m[1], m[2]]),
+);
+const versionCmds: Record<string, () => string> = {
+  node: () => sh(["node", "--version"]).out.replace(/^v/, ""),
+  bun: () => sh(["bun", "--version"]).out,
+  uv: () => sh(["uv", "--version"]).out.replace(/^uv /, "").split(" ")[0],
+  "process-compose": () => {
+    const r = Bun.spawnSync(["process-compose", "version", "--short"], { cwd: ROOT, stdout: "pipe", stderr: "ignore" });
+    return r.stdout.toString().match(/v?(\d+\.\d+\.\d+)/)?.[1] ?? "";
+  },
+};
+for (const [tool, want] of Object.entries(pins)) {
+  const getter = versionCmds[tool];
+  if (!getter) continue;
+  let got = "";
+  try { got = getter(); } catch { /* not installed */ }
+  if (!got) report("fail", `${tool}: not installed (want ${want})`, `install ${tool} ${want} — or run: mise install`);
+  else if (got !== want) report("warn", `${tool}: ${got} (pinned ${want})`, `align with mise.toml or update the pin deliberately`);
+  else report("ok", `${tool} ${got}`);
+}
+
+// ----------------------------------------------------------------------- js
+console.log("\n— javascript (bun) —");
+for (const stray of ["package-lock.json", "apps/agent-ts/package-lock.json", "yarn.lock", "pnpm-lock.yaml"]) {
+  if (existsSync(join(ROOT, stray)))
+    report("fail", `stray lockfile: ${stray} (bun.lock is canonical)`, `rm ${stray} — and stop running npm/npx in this repo; use bun / bun x`);
+}
+if (!QUICK) {
+  const frozen = sh(["bun", "install", "--frozen-lockfile", "--dry-run"]);
+  if (frozen.code === 0) report("ok", "bun.lock matches package.json (frozen install clean)");
+  else report("fail", "bun.lock out of sync with package.json", "bun install  # then commit the updated bun.lock");
+}
+
+// ------------------------------------------------------------------- python
+console.log("\n— python (uv) —");
+const stackLock = JSON.parse(readFileSync(join(ROOT, "stack.lock.json"), "utf8"));
+for (const [venv, cfg] of Object.entries<any>(stackLock.pythonEnvs)) {
+  const venvPy = join(ROOT, venv, "bin/python");
+  if (!QUICK) {
+    const check = sh(["uv", "lock", "--check", "--directory", join(ROOT, cfg.project)]);
+    if (check.code === 0) report("ok", `${cfg.project}: uv.lock matches pyproject.toml`);
+    else report("fail", `${cfg.project}: uv.lock stale`, `uv lock --directory ${cfg.project}  # then commit`);
+  }
+  if (!existsSync(venvPy)) {
+    report("fail", `${venv}: missing`, cfg.rebuild);
+    continue;
+  }
+  const pyver = sh([venvPy, "--version"]).out.replace("Python ", "");
+  if (!pyver.startsWith(cfg.python)) {
+    report("fail", `${venv}: python ${pyver}, expected ${cfg.python}.x`, cfg.rebuild);
+    continue;
+  }
+  if (!QUICK) {
+    // spot-check: every `pkg==ver` pin in pyproject must be installed at that version
+    const pyproject = readFileSync(join(ROOT, cfg.project, "pyproject.toml"), "utf8");
+    const wantPins = [...pyproject.matchAll(/"([\w.-]+)==([^"]+)"/g)].map((m) => [m[1], m[2]]);
+    const installed = new Map(
+      sh(["uv", "pip", "list", "--python", venvPy]).out.split("\n").map((l) => {
+        const [name, ver] = l.trim().split(/\s+/);
+        return [name?.toLowerCase(), ver] as const;
+      }),
+    );
+    const drifted = wantPins.filter(([name, ver]) => installed.get(name.toLowerCase()) !== ver);
+    if (drifted.length === 0) report("ok", `${venv}: all ${wantPins.length} pinned packages match (python ${pyver})`);
+    else report("fail", `${venv}: drifted — ${drifted.map(([n, v]) => `${n} ${installed.get(n.toLowerCase()) ?? "missing"}≠${v}`).join(", ")}`, cfg.rebuild);
+  } else {
+    report("ok", `${venv}: present (python ${pyver})`);
+  }
+}
+
+// ----------------------------------------------------------- external repos
+console.log("\n— external repos (stack.lock.json) —");
+for (const [name, cfg] of Object.entries<any>(stackLock.externalRepos)) {
+  const path = cfg.path.startsWith("~") ? expand(cfg.path) : join(ROOT, cfg.path);
+  if (!existsSync(path)) {
+    report("fail", `${name}: missing at ${cfg.path}`, `git clone ${cfg.remote} ${path} && git -C ${path} checkout ${cfg.commit}`);
+    continue;
+  }
+  const head = sh(["git", "-C", path, "rev-parse", "HEAD"]).out;
+  if (head === cfg.commit) report("ok", `${name} @ ${cfg.commit.slice(0, 7)}`);
+  else report("warn", `${name}: HEAD ${head.slice(0, 7)} ≠ pinned ${cfg.commit.slice(0, 7)}`, `intentional upgrade? update stack.lock.json — else: git -C ${path} checkout ${cfg.commit}`);
+}
+
+// -------------------------------------------------------------- host services
+if (!QUICK) {
+  console.log("\n— host services (informational) —");
+  for (const [name, cfg] of Object.entries<any>(stackLock.hostServices)) {
+    if (cfg.bin && !existsSync(expand(cfg.bin))) {
+      report("warn", `${name}: binary missing at ${cfg.bin}`);
+      continue;
+    }
+    const url = cfg.health ?? `http://localhost:${cfg.port}`;
+    // any HTTP status counts as "up" — only a refused/timed-out connection is down
+    const probe = sh(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "2", url]);
+    const up = probe.code === 0 && probe.out !== "000";
+    report("info", `${name} (:${cfg.port}) ${up ? "\x1b[32mup\x1b[0m" : "down"} — ${cfg.managedBy}`);
+  }
+}
+
+console.log("");
+if (failures > 0) {
+  console.log(`\x1b[31m${failures} drift issue(s) found.\x1b[0m`);
+  process.exit(1);
+}
+console.log("\x1b[32mNo drift. Stack manifests match reality.\x1b[0m");

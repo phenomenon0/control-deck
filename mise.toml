@@ -1,0 +1,8 @@
+# Pinned toolchain — single source of truth for tool versions.
+# scripts/doctor.ts reads this file directly, so the pins are enforced even
+# without mise installed. With mise: `mise install` provisions everything.
+[tools]
+node = "22.20.0"
+bun = "1.3.4"
+uv = "0.9.17"
+process-compose = "1.116.0"

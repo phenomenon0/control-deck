@@ -1,0 +1,32 @@
+[project]
+name = "controldeck-omni"
+version = "0.1.0"
+description = "Qwen-Omni sidecar env (scripts/qwen-omni-sidecar.py) — CUDA 12.4 torch"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch==2.4.1+cu124",
+    "torchvision==0.19.1+cu124",
+    "torchaudio==2.4.1+cu124",
+    "transformers==4.53.3",
+    "accelerate==1.13.0",
+    "autoawq==0.2.9",
+    "fastapi==0.136.1",
+    "uvicorn==0.46.0",
+    "python-multipart==0.0.26",
+    "librosa==0.11.0",
+    "soundfile==0.13.1",
+    "numpy==2.4.4",
+]
+
+[tool.uv]
+environments = ["sys_platform == 'linux'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true

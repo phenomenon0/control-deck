@@ -1,17 +1,18 @@
 #!/bin/bash
 # =============================================================================
-# Control Deck full-stack startup
+# Control Deck full-stack startup — thin wrapper around process-compose.
 # =============================================================================
-# Starts the three processes the chat surface needs:
-#   - Inference backend (Ollama by default, Atlas optional)  :11434
-#   - agent-ts (pi-agent-core runtime)                       :4244
-#   - Control Deck (Next.js UI)                              :3333
+# Service definitions, health checks, and dependency order live in
+# process-compose.yml. This script only resolves env defaults and drives the
+# process-compose server over a unix socket.
 #
 # Usage:
-#   ./start-full-stack.sh           # Start everything
+#   ./start-full-stack.sh           # Start everything (detached)
 #   ./start-full-stack.sh stop      # Stop everything
 #   ./start-full-stack.sh restart   # Restart everything
 #   ./start-full-stack.sh status    # Show status
+#   ./start-full-stack.sh attach    # Attach the process-compose TUI
+#   ./start-full-stack.sh doctor    # Full drift/health check
 # =============================================================================
 
 set -e
@@ -19,8 +20,8 @@ set -e
 # Configuration — override any path via env var before invoking this script
 CONTROLDECK_DIR="${CONTROLDECK_DIR:-$HOME/Documents/INIT/control-deck}"
 ATLAS_DIR="${ATLAS_DIR:-$HOME/Documents/Project/Agent-GO/atlas-runtime}"
-AGENT_TS_PORT="${AGENT_TS_PORT:-4244}"
-CONTROLDECK_PORT="${CONTROLDECK_PORT:-3333}"
+export AGENT_TS_PORT="${AGENT_TS_PORT:-4244}"
+export CONTROLDECK_PORT="${CONTROLDECK_PORT:-3333}"
 S2S_DIR="${S2S_DIR:-$HOME/Documents/Project/footydata/speech-to-speech}"
 S2S_ENABLED="${S2S_ENABLED:-1}"
 S2S_LAB_URL="${S2S_LAB_URL:-}"
@@ -42,251 +43,101 @@ S2S_LAB_URL="${S2S_LAB_URL:-http://$S2S_LAB_HOST:$S2S_LAB_PORT}"
 if [ -n "${S2S_URL:-}" ]; then
     export S2S_URL
 fi
-export S2S_LAB_URL S2S_DIR S2S_ENABLED
-LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/control-deck}"
+export S2S_LAB_URL S2S_LAB_HOST S2S_LAB_PORT S2S_DIR S2S_ENABLED
+export LOG_DIR="${LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/control-deck}"
 mkdir -p "$LOG_DIR"
 
-# =============================================================================
-# INFERENCE BACKEND: "atlas" or "ollama"
-# =============================================================================
-INFERENCE_BACKEND="ollama"  # <-- CHANGE THIS TO SWAP: "atlas" or "ollama"
-
-# LLM model that agent-ts will request from the inference backend
+# INFERENCE BACKEND: "atlas" or "ollama" — both serve :11434
+INFERENCE_BACKEND="${INFERENCE_BACKEND:-ollama}"
 if [ "$INFERENCE_BACKEND" = "atlas" ]; then
     export OLLAMA_MODEL="llama-3.2-3b-instruct-q4_k_m"
 else
     export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:8b}"
 fi
-
-# Point agent-ts at the ollama OpenAI-compatible endpoint instead of the
-# default llama-swap :8080. Override by exporting LLM_BASE_URL before invoking.
 export LLM_BASE_URL="${LLM_BASE_URL:-http://localhost:11434/v1}"
 export LLM_MODEL="${LLM_MODEL:-$OLLAMA_MODEL}"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 print_status()  { echo -e "${BLUE}[*]${NC} $1"; }
 print_success() { echo -e "${GREEN}[\xE2\x9C\x93]${NC} $1"; }
-print_error()   { echo -e "${RED}[\xE2\x9C\x97]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
 
-check_inference() {
-    curl -s http://localhost:11434/api/tags > /dev/null 2>&1
+PC_SOCK="$LOG_DIR/process-compose.sock"
+pc() { process-compose -U -u "$PC_SOCK" "$@"; }
+
+require_process_compose() {
+    if ! command -v process-compose > /dev/null 2>&1; then
+        echo "process-compose not found. Install it (pinned in mise.toml):"
+        echo "  curl -sL https://github.com/F1bonacc1/process-compose/releases/download/v1.116.0/process-compose_linux_amd64.tar.gz | tar xz -C ~/.local/bin process-compose"
+        exit 1
+    fi
 }
 
-start_inference() {
-    if check_inference; then
-        print_warning "$INFERENCE_BACKEND already running on port 11434"
+# Atlas is an external binary process-compose doesn't own; start it here if chosen.
+start_atlas_if_needed() {
+    [ "$INFERENCE_BACKEND" = "atlas" ] || return 0
+    if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+        print_warning "inference already running on :11434"
         return 0
     fi
-
-    if [ "$INFERENCE_BACKEND" = "atlas" ]; then
-        print_status "Starting Atlas inference server (GPU FULL RESIDENT)..."
-        cd "$ATLAS_DIR"
-        MODEL_PATH="${ATLAS_MODEL_PATH:-$HOME/.cache/atlas/models/llama-3.2-3b-instruct-q4_k_m.gguf}"
-        export ATLAS_GPU_FULL_RESIDENT=1
-        export ATLAS_GPU_LAYERS=999
-        nohup ./atlas serve -p 11434 -m "$MODEL_PATH" > "$LOG_DIR/atlas.log" 2>&1 &
-        sleep 8
-        if check_inference; then
-            print_success "Atlas started on port 11434 (GPU)"
-        else
-            print_error "Failed to start Atlas"
-            cat "$LOG_DIR/atlas.log"
-            return 1
-        fi
-    else
-        print_error "Ollama is not running!"
-        print_warning "Start Ollama first: sudo systemctl start ollama"
-        return 1
-    fi
-}
-
-stop_inference() {
-    if [ "$INFERENCE_BACKEND" = "atlas" ]; then
-        if pkill -f "atlasd serve" 2>/dev/null; then
-            print_success "Atlas stopped"
-        else
-            print_warning "Atlas was not running"
-        fi
-    fi
-}
-
-check_agent_ts() {
-    curl -s http://localhost:$AGENT_TS_PORT/health > /dev/null 2>&1
-}
-
-check_s2s_lab() {
-    curl -s "${S2S_LAB_URL%/}/v1/voice-lab/status" > /dev/null 2>&1
-}
-
-check_controldeck() {
-    curl -s http://localhost:$CONTROLDECK_PORT > /dev/null 2>&1
-}
-
-start_s2s() {
-    if [ "$S2S_ENABLED" = "0" ]; then
-        print_warning "s2s disabled (S2S_ENABLED=0)"
-        return 0
-    fi
-
-    if [ ! -d "$S2S_DIR" ]; then
-        print_warning "s2s directory not found at $S2S_DIR; skipping"
-        return 0
-    fi
-
-    if check_s2s_lab; then
-        print_warning "s2s Voice Lab already running at $S2S_LAB_URL"
-        return 0
-    fi
-
-    print_status "Starting s2s Voice Lab..."
-    if command -v uv > /dev/null 2>&1; then
-        HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}" \
-        nohup uv run --directory "$S2S_DIR" speech-to-speech-lab --host "$S2S_LAB_HOST" --port "$S2S_LAB_PORT" > "$LOG_DIR/s2s-lab.log" 2>&1 &
-    elif [ -x "$S2S_DIR/.venv/bin/python" ]; then
-        HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}" \
-        nohup "$S2S_DIR/.venv/bin/python" -m speech_to_speech.api.voice_lab.server --host "$S2S_LAB_HOST" --port "$S2S_LAB_PORT" > "$LOG_DIR/s2s-lab.log" 2>&1 &
-    else
-        print_warning "Skipping s2s: install uv or create $S2S_DIR/.venv"
-        return 0
-    fi
-
-    sleep 3
-
-    if check_s2s_lab; then
-        print_success "s2s Voice Lab started at $S2S_LAB_URL"
-    else
-        print_warning "s2s Voice Lab did not respond yet; continuing"
-        if [ -f "$LOG_DIR/s2s-lab.log" ]; then
-            tail -20 "$LOG_DIR/s2s-lab.log"
-        fi
-    fi
+    print_status "Starting Atlas inference server..."
+    MODEL_PATH="${ATLAS_MODEL_PATH:-$HOME/.cache/atlas/models/llama-3.2-3b-instruct-q4_k_m.gguf}"
+    ATLAS_GPU_FULL_RESIDENT=1 ATLAS_GPU_LAYERS=999 \
+        nohup "$ATLAS_DIR/atlas" serve -p 11434 -m "$MODEL_PATH" > "$LOG_DIR/atlas.log" 2>&1 &
+    sleep 8
 }
 
 start_servers() {
-    print_status "Starting Control Deck full stack (backend: $INFERENCE_BACKEND)..."
+    require_process_compose
+    print_status "Doctor (quick) — drift check before start"
+    (cd "$CONTROLDECK_DIR" && bun scripts/doctor.ts --quick) || print_warning "doctor reported issues — stack will still start; run './start-full-stack.sh doctor' for details"
+    start_atlas_if_needed
+    print_status "Starting stack via process-compose (backend: $INFERENCE_BACKEND)..."
+    cd "$CONTROLDECK_DIR"
+    pc up -f process-compose.yml -D
+    sleep 1
+    pc process list || true
     echo ""
-
-    if ! start_inference; then
-        exit 1
-    fi
-
-    # Start agent-ts (pi-agent-core runtime)
-    print_status "Starting agent-ts..."
-    if check_agent_ts; then
-        print_warning "agent-ts already running on port $AGENT_TS_PORT"
-    else
-        cd "$CONTROLDECK_DIR"
-        AGENT_TS_PORT="$AGENT_TS_PORT" \
-        nohup npx tsx apps/agent-ts/src/server/main.ts > "$LOG_DIR/agent-ts.log" 2>&1 &
-        sleep 3
-
-        if check_agent_ts; then
-            print_success "agent-ts started on port $AGENT_TS_PORT (model: $OLLAMA_MODEL)"
-        else
-            print_error "Failed to start agent-ts"
-            tail -40 "$LOG_DIR/agent-ts.log"
-            exit 1
-        fi
-    fi
-
-    start_s2s
-
-    # Start Control Deck
-    print_status "Starting Control Deck..."
-    if check_controldeck; then
-        print_warning "Control Deck already running on port $CONTROLDECK_PORT"
-    else
-        cd "$CONTROLDECK_DIR"
-        nohup npm run dev > "$LOG_DIR/controldeck.log" 2>&1 &
-        sleep 4
-
-        if check_controldeck; then
-            print_success "Control Deck started on port $CONTROLDECK_PORT"
-        else
-            print_error "Failed to start Control Deck"
-            tail -20 "$LOG_DIR/controldeck.log"
-            exit 1
-        fi
-    fi
-
+    print_success "Stack starting (detached). Follow along with: ./start-full-stack.sh attach"
     echo ""
-    print_success "Full stack is running!"
-    echo ""
-    echo -e "  ${GREEN}Control Deck:${NC}  http://localhost:$CONTROLDECK_PORT/deck/chat"
-    echo -e "  ${GREEN}agent-ts:${NC}      http://localhost:$AGENT_TS_PORT"
+    echo -e "  ${GREEN}Control Deck:${NC}   http://localhost:$CONTROLDECK_PORT/deck/chat"
+    echo -e "  ${GREEN}agent-ts:${NC}       http://localhost:$AGENT_TS_PORT"
     echo -e "  ${GREEN}s2s Voice Lab:${NC}  $S2S_LAB_URL"
-    echo -e "  ${GREEN}LLM Model:${NC}     $OLLAMA_MODEL"
+    echo -e "  ${GREEN}LLM Model:${NC}      $OLLAMA_MODEL"
     echo ""
-    echo "Logs:"
-    echo "  agent-ts:      tail -f $LOG_DIR/agent-ts.log"
-    echo "  s2s Voice Lab: tail -f $LOG_DIR/s2s-lab.log"
-    echo "  Control Deck:  tail -f $LOG_DIR/controldeck.log"
-    echo ""
+    echo "Logs: $LOG_DIR/{agent-ts,controldeck,s2s-lab}.log"
 }
 
 stop_servers() {
-    print_status "Stopping servers..."
-
-    if pkill -f "next dev.*3333" 2>/dev/null; then
-        print_success "Control Deck stopped"
+    require_process_compose
+    if pc down 2>/dev/null; then
+        print_success "Stack stopped"
     else
-        print_warning "Control Deck was not running"
+        print_warning "process-compose server not running (nothing to stop)"
     fi
-
-    if pkill -f "apps/agent-ts/src/server/main.ts" 2>/dev/null; then
-        print_success "agent-ts stopped"
-    else
-        print_warning "agent-ts was not running"
+    if [ "$INFERENCE_BACKEND" = "atlas" ] && pkill -f "atlas serve" 2>/dev/null; then
+        print_success "Atlas stopped"
     fi
-
-    stop_inference
-
-    echo ""
-    print_success "All servers stopped"
 }
 
 show_status() {
+    require_process_compose
     echo ""
     echo "=== Control Deck Stack Status (backend: $INFERENCE_BACKEND) ==="
+    pc process list -o wide 2>/dev/null || print_warning "process-compose server not running — stack is down (host services below may still be up)"
     echo ""
-
-    if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-        models=$(curl -s http://localhost:11434/api/tags | grep -o '"name":"[^"]*"' | head -5 | tr '\n' ', ')
-        echo -e "$INFERENCE_BACKEND:    ${GREEN}RUNNING${NC} (models: ${models%,})"
-    else
-        echo -e "$INFERENCE_BACKEND:    ${RED}STOPPED${NC}"
-    fi
-
-    if check_agent_ts; then
-        health=$(curl -s http://localhost:$AGENT_TS_PORT/health)
-        echo -e "agent-ts:      ${GREEN}RUNNING${NC} on :$AGENT_TS_PORT ($health)"
-    else
-        echo -e "agent-ts:      ${RED}STOPPED${NC}"
-    fi
-
-    if [ "$S2S_ENABLED" = "0" ]; then
-        echo -e "s2s Voice Lab: ${YELLOW}DISABLED${NC}"
-    elif [ ! -d "$S2S_DIR" ]; then
-        echo -e "s2s Voice Lab: ${YELLOW}SKIPPED${NC} ($S2S_DIR not found)"
-    elif check_s2s_lab; then
-        echo -e "s2s Voice Lab: ${GREEN}RUNNING${NC} at $S2S_LAB_URL"
-    else
-        echo -e "s2s Voice Lab: ${RED}STOPPED${NC}"
-    fi
-
-    if check_controldeck; then
-        echo -e "Control Deck:  ${GREEN}RUNNING${NC} on :$CONTROLDECK_PORT"
-    else
-        echo -e "Control Deck:  ${RED}STOPPED${NC}"
-    fi
-
+    for probe in "inference|http://localhost:11434/api/tags" \
+                 "vectordb|http://localhost:4242" \
+                 "voice-api|http://localhost:8000" \
+                 "s2s lab|$S2S_LAB_URL/v1/voice-lab/status"; do
+        name="${probe%%|*}"; url="${probe#*|}"
+        # any HTTP status = up; only refused/timed-out connections count as down
+        if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$url" 2>/dev/null)" != "000" ]; then
+            echo -e "$name:\t${GREEN}UP${NC}"
+        else
+            echo -e "$name:\t${YELLOW}down${NC}"
+        fi
+    done
     echo ""
 }
 
@@ -295,8 +146,10 @@ case "${1:-start}" in
     stop)    stop_servers ;;
     restart) stop_servers; sleep 2; start_servers ;;
     status)  show_status ;;
+    attach)  require_process_compose; pc attach ;;
+    doctor)  cd "$CONTROLDECK_DIR" && bun scripts/doctor.ts ;;
     *)
-        echo "Usage: $0 {start|stop|restart|status}"
+        echo "Usage: $0 {start|stop|restart|status|attach|doctor}"
         exit 1
         ;;
 esac

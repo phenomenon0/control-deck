@@ -1,0 +1,41 @@
+{
+  "$comment": "Pins for everything the stack depends on that lives OUTSIDE this repo's lockfiles. Verified by `bun scripts/doctor.ts`. Update a pin deliberately after upgrading the dependency, never by hand-waving.",
+  "externalRepos": {
+    "speech-to-speech": {
+      "path": "~/Documents/Project/footydata/speech-to-speech",
+      "remote": "https://github.com/huggingface/speech-to-speech.git",
+      "commit": "bf748a73f473fc2bd45dc0616ef286ae94d5b37b",
+      "role": "s2s Voice Lab (:8765 ws, :7860 lab) — has its own uv.lock, pinned here by commit"
+    },
+    "atlas-runtime": {
+      "path": "~/Documents/Project/Agent-GO/atlas-runtime",
+      "remote": "git@github.com:phenomenon0/Agent-GO.git",
+      "commit": "c487bde3fbba30ec3cdcf6245942dec80b5783cc",
+      "role": "optional inference backend (:11434 when INFERENCE_BACKEND=atlas)"
+    },
+    "llama.cpp": {
+      "path": "llama.cpp",
+      "remote": "https://github.com/ggml-org/llama.cpp.git",
+      "commit": "78433f606fde4d7934a02dcbfd910438d28beccd",
+      "role": "vendored clone (gitignored), built on host for CUDA"
+    }
+  },
+  "pythonEnvs": {
+    ".venv-omni": {
+      "project": "pyenvs/omni",
+      "python": "3.12",
+      "rebuild": "UV_PROJECT_ENVIRONMENT=$PWD/.venv-omni uv sync --frozen --directory pyenvs/omni"
+    },
+    ".venv-vllm": {
+      "project": "pyenvs/vllm",
+      "python": "3.11",
+      "rebuild": "UV_PROJECT_ENVIRONMENT=$PWD/.venv-vllm uv sync --frozen --directory pyenvs/vllm"
+    }
+  },
+  "hostServices": {
+    "ollama": { "port": 11434, "health": "http://localhost:11434/api/tags", "managedBy": "ollama serve (user session)" },
+    "vectordb": { "port": 4242, "bin": "~/v/vectordb", "managedBy": "boot" },
+    "voice-api (chatterbox)": { "port": 8000, "path": "~/Documents/INIT/voice-api", "env": "miniforge env 'chatterbox' — NOT uv-managed", "managedBy": "boot" },
+    "comfyui": { "port": 8188, "managedBy": "manual" }
+  }
+}

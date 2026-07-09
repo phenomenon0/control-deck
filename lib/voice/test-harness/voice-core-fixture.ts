@@ -47,6 +47,15 @@ export async function ensureVoiceCore(timeoutMs = 30_000): Promise<VoiceCoreHand
     return { url: DEFAULT_URL };
   }
 
+  // Booting voice-core takes far longer than bun's 5s hook timeout, so a cold
+  // spawn inside beforeAll can only ever fail the suite. Require an explicit
+  // opt-in; without it, callers get a fast skip instead of a hook timeout.
+  if (process.env.VOICE_HARNESS_BOOT !== "1") {
+    throw new Error(
+      `voice-core is not running on ${HEALTH_URL}; start it manually, set ${ENV_FLAG}, or set VOICE_HARNESS_BOOT=1 to let the harness spawn it`,
+    );
+  }
+
   const child = spawn("npm", ["run", "voice:core"], {
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,

@@ -4,22 +4,11 @@
  * Batch sweep driver — runs (fixture × preset × iteration) combinations and
  * captures a ProbeReport + raw server timing frames for each one.
  *
- * Each run is a fresh transient StreamingSttClient with its own probe so
- * timings don't bleed across runs. Optional TTS pass after the final to
- * also capture `tts.synth_per_phrase` server timings.
+ * Each run posts the fixture through the app-gateway voice endpoints with its
+ * own probe so timings don't bleed across runs. Optional TTS pass after the
+ * final confirms the active TTS route can synthesize the recognized text.
  */
 
-import {
-  StreamingSttClient,
-  type StreamingSttOptions,
-} from "@/lib/voice/streaming-stt";
-import {
-  StreamingTtsClient,
-} from "@/lib/voice/streaming-tts";
-import {
-  decodeWav,
-  streamWavChunks,
-} from "@/lib/voice/test-harness/wav-streamer";
 import {
   createProbe,
   installProbe,
@@ -62,18 +51,7 @@ export interface RunWavOnceOptions {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-/** Build the StreamingSttOptions implied by a knob set. */
-function sttOptsFromKnobs(knobs: LabKnobs, extras: Partial<StreamingSttOptions> = {}): StreamingSttOptions {
-  const opts: StreamingSttOptions = {
-    debug: true,
-    language: knobs.stt_language ?? "en",
-    ...extras,
-  };
-  opts.engine = knobs.stt;
-  return opts;
-}
-
-/** Drive a single fixture through a fresh STT client and capture a report. */
+/** Drive a single fixture through the active app voice routes and capture a report. */
 export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const probe = createProbe();
@@ -82,86 +60,48 @@ export async function runWavOnce(opts: RunWavOnceOptions): Promise<LabRun | null
   const events: LabTimingEvent[] = [];
 
   let finalText = "";
-  let resolvedFinal = false;
-  let settleFinal: () => void = () => {
-    resolvedFinal = true;
-  };
-  const finalPromise = new Promise<void>((resolve) => {
-    const timer = window.setTimeout(() => {
-      if (!resolvedFinal) resolve();
-    }, timeoutMs);
-    settleFinal = () => {
-      if (resolvedFinal) return;
-      resolvedFinal = true;
-      window.clearTimeout(timer);
-      resolve();
-    };
-  });
-
-  const stt = new StreamingSttClient(
-    sttOptsFromKnobs(opts.knobs, {
-      onFinal: (text) => {
-        finalText = text;
-        settleFinal();
-      },
-      onError: (err) => {
-        console.warn("[lab/batch] stt error:", err);
-        settleFinal();
-      },
-      onTiming: (frame) => {
-        events.push({
-          source: "stt",
-          name: `srv_${frame.phase}`,
-          t: performance.now(),
-          meta: { ms: frame.ms, ...frame.meta },
-        });
-      },
-    }),
-  );
-
   try {
-    await stt.connect();
     const res = await fetch(opts.fixture.url);
     const buf = await res.arrayBuffer();
-    const info = decodeWav(buf);
-    for await (const chunk of streamWavChunks(info, { realTime: false, chunkMs: 100 })) {
-      stt.pushFloat32(chunk.samples, chunk.sampleRate);
+    const form = new FormData();
+    form.append("audio", new Blob([buf], { type: "audio/wav" }), "fixture.wav");
+    form.append("mimeType", "audio/wav");
+    if (opts.knobs.stt_language) form.append("language", opts.knobs.stt_language);
+    const sttRes = await fetch("/api/voice/stt", {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (sttRes.ok) {
+      const data = (await sttRes.json()) as { text?: string };
+      finalText = data.text ?? "";
+    } else {
+      console.warn("[lab/batch] stt route failed:", await sttRes.text().catch(() => sttRes.statusText));
     }
-    stt.final();
-    await finalPromise;
   } catch (err) {
     console.warn("[lab/batch] stt run failed:", err);
-  } finally {
-    stt.close();
   }
 
   // Optional TTS round-trip for downstream timings.
   const promptText = opts.ttsPrompt ?? finalText;
   if (promptText.trim()) {
-    const tts = new StreamingTtsClient({
-      debug: true,
-      engine: opts.knobs.tts,
-      voice: opts.knobs.qwen3_tts_speaker ?? opts.knobs.kokoro_voice,
-      speed: opts.knobs.kokoro_speed,
-      onTiming: (frame) => {
-        events.push({
-          source: "tts",
-          name: `srv_${frame.phase}`,
-          t: performance.now(),
-          meta: { ms: frame.ms, ...frame.meta },
-        });
-      },
-      onError: (err) => {
-        console.warn("[lab/batch] tts error:", err);
-      },
-    });
     try {
-      await tts.connect();
-      await tts.speak({ text: promptText, speed: opts.knobs.kokoro_speed });
+      const ttsRes = await fetch("/api/voice/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: promptText,
+          voice: opts.knobs.qwen3_tts_speaker ?? opts.knobs.kokoro_voice,
+          speed: opts.knobs.kokoro_speed,
+          format: "wav",
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!ttsRes.ok) {
+        console.warn("[lab/batch] tts route failed:", await ttsRes.text().catch(() => ttsRes.statusText));
+      }
     } catch (err) {
       console.warn("[lab/batch] tts run failed:", err);
-    } finally {
-      tts.close();
     }
   }
 

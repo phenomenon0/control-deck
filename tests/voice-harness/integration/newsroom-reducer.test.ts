@@ -1,6 +1,6 @@
 /**
  * Drive the pure newsroom doc reducer with scripted final transcripts. No
- * voice-core, no React — just `applyTranscriptToDoc`. This is the fast,
+ * transport, no React — just `applyTranscriptToDoc`. This is the fast,
  * deterministic regression net for the doc-mutation logic that lives behind
  * the streaming voice path.
  */

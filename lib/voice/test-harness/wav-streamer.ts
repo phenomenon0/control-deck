@@ -4,12 +4,12 @@
  *
  * Decodes a WAV file (PCM Int16, PCM Int8, IEEE Float32, or A-law/mu-law) into
  * a single Float32 channel, then yields Float32 chunks on a real-time schedule
- * so downstream code (`StreamingSttClient.pushFloat32`, mocked `getUserMedia`)
- * receives audio at the same cadence the WAV would play at — not all at once.
+ * so mocked `getUserMedia` receives audio at the same cadence the WAV would
+ * play at — not all at once.
  *
  * The harness uses this to:
- *   1. drive `StreamingSttClient` directly (Bun integration tests)
- *   2. feed a chrome `--use-file-for-fake-audio-capture` flag (Playwright e2e)
+ *   1. feed a chrome `--use-file-for-fake-audio-capture` flag (Playwright e2e)
+ *   2. exercise chunk pacing in unit tests
  *
  * Pure: no `fs`, no Node APIs. Caller hands in an ArrayBuffer.
  */

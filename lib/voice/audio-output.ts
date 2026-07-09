@@ -14,7 +14,7 @@
  */
 
 import { SpeechHandle } from "./speech-handle";
-import { int16PcmBytesToFloat32 } from "./streaming-tts";
+import { int16PcmBytesToFloat32 } from "./pcm";
 
 type ProbeShape = { mark: (name: string, meta?: Record<string, unknown>) => void };
 const probe = (): ProbeShape | undefined =>
@@ -115,9 +115,9 @@ export class AgentOutput {
   }
 
   /**
-   * Streaming-TTS entry point — convert one Int16 LE PCM chunk into an
-   * AudioBuffer and queue it. Used by `StreamingTtsClient` so the post-
-   * processing graph and the per-handle queue stay the only playback path.
+   * Realtime audio entry point — convert one Int16 LE PCM chunk into an
+   * AudioBuffer and queue it so the post-processing graph and the per-handle
+   * queue stay the only playback path.
    */
   async playPcm16Chunk(
     handle: SpeechHandle,

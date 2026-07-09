@@ -273,15 +273,6 @@ const TTS: BenchmarkEntry[] = [
     source: "OpenAI pricing",
     asOf: "2026-04",
   },
-  {
-    providerId: "voice-core",
-    model: "kokoro-82m",
-    modality: "tts",
-    metrics: { qualityMos: 4.1, timeToFirstMs: 200 },
-    source: "Local sidecar",
-    asOf: "2026-04",
-    note: "Local / free / offline. Apache 2.0 Kokoro 82M ONNX, 50+ voices.",
-  },
 ];
 
 // -- stt -------------------------------------------------------------------
@@ -321,15 +312,6 @@ const STT: BenchmarkEntry[] = [
     metrics: { qualityWer: 0.085, costPerAudioHour: 0.36 },
     source: "OpenAI Audio",
     asOf: "2026-04",
-  },
-  {
-    providerId: "voice-core",
-    model: "whisper-large-v3-turbo-cpp",
-    modality: "stt",
-    metrics: { qualityWer: 0.085 },
-    source: "Local sidecar",
-    asOf: "2026-04",
-    note: "Local whisper.cpp via VOICE_CORE_URL; exact WER depends on model size.",
   },
 ];
 

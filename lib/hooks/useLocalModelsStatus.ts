@@ -5,7 +5,7 @@
  *
  * Refetches when the preset changes or the caller nudges `refresh()` (e.g.
  * after a pull completes). Short-polls every 15s so Ollama installs and
- * sidecar availability stay in sync without the user hitting Refresh.
+ * s2s availability stays in sync without the user hitting Refresh.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,7 +25,7 @@ export interface LocalModalityStatus {
 
 export interface LocalRunnersStatus {
   ollama: { reachable: boolean; installed: string[] };
-  voiceSidecar: { reachable: boolean; wsUrl: string | null };
+  s2s: { reachable: boolean; wsUrl: string | null };
 }
 
 export interface LocalModelsStatus {
@@ -71,7 +71,7 @@ export function useLocalModelsStatus(preset: LocalPreset = "balanced"): LocalMod
     preset: data?.preset ?? preset,
     runners: data?.runners ?? {
       ollama: { reachable: false, installed: [] },
-      voiceSidecar: { reachable: false, wsUrl: null },
+      s2s: { reachable: false, wsUrl: null },
     },
     modalities: data?.modalities ?? [],
     loading,

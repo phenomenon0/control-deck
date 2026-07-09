@@ -370,40 +370,9 @@ const VISION_CANDIDATES: LocalCandidate[] = [
   }),
 ];
 
-// -- STT (voice-core engines; not Ollama) ------------------------
+// -- STT -------------------------------------------------------------------
 
 const STT_CANDIDATES: LocalCandidate[] = [
-  c("moonshine-tiny", "Moonshine Tiny", "stt", "voice-core", {
-    hfRepo: "UsefulSensors/moonshine-tiny", vramRequiredMB: 200, diskMB: 200,
-    quantization: "int8", cpuFriendly: true,
-    backends: ["metal", "cuda", "rocm", "cpu"], family: "moonshine", license: "apache-2.0",
-    summary: "Apache-2.0 streaming ASR built for CPU. ~60ms first partial on a modern laptop.",
-  }),
-  c("sherpa-onnx-streaming", "sherpa-onnx streaming", "stt", "voice-core", {
-    hfRepo: "csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26",
-    vramRequiredMB: 350, diskMB: 350,
-    quantization: "fp16", cpuFriendly: true,
-    backends: ["metal", "cuda", "rocm", "cpu"], family: "sherpa-onnx", license: "apache-2.0",
-    summary: "Endpoint-aware streaming transducer. Tight partials on CPU and CUDA.",
-  }),
-  c("whisper-large-v3-turbo-cpp", "Whisper large-v3-turbo (whisper.cpp)", "stt", "voice-core", {
-    hfRepo: "ggerganov/whisper.cpp", vramRequiredMB: 1600, diskMB: 1600,
-    quantization: "Q5_0", cpuFriendly: false,
-    backends: ["metal", "cuda"], family: "whisper", license: "mit",
-    summary: "ANE/CoreML accelerated on Mac, CUDA fallback elsewhere. Best CPU-friendly correction.",
-  }),
-  c("parakeet-tdt-0.6b-v2", "NVIDIA Parakeet TDT 0.6B v2", "stt", "voice-core", {
-    hfRepo: "nvidia/parakeet-tdt-0.6b-v2", vramRequiredMB: 1300, diskMB: 1300,
-    quantization: "fp16", cpuFriendly: false,
-    backends: ["cuda"], family: "parakeet", license: "commercial",
-    summary: "Open-ASR-Leaderboard #1, ~RTF 0.06 on a single mid-range NVIDIA card.",
-  }),
-  c("faster-whisper", "faster-whisper (CTranslate2)", "stt", "voice-core", {
-    hfRepo: "guillaumekln/faster-whisper-large-v3", vramRequiredMB: 2900, diskMB: 2900,
-    quantization: "fp16", cpuFriendly: false,
-    backends: ["cuda"], family: "whisper", license: "mit",
-    summary: "Final-correction pass. Highest accuracy in the cascade.",
-  }),
   c("qwen2.5-omni-7b-awq-stt", "Qwen2.5 Omni 7B AWQ", "stt", QWEN_OMNI_PROVIDER_ID, {
     hfRepo: QWEN_OMNI_MODEL_ID, vramRequiredMB: 11800, diskMB: 12100,
     quantization: "AWQ int4", cpuFriendly: false,
@@ -415,24 +384,6 @@ const STT_CANDIDATES: LocalCandidate[] = [
 // -- TTS -------------------------------------------------------------------
 
 const TTS_CANDIDATES: LocalCandidate[] = [
-  c("sherpa-onnx-tts", "sherpa-onnx VITS", "tts", "voice-core", {
-    hfRepo: "csukuangfj/sherpa-onnx-vits-piper-en_US-amy-low", vramRequiredMB: 90, diskMB: 90,
-    quantization: "int8", cpuFriendly: true,
-    backends: ["metal", "cuda", "rocm", "cpu"], family: "sherpa-onnx", license: "apache-2.0",
-    summary: "Lightweight VITS via sherpa-onnx. Robotic but instant on any CPU.",
-  }),
-  c("kokoro-82m", "Kokoro 82M", "tts", "voice-core", {
-    hfRepo: "hexgrad/Kokoro-82M", vramRequiredMB: 327, diskMB: 327,
-    quantization: "fp16", cpuFriendly: true,
-    backends: ["metal", "cuda", "cpu"], family: "kokoro", license: "apache-2.0",
-    summary: "Apache-licensed default. ~150ms first chunk on GPU, natural voices.",
-  }),
-  c("chatterbox", "Chatterbox (expressive)", "tts", "voice-core", {
-    hfRepo: "ResembleAI/chatterbox", vramRequiredMB: 1200, diskMB: 1200,
-    quantization: "fp16", cpuFriendly: false,
-    backends: ["metal", "cuda"], family: "chatterbox", license: "mit",
-    summary: "Expressive prosody for narration. Lazy-loads on first request.",
-  }),
   c("qwen2.5-omni-7b-awq-tts", "Qwen2.5 Omni 7B AWQ", "tts", QWEN_OMNI_PROVIDER_ID, {
     hfRepo: QWEN_OMNI_MODEL_ID, vramRequiredMB: 11800, diskMB: 12100,
     quantization: "AWQ int4", cpuFriendly: false,

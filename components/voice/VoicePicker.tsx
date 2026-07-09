@@ -5,12 +5,10 @@
  *
  * Bound to DeckSettingsProvider.prefs.voice.voiceId, which threads through
  * `useVoiceSession.currentVoiceId` to:
- *   - StreamingTtsClient (per-utterance `voice` field) — applies on next phrase.
  *   - /api/voice/tts non-streaming fallback — applies on next request.
  *
  * Voices come from `/api/voice/providers` (`current.voices`). The list is
- * populated by the active TTS provider; voice-core returns Kokoro's 50+ baked
- * voices once the engine has loaded.
+ * populated by the active TTS provider when that provider exposes voices.
  *
  * Live swap: changing the dropdown persists immediately. The next phrase
  * (streaming) or the next /api/voice/tts request picks up the new id with
@@ -104,7 +102,7 @@ export function VoicePicker({ variant = "chip", preview }: VoicePickerProps) {
 
   if (!loading && voices.length === 0) {
     return variant === "row" ? (
-      <div className="text-xs text-[var(--text-muted)]">No voices available — start voice-core.</div>
+      <div className="text-xs text-[var(--text-muted)]">No voices available for the active TTS provider.</div>
     ) : null;
   }
 

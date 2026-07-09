@@ -219,8 +219,8 @@ function percentile(sorted: number[], p: number): number {
 
 /**
  * Install this probe as `globalThis.__voiceProbe`. Production declares the
- * global as a minimal `{ mark }` shape (see `lib/voice/streaming-stt.ts`); a
- * full `Probe` object is structurally compatible with it.
+ * global as a minimal `{ mark }` shape; a full `Probe` object is structurally
+ * compatible with it.
  */
 export function installProbe(probe: Probe): void {
   (globalThis as { __voiceProbe?: Probe }).__voiceProbe = probe;

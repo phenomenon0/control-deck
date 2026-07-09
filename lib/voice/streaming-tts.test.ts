@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { float32ToInt16Bytes } from "./audio-input";
-import { int16PcmBytesToFloat32 } from "./streaming-tts";
+import { int16PcmBytesToFloat32 } from "./pcm";
 
 describe("int16PcmBytesToFloat32", () => {
   test("zero stays zero", () => {

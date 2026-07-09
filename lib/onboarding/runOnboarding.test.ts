@@ -5,11 +5,11 @@ import { afterAll, describe, expect, it } from "bun:test";
 // guaranteed-dead ports so the probes resolve fast and deterministically.
 const ORIG_PATH = process.env.PATH;
 const ORIG_OLLAMA_URL = process.env.OLLAMA_BASE_URL;
-const ORIG_VOICE_URL = process.env.VOICE_CORE_URL;
+const ORIG_S2S_URL = process.env.S2S_URL;
 
 process.env.PATH = "/tmp/no-bins-for-onboarding-consent-test";
 process.env.OLLAMA_BASE_URL = "http://127.0.0.1:1";
-process.env.VOICE_CORE_URL = "http://127.0.0.1:2";
+process.env.S2S_URL = "http://127.0.0.1:2";
 // Production PATH augmentation prepends /usr/local/bin etc — bypass it so
 // our /tmp/no-bins PATH is the only dir scanned.
 process.env.CONTROL_DECK_DISABLE_PATH_AUGMENT = "1";
@@ -30,7 +30,7 @@ describe("runOnboarding consent gating", () => {
   afterAll(() => {
     process.env.PATH = ORIG_PATH;
     process.env.OLLAMA_BASE_URL = ORIG_OLLAMA_URL;
-    process.env.VOICE_CORE_URL = ORIG_VOICE_URL;
+    process.env.S2S_URL = ORIG_S2S_URL;
   });
 
   it("denies install when consent is absent and surfaces the manual fallback", async () => {
@@ -99,4 +99,3 @@ describe("runOnboarding consent gating", () => {
     }
   });
 });
-

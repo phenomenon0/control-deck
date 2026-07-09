@@ -1,10 +1,9 @@
 /**
  * Playwright config for the voice → newsroom liveblog harness.
  *
- * Auto-launches `npm run dev` (Next on :3333) and `npm run voice:core`
- * (FastAPI sidecar on :4245) if they aren't already running. The fake-audio
- * Chromium flag is set per-test inside the spec via a custom fixture that
- * relaunches a browser with `--use-file-for-fake-audio-capture=<wav>`.
+ * Auto-launches `npm run dev` (Next on :3333). The fake-audio Chromium flag
+ * is set per-test inside the spec via a custom fixture that relaunches a
+ * browser with `--use-file-for-fake-audio-capture=<wav>`.
  */
 
 import { defineConfig, devices } from "@playwright/test";
@@ -37,14 +36,6 @@ export default defineConfig({
     {
       command: "npm run dev",
       url: "http://localhost:3333",
-      reuseExistingServer: true,
-      timeout: 120_000,
-      stdout: "ignore",
-      stderr: "pipe",
-    },
-    {
-      command: "npm run voice:core",
-      url: "http://127.0.0.1:4245/health",
       reuseExistingServer: true,
       timeout: 120_000,
       stdout: "ignore",

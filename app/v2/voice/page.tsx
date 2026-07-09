@@ -34,9 +34,9 @@ type Sidecar = "ok" | "unreachable" | "unknown";
    faked precision. */
 const FALLBACK_ROUTE: RouteInfo = {
   preset: "local",
-  rationale: "Offline — showing the default local voice route.",
-  stt: { providerName: "voice-core", model: "sherpa-onnx-streaming" },
-  tts: { providerName: "voice-core", model: "f5-tts", engine: "f5-tts" },
+  rationale: "Offline — showing the realtime voice route placeholder.",
+  stt: { providerName: "s2s", model: "realtime" },
+  tts: { providerName: "s2s", model: "realtime", engine: null },
 };
 const FALLBACK_PRESETS = ["offline", "local", "fast", "quality", "expressive"];
 
@@ -55,7 +55,7 @@ const SEED: Turn[] = [
 const SCRIPT: Array<{ user: string; assistant: string }> = [
   {
     user: "Route me to the fastest voice path.",
-    assistant: "Switched to the Fast preset. Speech-to-text and text-to-speech both run on the local voice-core sidecar for the lowest turn latency.",
+    assistant: "Switched to the Fast preset. Realtime speech uses the s2s path when it is available; otherwise the app-gateway voice route is used.",
   },
   {
     user: "How's the sidecar doing?",

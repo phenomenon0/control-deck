@@ -56,8 +56,7 @@ type Listener<T> = (payload: T) => void;
 const DEFAULT_VAD_ASSET_PATH = "/audio-worklets/";
 
 // ---------------------------------------------------------------------------
-// PCM helpers — shared with the streaming-stt client. Lives here because both
-// the capture path and the WS bridge need exactly the same conversion math.
+// PCM helpers used by the capture path and tests.
 
 /**
  * Cheap linear-decimation downsampler from any source rate to 16 kHz.

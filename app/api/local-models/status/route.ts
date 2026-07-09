@@ -16,7 +16,6 @@
  *     preset,
  *     runners: {
  *       ollama:        { reachable, installed: string[] },
- *       voiceSidecar:  { reachable, wsUrl | null }, // compatibility alias
  *       s2s:           { reachable, wsUrl | null, baseUrl, labUrl, labReachable },
  *     },
  *     modalities: [
@@ -94,7 +93,7 @@ function hintFor(runner: LocalRunner, installed: boolean, ollama: OllamaProbe, v
   switch (runner) {
     case "ollama":
       return ollama.reachable ? null : "Ollama isn't reachable. Start `ollama serve` to enable local pulls.";
-    case "voice-sidecar":
+    case "s2s":
       return voice.reachable
         ? "Local voice is served by s2s realtime."
         : "s2s local voice is not running. Start the s2s supervisor or Voice Lab to enable.";
@@ -121,7 +120,7 @@ export async function GET(req: Request) {
     let installed = false;
     if (def.runner === "ollama" && def.id) {
       installed = ollamaInstalledMatch(def.id, ollama.installed);
-    } else if (def.runner === "voice-sidecar" && def.id) {
+    } else if (def.runner === "s2s" && def.id) {
       installed = voice.reachable;
     }
 
@@ -140,7 +139,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     preset,
-    runners: { ollama, voiceSidecar: voice, s2s: voice },
+    runners: { ollama, s2s: voice },
     modalities,
   });
 }

@@ -247,19 +247,7 @@ export type VoiceEngineFamily =
   // Cloud voice design (generate a voice from a text description).
   | "hume-octave"
   // Cloud expressive TTS (SOTA 2026).
-  | "gemini-tts"
-  // Local engines via the voice-core sidecar.
-  | "xtts-v2"
-  | "chatterbox"
-  | "chatterbox-turbo"
-  | "kokoro"
-  // Local engines on the 2026 roadmap — catalogued only, sidecar support pending.
-  | "f5-tts"
-  | "orpheus"
-  | "cosyvoice-3"
-  | "fish-speech-s2"
-  | "qwen3-tts"
-  | "indextts-2";
+  | "gemini-tts";
 
 export type VoiceEngineCapability =
   | "clone"

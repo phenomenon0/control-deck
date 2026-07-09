@@ -218,13 +218,13 @@ export function VoiceInput({
         </button>
       )}
 
-      {/* voice-core offline warning */}
+      {/* Voice route offline warning */}
       {isApiOffline && (
         <div className="text-xs text-[var(--text-muted)] bg-[var(--bg-tertiary)] rounded-lg px-4 py-2 max-w-[300px] text-center">
-          voice-core not running.
+          Voice route unavailable.
           <br />
           <code className="text-[var(--accent)]">
-            bun run voice:core
+            Check s2s or cloud voice settings.
           </code>
         </div>
       )}

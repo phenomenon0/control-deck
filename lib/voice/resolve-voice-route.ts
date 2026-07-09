@@ -65,7 +65,6 @@ export interface ResolverSnapshot {
   preset: VoiceRoutePreset;
   sttProviders: ProviderAvailability[];
   ttsProviders: ProviderAvailability[];
-  sidecarReachable: boolean;
   s2sReachable?: boolean;
 }
 
@@ -80,34 +79,30 @@ export interface ResolvedRoute {
   stt: ResolvedBinding | null;
   tts: (ResolvedBinding & { engine: string | null }) | null;
   transport: {
-    mode: "local-sidecar" | "app-gateway" | "realtime";
-    usesSidecar: boolean;
+    mode: "app-gateway" | "realtime";
   };
   fallbacksApplied: string[];
   rationale: string;
 }
 
-const SIDECAR_ID = "voice-core";
-
 /** Preference order per preset. Earlier entries win if available. */
 const STT_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
-  offline: [SIDECAR_ID],
-  local: [SIDECAR_ID, "groq", "deepgram"],
-  fast: ["groq", "deepgram", "assemblyai", SIDECAR_ID],
-  quality: ["assemblyai", "deepgram", "openai", SIDECAR_ID],
-  expressive: ["assemblyai", "deepgram", SIDECAR_ID],
+  offline: [],
+  local: ["groq", "deepgram"],
+  fast: ["groq", "deepgram", "assemblyai"],
+  quality: ["assemblyai", "deepgram", "openai"],
+  expressive: ["assemblyai", "deepgram"],
 };
 
 const TTS_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
-  offline: [SIDECAR_ID],
-  local: [SIDECAR_ID, "cartesia", "deepgram"],
-  fast: ["cartesia", "deepgram", SIDECAR_ID],
-  quality: ["elevenlabs", "google", "cartesia", SIDECAR_ID],
-  expressive: ["hume", "elevenlabs", "inworld", SIDECAR_ID],
+  offline: [],
+  local: ["cartesia", "deepgram"],
+  fast: ["cartesia", "deepgram"],
+  quality: ["elevenlabs", "google", "cartesia"],
+  expressive: ["hume", "elevenlabs", "inworld"],
 };
 
 const MODEL_DEFAULTS: Record<string, string | null> = {
-  [SIDECAR_ID]: null,
   groq: "whisper-large-v3-turbo",
   deepgram: "nova-3",
   assemblyai: "universal-3-pro",
@@ -122,18 +117,12 @@ const MODEL_DEFAULTS: Record<string, string | null> = {
 function pickProvider(
   prefs: string[],
   available: ProviderAvailability[],
-  sidecarReachable: boolean,
 ): { provider: ProviderAvailability; fellBack: boolean } | null {
   const byId = new Map(available.map((p) => [p.id, p]));
   let fellBack = false;
   for (const id of prefs) {
     const entry = byId.get(id);
     if (!entry) continue;
-    if (id === SIDECAR_ID) {
-      if (sidecarReachable) return { provider: entry, fellBack };
-      fellBack = true;
-      continue;
-    }
     // Consider a cloud provider picked if it's configured (regardless of
     // reachable == null, which means "not probed yet"). If reachable is
     // explicitly false, skip it and fall back.
@@ -149,12 +138,10 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
   const sttPick = pickProvider(
     STT_PREFERENCE[snapshot.preset],
     snapshot.sttProviders,
-    snapshot.sidecarReachable,
   );
   const ttsPick = pickProvider(
     TTS_PREFERENCE[snapshot.preset],
     snapshot.ttsProviders,
-    snapshot.sidecarReachable,
   );
 
   const stt: ResolvedBinding | null = sttPick
@@ -170,7 +157,7 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
         providerId: ttsPick.provider.id,
         providerName: ttsPick.provider.name,
         model: MODEL_DEFAULTS[ttsPick.provider.id] ?? null,
-        engine: ttsPick.provider.id === SIDECAR_ID ? "kokoro-82m" : null,
+        engine: null,
       }
     : null;
 
@@ -178,14 +165,8 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
   if (sttPick?.fellBack) fallbacksApplied.push("stt");
   if (ttsPick?.fellBack) fallbacksApplied.push("tts");
 
-  const usesSidecar =
-    stt?.providerId === SIDECAR_ID || tts?.providerId === SIDECAR_ID;
-  const transportMode: "local-sidecar" | "app-gateway" | "realtime" =
-    snapshot.s2sReachable === true
-      ? "realtime"
-      : usesSidecar
-        ? "local-sidecar"
-        : "app-gateway";
+  const transportMode: "app-gateway" | "realtime" =
+    snapshot.s2sReachable === true ? "realtime" : "app-gateway";
 
   const rationale = buildRationale(snapshot.preset, stt, tts, fallbacksApplied, snapshot);
 
@@ -193,7 +174,7 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
     preset: snapshot.preset,
     stt,
     tts,
-    transport: { mode: transportMode, usesSidecar: transportMode === "realtime" ? false : usesSidecar },
+    transport: { mode: transportMode },
     fallbacksApplied,
     rationale,
   };
@@ -208,6 +189,9 @@ function buildRationale(
 ): string {
   const label = VOICE_ROUTE_PRESET_INFO[preset].label;
   if (!stt && !tts) {
+    if (snapshot.s2sReachable === true) {
+      return `Selected ${label} → realtime s2s voice.`;
+    }
     return `Selected ${label} → no providers reachable. Configure a provider or start s2s local voice.`;
   }
   if (fallbacks.length === 0) {

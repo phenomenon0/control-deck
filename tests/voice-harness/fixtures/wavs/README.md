@@ -11,8 +11,8 @@ models/voice-engines/sherpa-streaming/test_wavs/
 └── trans.txt  # ground-truth transcripts
 ```
 
-All three are 16-bit PCM mono, 16 kHz — exactly the format voice-core's
-`/stt/stream` endpoint expects, so no resampling is needed.
+All three are 16-bit PCM mono, 16 kHz, so no resampling is needed for the
+voice harness paths.
 
 To add a new fixture:
 

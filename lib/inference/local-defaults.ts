@@ -14,15 +14,15 @@
  * ## Runner types
  * - `ollama` — pullable from this app via POST /api/ollama/tags. Status
  *   comes from /api/ollama/ps + /api/ollama/tags (GET).
- * - `voice-sidecar` — legacy local voice runner key. The app can't pull these
- *   directly; status now comes from the s2s realtime pool.
+ * - `s2s` — realtime local voice runner. The app does not pull these models;
+ *   status comes from the s2s realtime pool.
  * - `unavailable` — no local runner wired up today. The UI should show the
  *   modality greyed with a "cloud-only for now" hint.
  */
 
 import type { Modality } from "./types";
 
-export type LocalRunner = "ollama" | "voice-sidecar" | "unavailable";
+export type LocalRunner = "ollama" | "s2s" | "unavailable";
 
 export type LocalPreset = "quick" | "balanced" | "quality";
 
@@ -31,8 +31,8 @@ export interface LocalModelDefault {
   runner: LocalRunner;
   /**
    * Identifier the runner understands. For `ollama` this is the tag you'd
-   * hand to `ollama pull` (e.g. `llama3.2:3b`). For `voice-sidecar` this is
-   * the engine id the sidecar advertises. Null when runner is `unavailable`.
+   * hand to `ollama pull` (e.g. `llama3.2:3b`). For `s2s` this is a stable
+   * lane id used by the deck UI. Null when runner is `unavailable`.
    */
   id: string | null;
   /** Short human label for the UI. */
@@ -168,28 +168,28 @@ export const LOCAL_DEFAULTS: Record<Modality, LocalModalityEntry> = {
     description: "Transcribing the user's microphone",
     defaults: {
       quick: {
-        runner: "voice-sidecar",
-        id: "sherpa-onnx-streaming",
-        label: "sherpa-onnx streaming (Zipformer EN)",
-        sizeMb: 320,
-        expectedP50Ms: 90,
-        note: "Endpoint-aware streaming transducer. Reliable on CPU; default for laptops.",
+        runner: "s2s",
+        id: "s2s-realtime-stt",
+        label: "Realtime S2S transcription",
+        sizeMb: null,
+        expectedP50Ms: null,
+        note: "Handled by the realtime speech-to-speech pool.",
       },
       balanced: {
-        runner: "voice-sidecar",
-        id: "sherpa-onnx-streaming",
-        label: "sherpa-onnx streaming",
-        sizeMb: 350,
-        expectedP50Ms: 90,
-        note: "Endpoint-aware streaming transducer. Strong for live partials on CPU/CUDA.",
+        runner: "s2s",
+        id: "s2s-realtime-stt",
+        label: "Realtime S2S transcription",
+        sizeMb: null,
+        expectedP50Ms: null,
+        note: "Handled by the realtime speech-to-speech pool.",
       },
       quality: {
-        runner: "voice-sidecar",
-        id: "parakeet-tdt-0.6b-v2",
-        label: "NVIDIA Parakeet TDT 0.6B v2",
-        sizeMb: 1300,
-        expectedP50Ms: 90,
-        note: "Open-ASR-Leaderboard #1 (CUDA). Used as final-correction pass.",
+        runner: "s2s",
+        id: "s2s-realtime-stt",
+        label: "Realtime S2S transcription",
+        sizeMb: null,
+        expectedP50Ms: null,
+        note: "Handled by the realtime speech-to-speech pool.",
       },
     },
   },
@@ -200,28 +200,28 @@ export const LOCAL_DEFAULTS: Record<Modality, LocalModalityEntry> = {
     description: "Speaking back to the user",
     defaults: {
       quick: {
-        runner: "voice-sidecar",
-        id: "sherpa-onnx-tts",
-        label: "sherpa-onnx VITS",
-        sizeMb: 90,
-        expectedP50Ms: 80,
-        note: "Lightweight VITS via sherpa-onnx. Robotic but instant.",
+        runner: "s2s",
+        id: "s2s-realtime-tts",
+        label: "Realtime S2S speech output",
+        sizeMb: null,
+        expectedP50Ms: null,
+        note: "Handled by the realtime speech-to-speech pool.",
       },
       balanced: {
-        runner: "voice-sidecar",
-        id: "kokoro-82m",
-        label: "Kokoro 82M",
-        sizeMb: 338,
-        expectedP50Ms: 180,
-        note: "Default - clear, natural English voice on CPU without the Chatterbox load cost.",
+        runner: "s2s",
+        id: "s2s-realtime-tts",
+        label: "Realtime S2S speech output",
+        sizeMb: null,
+        expectedP50Ms: null,
+        note: "Handled by the realtime speech-to-speech pool.",
       },
       quality: {
-        runner: "voice-sidecar",
-        id: "kokoro-82m",
-        label: "Kokoro 82M (Chatterbox optional)",
-        sizeMb: 338,
-        expectedP50Ms: 180,
-        note: "Keeps chat replies crisp and local; switch to Chatterbox manually for expressive narration.",
+        runner: "s2s",
+        id: "s2s-realtime-tts",
+        label: "Realtime S2S speech output",
+        sizeMb: null,
+        expectedP50Ms: null,
+        note: "Handled by the realtime speech-to-speech pool.",
       },
     },
   },

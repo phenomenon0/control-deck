@@ -14,8 +14,8 @@ import type { GpuProcess } from "@/lib/hardware/gpu-types";
 export type LaneId =
   | "chat"     // LLM (llama-swap, llama.cpp direct)
   | "vision"   // image understanding (Ollama vision, local VLM)
-  | "tts"      // voice-core synth
-  | "stt"      // voice-core transcribe
+  | "tts"      // speech synthesis
+  | "stt"      // speech transcription
   | "image"    // ComfyUI / SDXL Turbo / cloud
   | "audio"    // Stable Audio
   | "3d"       // Hunyuan 3D

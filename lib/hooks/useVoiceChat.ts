@@ -110,12 +110,12 @@ export interface UseVoiceChatOptions {
   onSuppressedAudio?: (audio: Blob, meta: { autoSend: boolean }) => void;
   /**
    * App-routed STT bridge. By default this uses `/api/voice/stt`, which follows
-   * the active deck binding (Qwen, voice-core fallback, or cloud).
+   * the active deck binding (Qwen or cloud).
    */
   transcribeAudio?: (audio: Blob) => Promise<string>;
   /**
    * App-routed TTS bridge. By default this uses `/api/voice/tts`, which follows
-   * the active deck binding (Qwen, voice-core fallback, or cloud).
+   * the active deck binding (Qwen or cloud).
    */
   synthesizeSpeech?: (text: string, opts?: { signal?: AbortSignal }) => Promise<ArrayBuffer>;
   /**
@@ -1065,10 +1065,9 @@ export function useVoiceChat(options: UseVoiceChatOptions = {}): UseVoiceChatRet
       const source = ctx.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
 
-      // Streaming-STT passthrough: when the parent supplies an `onMicFrame`
+      // Mic PCM passthrough: when the parent supplies an `onMicFrame`
       // callback we tap the same MediaStream via a ScriptProcessor and emit
-      // raw Float32 frames at the AudioContext's native sample rate. The
-      // StreamingSttClient downsamples to 16 kHz internally.
+      // raw Float32 frames at the AudioContext's native sample rate.
       if (onMicFrameRef.current) {
         const bufferSize = 4096;
         const node = ctx.createScriptProcessor(bufferSize, 1, 1);

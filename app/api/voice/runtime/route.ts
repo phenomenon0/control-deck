@@ -14,10 +14,6 @@ import {
   type QwenOmniStatus,
 } from "@/lib/inference/omni/local";
 import {
-  shouldRouteToVoiceCore,
-  voiceCoreUrl,
-} from "@/lib/inference/voice-core/sidecar-url";
-import {
   resolveVoiceRoute,
   VOICE_ROUTE_PRESETS,
   type ProviderAvailability,
@@ -54,17 +50,6 @@ function providerConfigured(id: string, omniReady: boolean): boolean {
   return Boolean(process.env[envKey]);
 }
 
-async function probeHttpHealth(baseURL: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${baseURL.replace(/\/+$/, "")}/health`, {
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 async function probeS2sPool(baseURL: string): Promise<boolean> {
   try {
     const res = await fetch(`${baseURL.replace(/\/+$/, "")}/v1/pool`, {
@@ -82,18 +67,12 @@ function normalizePreset(raw: string | null): VoiceRoutePreset {
 }
 
 function buildAvailability(modality: "stt" | "tts", omniReady: boolean): ProviderAvailability[] {
-  const list = listProvidersForModality(modality).map((p) => ({
+  return listProvidersForModality(modality).map((p) => ({
     id: p.id,
     name: p.name,
     configured: providerConfigured(p.id, omniReady),
     reachable: null as boolean | null,
   }));
-  // Dormant fallback: keep voice-core visible only as a legacy path when a
-  // binding still points at it and realtime s2s is unavailable.
-  if (!list.some((p) => p.id === "voice-core")) {
-    list.push({ id: "voice-core", name: "voice-core · legacy fallback", configured: true, reachable: null });
-  }
-  return list;
 }
 
 export async function GET(req: NextRequest) {
@@ -101,36 +80,30 @@ export async function GET(req: NextRequest) {
   applyPersistedBindings();
 
   const preset = normalizePreset(req.nextUrl.searchParams.get("preset"));
-  const voiceCoreBase = voiceCoreUrl();
-  const [voiceCoreOk, s2sOk, omni] = await Promise.all([
-    probeHttpHealth(voiceCoreBase),
+  const [s2sOk, omni] = await Promise.all([
     probeS2sPool(S2S_BASE_URL),
     getQwenOmniStatusAsync({ probeRuntime: true, probeSidecar: true }),
   ]);
 
   const sttAvailability = buildAvailability("stt", omni.ready).map((p) =>
-    withLocalReachability(p, voiceCoreOk, omni),
+    withLocalReachability(p, omni),
   );
   const ttsAvailability = buildAvailability("tts", omni.ready).map((p) =>
-    withLocalReachability(p, voiceCoreOk, omni),
+    withLocalReachability(p, omni),
   );
 
   const resolved = resolveVoiceRoute({
     preset,
     sttProviders: sttAvailability,
     ttsProviders: ttsAvailability,
-    sidecarReachable: voiceCoreOk,
     s2sReachable: s2sOk,
   });
   const route = applyBoundVoiceSlots(resolved, omni);
-  const routeUsesVoiceCore =
-    shouldRouteToVoiceCore(route.stt?.model) || shouldRouteToVoiceCore(route.tts?.model);
-  const activeWsUrl = routeUsesVoiceCore ? voiceCoreBase.replace(/^http/, "ws") : null;
 
   const transport = {
-    mode: s2sOk ? "realtime" : route.usesSidecar ? "local-sidecar" : resolved.transport.mode,
-    wsUrl: s2sOk ? s2sRealtimeWsUrl() : route.usesSidecar ? activeWsUrl : null,
-    sidecar: (voiceCoreOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
+    mode: s2sOk ? "realtime" : "app-gateway",
+    wsUrl: s2sOk ? s2sRealtimeWsUrl() : null,
+    sidecar: (s2sOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
   };
 
   // Provider matrix for the Health pane: one row per provider per role.
@@ -141,7 +114,7 @@ export async function GET(req: NextRequest) {
       role: "stt" as const,
       configured: p.configured,
       reachable: p.reachable === true,
-      detail: p.id === "voice-core" ? voiceCoreBase : p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
+      detail: p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
     })),
     ...ttsAvailability.map((p) => ({
       id: p.id,
@@ -149,7 +122,7 @@ export async function GET(req: NextRequest) {
       role: "tts" as const,
       configured: p.configured,
       reachable: p.reachable === true,
-      detail: p.id === "voice-core" ? voiceCoreBase : p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
+      detail: p.id === QWEN_OMNI_PROVIDER_ID ? omni.modelDir : undefined,
     })),
   ];
 
@@ -178,10 +151,8 @@ export async function GET(req: NextRequest) {
 
 function withLocalReachability(
   provider: ProviderAvailability,
-  sidecarOk: boolean,
   omni: QwenOmniStatus,
 ): ProviderAvailability {
-  if (provider.id === "voice-core") return { ...provider, reachable: sidecarOk };
   if (provider.id === QWEN_OMNI_PROVIDER_ID) return { ...provider, reachable: omni.generationReady };
   return provider;
 }
@@ -193,36 +164,27 @@ function applyBoundVoiceSlots(
   const sttSlot = getSlot("stt", "primary");
   const ttsSlot = getSlot("tts", "primary");
   const stt = sttSlot ? bindingToResolved(sttSlot, "stt") : resolved.stt;
-  const tts = ttsSlot ? { ...bindingToResolved(ttsSlot, "tts"), engine: engineFor(ttsSlot) } : resolved.tts;
+  const ttsBinding = ttsSlot ? bindingToResolved(ttsSlot, "tts") : null;
+  const tts = ttsSlot ? (ttsBinding ? { ...ttsBinding, engine: null } : null) : resolved.tts;
   const qwenActive =
     stt?.providerId === QWEN_OMNI_PROVIDER_ID || tts?.providerId === QWEN_OMNI_PROVIDER_ID;
   const omniSidecarOk = omni.sidecar.reachable === true;
-  const usesSidecar =
-    stt?.providerId === "voice-core" ||
-    tts?.providerId === "voice-core" ||
-    (qwenActive && !omni.generationReady);
   const rationale = qwenActive
     ? omni.cudaAvailable === true
       ? "Qwen Omni is bound for voice. Local CUDA runtime is available."
       : omniSidecarOk
         ? `Qwen Omni is bound for voice. Routing speech turns through the configured Omni sidecar at ${omni.sidecar.baseURL}.`
-        : "Qwen Omni is bound for voice. Full local speech generation needs CUDA or a remote Omni sidecar, so playback/transcription can still fall back to legacy voice-core."
+        : "Qwen Omni is bound for voice. Full local speech generation needs CUDA or a remote Omni sidecar."
     : resolved.rationale;
-  return { stt, tts, usesSidecar, rationale };
+  return { stt, tts, rationale };
 }
 
 function bindingToResolved(binding: SlotBinding, modality: "stt" | "tts") {
   const provider = getProvider(binding.providerId);
+  if (!provider) return null;
   return {
     providerId: binding.providerId,
     providerName: provider?.name ?? binding.providerId,
     model: binding.config.model ?? provider?.defaultModels[modality]?.[0] ?? null,
   };
-}
-
-function engineFor(binding: SlotBinding): string | null {
-  if (binding.providerId === "voice-core") {
-    return (binding.config.extras?.engine as string | undefined) ?? "kokoro-82m";
-  }
-  return null;
 }

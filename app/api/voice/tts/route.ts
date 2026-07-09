@@ -3,38 +3,22 @@ import { NextResponse } from "next/server";
 import { ensureBootstrap, getProvider, getSlot } from "@/lib/inference/bootstrap";
 import { applyPersistedBindings } from "@/lib/inference/persistence";
 import { invokeTts, listTtsVoices } from "@/lib/inference/tts/invoke";
-import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { withMetrics } from "@/lib/inference/metrics";
-import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
 import type { TtsArgs } from "@/lib/inference/tts/types";
-
-const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
 
 interface TtsBinding {
   providerId: string;
   config: InferenceProviderConfig;
-  isFallback: boolean;
 }
 
-function resolveTtsBinding(): TtsBinding {
+function resolveTtsBinding(): TtsBinding | null {
   ensureBootstrap();
   applyPersistedBindings();
   const bound = getSlot("tts", "primary");
-  if (bound) {
-    return { providerId: bound.providerId, config: bound.config, isFallback: false };
-  }
-  // Default fallback — preserves pre-slot behaviour for deployments that
-  // don't set TTS_PROVIDER.
-  return {
-    providerId: "voice-core",
-    config: {
-      providerId: "voice-core",
-      baseURL: voiceCoreUrl(),
-      extras: { engine: "kokoro-82m", defaultVoiceId: "af_sky" },
-    },
-    isFallback: true,
-  };
+  if (!bound) return null;
+  if (!getProvider(bound.providerId)) return null;
+  return { providerId: bound.providerId, config: bound.config };
 }
 
 export async function POST(req: Request) {
@@ -45,45 +29,26 @@ export async function POST(req: Request) {
     model?: string;
     speed?: number;
     format?: TtsArgs["format"];
-    preset?: LocalPreset;
+    preset?: string;
   };
 
   if (!body.text) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
   }
 
-  const { providerId, config, isFallback } = resolveTtsBinding();
+  const binding = resolveTtsBinding();
+  if (!binding) {
+    return NextResponse.json(
+      { error: "No text-to-speech provider is bound. Configure a cloud TTS provider or use realtime s2s voice." },
+      { status: 503 },
+    );
+  }
 
-  const preset: LocalPreset =
-    body.preset && VALID_PRESETS.has(body.preset) ? body.preset : "balanced";
-
-  // Preset → sidecar engine when caller sent nothing explicit AND we fell
-  // through to the voice-core default. The manifest maps
-  // quick=sherpa-onnx-tts, balanced/quality=kokoro-82m. Chatterbox remains
-  // selectable, but is not auto-bound for chat because it has a heavier load
-  // profile than Kokoro.
-  const presetEngine =
-    isFallback && providerId === "voice-core" && !body.engine
-      ? defaultFor("tts", preset).id ?? "kokoro-82m"
-      : body.engine;
-
-  // Per-request engine override (voice-core only) — keeps the settings UI's
-  // engine toggle working, and also plumbs the preset-derived engine when the
-  // client didn't pin one. Override BOTH config.model and extras.engine so
-  // invokeVoiceCore's `args.model ?? config.model ?? extras.engine` priority
-  // can't fall back to the persisted binding's stale model id.
-  const effectiveConfig: InferenceProviderConfig =
-    presetEngine && providerId === "voice-core"
-      ? {
-          ...config,
-          model: presetEngine,
-          extras: { ...(config.extras ?? {}), engine: presetEngine },
-        }
-      : config;
+  const { providerId, config } = binding;
 
   try {
     const result = await withMetrics("tts", providerId, () =>
-      invokeTts(providerId, effectiveConfig, {
+      invokeTts(providerId, config, {
         text: body.text!,
         voice: body.voice,
         model: body.model,
@@ -107,7 +72,18 @@ export async function POST(req: Request) {
 }
 
 export async function GET() {
-  const { providerId, config } = resolveTtsBinding();
+  const binding = resolveTtsBinding();
+  if (!binding) {
+    return NextResponse.json(
+      {
+        error: "No text-to-speech provider is bound. Configure a cloud TTS provider or use realtime s2s voice.",
+        voices: [],
+      },
+      { status: 503 },
+    );
+  }
+
+  const { providerId, config } = binding;
 
   try {
     const voices = await listTtsVoices(providerId, config);

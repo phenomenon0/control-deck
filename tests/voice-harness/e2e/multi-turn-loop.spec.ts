@@ -101,9 +101,9 @@ test.describe("voice multi-turn loop · 3 turns × fake mic + TTS listen-back", 
     page.on("pageerror", (err) => console.log(`[pageerror] ${err.message}`));
     page.on("requestfailed", (req) => console.log(`[reqfailed] ${req.url()} ${req.failure()?.errorText}`));
 
-    // Plant probe + TTS WebSocket capture before any voice code runs.
-    // Probe collects every production `mark()` call; WebSocket patch captures
-    // binary frames coming back from voice-core's `/tts/stream`.
+    // Plant probe + optional TTS WebSocket capture before any voice code runs.
+    // Probe collects every production `mark()` call; HTTP TTS capture below
+    // records app-gateway audio responses.
     await page.addInitScript(() => {
       const w = window as unknown as {
         __voiceProbe?: unknown;
@@ -146,9 +146,9 @@ test.describe("voice multi-turn loop · 3 turns × fake mic + TTS listen-back", 
       w.__ttsCaptureByUtterance = {};
       w.__ttsSampleRateByUtterance = {};
 
-      // Patch WebSocket to capture TTS PCM frames. The TTS stream URL is
-      // `ws://127.0.0.1:4245/tts/stream...`. We tag the active utteranceId
-      // off the JSON `start` frame so binary chunks land in the right bucket.
+      // Patch WebSocket to capture realtime PCM frames when a websocket TTS
+      // transport is active. We tag the active utteranceId off the JSON
+      // `start` frame so binary chunks land in the right bucket.
       const NativeWebSocket = window.WebSocket;
       function Patched(this: WebSocket, url: string | URL, protocols?: string | string[]) {
         const ws = protocols !== undefined
@@ -200,8 +200,8 @@ test.describe("voice multi-turn loop · 3 turns × fake mic + TTS listen-back", 
       "Turn two. Holding.",
       "Turn three. Done.",
     ];
-    // Capture `/api/voice/tts` response bodies — that's the HTTP fallback path
-    // `voiceChat.queueSpeech` uses when `StreamingTtsClient` isn't routed.
+    // Capture `/api/voice/tts` response bodies — that's the HTTP path
+    // `voiceChat.queueSpeech` uses for app-gateway speech.
     // Bytes accumulate per turn (one POST per phrase, often multiple per reply),
     // bucketed by the in-flight `currentTurn` counter so each WAV is the full
     // assistant utterance for that turn.
@@ -225,7 +225,7 @@ test.describe("voice multi-turn loop · 3 turns × fake mic + TTS listen-back", 
           body,
         });
       } catch (err) {
-        // If voice-core is down, fulfil with empty audio so the FSM still
+        // If the voice route is down, fulfil with empty audio so the FSM still
         // walks `speaking → idle` via the watchdog rather than hanging.
         await route.fulfill({
           status: 200,
@@ -470,12 +470,12 @@ test.describe("voice multi-turn loop · 3 turns × fake mic + TTS listen-back", 
       let wavBytes: Uint8Array;
       let ttsByteCount: number;
       if (pcm.byteLength > 0) {
-        // StreamingTtsClient path: raw Int16 PCM frames → wrap as WAV.
+        // Realtime websocket path: raw Int16 PCM frames → wrap as WAV.
         wavBytes = wrapPcm16AsWav(pcm, captured.sampleRate);
         ttsByteCount = pcm.byteLength;
       } else if (httpBuffers.length > 0) {
         // HTTP fallback path: each POST returns an already-formed audio blob
-        // (typically WAV from voice-core). Pick the first complete blob — it's
+        // (typically WAV from the app-gateway route). Pick the first complete blob — it's
         // already a valid file on its own; concatenating multiple WAVs would
         // produce a malformed container. Multi-phrase replies play as separate
         // POSTs; turn-N-tts.wav captures the first phrase for listen-back.
@@ -606,9 +606,8 @@ function aggregateSpans(reports: TurnReport[]): Record<
 }
 
 /**
- * Minimal RIFF/WAVE wrapper for Int16 LE PCM. Inline copy of
- * `wrapPcm16AsWav` from lib/voice/streaming-stt.ts so the spec doesn't drag
- * the browser-side audio-input module into the Node test runtime.
+ * Minimal RIFF/WAVE wrapper for Int16 LE PCM. Kept inline so the spec doesn't
+ * drag the browser-side audio-input module into the Node test runtime.
  */
 function wrapPcm16AsWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
   const numChannels = 1;

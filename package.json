@@ -25,7 +25,6 @@
     "terminal-service": "tsx scripts/terminal-service.ts",
     "omni:sidecar": "test -x .venv-omni/bin/python && .venv-omni/bin/python scripts/qwen-omni-sidecar.py || echo '[omni:sidecar] .venv-omni not found — create it with: uv venv .venv-omni && uv pip install -r scripts/requirements-omni.txt'",
     "omni:smoke": "test -x .venv-omni/bin/python && .venv-omni/bin/python scripts/qwen-omni-smoke.py || echo '[omni:smoke] .venv-omni not found — create it with: uv venv .venv-omni && uv pip install -r scripts/requirements-omni.txt'",
-    "voice:core": "cd apps/voice-core && uv run voice-core serve --host 127.0.0.1 --port 4245",
     "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "native": "bun lib/tools/native/cli.ts",
     "catalog": "bun scripts/model-catalog.ts",

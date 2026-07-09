@@ -127,7 +127,7 @@ const KIND_LABEL: Record<Kind, string> = { voice: "Voice", music: "Music", sfx: 
 const FALLBACK_MODELS: AudioModel[] = [
   { key: "elevenlabs/eleven_v3", provider: "elevenlabs", model: "eleven_v3", kind: "voice", mos: 4.55 },
   { key: "cartesia/sonic-3", provider: "cartesia", model: "sonic-3", kind: "voice", mos: 4.35, ttfMs: 90 },
-  { key: "voice-core/kokoro-82m", provider: "voice-core", model: "kokoro-82m", kind: "voice", mos: 3.9 },
+  { key: "openai/gpt-4o-mini-tts", provider: "openai", model: "gpt-4o-mini-tts", kind: "voice", mos: 4.1 },
   { key: "fal/stable-audio", provider: "fal", model: "stable-audio", kind: "music" },
   { key: "replicate/musicgen", provider: "replicate", model: "musicgen", kind: "music" },
   { key: "elevenlabs/sound-generation", provider: "elevenlabs", model: "sound-generation", kind: "sfx", mos: 4.2 },
@@ -158,7 +158,7 @@ const CATALOG: Seed[] = [
   { name: "Assistant wake line", prompt: "I'm here. What are we building today?", kind: "voice", model: "sonic-3", provider: "cartesia", format: "wav", durationSec: 3.1, bitrateKbps: 256, createdAt: "2026-06-15T11:22:00Z" },
   { name: "Boot sequence bed", prompt: "cinematic synth swell, rising arpeggio, hopeful, builds to a soft peak", kind: "music", model: "musicgen", provider: "replicate", format: "mp3", durationSec: 10.0, bitrateKbps: 192, createdAt: "2026-05-30T20:15:00Z" },
   { name: "Deploy success sting", prompt: "short triumphant success sting, warm bell, resolves major", kind: "sfx", model: "sound-generation", provider: "elevenlabs", format: "mp3", durationSec: 2.2, bitrateKbps: 192, createdAt: "2026-05-10T08:47:00Z" },
-  { name: "Kokoro offline greeting", prompt: "Running fully local. No cloud, no latency tax.", kind: "voice", model: "kokoro-82m", provider: "voice-core", format: "wav", durationSec: 4.8, bitrateKbps: 256, createdAt: "2026-04-12T16:30:00Z" },
+  { name: "Assistant greeting", prompt: "Running on the configured voice route and ready for the next task.", kind: "voice", model: "gpt-4o-mini-tts", provider: "openai", format: "wav", durationSec: 4.8, bitrateKbps: 256, createdAt: "2026-04-12T16:30:00Z" },
   { name: "Terminal ambience", prompt: "dark drone, distant server hum, sci-fi control room, slow evolving pad", kind: "music", model: "stable-audio", provider: "fal", format: "mp3", durationSec: 30.0, bitrateKbps: 192, createdAt: "2026-03-28T13:10:00Z" },
   { name: "Error buzz", prompt: "muted low error buzz, short, non-alarming", kind: "sfx", model: "sound-generation", provider: "elevenlabs", format: "mp3", durationSec: 0.9, bitrateKbps: 192, createdAt: "2026-03-15T10:00:00Z" },
 ];

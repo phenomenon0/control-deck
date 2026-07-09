@@ -23,6 +23,7 @@
 
 import type { GpuInfo, InferenceBackend } from "@/lib/system/detect";
 import type { LocalModelDefault } from "./local-defaults";
+import { QWEN_OMNI_MODEL_ID } from "./omni/local";
 
 export type TierId = "T1_MAC" | "T2_CUDA" | "T3_CPU";
 
@@ -37,8 +38,8 @@ export interface TierLaneOmni {
   engineId: string;
   /** Human label shown on the card. */
   label: string;
-  /** Sidecar that hosts this engine — `qwen-omni` (existing) or `voice-core` (new). */
-  sidecar: "qwen-omni" | "voice-core";
+  /** Sidecar that hosts this engine. */
+  sidecar: "qwen-omni";
   /** Model identifier the sidecar's `/pull` endpoint understands (HF repo id usually). */
   modelId: string;
   /** Rough disk footprint, MB. */
@@ -67,40 +68,23 @@ export interface TierBundle {
   fits(input: { backend: InferenceBackend; gpu: GpuInfo | null; ramGb: number }): number;
 }
 
-// ---------------------------------------------------------------------------
-// Legacy voice engine identifiers retained for dormant fallback bindings.
-// Keep in sync with `voice_core.engines.register_all()`.
+const S2S_STT_LANE: LocalModelDefault & { id: string } = {
+  runner: "s2s",
+  id: "s2s-realtime-stt",
+  label: "Realtime S2S transcription",
+  sizeMb: null,
+  expectedP50Ms: null,
+  note: "Provided by the speech-to-speech realtime pool.",
+};
 
-export const VOICE_ENGINE_IDS = {
-  // STT
-  WHISPER_TURBO_CPP: "whisper-large-v3-turbo-cpp", // whisper.cpp Metal on Mac, accuracy
-  WHISPER_BASE_EN_CPP: "whisper-base-en-cpp",      // whisper.cpp Metal on Mac, fast correction
-  PARAKEET_TDT_V2: "parakeet-tdt-0.6b-v2",         // NeMo CUDA
-  MOONSHINE_TINY: "moonshine-tiny",                // ONNX, CPU-streaming
-  SHERPA_STREAMING: "sherpa-onnx-streaming",       // endpoint-aware live ASR
-  FASTER_WHISPER: "faster-whisper",                // CTranslate2 final correction
-  // TTS
-  KOKORO_82M: "kokoro-82m",                        // Apache 2.0, default voice
-  CHATTERBOX: "chatterbox",                        // expressive prosody
-  SHERPA_TTS: "sherpa-onnx-tts",                   // lightweight VITS
-  // Omni
-  QWEN_OMNI_7B_AWQ: "qwen2.5-omni-7b-awq",         // separate qwen-omni-sidecar
-} as const;
-
-export type VoiceEngineId = (typeof VOICE_ENGINE_IDS)[keyof typeof VOICE_ENGINE_IDS];
-
-/** Legacy engine ids served by voice-core. */
-export const VOICE_ENGINES_SIDECAR_IDS: ReadonlySet<string> = new Set([
-  VOICE_ENGINE_IDS.WHISPER_TURBO_CPP,
-  VOICE_ENGINE_IDS.WHISPER_BASE_EN_CPP,
-  VOICE_ENGINE_IDS.PARAKEET_TDT_V2,
-  VOICE_ENGINE_IDS.MOONSHINE_TINY,
-  VOICE_ENGINE_IDS.SHERPA_STREAMING,
-  VOICE_ENGINE_IDS.FASTER_WHISPER,
-  VOICE_ENGINE_IDS.KOKORO_82M,
-  VOICE_ENGINE_IDS.CHATTERBOX,
-  VOICE_ENGINE_IDS.SHERPA_TTS,
-]);
+const S2S_TTS_LANE: LocalModelDefault & { id: string } = {
+  runner: "s2s",
+  id: "s2s-realtime-tts",
+  label: "Realtime S2S speech output",
+  sizeMb: null,
+  expectedP50Ms: null,
+  note: "Provided by the speech-to-speech realtime pool.",
+};
 
 // ---------------------------------------------------------------------------
 
@@ -110,27 +94,12 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     label: "Mac M1–M4",
     hardwareMatch: "Apple Silicon · ≥16 GB unified memory",
     rationale:
-      "Whisper-turbo runs on the Apple Neural Engine via whisper.cpp + CoreML, " +
-      "so STT cost is near-zero. Kokoro is the smallest natural-sounding TTS in " +
-      "the open-source ladder.",
+      "Realtime local voice is handled by the s2s pool. This tier pairs it " +
+      "with a compact local text model that fits Apple Silicon comfortably.",
     defaultPreset: "balanced",
     cascade: {
-      stt: {
-        runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.WHISPER_TURBO_CPP,
-        label: "Whisper large-v3-turbo (whisper.cpp)",
-        sizeMb: 1600,
-        expectedP50Ms: 180,
-        note: "ANE-accelerated via CoreML. ~50× realtime on M-series.",
-      },
-      tts: {
-        runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.KOKORO_82M,
-        label: "Kokoro 82M",
-        sizeMb: 330,
-        expectedP50Ms: 180,
-        note: "Apache-2.0. ~150 ms first chunk. 50+ baked voices.",
-      },
+      stt: S2S_STT_LANE,
+      tts: S2S_TTS_LANE,
       llm: {
         runner: "ollama",
         id: "qwen3:8b",
@@ -152,28 +121,13 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     label: "NVIDIA GPU",
     hardwareMatch: "CUDA · ≥12 GB VRAM (RTX 4060 Ti / 4070 / 5070-class)",
     rationale:
-      "Parakeet TDT is the current Open-ASR-Leaderboard leader at 600 M params " +
-      "and ~RTF 0.06 on a single mid-range NVIDIA card. Kokoro covers the daily " +
-      "TTS, Chatterbox is a one-toggle upgrade for expressive output. Optional " +
-      "Qwen2.5-Omni-7B (already in-repo) supplies the omni lane.",
+      "Realtime local voice is handled by the s2s pool. Optional " +
+      "Qwen2.5-Omni-7B supplies the single-model speech lane when the GPU " +
+      "has enough VRAM.",
     defaultPreset: "quality",
     cascade: {
-      stt: {
-        runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.PARAKEET_TDT_V2,
-        label: "NVIDIA Parakeet TDT 0.6B v2",
-        sizeMb: 1300,
-        expectedP50Ms: 90,
-        note: "Open ASR Leaderboard #1, streaming, ~1.5 GB VRAM.",
-      },
-      tts: {
-        runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.KOKORO_82M,
-        label: "Kokoro 82M (toggle Chatterbox for expressive)",
-        sizeMb: 330,
-        expectedP50Ms: 90,
-        note: "<100 ms first chunk on CUDA. Chatterbox available as upgrade.",
-      },
+      stt: S2S_STT_LANE,
+      tts: S2S_TTS_LANE,
       llm: {
         runner: "ollama",
         id: "qwen3.5:9b-q4_K_M",
@@ -187,7 +141,7 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
       engineId: "qwen-omni-local",
       label: "Qwen2.5-Omni 7B (AWQ, in-repo sidecar)",
       sidecar: "qwen-omni",
-      modelId: VOICE_ENGINE_IDS.QWEN_OMNI_7B_AWQ,
+      modelId: QWEN_OMNI_MODEL_ID,
       sizeMb: 10240,
       note: "Single S2S model. ~300 ms TTFA. Apache-2.0.",
     },
@@ -204,29 +158,12 @@ export const HARDWARE_TIERS: Record<TierId, TierBundle> = {
     label: "Consumer · CPU",
     hardwareMatch: "No usable dGPU · 16 GB RAM",
     rationale:
-      "End-to-end omni doesn't run on CPU at conversational latency — this tier " +
-      "is cascade-only. sherpa-onnx Zipformer is endpoint-aware streaming ASR " +
-      "that boots cleanly on CPU; Kokoro 82M gives the most natural local voice " +
-      "we already have installed without paying the Chatterbox load cost. " +
-      "Llama-3.2-3B is the LLM ceiling that still feels responsive.",
+      "End-to-end omni doesn't run on CPU at conversational latency, so this " +
+      "tier relies on the realtime s2s pool for voice and keeps the local LLM small.",
     defaultPreset: "quick",
     cascade: {
-      stt: {
-        runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.SHERPA_STREAMING,
-        label: "sherpa-onnx streaming (Zipformer EN)",
-        sizeMb: 320,
-        expectedP50Ms: 90,
-        note: "Endpoint-aware streaming transducer. Reliable on CPU, ~90 ms partials.",
-      },
-      tts: {
-        runner: "voice-sidecar",
-        id: VOICE_ENGINE_IDS.KOKORO_82M,
-        label: "Kokoro 82M",
-        sizeMb: 338,
-        expectedP50Ms: 180,
-        note: "Natural local chat voice on CPU. Sherpa remains the fast fallback.",
-      },
+      stt: S2S_STT_LANE,
+      tts: S2S_TTS_LANE,
       llm: {
         runner: "ollama",
         id: "llama3.2:3b",

@@ -1,6 +1,5 @@
 export const LOCAL_PROVIDER_IDS = new Set([
   "ollama",
-  "voice-core",
   "comfyui",
   "lite-onnx",
   "llama_server",

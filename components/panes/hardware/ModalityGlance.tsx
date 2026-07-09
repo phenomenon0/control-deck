@@ -90,8 +90,7 @@ export function ModalityGlance({
 
 interface RunnerSnapshot {
   ollama: { reachable: boolean; installed: string[] };
-  /** Compatibility key from /api/local-models/status; backed by s2s now. */
-  voiceSidecar: { reachable: boolean; wsUrl: string | null };
+  s2s: { reachable: boolean; wsUrl: string | null };
 }
 
 function ModalityCard({
@@ -156,7 +155,7 @@ type Tone = "hot" | "ready" | "missing" | "offline";
 function cardTone({ isHot, status }: { isHot: boolean; status: LocalModalityStatus }): Tone {
   if (isHot) return "hot";
   if (status.installed) return "ready";
-  if (status.canPull || status.default.runner === "voice-sidecar") return "missing";
+  if (status.canPull || status.default.runner === "s2s") return "missing";
   return "offline";
 }
 
@@ -177,7 +176,7 @@ function hotLoadedModel(
     const fallback = [...hotByName.values()].find((m) => guessModality(m.name) === status.modality);
     if (fallback) return { name: fallback.name, sizeVram: fallback.size_vram };
   }
-  if (status.default.runner === "voice-sidecar" && runners.voiceSidecar.reachable) {
+  if (status.default.runner === "s2s" && runners.s2s.reachable) {
     return { name: status.default.label };
   }
   return { name: null };
@@ -205,10 +204,10 @@ function subline({
     return "loaded";
   }
   if (status.installed) {
-    return status.default.runner === "voice-sidecar" ? "s2s ready" : "installed · idle";
+    return status.default.runner === "s2s" ? "s2s ready" : "installed · idle";
   }
-  if (status.default.runner === "voice-sidecar") {
-    return runners.voiceSidecar.reachable ? "s2s idle" : "s2s offline";
+  if (status.default.runner === "s2s") {
+    return runners.s2s.reachable ? "s2s idle" : "s2s offline";
   }
   if (status.canPull) return "pull-ready";
   if (status.default.runner === "ollama" && !runners.ollama.reachable) return "ollama offline";

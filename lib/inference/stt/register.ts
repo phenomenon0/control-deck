@@ -1,11 +1,9 @@
 /**
- * Speech-to-text providers. voice-core remains registered only as a legacy
- * fallback; cloud providers are opt-in via env.
+ * Speech-to-text providers. Cloud providers are opt-in via env.
  *
  * Env vars:
- *   STT_PROVIDER         voice-core | openai | groq | deepgram | cartesia | assemblyai
- *                        (default: voice-core)
- *   STT_MODEL            default engine id (e.g. moonshine-tiny)
+ *   STT_PROVIDER         openai | groq | deepgram | cartesia | assemblyai
+ *   STT_MODEL            default model id (e.g. whisper-large-v3-turbo)
  *   STT_LANGUAGE         optional BCP-47 hint
  *   GROQ_API_KEY         required for groq
  *   DEEPGRAM_API_KEY     required for deepgram
@@ -16,7 +14,6 @@
 
 import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
-import { voiceCoreUrl } from "../voice-core/sidecar-url";
 import type { InferenceProvider, Modality } from "../types";
 
 interface ProviderSeed {
@@ -30,24 +27,6 @@ interface ProviderSeed {
 }
 
 const SEEDS: ProviderSeed[] = [
-  {
-    id: "voice-core",
-    name: "voice-core (legacy fallback)",
-    description:
-      "Legacy local STT engines hosted by voice-core. Includes Moonshine " +
-      "(CPU streaming), whisper.cpp (Mac/Metal), Parakeet (CUDA), sherpa-onnx " +
-      "streaming, and faster-whisper for final correction.",
-    requiresApiKey: false,
-    defaultBaseURL: voiceCoreUrl(),
-    checkHealth: checkVoiceCoreHealth,
-    defaultModels: [
-      "sherpa-onnx-streaming",
-      "moonshine-tiny",
-      "whisper-large-v3-turbo-cpp",
-      "parakeet-tdt-0.6b-v2",
-      "faster-whisper",
-    ],
-  },
   {
     id: "openai",
     name: "OpenAI",
@@ -113,10 +92,9 @@ export function registerSttProviders(): void {
     registerProvider(next);
   }
 
-  // Bind default slot from env so the STT route has a provider even before
-  // the Settings UI writes one.
-  const providerEnv = (process.env.STT_PROVIDER ?? "voice-core").toLowerCase();
-  if (SEEDS.some((s) => s.id === providerEnv)) {
+  // Bind default slot from env when explicitly configured.
+  const providerEnv = process.env.STT_PROVIDER?.toLowerCase();
+  if (providerEnv && SEEDS.some((s) => s.id === providerEnv)) {
     bindSlot({
       modality: "stt",
       slotName: "primary",
@@ -129,19 +107,6 @@ export function registerSttProviders(): void {
         },
       },
     });
-  }
-}
-
-async function checkVoiceCoreHealth(config: { baseURL?: string }): Promise<boolean> {
-  const base = (config.baseURL ?? voiceCoreUrl()).replace(/\/+$/, "");
-  try {
-    const res = await fetch(`${base}/health`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(1500),
-    });
-    return res.ok;
-  } catch {
-    return false;
   }
 }
 

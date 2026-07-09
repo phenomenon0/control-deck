@@ -1,14 +1,12 @@
 /**
  * Text-to-speech providers.
  *
- * voice-core remains registered as a legacy local fallback. Cloud providers
- * are opt-in via env.
+ * Cloud providers are opt-in via env.
  *
  * Env vars:
- *   TTS_PROVIDER          voice-core | elevenlabs | openai | cartesia | hume | inworld | deepgram | google
- *                         (default: voice-core)
+ *   TTS_PROVIDER          elevenlabs | openai | cartesia | hume | inworld | deepgram | google
  *   TTS_VOICE             default voice id for the selected provider
- *   TTS_MODEL             default engine id (e.g. kokoro-82m)
+ *   TTS_MODEL             default model id
  *   ELEVENLABS_API_KEY    required for elevenlabs
  *   OPENAI_API_KEY        reused from the text-LLM slot, required for openai
  *   CARTESIA_API_KEY      required for cartesia
@@ -20,30 +18,10 @@
 
 import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
-import { voiceCoreUrl } from "../voice-core/sidecar-url";
 import { listTtsVoices } from "./invoke";
-import type { InferenceProvider, InferenceProviderConfig, Modality } from "../types";
+import type { InferenceProvider, Modality } from "../types";
 
 const PROVIDERS: InferenceProvider[] = [
-  {
-    id: "voice-core",
-    name: "voice-core (legacy fallback)",
-    description:
-      "Legacy local TTS engines hosted by voice-core. Kokoro 82M is the " +
-      "default natural CPU voice; sherpa-onnx stays as the fast fallback and " +
-      "Chatterbox stays optional for expressive output.",
-    modalities: ["tts", "stt"],
-    requiresApiKey: false,
-    defaultBaseURL: voiceCoreUrl(),
-    defaultModels: {
-      tts: ["kokoro-82m", "sherpa-onnx-tts", "chatterbox"],
-    },
-    checkHealth: checkVoiceCoreHealth,
-    listModels: async (_m, config) => {
-      const voices = await listTtsVoices("voice-core", config);
-      return voices.map((v) => v.id);
-    },
-  },
   {
     id: "elevenlabs",
     name: "ElevenLabs",
@@ -186,10 +164,9 @@ export function registerTtsProviders(): void {
     });
   }
 
-  // Bind the default TTS slot from env so the route has something to fall
-  // back to even before the Settings UI touches it.
-  const providerEnv = (process.env.TTS_PROVIDER ?? "voice-core").toLowerCase();
-  if (PROVIDERS.some((p) => p.id === providerEnv)) {
+  // Bind the default TTS slot from env when explicitly configured.
+  const providerEnv = process.env.TTS_PROVIDER?.toLowerCase();
+  if (providerEnv && PROVIDERS.some((p) => p.id === providerEnv)) {
     bindSlot({
       modality: "tts",
       slotName: "primary",
@@ -199,23 +176,9 @@ export function registerTtsProviders(): void {
         model: process.env.TTS_MODEL,
         extras: {
           defaultVoiceId: process.env.TTS_VOICE,
-          engine: process.env.TTS_ENGINE ?? "kokoro-82m",
         },
       },
     });
-  }
-}
-
-async function checkVoiceCoreHealth(config: InferenceProviderConfig): Promise<boolean> {
-  const base = (config.baseURL ?? voiceCoreUrl()).replace(/\/+$/, "");
-  try {
-    const res = await fetch(`${base}/health`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(1500),
-    });
-    return res.ok;
-  } catch {
-    return false;
   }
 }
 

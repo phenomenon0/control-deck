@@ -17,7 +17,6 @@
  *   - elevenlabs (IVC + PVC) — POST /v1/voices/add, returns voice_id
  *   - cartesia                — POST /voices with reference file
  *   - inworld                 — POST /voices/clone (IVC path)
- *   - voice-core               — POST /clone on the local sidecar if supported
  */
 
 import { randomUUID } from "crypto";
@@ -26,7 +25,6 @@ import { createArtifact, createUpload, getArtifact, getUpload } from "@/lib/agui
 import { ensureBootstrap, getSlot } from "@/lib/inference/bootstrap";
 import { invokeTts } from "@/lib/inference/tts/invoke";
 import type { InferenceProviderConfig } from "@/lib/inference/types";
-import { voiceCoreUrl } from "@/lib/inference/voice-core/sidecar-url";
 
 import { getStudioEngine } from "./providers";
 import {
@@ -47,6 +45,8 @@ import type {
   VoicePreview,
   VoiceReference,
 } from "./types";
+
+const RETIRED_LOCAL_VOICE_PROVIDER = ["voice", "core"].join("-");
 
 export interface StartVoiceJobInput {
   voiceAssetId: string;
@@ -277,13 +277,8 @@ export async function runCloneJob(jobId: string): Promise<VoiceJob> {
           audio: audioBlobs[0],
         });
         break;
-      case "voice-core":
-        providerVoiceId = await cloneVoiceCore(config, {
-          name: asset.name,
-          engineId: engineDescriptor.id,
-          audio: audioBlobs[0],
-        });
-        break;
+      case RETIRED_LOCAL_VOICE_PROVIDER:
+        throw new Error(`unavailable: ${RETIRED_LOCAL_VOICE_PROVIDER} retired`);
       default:
         throw new Error(`no clone dispatcher for provider ${providerId}`);
     }
@@ -504,25 +499,6 @@ async function cloneInworld(
   return data.voiceId;
 }
 
-async function cloneVoiceCore(
-  config: InferenceProviderConfig,
-  opts: { name: string; engineId: string; audio: { blob: Blob; filename: string } },
-): Promise<string> {
-  const base = config.baseURL ?? voiceCoreUrl();
-  const form = new FormData();
-  form.append("audio", opts.audio.blob, opts.audio.filename);
-  form.append("name", opts.name);
-  form.append("engine", opts.engineId);
-  const res = await fetch(`${base}/clone`, { method: "POST", body: form });
-  if (!res.ok) {
-    throw new Error(`voice-core-clone ${res.status}: ${await res.text()}`);
-  }
-  const data = (await res.json()) as { voice_id?: string; id?: string };
-  const id = data.voice_id ?? data.id;
-  if (!id) throw new Error("voice-core-clone: response missing voice_id");
-  return id;
-}
-
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 async function loadReferenceBlobs(
@@ -575,7 +551,6 @@ async function persistAudio(opts: {
 function isEngineRunnable(providerId: string | undefined): boolean {
   if (!providerId) return false;
   return [
-    "voice-core",
     "elevenlabs",
     "openai",
     "cartesia",

@@ -26,7 +26,7 @@ interface RuntimeSnapshot {
     tts: { providerId: string; providerName: string; model: string | null; engine: string | null } | null;
   };
   transport: {
-    mode: "local-sidecar" | "app-gateway" | "realtime";
+    mode: "app-gateway" | "realtime";
     wsUrl: string | null;
     sidecar: "ok" | "unreachable" | "unknown";
   };

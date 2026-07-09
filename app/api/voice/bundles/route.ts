@@ -8,12 +8,9 @@
  * demux it into per-row progress bars (mirroring `useModelPull`'s schema).
  *
  * Sources:
- *   - "ollama"     → /api/ollama/tags POST internal call
- *   - "voice-core" → retired; s2s provides local realtime voice
- *   - "qwen-omni"  → out-of-band; we surface install status only
- *
- * Voice-core bundle provisioning now returns a retirement error instead of
- * binding new local voice slots.
+ *   - "ollama"    → /api/ollama/tags POST internal call
+ *   - "s2s"       → realtime voice availability only
+ *   - "qwen-omni" → out-of-band; we surface install status only
  */
 
 import { NextResponse } from "next/server";
@@ -200,13 +197,9 @@ export async function POST(req: Request) {
 
           const tasks: Array<Promise<void>> = [
             pullOllama(tier.cascade.llm.id, emit, abort),
-            pullVoiceCore(tier.cascade.stt.id, emit, abort),
-            pullVoiceCore(tier.cascade.tts.id, emit, abort),
           ];
 
           if (wantOmni && tier.omni) {
-            // voice-core does not host omni S2S engines — only Qwen-Omni keeps
-            // its own sidecar. Other omni sidecars aren't supported.
             if (tier.omni.sidecar === "qwen-omni") {
               tasks.push(checkQwenOmni(tier, emit));
             }
@@ -285,16 +278,6 @@ async function pullOllama(modelId: string, emit: EmitFn, abort: AbortSignal): Pr
   });
 
   emit({ source: "ollama", model: modelId, status: "success" });
-}
-
-async function pullVoiceCore(
-  modelId: string,
-  emit: EmitFn,
-  _abort: AbortSignal,
-): Promise<void> {
-  const error = "voice-core retired; s2s provides local voice";
-  emit({ source: "voice-core", model: modelId, error });
-  throw new Error(error);
 }
 
 async function checkQwenOmni(tier: TierBundle, emit: EmitFn): Promise<void> {
@@ -436,14 +419,14 @@ interface LaneSpec {
   note?: string | null;
 }
 
-function laneEntry(spec: LaneSpec, _health: S2sHealth) {
+function laneEntry(spec: LaneSpec, health: S2sHealth) {
   return {
     id: spec.id,
     label: spec.label,
     sizeMb: spec.sizeMb ?? null,
     note: spec.note ?? null,
-    available: false,
-    loaded: false,
+    available: health.ok,
+    loaded: health.ok,
   };
 }
 
@@ -487,18 +470,12 @@ function tierIsBoundAsPrimary(
   const stt = bindings["stt::primary"];
   const tts = bindings["tts::primary"];
   if (!stt || !tts) return false;
-  // Either both lanes are pointed at the cascade engines, or both at the omni
-  // provider. Anything else means the tier isn't currently primary.
-  const cascadeMatch =
-    stt.providerId === "voice-core" &&
-    tts.providerId === "voice-core" &&
-    stt.config?.model === tier.cascade.stt.id &&
-    tts.config?.model === tier.cascade.tts.id;
+  // Only the optional omni lane creates persisted STT/TTS provider bindings.
   const omniMatch =
     Boolean(tier.omni) &&
     stt.providerId === QWEN_OMNI_PROVIDER_ID &&
     tts.providerId === QWEN_OMNI_PROVIDER_ID &&
     stt.config?.model === tier.omni?.modelId &&
     tts.config?.model === tier.omni?.modelId;
-  return cascadeMatch || omniMatch;
+  return omniMatch;
 }

@@ -6,11 +6,9 @@
  *   bun tests/voice-harness/run-batch.ts \
  *       --wavs 'models/voice-engines/sherpa-streaming/test_wavs/*.wav' \
  *       --runs 5 \
- *       --layer bun
+ *       --layer e2e
  *
- *   --layer bun  → uses StreamingSttClient + voice-core directly (fast).
- *   --layer e2e  → invokes Playwright per run (slow, but exercises the full UI).
- *   --layer both → first bun, then e2e.
+ *   --layer e2e  → invokes Playwright per run and exercises the full UI.
  *
  * Reports land at tests/voice-harness/reports/<timestamp>/{summary.md,raw.json}.
  */
@@ -21,24 +19,17 @@ import { spawn } from "node:child_process";
 import { Glob } from "bun";
 
 import { aggregateReports, type ProbeReport } from "@/lib/voice/test-harness/latency-probe";
-import {
-  ensureVoiceCore,
-  stopVoiceCore,
-  type VoiceCoreHandle,
-} from "@/lib/voice/test-harness/voice-core-fixture";
-
-import { runSttOnce, type RunSttResult } from "./lib/run-stt-once";
 
 interface Args {
   wavs: string;
   runs: number;
-  layer: "bun" | "e2e" | "both";
+  layer: "e2e";
 }
 
 interface RunRecord {
   wav: string;
   runIndex: number;
-  layer: "bun" | "e2e";
+  layer: "e2e";
   ok: boolean;
   finalText?: string;
   partialsCount?: number;
@@ -61,30 +52,11 @@ async function main() {
 
   const all: RunRecord[] = [];
 
-  if (args.layer === "bun" || args.layer === "both") {
-    let core: VoiceCoreHandle | null = null;
-    try {
-      core = await ensureVoiceCore(60_000);
-      console.log(`voice-core · ${core.url}`);
-      for (const wav of wavs) {
-        for (let i = 0; i < args.runs; i++) {
-          const rec = await runOneBun(wav, core.url, i);
-          all.push(rec);
-          process.stdout.write(`  bun · ${basename(wav)} #${i + 1}/${args.runs} · ${rec.ok ? "ok" : "fail"}\n`);
-        }
-      }
-    } finally {
-      if (core) await stopVoiceCore(core);
-    }
-  }
-
-  if (args.layer === "e2e" || args.layer === "both") {
-    for (const wav of wavs) {
-      for (let i = 0; i < args.runs; i++) {
-        const rec = await runOneE2E(wav, i);
-        all.push(rec);
-        process.stdout.write(`  e2e · ${basename(wav)} #${i + 1}/${args.runs} · ${rec.ok ? "ok" : "fail"}\n`);
-      }
+  for (const wav of wavs) {
+    for (let i = 0; i < args.runs; i++) {
+      const rec = await runOneE2E(wav, i);
+      all.push(rec);
+      process.stdout.write(`  e2e · ${basename(wav)} #${i + 1}/${args.runs} · ${rec.ok ? "ok" : "fail"}\n`);
     }
   }
 
@@ -95,30 +67,6 @@ async function main() {
   await writeFile(resolve(reportDir, "summary.md"), buildMarkdown(args, all, agg));
 
   console.log(`\nreport · ${reportDir}/summary.md`);
-}
-
-async function runOneBun(wav: string, url: string, runIndex: number): Promise<RunRecord> {
-  try {
-    const result: RunSttResult = await runSttOnce({ wavPath: wav, voiceCoreUrl: url });
-    return {
-      wav,
-      runIndex,
-      layer: "bun",
-      ok: result.finalText.length > 0,
-      finalText: result.finalText,
-      partialsCount: result.partials.length,
-      report: result.report,
-    };
-  } catch (err) {
-    return {
-      wav,
-      runIndex,
-      layer: "bun",
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-      report: { startedAt: 0, marks: [], deltas: {}, spans: {} },
-    };
-  }
 }
 
 async function runOneE2E(wav: string, runIndex: number): Promise<RunRecord> {
@@ -195,14 +143,14 @@ function parseArgs(): Args {
   const argv = process.argv.slice(2);
   let wavs = "models/voice-engines/sherpa-streaming/test_wavs/*.wav";
   let runs = 3;
-  let layer: Args["layer"] = "bun";
+  let layer: Args["layer"] = "e2e";
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--wavs") wavs = argv[++i] ?? wavs;
     else if (a === "--runs") runs = parseInt(argv[++i] ?? "3", 10);
     else if (a === "--layer") {
-      const v = argv[++i] ?? "bun";
-      if (v === "bun" || v === "e2e" || v === "both") layer = v;
+      const v = argv[++i] ?? "e2e";
+      if (v === "e2e") layer = v;
     }
   }
   return { wavs, runs, layer };

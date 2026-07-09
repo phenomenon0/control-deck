@@ -8,7 +8,6 @@
 import type { InferenceProviderConfig } from "../types";
 import type { SttArgs, SttResult, SttWord } from "./types";
 import { QWEN_OMNI_PROVIDER_ID, qwenOmniSidecarUrl } from "../omni/local";
-import { voiceCoreUrl } from "../voice-core/sidecar-url";
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 const GROQ_BASE = "https://api.groq.com/openai/v1";
@@ -22,8 +21,6 @@ export async function invokeStt(
   args: SttArgs,
 ): Promise<SttResult> {
   switch (providerId) {
-    case "voice-core":
-      return invokeVoiceCore(config, args);
     case "openai":
       return invokeOpenAiStt(config, args);
     case "groq":
@@ -55,10 +52,9 @@ async function invokeQwenOmniLocal(
       "qwen-omni-local: local generation runtime is required but no Omni sidecar is configured. Set OMNI_SIDECAR_URL or start a CUDA-capable runtime.",
     );
   }
-  // No Omni runtime — fall back to voice-core's tier default (Moonshine on
-  // CPU, Parakeet on CUDA, whisper.cpp on Mac).
-  const result = await invokeVoiceCore({ providerId: "voice-core" }, args);
-  return { ...result, providerId: QWEN_OMNI_PROVIDER_ID };
+  throw new Error(
+    "qwen-omni-local: local generation runtime is required for speech input. Set OMNI_SIDECAR_URL or start a CUDA-capable runtime.",
+  );
 }
 
 async function invokeQwenOmniSidecarStt(
@@ -94,48 +90,6 @@ async function invokeQwenOmniSidecarStt(
     duration: data.duration,
     words,
     providerId: QWEN_OMNI_PROVIDER_ID,
-  };
-}
-
-/**
- * voice-core sidecar — local STT for all engines registered in voice-core
- * (Moonshine, whisper.cpp, Parakeet, sherpa-onnx streaming, faster-whisper).
- *
- * The model id chosen by the slot binding becomes the `engine` form field.
- * voice-core falls back to its tier default if the field is omitted.
- */
-async function invokeVoiceCore(
-  config: InferenceProviderConfig,
-  args: SttArgs,
-): Promise<SttResult> {
-  const requestedModel = args.model ?? config.model ?? null;
-  const base = config.baseURL ?? voiceCoreUrl();
-  const form = new FormData();
-  form.append("audio", args.audio);
-  if (requestedModel) form.append("engine", requestedModel);
-  if (args.language) form.append("language", args.language);
-  const res = await fetch(`${base}/stt`, { method: "POST", body: form });
-  if (!res.ok) {
-    throw new Error(`voice-core ${res.status}: ${await res.text()}`);
-  }
-  const data = (await res.json()) as {
-    text?: string;
-    transcription?: string;
-    language?: string;
-    duration?: number;
-    words?: Array<{ text?: string; word?: string; start: number; end: number }>;
-  };
-  const words: SttWord[] | undefined = data.words?.map((w) => ({
-    text: String(w.text ?? w.word ?? ""),
-    start: w.start,
-    end: w.end,
-  }));
-  return {
-    text: String(data.text ?? data.transcription ?? ""),
-    language: data.language,
-    duration: data.duration,
-    words,
-    providerId: "voice-core",
   };
 }
 

@@ -899,10 +899,8 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
       voiceSession.markAgentRunStarted(clientRunId);
     }
     let liveSpeechQueued = false;
-    // Prefer the voice-core PCM streaming lane when the route supports it —
-    // first audio chunk plays as soon as synthesis begins, instead of waiting
-    // for a complete WAV per phrase. Falls back to voiceChat.queueSpeech when
-    // beginStreamingReply returns null (e.g. cloud TTS route).
+    // Realtime transports own incremental audio. The app-gateway path queues
+    // phrase WAVs via voiceChat.queueSpeech.
     const streamingReply = shouldSpeakReply ? voiceSession.beginStreamingReply() : null;
     // Shorter phrases when streaming — we want the first phrase to ship as
     // soon as a sentence boundary appears. The 180-char max was tuned for the

@@ -171,8 +171,8 @@ export function LocalModelsPanel({ preset: controlledPreset, onPresetChange }: L
             .then(() => { setSweep((s) => ({ ...s, [modality]: "ok" })); })
             .catch(() => { setSweep((s) => ({ ...s, [modality]: "error" })); }),
         );
-      } else if (def.runner === "voice-sidecar") {
-        if (!runners.voiceSidecar.reachable) {
+      } else if (def.runner === "s2s") {
+        if (!runners.s2s.reachable) {
           next[modality] = "error";
           continue;
         }
@@ -199,7 +199,7 @@ export function LocalModelsPanel({ preset: controlledPreset, onPresetChange }: L
       setSweepRunning(false);
       void refresh();
     }
-  }, [rows, pull, warmupStt, warmupTts, runners.voiceSidecar.reachable, refresh]);
+  }, [rows, pull, warmupStt, warmupTts, runners.s2s.reachable, refresh]);
 
   const sweepCounts = useMemo(() => {
     let ok = 0;
@@ -268,10 +268,10 @@ export function LocalModelsPanel({ preset: controlledPreset, onPresetChange }: L
         </span>
         <span
           className={`pill--mono ${
-            runners.voiceSidecar.reachable ? "text-[var(--success)]" : "text-[var(--error)]"
+            runners.s2s.reachable ? "text-[var(--success)]" : "text-[var(--error)]"
           }`}
         >
-          Voice sidecar {runners.voiceSidecar.reachable ? "online" : "offline"}
+          s2s voice {runners.s2s.reachable ? "online" : "offline"}
         </span>
         {error ? <span className="pill--mono text-[var(--error)]">{error}</span> : null}
         {loading ? <span className="pill--mono text-[var(--text-muted)]">loading…</span> : null}
@@ -284,7 +284,7 @@ export function LocalModelsPanel({ preset: controlledPreset, onPresetChange }: L
           const pullDone = live?.phase === "done";
           const pullErr = live?.phase === "error";
           const sweepStatus = sweep[modality];
-          const sweepWarmup = sweepStatus === "running" && def.runner === "voice-sidecar";
+          const sweepWarmup = sweepStatus === "running" && def.runner === "s2s";
 
           return (
             <div
@@ -372,7 +372,7 @@ export function LocalModelsPanel({ preset: controlledPreset, onPresetChange }: L
                 </div>
               )}
 
-              {modality === "tts" && runners.voiceSidecar.reachable ? (
+              {modality === "tts" && runners.s2s.reachable ? (
                 <div className="flex items-center justify-between gap-3 pt-1 border-t border-[var(--border)]">
                   <span className="text-[11px] text-[var(--text-muted)]">Voice</span>
                   <VoicePicker variant="row" />

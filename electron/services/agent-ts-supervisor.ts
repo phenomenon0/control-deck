@@ -1,7 +1,7 @@
 /**
  * Auto-spawn `apps/agent-ts` (the pi-agent-core chat backend) from Electron
- * main. Mirrors `voice-core-supervisor.ts`: skip if the port is already
- * listening, restart on crash up to 3 times in 5 minutes, kill on quit.
+ * main. Skips if the port is already listening, restarts on crash up to
+ * 3 times in 5 minutes, and kills the child on quit.
  *
  * Spawn order:
  *   1. `bunx tsx apps/agent-ts/src/server/main.ts` (preferred)

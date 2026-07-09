@@ -12,10 +12,10 @@ mock.module("./recipe", () => ({
 // Force the probe to report ollama as missing so we enter the install branch.
 const ORIG_PATH = process.env.PATH;
 const ORIG_OLLAMA_URL = process.env.OLLAMA_BASE_URL;
-const ORIG_VOICE_URL = process.env.VOICE_CORE_URL;
+const ORIG_S2S_URL = process.env.S2S_URL;
 process.env.PATH = "/tmp/no-bins-for-missing-recipe-test";
 process.env.OLLAMA_BASE_URL = "http://127.0.0.1:1";
-process.env.VOICE_CORE_URL = "http://127.0.0.1:2";
+process.env.S2S_URL = "http://127.0.0.1:2";
 process.env.CONTROL_DECK_DISABLE_PATH_AUGMENT = "1";
 
 const { runOnboarding } = await import("./orchestrator");
@@ -25,7 +25,7 @@ describe("runOnboarding without a recipe", () => {
   afterAll(() => {
     process.env.PATH = ORIG_PATH;
     process.env.OLLAMA_BASE_URL = ORIG_OLLAMA_URL;
-    process.env.VOICE_CORE_URL = ORIG_VOICE_URL;
+    process.env.S2S_URL = ORIG_S2S_URL;
     mock.restore();
   });
 

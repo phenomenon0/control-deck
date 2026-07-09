@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type SourceTag = "ollama" | "voice-core" | "qwen-omni";
+type SourceTag = "ollama" | "s2s" | "qwen-omni";
 
 interface BundleLane {
   id: string;

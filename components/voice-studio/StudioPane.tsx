@@ -43,7 +43,7 @@ const STEPS: Array<{ id: StudioStep; label: string; description: string }> = [
 ];
 
 function preferredStudioEngineId(engines: StudioEngine[]): string {
-  const preferred = ["xtts-v2", "chatterbox", "elevenlabs-pvc"];
+  const preferred = ["cartesia-ivc", "elevenlabs-ivc", "elevenlabs-pvc"];
   for (const id of preferred) {
     const hit = engines.find((engine) => engine.id === id);
     if (hit) return hit.id;

@@ -30,7 +30,7 @@ interface CloneJobFormProps {
 
 function preferredEngineId(engines: EngineOption[], kind: JobKind): string {
   const order: Record<JobKind, string[]> = {
-    preview: ["gemini-tts", "cartesia-ivc", "elevenlabs-ivc", "xtts-v2", "chatterbox"],
+    preview: ["gemini-tts", "cartesia-ivc", "elevenlabs-ivc"],
     clone: ["cartesia-ivc", "elevenlabs-ivc", "inworld-tts-clone", "elevenlabs-pvc"],
     design: ["hume-octave"],
   };

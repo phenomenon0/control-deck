@@ -1,0 +1,82 @@
+/* RichText (Atlas v2) — styles ONLY the elements the existing `.av2 .a` rules in
+   atlas-v2.css don't already cover: headings, tables, math, rules, images and
+   the diagram note. Shared prose (p / ul / li / code / pre / a / blockquote /
+   strong / em) is deliberately left to atlas-v2.css, so plain prose renders
+   exactly as before. Everything here is token-driven off the Atlas vars. */
+
+.rt-prose { min-width: 0; }
+.av2 .a .rt-prose > :first-child { margin-top: 0; }
+
+/* headings — Atlas serif display identity, with a light size scale. */
+.av2 .a .rt-prose h1,
+.av2 .a .rt-prose h2,
+.av2 .a .rt-prose h3,
+.av2 .a .rt-prose h4,
+.av2 .a .rt-prose h5,
+.av2 .a .rt-prose h6 {
+  font-family: var(--font-display, var(--font-ui));
+  font-weight: 600;
+  color: var(--ink-strong);
+  line-height: 1.3;
+  margin: var(--space-3, 12px) 0 0;
+}
+.av2 .a .rt-prose h1 { font-size: 18px; }
+.av2 .a .rt-prose h2 { font-size: 16.5px; }
+.av2 .a .rt-prose h3,
+.av2 .a .rt-prose h4,
+.av2 .a .rt-prose h5,
+.av2 .a .rt-prose h6 { font-size: 15.5px; }
+
+/* tables — GFM tables render as a real <table>; scroll horizontally when wide. */
+.av2 .a .rt-prose table {
+  border-collapse: collapse;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: var(--space-3, 12px) 0;
+  font-size: 14px;
+}
+.av2 .a .rt-prose th,
+.av2 .a .rt-prose td {
+  border: 1px solid var(--line-subtle);
+  padding: 0.4em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+.av2 .a .rt-prose th {
+  font-weight: 600;
+  color: var(--ink-strong);
+  background: rgba(var(--fg-rgb), var(--alpha-wash, 0.07));
+}
+.av2 .a .rt-prose td { color: var(--ink-soft); }
+
+/* horizontal rule + images */
+.av2 .a .rt-prose hr {
+  border: 0;
+  border-top: 1px solid var(--line-subtle);
+  margin: var(--space-4, 16px) 0;
+}
+.av2 .a .rt-prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid var(--line-subtle);
+}
+
+/* math — KaTeX ships its own glyph styling; give display math room to scroll. */
+.av2 .a .rt-prose .katex { color: var(--ink-strong); }
+.av2 .a .rt-prose .katex-display {
+  margin: var(--space-3, 12px) 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* graceful-degrade note under a diagram fence we don't render live. */
+.av2 .a .rt-prose .rt-diagram-note {
+  margin-top: 4px;
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--ink-faint);
+}

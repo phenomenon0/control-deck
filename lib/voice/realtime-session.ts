@@ -69,7 +69,9 @@ export class RealtimeVoiceClient {
   }) {
     this.wsUrl = opts.wsUrl;
     this.callbacks = opts.callbacks;
-    this.outputRate = opts.outputRate ?? 24000;
+    // s2s emits TTS audio at its 16 kHz pipeline rate when the session does
+    // not override the output format (we don't — see sendSessionUpdate).
+    this.outputRate = opts.outputRate ?? 16000;
   }
 
   connect(): Promise<void> {
@@ -249,18 +251,22 @@ export class RealtimeVoiceClient {
   }
 
   private sendSessionUpdate(): void {
+    // Payload must validate against the OpenAI SDK's SessionUpdateEvent, which
+    // pins audio/pcm to rate 24000 — so we send no format blocks at all and
+    // ride the s2s defaults (16 kHz in and out, matching our mic downsampling
+    // and playback fallback). Only turn_detection is negotiated here; the
+    // required session.type and turn_detection.type literals must be present
+    // or the server rejects the event.
     this.send({
       type: "session.update",
       session: {
+        type: "realtime",
         audio: {
           input: {
-            format: { type: "audio/pcm", rate: 16000 },
             turn_detection: {
+              type: "server_vad",
               interrupt_response: this.interruptEnabled,
             },
-          },
-          output: {
-            format: { type: "audio/pcm", rate: this.outputRate },
           },
         },
       },

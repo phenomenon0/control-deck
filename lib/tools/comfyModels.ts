@@ -111,6 +111,27 @@ const PRESET_DEFINITIONS: Record<string, PresetDefinition> = {
       { node: "UpscaleModelLoader", input: "model_name", filename: UPSCALE_MODEL },
     ],
   },
+  // B4: audio + 3D lanes get the same availability probe as images, so their
+  // tools can fail with a recovery hint instead of an opaque workflow error.
+  "stable-audio": {
+    nodes: ["CheckpointLoaderSimple", "CLIPLoader", "EmptyLatentAudio", "KSampler", "VAEDecodeAudio"],
+    models: [
+      { node: "CheckpointLoaderSimple", input: "ckpt_name", filename: "stable-audio-open-1.0.safetensors" },
+      { node: "CLIPLoader", input: "clip_name", filename: "t5-base.safetensors" },
+    ],
+  },
+  "ace-step": {
+    nodes: ["ACEStepModelLoader", "ACEStepSampler"],
+    models: [
+      { node: "ACEStepModelLoader", input: "model", filename: "ace-step-v1.5.safetensors" },
+    ],
+  },
+  "hunyuan-3d": {
+    nodes: ["CheckpointLoaderSimple", "LoadImage"],
+    models: [
+      { node: "CheckpointLoaderSimple", input: "ckpt_name", filename: "hunyuan_3d_v2.1.safetensors" },
+    ],
+  },
 };
 
 export async function getImageModelAvailability(): Promise<ImageModelAvailability> {

@@ -174,6 +174,7 @@ export function EditTab() {
         ) : (
           <MissingWeightsHint
             text={backendHint}
+            preset={editPreset}
             command={`bash scripts/download-image-models.sh ${editPreset}`}
           />
         )}

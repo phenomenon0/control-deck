@@ -137,11 +137,108 @@ export function ComfyOfflineHint() {
 }
 
 /* Weights-missing recovery — only honest when the rig is ONLINE but the preset's
-   files are absent. Carries a copyable download command (matches JobStrip's). */
-export function MissingWeightsHint({ text, command }: { text: ReactNode; command: string }) {
+   files are absent. B1: a real in-app download (queue + progress via
+   /api/models/weights) with the CLI command kept as the copyable twin. */
+interface WeightJob {
+  id: string;
+  fileKey: string;
+  filename: string;
+  status: string;
+  bytesDone: number;
+  bytesTotal: number | null;
+  error?: string;
+}
+
+function gb(n: number): string {
+  return `${(n / 1024 ** 3).toFixed(1)} GB`;
+}
+
+export function MissingWeightsHint({
+  text,
+  command,
+  preset,
+}: {
+  text: ReactNode;
+  command: string;
+  preset?: string;
+}) {
+  const [jobs, setJobs] = useState<WeightJob[]>([]);
+  const [downloading, setDownloading] = useState(false);
+  const [dlError, setDlError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPoll = useCallback(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+  }, []);
+
+  const startDownload = useCallback(async () => {
+    if (!preset || downloading) return;
+    setDownloading(true);
+    setDlError(null);
+    try {
+      const res = await fetch("/api/models/weights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset }),
+      });
+      if (!res.ok) throw new Error(`installer ${res.status}`);
+      const started = (await res.json()) as { enqueued: WeightJob[] };
+      const ids = new Set(started.enqueued.map((j) => j.id));
+      if (ids.size === 0) {
+        setDlError("nothing to download — files may lack a verified source (use the CLI or check /api/models/weights)");
+        setDownloading(false);
+        return;
+      }
+      pollRef.current = setInterval(async () => {
+        try {
+          const r = await fetch("/api/models/weights", { cache: "no-store" });
+          if (!r.ok) return;
+          const d = (await r.json()) as { jobs: WeightJob[] };
+          const mine = d.jobs.filter((j) => ids.has(j.id));
+          setJobs(mine);
+          const active = mine.some((j) => j.status === "queued" || j.status === "downloading" || j.status === "verifying");
+          if (!active) {
+            stopPoll();
+            setDownloading(false);
+            const failed = mine.find((j) => j.status === "error");
+            if (failed) setDlError(failed.error ?? "download failed");
+          }
+        } catch {
+          /* transient poll failure */
+        }
+      }, 1500);
+    } catch (e) {
+      setDlError(e instanceof Error ? e.message : "download failed");
+      setDownloading(false);
+    }
+  }, [preset, downloading, stopPoll]);
+
+  const totals = jobs.reduce(
+    (a, j) => ({ done: a.done + j.bytesDone, total: a.total + (j.bytesTotal ?? 0) }),
+    { done: 0, total: 0 },
+  );
+  const allDone = jobs.length > 0 && jobs.every((j) => j.status === "done");
+
   return (
-    <div className="rig-hint">
+    <div className="rig-hint rig-hint--weights">
       {text}
+      {preset && !allDone && (
+        <button
+          type="button"
+          className="word-act rig-hint__copy"
+          onClick={() => void startDownload()}
+          disabled={downloading}
+          title="download the missing weights in the deck"
+        >
+          {downloading ? <LoaderCircle size={12} className="spin" aria-hidden="true" /> : null}
+          {downloading
+            ? totals.total > 0
+              ? `downloading ${gb(totals.done)} / ${gb(totals.total)}`
+              : "downloading…"
+            : "download here"}
+        </button>
+      )}
       <button
         type="button"
         className="word-act rig-hint__copy"
@@ -151,6 +248,8 @@ export function MissingWeightsHint({ text, command }: { text: ReactNode; command
         <Copy size={12} aria-hidden="true" />
         copy command
       </button>
+      {allDone ? <span className="rig-hint__ok">weights installed — re-check runs automatically; restart Comfy if the preset stays red</span> : null}
+      {dlError ? <span className="rig-hint--danger">{dlError}</span> : null}
     </div>
   );
 }

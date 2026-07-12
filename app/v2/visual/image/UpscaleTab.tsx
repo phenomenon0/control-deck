@@ -136,7 +136,7 @@ export function UpscaleTab() {
         {modelHint === null ? null : !online ? (
           <ComfyOfflineHint />
         ) : (
-          <MissingWeightsHint text={modelHint} command="bash scripts/download-image-models.sh upscale" />
+          <MissingWeightsHint text={modelHint} preset="upscale" command="bash scripts/download-image-models.sh upscale" />
         )}
 
         <JobStrip jobs={jobs} onDismiss={dismissJob} />

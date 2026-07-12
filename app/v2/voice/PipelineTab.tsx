@@ -252,6 +252,9 @@ export function PipelineTab() {
             }}
           />
 
+          {/* B4: weight-cache probe — will a restart load instantly or download first? */}
+          <WeightsCacheRow knobs={knobs} />
+
           {/* Temperature */}
           <RangeRow
             title="Temperature"
@@ -667,6 +670,66 @@ function MicCheck() {
 }
 
 /* ── reusable rows ───────────────────────────────────────────────────────────── */
+
+/* B4: read-only weight-cache probe. Collects the HF repo ids the current
+   config will load (STT/TTS model_name knobs), asks /api/voice/model-cache,
+   and says whether a restart loads from cache or downloads first. */
+const HF_MODEL_KNOBS = [
+  "parakeet_tdt_model_name",
+  "qwen3_tts_model_name",
+  "facebook_mms_model_name",
+] as const;
+
+function WeightsCacheRow({ knobs }: { knobs: object }) {
+  const ids = useMemo(() => {
+    const out: string[] = [];
+    const bag = knobs as Record<string, unknown>;
+    for (const key of HF_MODEL_KNOBS) {
+      const v = bag[key];
+      if (typeof v === "string" && /^[\w.-]+\/[\w.-]+$/.test(v)) out.push(v);
+    }
+    return out;
+  }, [knobs]);
+  const [cache, setCache] = useState<Record<string, { cached: boolean; bytes: number }>>({});
+
+  useEffect(() => {
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/voice/model-cache?models=${encodeURIComponent(ids.join(","))}`);
+        if (!res.ok) return;
+        const d = (await res.json()) as { models?: Record<string, { cached: boolean; bytes: number }> };
+        if (!cancelled && d.models) setCache(d.models);
+      } catch {
+        /* probe is informational */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ids]);
+
+  if (ids.length === 0) return null;
+  return (
+    <div className="srow">
+      <span className="st">
+        <b>Weights</b>
+        <small>
+          {ids.map((id, i) => {
+            const c = cache[id];
+            const tag = c == null ? "…" : c.cached ? `cached ${(c.bytes / 1024 ** 3).toFixed(1)} GB` : "will download on restart";
+            return (
+              <span key={id}>
+                {i > 0 ? " · " : ""}
+                <code>{id.split("/")[1]}</code> {tag}
+              </span>
+            );
+          })}
+        </small>
+      </span>
+    </div>
+  );
+}
+
 function SelectRow({
   title,
   desc,

@@ -534,7 +534,7 @@ function imagePresetRecovery(
 
   const missingText = missing.length ? missing.join(", ") : "none reported";
   const nodeText = missingNodes.length ? ` Missing ComfyUI nodes: ${missingNodes.join(", ")}.` : "";
-  return `Model files missing for ${preset}: ${missingText}.${nodeText} Download with: bash scripts/download-image-models.sh ${preset}${envText}`;
+  return `Model files missing for ${preset}: ${missingText}.${nodeText} Download with: bash scripts/download-image-models.sh ${preset}, or POST /api/models/weights {"preset":"${preset}"} for a managed in-app download${envText}`;
 }
 
 function noAutoEditBackendResult(availability: ImageModelAvailabilityResult): ToolExecutionResult {

@@ -28,11 +28,13 @@ import {
   type GeneratePreset,
 } from "./presetCapabilities";
 import { useComfyStatus } from "./useComfyStatus";
+import { useWeightsInfo, fitLabel, downloadLabel } from "./useWeightsInfo";
 import { ComfyOfflineHint, MissingWeightsHint } from "./recovery";
 import { useImageJobs } from "./useImageJobs";
 
 export function GenerateTab() {
   const { presets, online, loading } = useComfyStatus();
+  const weightsInfo = useWeightsInfo();
   const [galleryRefreshKey, setGalleryRefreshKey] = useState(0);
   const handleArtifacts = useCallback(() => {
     setGalleryRefreshKey((key) => key + 1);
@@ -222,9 +224,15 @@ export function GenerateTab() {
               <select value={preset} onChange={handlePresetChange} aria-label="model">
                 {LOCAL_PRESETS.map((option) => {
                   const available = presets[option.id]?.available === true;
+                  const w = weightsInfo[option.id];
+                  // B3: missing presets stay selectable — selecting one surfaces
+                  // the in-app download; fit verdicts ride the label.
+                  const suffix = available
+                    ? fitLabel(w?.fit)
+                    : downloadLabel(w) || " · unavailable";
                   return (
-                    <option key={option.id} value={option.id} disabled={!available}>
-                      {option.label}{available ? "" : " · unavailable"}
+                    <option key={option.id} value={option.id}>
+                      {option.label}{suffix}
                     </option>
                   );
                 })}
@@ -280,8 +288,9 @@ export function GenerateTab() {
           <ComfyOfflineHint />
         ) : !presetAvailable ? (
           <MissingWeightsHint
+            preset={preset}
             command={`bash scripts/download-image-models.sh ${preset}`}
-            text={<>{PRESET_LABEL[preset]} not ready — <code>bash scripts/download-image-models.sh {preset}</code></>}
+            text={<>{PRESET_LABEL[preset]} weights missing —</>}
           />
         ) : null}
 

@@ -134,6 +134,17 @@
 .av2-hardware .prow .platency { font-family: var(--font-data); font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: none; }
 .av2-hardware .prow .platency.off { color: var(--ink-faint); }
 .av2-hardware .empty { font-family: var(--font-data); font-size: 12px; color: var(--ink-faint); padding: var(--space-5) var(--space-4); text-align: center; border: 1px dashed var(--line-subtle); border-radius: var(--radius-md); background: rgba(var(--fg-rgb), 0.02); }
+.av2-hardware .empty-cmd { font-family: var(--font-data); color: var(--ink-soft); background: rgba(var(--fg-rgb), 0.07); border-radius: var(--radius-xs); padding: 1px 6px; box-shadow: 0 1px 2px var(--depth) inset; }
+.av2-hardware .empty-copy { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); background: none; border: none; cursor: pointer; margin-left: 8px; text-decoration: underline; }
+.av2-hardware .empty-copy:hover { color: var(--accent-text); }
+
+/* ── button + per-row recovery ───────────────────────────────────────────────── */
+.av2-hardware .btn { font-family: var(--font-data); font-size: var(--text-xs); font-weight: 500; line-height: 1; height: var(--btn-h-sm, 26px); padding: 0 var(--space-3); display: inline-flex; align-items: center; justify-content: center; gap: 5px; border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; white-space: nowrap; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-hardware .btn:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-hardware .btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-hardware .btn--sm { height: 24px; padding: 0 var(--space-3); font-size: 11px; }
+.av2-hardware .prec { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.av2-hardware .prec-err { font-family: var(--font-data); font-size: 10px; color: rgb(var(--danger-rgb)); white-space: nowrap; }
 
 /* ── footer ──────────────────────────────────────────────────────────────────── */
 .av2-hardware .foot { margin-top: var(--space-5); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }

@@ -4,6 +4,7 @@
 export const BRIDGE_TOOLS = new Set<string>([
   "generate_image",
   "edit_image",
+  "upscale_image",
   "generate_audio",
   "image_to_3d",
   "comfy_workflow_list",

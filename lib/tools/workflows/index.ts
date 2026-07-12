@@ -24,10 +24,14 @@ export interface WorkflowParams {
   height?: number;
   steps?: number;
   cfg?: number;
+  sampler?: string;
+  scheduler?: string;
+  shift?: number;
   
   // Image input - filename in ComfyUI input folder (not base64)
   image_filename?: string;
   instruction?: string;
+  upscale_model?: string;
   
   // FLUX/Black0S specific
   lora_name?: string;
@@ -35,6 +39,24 @@ export interface WorkflowParams {
   controlnet_strength?: number;
   upscale?: boolean;
 }
+
+export const SDXL_TURBO_CHECKPOINT = "sd_xl_turbo_1.0_fp16.safetensors";
+export const SDXL_BASE_CHECKPOINT = "sd_xl_base_1.0.safetensors";
+export const FLUX_GGUF_CLIP_L = "FLUX/clip_l.safetensors";
+export const FLUX_GGUF_T5XXL = "FLUX/t5xxl_fp16.safetensors";
+export const FLUX_GGUF_UNET = "FLUX/flux1-dev-Q8_0.gguf";
+export const FLUX_GGUF_VAE = "FLUX/diffusion_pytorch_model.safetensors";
+export const FLUX_NUNCHAKU_MODEL = "NUNCHAKU/svdq-int4_r32-flux.1-dev.safetensors";
+export const QWEN_EDIT_UNET = process.env.QWEN_EDIT_UNET ?? "qwen-image-edit-2511-Q4_K_M.gguf";
+export const QWEN_EDIT_CLIP = process.env.QWEN_EDIT_CLIP ?? "qwen_2.5_vl_7b_fp8_scaled.safetensors";
+export const QWEN_EDIT_VAE = process.env.QWEN_EDIT_VAE ?? "qwen_image_vae.safetensors";
+export const FLUX2_KLEIN_UNET = process.env.FLUX2_KLEIN_UNET ?? "flux-2-klein-4b-Q8_0.gguf";
+export const FLUX2_KLEIN_CLIP = process.env.FLUX2_KLEIN_CLIP ?? "qwen_3_4b.safetensors";
+export const FLUX2_KLEIN_VAE = process.env.FLUX2_KLEIN_VAE ?? "flux2-vae.safetensors";
+export const UPSCALE_MODEL = process.env.UPSCALE_MODEL ?? "RealESRGAN_x4plus.pth";
+export const Z_IMAGE_UNET = process.env.Z_IMAGE_UNET ?? "z_image_turbo_bf16.safetensors";
+export const Z_IMAGE_CLIP = process.env.Z_IMAGE_CLIP ?? "qwen_3_4b.safetensors";
+export const Z_IMAGE_VAE = process.env.Z_IMAGE_VAE ?? "ae.safetensors";
 
 /**
  * Load and parameterize a workflow
@@ -50,6 +72,14 @@ export function loadWorkflow(
       return buildSDXLWorkflow(params);
     case "sdxl-turbo":
       return buildSDXLTurboWorkflow(params);
+    case "qwen-edit":
+      return buildQwenEditWorkflow(params);
+    case "flux2-klein":
+      return buildFlux2KleinWorkflow(params);
+    case "z-image-turbo":
+      return buildZImageTurboWorkflow(params);
+    case "upscale":
+      return buildUpscaleWorkflow(params);
     case "hunyuan-3d":
       return buildHunyuan3DWorkflow(params);
     // Black0S FLUX-based workflows
@@ -186,7 +216,7 @@ function buildSDXLTurboWorkflow(params: WorkflowParams): Record<string, unknown>
     "4": {
       class_type: "CheckpointLoaderSimple",
       inputs: {
-        ckpt_name: "sd_xl_turbo_1.0_fp16.safetensors",
+        ckpt_name: SDXL_TURBO_CHECKPOINT,
       },
     },
     "5": {
@@ -221,8 +251,8 @@ function buildSDXLTurboWorkflow(params: WorkflowParams): Record<string, unknown>
         seed: seed,
         steps: steps,
         cfg: cfg,
-        sampler_name: "euler_ancestral",
-        scheduler: "normal",
+        sampler_name: params.sampler ?? "euler_ancestral",
+        scheduler: params.scheduler ?? "normal",
         denoise: 1,
       },
     },
@@ -256,7 +286,7 @@ function buildSDXLWorkflow(params: WorkflowParams): Record<string, unknown> {
     "4": {
       class_type: "CheckpointLoaderSimple",
       inputs: {
-        ckpt_name: "sd_xl_base_1.0.safetensors",
+        ckpt_name: SDXL_BASE_CHECKPOINT,
       },
     },
     "5": {
@@ -291,8 +321,8 @@ function buildSDXLWorkflow(params: WorkflowParams): Record<string, unknown> {
         seed: seed,
         steps: steps,
         cfg: cfg,
-        sampler_name: "euler",
-        scheduler: "normal",
+        sampler_name: params.sampler ?? "euler",
+        scheduler: params.scheduler ?? "normal",
         denoise: 1,
       },
     },
@@ -308,6 +338,355 @@ function buildSDXLWorkflow(params: WorkflowParams): Record<string, unknown> {
       inputs: {
         images: ["8", 0],
         filename_prefix: "deck_img",
+      },
+    },
+  };
+}
+
+function buildQwenEditWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const imageFilename = params.image_filename;
+  const instruction = params.instruction ?? "";
+
+  if (!imageFilename) {
+    throw new Error("image_filename is required for qwen-edit workflow");
+  }
+
+  return {
+    "1": {
+      class_type: "UnetLoaderGGUF",
+      inputs: {
+        unet_name: QWEN_EDIT_UNET,
+      },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: QWEN_EDIT_CLIP,
+        type: "qwen_image",
+      },
+    },
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: QWEN_EDIT_VAE,
+      },
+    },
+    "4": {
+      class_type: "LoadImage",
+      inputs: {
+        image: imageFilename,
+      },
+    },
+    "5": {
+      class_type: "TextEncodeQwenImageEditPlus",
+      inputs: {
+        clip: ["2", 0],
+        prompt: instruction,
+        vae: ["3", 0],
+        image1: ["4", 0],
+      },
+    },
+    "6": {
+      class_type: "TextEncodeQwenImageEditPlus",
+      inputs: {
+        clip: ["2", 0],
+        prompt: "",
+        vae: ["3", 0],
+        image1: ["4", 0],
+      },
+    },
+    "7": {
+      class_type: "ModelSamplingAuraFlow",
+      inputs: {
+        model: ["1", 0],
+        shift: params.shift ?? 3.1,
+      },
+    },
+    "8": {
+      class_type: "VAEEncode",
+      inputs: {
+        pixels: ["4", 0],
+        vae: ["3", 0],
+      },
+    },
+    "9": {
+      class_type: "KSampler",
+      inputs: {
+        model: ["7", 0],
+        positive: ["5", 0],
+        negative: ["6", 0],
+        latent_image: ["8", 0],
+        seed: seed,
+        steps: 20,
+        cfg: 2.5,
+        sampler_name: params.sampler ?? "euler",
+        scheduler: params.scheduler ?? "simple",
+        denoise: 1.0,
+      },
+    },
+    "10": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["9", 0],
+        vae: ["3", 0],
+      },
+    },
+    "11": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["10", 0],
+        filename_prefix: "deck_qwen_edit",
+      },
+    },
+  };
+}
+
+function buildFlux2KleinWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const width = params.width ?? 1024;
+  const height = params.height ?? 1024;
+  const steps = params.steps ?? 20;
+  const prompt = params.prompt ?? "a beautiful landscape";
+  const imageFilename = params.image_filename;
+  const latentRef: [string, number] = imageFilename ? ["7", 0] : ["6", 0];
+
+  const workflow: Record<string, unknown> = {
+    "1": {
+      class_type: "UnetLoaderGGUF",
+      inputs: {
+        unet_name: FLUX2_KLEIN_UNET,
+      },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: FLUX2_KLEIN_CLIP,
+        type: "flux2",
+      },
+    },
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: FLUX2_KLEIN_VAE,
+      },
+    },
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["2", 0],
+        text: prompt,
+      },
+    },
+    "5": {
+      class_type: "ConditioningZeroOut",
+      inputs: {
+        conditioning: ["4", 0],
+      },
+    },
+    "6": {
+      class_type: "EmptyFlux2LatentImage",
+      inputs: {
+        width: width,
+        height: height,
+        batch_size: 1,
+      },
+    },
+    "8": {
+      class_type: "KSamplerSelect",
+      inputs: {
+        sampler_name: params.sampler ?? "euler",
+      },
+    },
+    "9": {
+      class_type: "Flux2Scheduler",
+      inputs: {
+        steps: steps,
+        width: width,
+        height: height,
+      },
+    },
+    "10": {
+      class_type: "BasicGuider",
+      inputs: {
+        model: ["1", 0],
+        conditioning: ["4", 0],
+      },
+    },
+    "11": {
+      class_type: "RandomNoise",
+      inputs: {
+        noise_seed: seed,
+      },
+    },
+    "12": {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["11", 0],
+        guider: ["10", 0],
+        sampler: ["8", 0],
+        sigmas: ["9", 0],
+        latent_image: latentRef,
+      },
+    },
+    "13": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["12", 0],
+        vae: ["3", 0],
+      },
+    },
+    "14": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["13", 0],
+        filename_prefix: "deck_flux2",
+      },
+    },
+  };
+
+  if (imageFilename) {
+    workflow["6"] = {
+      class_type: "LoadImage",
+      inputs: {
+        image: imageFilename,
+      },
+    };
+    workflow["7"] = {
+      class_type: "VAEEncode",
+      inputs: {
+        pixels: ["6", 0],
+        vae: ["3", 0],
+      },
+    };
+  }
+
+  return workflow;
+}
+
+// Mirrors ComfyUI's official image_z_image_turbo template: UNETLoader +
+// CLIPLoader(type lumina2) + EmptySD3LatentImage, 9-step res_multistep cfg 1.
+function buildZImageTurboWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const seed = params.seed ?? Math.floor(Math.random() * 1000000000);
+  const width = params.width ?? 1024;
+  const height = params.height ?? 1024;
+  const steps = params.steps ?? 9;
+  const prompt = params.prompt ?? "a beautiful landscape";
+
+  return {
+    "1": {
+      class_type: "UNETLoader",
+      inputs: {
+        unet_name: Z_IMAGE_UNET,
+        weight_dtype: "default",
+      },
+    },
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: Z_IMAGE_CLIP,
+        type: "lumina2",
+      },
+    },
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: Z_IMAGE_VAE,
+      },
+    },
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        clip: ["2", 0],
+        text: prompt,
+      },
+    },
+    "5": {
+      class_type: "ConditioningZeroOut",
+      inputs: {
+        conditioning: ["4", 0],
+      },
+    },
+    "6": {
+      class_type: "EmptySD3LatentImage",
+      inputs: {
+        width: width,
+        height: height,
+        batch_size: 1,
+      },
+    },
+    "7": {
+      class_type: "ModelSamplingAuraFlow",
+      inputs: {
+        model: ["1", 0],
+        shift: params.shift ?? 3,
+      },
+    },
+    "8": {
+      class_type: "KSampler",
+      inputs: {
+        model: ["7", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        latent_image: ["6", 0],
+        seed: seed,
+        steps: steps,
+        cfg: params.cfg ?? 1,
+        sampler_name: params.sampler ?? "res_multistep",
+        scheduler: params.scheduler ?? "simple",
+        denoise: 1.0,
+      },
+    },
+    "9": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["8", 0],
+        vae: ["3", 0],
+      },
+    },
+    "10": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["9", 0],
+        filename_prefix: "deck_zimage",
+      },
+    },
+  };
+}
+
+function buildUpscaleWorkflow(params: WorkflowParams): Record<string, unknown> {
+  const imageFilename = params.image_filename;
+  const upscaleModel = params.upscale_model ?? UPSCALE_MODEL;
+
+  if (!imageFilename) {
+    throw new Error("image_filename is required for upscale workflow");
+  }
+
+  return {
+    "1": {
+      class_type: "LoadImage",
+      inputs: {
+        image: imageFilename,
+      },
+    },
+    "2": {
+      class_type: "UpscaleModelLoader",
+      inputs: {
+        model_name: upscaleModel,
+      },
+    },
+    "3": {
+      class_type: "ImageUpscaleWithModel",
+      inputs: {
+        upscale_model: ["2", 0],
+        image: ["1", 0],
+      },
+    },
+    "4": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["3", 0],
+        filename_prefix: "deck_upscale",
       },
     },
   };
@@ -449,8 +828,8 @@ function buildFluxGGUFWorkflow(params: WorkflowParams): Record<string, unknown> 
     "1": {
       class_type: "DualCLIPLoaderGGUF",
       inputs: {
-        clip_name1: "FLUX/clip_l.safetensors",
-        clip_name2: "FLUX/t5xxl_fp16.safetensors",
+        clip_name1: FLUX_GGUF_CLIP_L,
+        clip_name2: FLUX_GGUF_T5XXL,
         type: "flux",
       },
     },
@@ -458,14 +837,14 @@ function buildFluxGGUFWorkflow(params: WorkflowParams): Record<string, unknown> 
     "2": {
       class_type: "UnetLoaderGGUF",
       inputs: {
-        unet_name: "FLUX/flux1-dev-Q8_0.gguf",
+        unet_name: FLUX_GGUF_UNET,
       },
     },
     // Load VAE
     "3": {
       class_type: "VAELoader",
       inputs: {
-        vae_name: "FLUX/diffusion_pytorch_model.safetensors",
+        vae_name: FLUX_GGUF_VAE,
       },
     },
     // CLIP Text Encode (positive)
@@ -504,8 +883,8 @@ function buildFluxGGUFWorkflow(params: WorkflowParams): Record<string, unknown> 
         seed: seed,
         steps: steps,
         cfg: cfg,
-        sampler_name: "euler",
-        scheduler: "simple",
+        sampler_name: params.sampler ?? "euler",
+        scheduler: params.scheduler ?? "simple",
         denoise: 1,
       },
     },
@@ -544,8 +923,8 @@ function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unkno
       class_type: "NunchakuTextEncoderLoaderV2",
       inputs: {
         model_type: "flux.1",
-        clip_l: "FLUX/clip_l.safetensors",
-        t5xxl: "FLUX/t5xxl_fp16.safetensors",
+        clip_l: FLUX_GGUF_CLIP_L,
+        t5xxl: FLUX_GGUF_T5XXL,
         max_token_length: 512,
       },
     },
@@ -553,7 +932,7 @@ function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unkno
     "2": {
       class_type: "NunchakuFluxDiTLoader",
       inputs: {
-        model: "NUNCHAKU/svdq-int4_r32-flux.1-dev.safetensors",
+        model: FLUX_NUNCHAKU_MODEL,
         cache_threshold: 0,
         attention_mode: "nunchaku-fp16",
         device: "auto",
@@ -566,7 +945,7 @@ function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unkno
     "3": {
       class_type: "VAELoader",
       inputs: {
-        vae_name: "FLUX/diffusion_pytorch_model.safetensors",
+        vae_name: FLUX_GGUF_VAE,
       },
     },
     // CLIP Text Encode (positive)
@@ -605,8 +984,8 @@ function buildFluxNunchakuWorkflow(params: WorkflowParams): Record<string, unkno
         seed: seed,
         steps: steps,
         cfg: cfg,
-        sampler_name: "euler",
-        scheduler: "simple",
+        sampler_name: params.sampler ?? "euler",
+        scheduler: params.scheduler ?? "simple",
         denoise: 1,
       },
     },
@@ -657,7 +1036,7 @@ function buildSDXLSDWorkflow(params: WorkflowParams): Record<string, unknown> {
     "1": {
       class_type: "CheckpointLoaderSimple",
       inputs: {
-        ckpt_name: "sd_xl_base_1.0.safetensors", // Default, can be swapped
+        ckpt_name: SDXL_BASE_CHECKPOINT, // Default, can be swapped
       },
     },
     // CLIP Text Encode (positive)

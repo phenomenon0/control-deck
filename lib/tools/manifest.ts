@@ -86,6 +86,15 @@ export const TOOL_MANIFEST: Record<string, ToolManifestEntry> = {
     requiresApproval: false,
     timeoutMs: LONG_TIMEOUT_MS,
   },
+  upscale_image: {
+    name: "upscale_image",
+    risk: "medium_write",
+    sideEffect: "persistent",
+    allowInVoice: true,
+    allowInMcp: true,
+    requiresApproval: false,
+    timeoutMs: LONG_TIMEOUT_MS,
+  },
   generate_audio: {
     name: "generate_audio",
     risk: "medium_write",

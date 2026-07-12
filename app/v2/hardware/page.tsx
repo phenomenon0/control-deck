@@ -77,6 +77,144 @@ function shortCpu(model: string): string {
     .trim();
 }
 
+/* ── per-row recovery: bring a stopped service back without leaving the page ─── */
+function ComfyRecovery() {
+  const [phase, setPhase] = useState<"idle" | "starting" | "timeout">("idle");
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  const start = useCallback(async () => {
+    setPhase("starting");
+    try {
+      await fetch("/api/comfy/start", { method: "POST" });
+    } catch {
+      /* the poll below decides success, not the spawn response */
+    }
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000));
+      if (!alive.current) return;
+      try {
+        const r = await fetch("/api/comfy/status", { cache: "no-store" });
+        const d = (await r.json()) as { comfyui?: string };
+        if (d.comfyui === "online") return; // parent's 5s poll flips the row + unmounts us
+      } catch {
+        /* keep polling */
+      }
+    }
+    if (alive.current) setPhase("timeout");
+  }, []);
+
+  if (phase === "starting") return <span className="platency off">starting…</span>;
+  return (
+    <div className="prec">
+      <button type="button" className="btn btn--sm" onClick={() => void start()}>start_comfy</button>
+      {phase === "timeout" && <span className="prec-err">no response in 120s</span>}
+    </div>
+  );
+}
+
+function VoiceRecovery() {
+  const [action, setAction] = useState<"supervisor" | "pipeline">("pipeline");
+  const [phase, setPhase] = useState<"checking" | "ready" | "running" | "timeout">("checking");
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  // Which recovery does the current state need: supervisor down vs pipeline stopped?
+  // status 200 → supervisor up (so /v1/pool being down means the pipeline is stopped);
+  // 502/throw → supervisor itself unreachable.
+  const probe = useCallback(async (): Promise<"supervisor" | "pipeline"> => {
+    try {
+      const r = await fetch("/api/voice/lab/status", { cache: "no-store" });
+      return r.ok ? "pipeline" : "supervisor";
+    } catch {
+      return "supervisor";
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const a = await probe();
+      if (!alive.current) return;
+      setAction(a);
+      setPhase("ready");
+    })();
+  }, [probe]);
+
+  // Poll lab status every 3s until `ok(state)` or the deadline; true on success.
+  const pollLab = useCallback(
+    async (ok: (state: string | undefined) => boolean, ms: number): Promise<boolean> => {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 3000));
+        if (!alive.current) return false;
+        try {
+          const r = await fetch("/api/voice/lab/status", { cache: "no-store" });
+          if (r.ok) {
+            const d = (await r.json()) as { state?: string };
+            if (ok(d.state)) return true;
+          }
+        } catch {
+          /* keep polling */
+        }
+      }
+      return false;
+    },
+    [],
+  );
+
+  const startSupervisor = useCallback(async () => {
+    setPhase("running");
+    try {
+      await fetch("/api/voice/lab-start", { method: "POST" });
+    } catch {
+      /* poll decides */
+    }
+    const up = await pollLab(() => true, 90_000); // any status response = supervisor answering
+    if (!alive.current) return;
+    if (up) { setAction("pipeline"); setPhase("ready"); } // next step: start the pipeline
+    else setPhase("timeout");
+  }, [pollLab]);
+
+  const startPipeline = useCallback(async () => {
+    setPhase("running");
+    let cfg: unknown = {};
+    try {
+      const s = await fetch("/api/voice/lab/status", { cache: "no-store" });
+      if (s.ok) {
+        const d = (await s.json()) as { active_config?: unknown };
+        cfg = d.active_config ?? {};
+      }
+    } catch {
+      /* fall back to {} */
+    }
+    try {
+      await fetch("/api/voice/lab/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cfg),
+      });
+    } catch {
+      /* poll decides */
+    }
+    // success → parent's 5s poll flips the row online + unmounts us
+    const running = await pollLab((st) => st === "running" || st === "external", 90_000);
+    if (alive.current && !running) setPhase("timeout");
+  }, [pollLab]);
+
+  if (phase === "checking") return <span className="platency off">checking…</span>;
+  if (phase === "running") return <span className="platency off">starting…</span>;
+
+  const run = action === "supervisor" ? startSupervisor : startPipeline;
+  const label = action === "supervisor" ? "start_supervisor" : "start_pipeline";
+  return (
+    <div className="prec">
+      <button type="button" className="btn btn--sm" onClick={() => void run()}>{label}</button>
+      {phase === "timeout" && <span className="prec-err">no response in 90s</span>}
+    </div>
+  );
+}
+
 export default function HardwarePage() {
   const [gpu, setGpu] = useState<GpuStats | null>(SEED_GPU);
   const [services, setServices] = useState<ServiceStatus[]>(SEED_SERVICES);
@@ -154,6 +292,9 @@ export default function HardwarePage() {
     [installed],
   );
   const onlineCount = services.filter((s) => s.status === "online").length;
+  // Distinguish "Ollama down" from "Ollama up but no models" using the probe we
+  // already poll, so the empty state stops guessing.
+  const ollamaOffline = services.some((s) => s.name === "Ollama" && s.status !== "online");
 
   /* ── status chip ── */
   const agoSec = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : null;
@@ -299,7 +440,20 @@ export default function HardwarePage() {
               <span className="count">{models.length}</span>
             </div>
             {models.length === 0 ? (
-              <div className="empty">No models installed — Ollama offline or empty.</div>
+              ollamaOffline ? (
+                <div className="empty">
+                  ollama offline — start it with{" "}
+                  <code className="empty-cmd">ollama serve</code>
+                  <button
+                    type="button"
+                    className="empty-copy"
+                    onClick={() => void navigator.clipboard?.writeText("ollama serve")}
+                    title="copy command"
+                  >copy</button>
+                </div>
+              ) : (
+                <div className="empty">no models loaded</div>
+              )
             ) : (
               <div className="rows">
                 {models.map((m) => (
@@ -326,18 +480,27 @@ export default function HardwarePage() {
               <span className="count">{onlineCount}/{services.length} up</span>
             </div>
             <div className="rows">
-              {services.map((s) => (
-                <div className="lrow prow" key={s.name}>
-                  <span className={`pdot ${s.status}`} />
-                  <div className="lmain">
-                    <div className="lname">{s.name}</div>
-                    <div className="purl" title={s.url}>{s.url.replace(/^https?:\/\//, "")}</div>
+              {services.map((s) => {
+                const offline = s.status !== "online";
+                const recovery =
+                  offline && s.name === "ComfyUI" ? <ComfyRecovery /> :
+                  offline && s.name === "Voice (s2s)" ? <VoiceRecovery /> :
+                  null;
+                return (
+                  <div className="lrow prow" key={s.name}>
+                    <span className={`pdot ${s.status}`} />
+                    <div className="lmain">
+                      <div className="lname">{s.name}</div>
+                      <div className="purl" title={s.url}>{s.url.replace(/^https?:\/\//, "")}</div>
+                    </div>
+                    {recovery ?? (
+                      <span className={`platency${s.status === "online" ? "" : " off"}`}>
+                        {s.status === "online" ? `${s.latencyMs ?? 0} ms` : s.status}
+                      </span>
+                    )}
                   </div>
-                  <span className={`platency${s.status === "online" ? "" : " off"}`}>
-                    {s.status === "online" ? `${s.latencyMs ?? 0} ms` : s.status}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>

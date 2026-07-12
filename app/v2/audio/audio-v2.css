@@ -45,7 +45,9 @@
 .av2-audio .tag--accent { color: var(--accent-text); background: var(--tag-acc-fill); }
 .av2-audio .tag--dot::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-full); background: rgb(var(--status-rgb, var(--caution-rgb))); }
 .av2-audio .tag--live { --status-rgb: var(--positive-rgb); color: color-mix(in srgb, rgb(var(--positive-rgb)) 72%, var(--ink-strong)); }
-.av2-audio .tag--sample { --status-rgb: var(--fg-rgb); color: var(--ink-faint); }
+.av2-audio .tag--generated { --status-rgb: var(--acc-rgb); color: var(--accent-text); }
+.av2-audio .tag--queued { --status-rgb: var(--caution-rgb); color: color-mix(in srgb, rgb(var(--caution-rgb)) 72%, var(--ink-strong)); }
+.av2-audio .tag--error { --status-rgb: var(--danger-rgb); color: color-mix(in srgb, rgb(var(--danger-rgb)) 72%, var(--ink-strong)); }
 
 .av2-audio .btn { font-family: var(--font-data); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
 .av2-audio .btn:hover:not(:disabled) { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
@@ -64,6 +66,11 @@
 .av2-audio .chip i { font-style: normal; font-family: var(--font-data); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
 .av2-audio .chip b { font-family: var(--font-data); font-size: 13px; font-weight: 500; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 
+/* ── error chips (fail loud) ──────────────────────────────────────────────────── */
+.av2-audio .errs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+.av2-audio .err-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 11px; line-height: 1.4; padding: 5px 10px; border-radius: var(--radius-sm); background: rgba(var(--danger-rgb), 0.1); border: 1px solid rgba(var(--danger-rgb), 0.32); color: color-mix(in srgb, rgb(var(--danger-rgb)) 72%, var(--ink-strong)); }
+.av2-audio .err-chip .ic { width: 14px; height: 14px; flex: none; }
+
 /* ── generation bar ─────────────────────────────────────────────────────────── */
 .av2-audio .genbar { padding: var(--space-4); margin-bottom: var(--space-5); display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .av2-audio .genbar-field { position: relative; flex: 1 1 340px; display: flex; align-items: center; height: var(--field-h-lg); border-radius: var(--field-radius); background: var(--field-fill); box-shadow: var(--field-well); border: 1px solid var(--field-line); transition: box-shadow var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
@@ -77,6 +84,8 @@
 .av2-audio .sel-lbl { font-family: var(--font-data); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
 .av2-audio .sel select { appearance: none; -webkit-appearance: none; background: none; border: none; outline: none; font-family: var(--font-data); font-size: var(--text-sm); color: var(--ink-strong); cursor: pointer; padding: 0 22px 0 0; height: 100%; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2357503F' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; background-size: 13px; }
 .av2-audio .genbar .btn { height: var(--field-h-lg); padding: 0 var(--space-4); }
+.av2-audio .gen-note { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 10.5px; letter-spacing: 0.02em; color: color-mix(in srgb, rgb(var(--caution-rgb)) 70%, var(--ink-soft)); }
+.av2-audio .gen-note .ic { width: 13px; height: 13px; flex: none; }
 
 /* ── filter row ─────────────────────────────────────────────────────────────── */
 .av2-audio .filter-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
@@ -102,6 +111,7 @@
 .av2-audio .play:hover:not(:disabled) { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
 .av2-audio .play:active:not(:disabled) { transform: translateY(1px); }
 .av2-audio .play:disabled { cursor: default; }
+.av2-audio .play:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .av2-audio .clip.is-active .play { background: var(--seg-key-fill); color: var(--on-accent); border-color: var(--seg-key-line); }
 .av2-audio .play .ic { width: 16px; height: 16px; }
 
@@ -109,6 +119,13 @@
 .av2-audio .clip-id { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .av2-audio .clip-name { font-family: var(--font-data); font-size: 12.5px; font-weight: 500; color: var(--ink-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .av2-audio .clip-prompt { font-family: var(--font-ui); font-size: 11.5px; line-height: 1.35; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av2-audio .clip-err { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.av2-audio .clip-err-msg { font-family: var(--font-data); font-size: 10.5px; line-height: 1.35; color: color-mix(in srgb, rgb(var(--danger-rgb)) 72%, var(--ink-strong)); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.av2-audio .clip-err-link { font-family: var(--font-data); font-size: 10.5px; font-weight: 500; letter-spacing: 0.02em; color: var(--accent-text); text-decoration: none; padding: 2px 9px; border-radius: var(--radius-xs); border: 1px solid var(--btn-pri-line); background: var(--btn-pri-fill); box-shadow: 0 1px 0 var(--sheen) inset; white-space: nowrap; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-audio .clip-err-link:hover { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
+.av2-audio .clip-err-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-audio .clip.is-error { border-color: rgba(var(--danger-rgb), 0.34); }
+.av2-audio .clip.is-error .play { background: rgba(var(--danger-rgb), 0.12); border-color: rgba(var(--danger-rgb), 0.34); color: color-mix(in srgb, rgb(var(--danger-rgb)) 72%, var(--ink-strong)); }
 
 /* waveform well — carved channel, played bars ignite */
 .av2-audio .wave { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 2px; height: 40px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--progress-track-bg); box-shadow: var(--progress-track-well); cursor: pointer; overflow: hidden; }
@@ -119,7 +136,12 @@
 
 /* meta column */
 .av2-audio .clip-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; flex: none; }
+.av2-audio .clip-meta-top { display: inline-flex; align-items: center; gap: 8px; }
 .av2-audio .dur { font-family: var(--font-data); font-size: 12px; font-weight: 500; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.av2-audio .clip-dl { flex: none; width: 24px; height: 24px; border-radius: var(--radius-xs); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-soft); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out), color var(--duration-base) var(--ease-out); }
+.av2-audio .clip-dl:hover { background: var(--btn-fill-hover); color: var(--accent-text); border-color: var(--btn-pri-line); }
+.av2-audio .clip-dl:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.av2-audio .clip-dl .ic { width: 14px; height: 14px; }
 .av2-audio .clip.is-active .dur { color: var(--accent-text); }
 .av2-audio .clip-tags { display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .av2-audio .clip-sub { font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }

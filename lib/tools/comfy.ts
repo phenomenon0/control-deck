@@ -36,6 +36,10 @@ const VRAM_REQUIREMENTS: Record<string, number> = {
   "sdxl-t2i": 10000,
   "sdxl-turbo": 6000,    // Turbo is smaller and faster
   "hunyuan-3d": 10000,
+  "qwen-edit": 14000,
+  "flux2-klein": 13000,
+  "z-image-turbo": 13000,
+  "upscale": 4000,
   // Black0S FLUX-based workflows
   "flux-gguf": 12000,    // FLUX Q8 GGUF - good quality/VRAM balance
   "flux-nunchaku": 8000, // FLUX INT4 Nunchaku - fastest, lowest VRAM

@@ -1,0 +1,76 @@
+/* Legacy deck deprecation banner — scoped, does not restyle the deck. */
+.deck-legacy-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, rgb(var(--caution-rgb)) 78%, var(--ink-strong));
+  background: rgba(var(--caution-rgb), 0.12);
+  border-bottom: 1px solid rgba(var(--caution-rgb), 0.32);
+  backdrop-filter: blur(6px);
+}
+
+.deck-legacy-banner__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-legacy-banner__link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(var(--caution-rgb), 0.42);
+  color: color-mix(in srgb, rgb(var(--caution-rgb)) 86%, var(--ink-strong));
+  text-decoration: none;
+  font-weight: 600;
+  transition: background 120ms ease;
+}
+.deck-legacy-banner__link:hover {
+  background: rgba(var(--caution-rgb), 0.18);
+}
+
+.deck-legacy-banner__dismiss {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-xs);
+  color: inherit;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.deck-legacy-banner__dismiss:hover {
+  background: rgba(var(--caution-rgb), 0.2);
+}
+
+.deck-legacy-banner :focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Body offset: shrink the deck grid so the fixed banner never overlaps it. */
+body.deck-has-legacy-banner .app {
+  height: calc(100vh - 30px);
+  margin-top: 30px;
+}

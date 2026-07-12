@@ -10,16 +10,17 @@
      · MCP    — external tool servers the agent connects to  (/api/mcp/servers)
 
    REAL DATA: fetches all three deck endpoints on mount and normalizes each into
-   a common row (mono name · Plex description · a kind/status tag · an enable
-   toggle). MCP always shows the deck's own live server; when no external servers
-   are configured it lists the common ones you'd add, off by default. On a failed
-   fetch a tab falls back to a small realistic set so the surface still reads.
+   a common row (mono name · Plex description · a kind/status tag). MCP always
+   shows the deck's own live server; when no external servers are configured it
+   lists common ones you'd add — grouped under a "suggestions" heading and tagged
+   "not configured" so they never read as live. A failed /api/skills or /api/rules
+   fetch shows an honest error panel with a retry, never sample data.
 
-   The toggles are a local enablement view — flipping one dims the row and moves
-   the live "N of M on" count in the bar. Nothing is persisted server-side.
+   The enable toggles have no persistence route on the deck, so they're disabled
+   and tagged `preview` rather than pretending to save a change.
    ============================================================================= */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import "./capabilities-v2.css";
 
 /* ── tabs ───────────────────────────────────────────────────────────────────── */
@@ -41,6 +42,7 @@ interface Row {
   status?: { label: string; tone: Tone };
   meta?: string;
   enabled: boolean;
+  suggestion?: boolean; // a "you could add this" MCP server — not actually configured
 }
 
 /* ── API shapes (defensive — only the fields we read) ───────────────────────── */
@@ -160,42 +162,35 @@ const DECK_SERVER: Row = {
   enabled: true,
 };
 
-/* ── common MCP servers you'd add — shown when none are configured yet ──────── */
+/* ── common MCP servers you'd add — shown as clearly-labelled suggestions when
+      none are configured yet. Tagged `suggestion · not configured` and grouped
+      under their own heading so they never read as live, connected servers. ──── */
 const MCP_SUGGESTIONS: Row[] = [
-  { id: "sg-filesystem", name: "filesystem", desc: "npx -y @modelcontextprotocol/server-filesystem ~/Documents", kind: "stdio", status: { label: "not started", tone: "caution" }, meta: "8 tools", enabled: false },
-  { id: "sg-github", name: "github", desc: "Streamable HTTP · https://api.githubcopilot.com/mcp — repos, issues, pull requests.", kind: "http", status: { label: "stopped", tone: "caution" }, meta: "26 tools", enabled: false },
-  { id: "sg-playwright", name: "playwright", desc: "npx -y @playwright/mcp — drive a real browser: navigate, click, read the page.", kind: "stdio", status: { label: "not started", tone: "caution" }, meta: "21 tools", enabled: false },
-];
-
-/* ── fallbacks when a fetch fails outright ──────────────────────────────────── */
-const FALLBACK_SKILLS: Row[] = [
-  { id: "frontend-design", name: "frontend-design", desc: "Give every surface a distinctive visual identity: deliberate palette, type, and layout choices.", kind: "design", meta: "v0.1.0", enabled: true },
-  { id: "deep-research", name: "deep-research", desc: "Fan-out web searches, adversarially verify claims, and synthesize a cited report.", kind: "research", meta: "v0.1.0", enabled: true },
-  { id: "mcp-builder", name: "mcp-builder", desc: "Scaffold and validate a new MCP server end to end.", kind: "engineering", meta: "v0.1.0", enabled: true },
-];
-const FALLBACK_RULES: Row[] = [
-  { id: "fb-claude", name: "CLAUDE.md", desc: "Project rules every task follows: think before coding, surgical changes, verify before done.", kind: "Anthropic", status: { label: "user", tone: "caution" }, meta: "85 ln", enabled: true },
-  { id: "fb-agents", name: "AGENTS.md", desc: "Control Deck agent contract — operate as an autonomous local agent, default to safe mode.", kind: "OpenAI Codex / OpenCode", status: { label: "project", tone: "positive" }, meta: "34 ln", enabled: true },
+  { id: "sg-filesystem", name: "filesystem", desc: "npx -y @modelcontextprotocol/server-filesystem ~/Documents", kind: "stdio", status: { label: "suggestion · not configured", tone: "caution" }, enabled: false, suggestion: true },
+  { id: "sg-github", name: "github", desc: "Streamable HTTP · https://api.githubcopilot.com/mcp — repos, issues, pull requests.", kind: "http", status: { label: "suggestion · not configured", tone: "caution" }, enabled: false, suggestion: true },
+  { id: "sg-playwright", name: "playwright", desc: "npx -y @playwright/mcp — drive a real browser: navigate, click, read the page.", kind: "stdio", status: { label: "suggestion · not configured", tone: "caution" }, enabled: false, suggestion: true },
 ];
 
 const HDRS: HeadersInit = { Authorization: `Bearer ${process.env.NEXT_PUBLIC_DECK_TOKEN ?? "sk-deck-test"}` };
 
-async function loadTabs(): Promise<{ skills: Row[]; rules: Row[]; mcp: Row[] }> {
+type TabError = string | null;
+
+async function loadTabs(): Promise<{
+  skills: Row[]; rules: Row[]; mcp: Row[];
+  errors: { skills: TabError; rules: TabError };
+}> {
   const [skillsRes, rulesRes, mcpRes] = await Promise.allSettled([
     fetch("/api/skills", { headers: HDRS }).then((r) => r.json()),
     fetch("/api/rules", { headers: HDRS }).then((r) => r.json()),
     fetch("/api/mcp/servers", { headers: HDRS }).then((r) => r.json()),
   ]);
 
-  const skills =
-    skillsRes.status === "fulfilled" && Array.isArray(skillsRes.value?.skills)
-      ? (skillsRes.value.skills as ApiSkill[]).map(skillToRow)
-      : FALLBACK_SKILLS;
+  // On a failed fetch we surface an honest error rather than seeding sample rows.
+  const skillsOk = skillsRes.status === "fulfilled" && Array.isArray(skillsRes.value?.skills);
+  const skills = skillsOk ? (skillsRes.value.skills as ApiSkill[]).map(skillToRow) : [];
 
-  const rules =
-    rulesRes.status === "fulfilled" && Array.isArray(rulesRes.value?.rules)
-      ? (rulesRes.value.rules as ApiRule[]).map(ruleToRow)
-      : FALLBACK_RULES;
+  const rulesOk = rulesRes.status === "fulfilled" && Array.isArray(rulesRes.value?.rules);
+  const rules = rulesOk ? (rulesRes.value.rules as ApiRule[]).map(ruleToRow) : [];
 
   const configured =
     mcpRes.status === "fulfilled" && Array.isArray(mcpRes.value?.servers)
@@ -203,7 +198,15 @@ async function loadTabs(): Promise<{ skills: Row[]; rules: Row[]; mcp: Row[] }> 
       : [];
   const mcp = [DECK_SERVER, ...(configured.length ? configured : MCP_SUGGESTIONS)];
 
-  return { skills, rules, mcp };
+  return {
+    skills,
+    rules,
+    mcp,
+    errors: {
+      skills: skillsOk ? null : "skills API unreachable",
+      rules: rulesOk ? null : "rules API unreachable",
+    },
+  };
 }
 
 export default function CapabilitiesV2Page() {
@@ -211,22 +214,25 @@ export default function CapabilitiesV2Page() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Record<Tab, Row[]>>({ skills: [], rules: [], mcp: [] });
+  const [errors, setErrors] = useState<{ skills: TabError; rules: TabError }>({ skills: null, rules: null });
   const [on, setOn] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    let live = true;
-    loadTabs().then((d) => {
-      if (!live) return;
-      setData(d);
+  const load = useCallback(() => {
+    setLoading(true);
+    return loadTabs().then((d) => {
+      const next: Record<Tab, Row[]> = { skills: d.skills, rules: d.rules, mcp: d.mcp };
+      setData(next);
+      setErrors(d.errors);
       const seed: Record<string, boolean> = {};
-      (Object.keys(d) as Tab[]).forEach((t) => d[t].forEach((r) => (seed[`${t}:${r.id}`] = r.enabled)));
+      (Object.keys(next) as Tab[]).forEach((t) => next[t].forEach((r) => (seed[`${t}:${r.id}`] = r.enabled)));
       setOn(seed);
       setLoading(false);
     });
-    return () => {
-      live = false;
-    };
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const rows = data[tab];
   const q = query.trim().toLowerCase();
@@ -238,6 +244,7 @@ export default function CapabilitiesV2Page() {
   }, [rows, q]);
 
   const activeInTab = rows.reduce((n, r) => n + (on[`${tab}:${r.id}`] ? 1 : 0), 0);
+  const tabError: TabError = tab === "skills" ? errors.skills : tab === "rules" ? errors.rules : null;
 
   return (
     <div className="av2-capabilities">
@@ -246,7 +253,7 @@ export default function CapabilitiesV2Page() {
         <h1>Capabilities</h1>
         <p className="lede">
           Everything your local agent can reach for — the skills it runs, the rules it obeys, and the tool
-          servers it connects to. Switch any of it off.
+          servers it connects to.
         </p>
         <div className="tally">
           <b>{data.skills.length}</b> skills
@@ -275,6 +282,7 @@ export default function CapabilitiesV2Page() {
         </div>
         <span className="barmeta">
           <b>{activeInTab}</b> of {rows.length} on
+          <span className="pv" title="UI preview — enabling/disabling isn't persisted yet">preview</span>
         </span>
         <div className="spacer" />
         <div className="field" style={{ width: 220 }}>
@@ -291,36 +299,50 @@ export default function CapabilitiesV2Page() {
       <div className="list" role="list" aria-label={`${tab} capabilities`}>
         {loading ? (
           <div className="state">Loading capabilities…</div>
+        ) : tabError ? (
+          <div className="errpanel" role="alert">
+            <div className="errpanel__head">
+              <span className="tag tag--status tag--danger">unreachable</span>
+              <span className="errpanel__msg">{tabError}</span>
+            </div>
+            <p className="errpanel__hint">Couldn’t reach the deck endpoint — no sample data is shown.</p>
+            <button type="button" className="errpanel__retry" onClick={() => void load()}>retry</button>
+          </div>
         ) : shown.length === 0 ? (
           <div className="state">Nothing in {tab} matches “{query}”.</div>
         ) : (
-          shown.map((r) => {
+          shown.map((r, i) => {
             const isOn = !!on[`${tab}:${r.id}`];
+            const firstSuggestion = !!r.suggestion && (i === 0 || !shown[i - 1].suggestion);
             return (
-              <div className={"crow" + (isOn ? "" : " is-off")} role="listitem" key={`${tab}:${r.id}`}>
-                <div className="crow__body">
-                  <div className="crow__head">
-                    <span className="crow__name">{r.name}</span>
-                    <span className={"tag" + (r.kindAccent ? " tag--accent" : "")}>{r.kind}</span>
-                    {r.status && (
-                      <span className={"tag tag--status tag--" + r.status.tone}>{r.status.label}</span>
-                    )}
+              <Fragment key={`${tab}:${r.id}`}>
+                {firstSuggestion && <div className="glabel">suggestions</div>}
+                <div className={"crow" + (isOn ? "" : " is-off")} role="listitem">
+                  <div className="crow__body">
+                    <div className="crow__head">
+                      <span className="crow__name">{r.name}</span>
+                      <span className={"tag" + (r.kindAccent ? " tag--accent" : "")}>{r.kind}</span>
+                      {r.status && (
+                        <span className={"tag tag--status tag--" + r.status.tone}>{r.status.label}</span>
+                      )}
+                    </div>
+                    <p className="crow__desc">{r.desc}</p>
                   </div>
-                  <p className="crow__desc">{r.desc}</p>
+                  <div className="crow__aside">
+                    {r.meta && <span className="crow__meta">{r.meta}</span>}
+                    <label className="ctl ctl--preview" title="UI preview — enabling/disabling isn't persisted yet">
+                      <input
+                        type="checkbox"
+                        checked={isOn}
+                        disabled
+                        aria-label={`${r.name} — preview toggle, not persisted`}
+                        readOnly
+                      />
+                      <span className="ctl__track" />
+                    </label>
+                  </div>
                 </div>
-                <div className="crow__aside">
-                  {r.meta && <span className="crow__meta">{r.meta}</span>}
-                  <label className="ctl">
-                    <input
-                      type="checkbox"
-                      checked={isOn}
-                      aria-label={`${isOn ? "Disable" : "Enable"} ${r.name}`}
-                      onChange={() => setOn((m) => ({ ...m, [`${tab}:${r.id}`]: !m[`${tab}:${r.id}`] }))}
-                    />
-                    <span className="ctl__track" />
-                  </label>
-                </div>
-              </div>
+              </Fragment>
             );
           })
         )}

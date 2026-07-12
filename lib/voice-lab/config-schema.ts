@@ -74,6 +74,8 @@ export interface VoiceLabConfig {
   qwen3_tts_backend: Qwen3TtsBackend;
   qwen3_tts_speaker: string | null;
   qwen3_tts_language: string;
+  qwen3_tts_ref_audio: string | null;
+  qwen3_tts_ref_text: string | null;
   qwen3_tts_streaming_chunk_size: number | null;
   qwen3_tts_non_streaming_mode: boolean | null;
   qwen3_tts_mlx_quantization: string | null;
@@ -554,6 +556,26 @@ export const CONFIG_FIELDS = [
     input: "text",
     showWhen: ttsQwen3,
     default: "auto",
+  }),
+  field({
+    key: "qwen3_tts_ref_audio",
+    label: "Qwen3 reference audio",
+    help: "absolute path to a 5-20s clean reference clip — the voice to clone",
+    group: "tts",
+    input: "text",
+    nullable: true,
+    showWhen: ttsQwen3,
+    default: null,
+  }),
+  field({
+    key: "qwen3_tts_ref_text",
+    label: "Qwen3 reference transcript",
+    help: "exact transcript of the reference clip",
+    group: "tts",
+    input: "textarea",
+    nullable: true,
+    showWhen: ttsQwen3,
+    default: null,
   }),
   field({
     key: "qwen3_tts_streaming_chunk_size",

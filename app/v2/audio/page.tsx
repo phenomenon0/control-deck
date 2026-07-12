@@ -3,27 +3,29 @@
 /* =============================================================================
    ATLAS VISUAL 2 — AUDIO. A library of audio clips / generations with compact
    players. Each row is a mono clip name + prompt, a carved waveform well whose
-   played portion ignites in Klein blue, a play/pause control, and mono meta
-   (duration · bitrate · model). A generation bar composes new clips.
+   played portion ignites in Klein blue, a play/pause control, mono meta
+   (duration · bitrate · model), and a download action. A generation bar
+   composes new speech.
 
-   REAL DATA:
+   REAL DATA — no fabricated clips, no scripted demos:
      · /api/voice/library?includeDrafts=1     — voice assets (provider/engine).
      · /api/voice/previews?voiceAssetId=<id>  — generated TTS previews. Each has
        a real, playable artifact URL → these clips PLAY real audio; their
        duration is read from the <audio> element and their bitrate is computed
        from the artifact's Content-Length (HEAD) ÷ duration.
-     · /api/inference/benchmarks?modality=tts        — real voice models (MOS).
+     · /api/inference/benchmarks?modality=tts        — real voice models (MOS/TTF).
      · /api/inference/benchmarks?modality=audio-gen  — real music / SFX models.
-   The generation-bar model picker is built from those real benchmark rows.
+   The generation-bar model picker is built from those real benchmark rows and
+   shows each model's MOS / time-to-first-audio.
 
-   The live previews are sparse (the deck ships one), so the library is padded
-   with a curated catalog of realistic generations that reuse the REAL model
-   identities pulled from the benchmarks. Live clips carry a "live" tag and
-   play real bytes; catalog clips carry a "sample" tag and simulate playback.
-   Everything is scoped under `.av2-audio`; the wrapper carries data-theme so
-   Atlas paper-klein tokens (app/atlas.css) resolve. A few Tier-3 tokens
-   (progress well, segmented) aren't vendored in atlas.css, so they're declared
-   once on the wrapper from design-lab tokens.css values.
+   GENERATION is real: a voice model + prompt POSTs /api/voice/tts and streams
+   the returned audio bytes into a playable blob clip. Music / SFX generation
+   has no HTTP backend route (only the auth-gated generate_audio MCP tool), so
+   those models are shown but generation is honestly disabled — never faked.
+   Fetch failures surface as danger-tinted chips; empty library is honest.
+
+   Everything is scoped under `.av2-audio`. A few Tier-3 tokens (progress well,
+   segmented) aren't vendored in atlas.css, so they're declared on the wrapper.
    ============================================================================= */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,7 +33,7 @@ import "./audio-v2.css";
 
 /* ── types ──────────────────────────────────────────────────────────────── */
 type Kind = "voice" | "music" | "sfx";
-type Source = "live" | "sample" | "queued";
+type Source = "live" | "generated" | "queued" | "error";
 
 interface AudioModel {
   key: string;
@@ -51,12 +53,16 @@ interface Clip {
   source: Source;
   model: string;
   provider: string;
-  url: string | null; // playable when live
+  url: string | null; // playable when live or generated
   format: string; // wav / mp3
   createdAt: string; // ISO
-  durationSec: number; // 0 until a live clip's metadata resolves
+  durationSec: number; // 0 until metadata resolves
   bitrateKbps: number | null;
+  byteSize: number | null; // known for generated blobs; else HEAD-derived
   seed: number;
+  error?: string; // present when source === "error"
+  needsBind?: boolean; // 503 on generate: no TTS provider bound — offer bind action
+  playError?: string; // transient playback failure; does NOT disable the clip
 }
 
 /* ── raw API shapes (only the fields we read) ─────────────────────────────── */
@@ -123,62 +129,9 @@ function fmtAgo(iso: string): string {
 }
 const KIND_LABEL: Record<Kind, string> = { voice: "Voice", music: "Music", sfx: "SFX" };
 
-/* ── fallback models (only when benchmarks are unreachable) ───────────────── */
-const FALLBACK_MODELS: AudioModel[] = [
-  { key: "elevenlabs/eleven_v3", provider: "elevenlabs", model: "eleven_v3", kind: "voice", mos: 4.55 },
-  { key: "cartesia/sonic-3", provider: "cartesia", model: "sonic-3", kind: "voice", mos: 4.35, ttfMs: 90 },
-  { key: "openai/gpt-4o-mini-tts", provider: "openai", model: "gpt-4o-mini-tts", kind: "voice", mos: 4.1 },
-  { key: "fal/stable-audio", provider: "fal", model: "stable-audio", kind: "music" },
-  { key: "replicate/musicgen", provider: "replicate", model: "musicgen", kind: "music" },
-  { key: "elevenlabs/sound-generation", provider: "elevenlabs", model: "sound-generation", kind: "sfx", mos: 4.2 },
-];
-
 /* Classify an audio-gen benchmark row as music vs SFX by model name. */
 function audioGenKind(model: string): Kind {
   return /sound|sfx|effect/i.test(model) ? "sfx" : "music";
-}
-
-/* ── curated catalog — realistic generations wearing REAL model identities.
-   Timestamps straddle the real preview (2026-04-24) so it interleaves. ────── */
-interface Seed {
-  name: string;
-  prompt: string;
-  kind: Kind;
-  model: string;
-  provider: string;
-  format: string;
-  durationSec: number;
-  bitrateKbps: number;
-  createdAt: string;
-}
-const CATALOG: Seed[] = [
-  { name: "Onboarding narration", prompt: "Welcome to Control Deck. Let's get your rig configured and your first model loaded.", kind: "voice", model: "eleven_v3", provider: "elevenlabs", format: "wav", durationSec: 12.4, bitrateKbps: 256, createdAt: "2026-07-04T09:12:00Z" },
-  { name: "Focus loop — rain synths", prompt: "warm ambient pads over soft rain, 70 bpm, lo-fi focus loop, no drums", kind: "music", model: "stable-audio", provider: "fal", format: "mp3", durationSec: 20.0, bitrateKbps: 192, createdAt: "2026-07-02T18:40:00Z" },
-  { name: "Notification chime", prompt: "soft glassy UI notification, single warm ding, short tail", kind: "sfx", model: "sound-generation", provider: "elevenlabs", format: "mp3", durationSec: 1.4, bitrateKbps: 192, createdAt: "2026-06-28T14:05:00Z" },
-  { name: "Assistant wake line", prompt: "I'm here. What are we building today?", kind: "voice", model: "sonic-3", provider: "cartesia", format: "wav", durationSec: 3.1, bitrateKbps: 256, createdAt: "2026-06-15T11:22:00Z" },
-  { name: "Boot sequence bed", prompt: "cinematic synth swell, rising arpeggio, hopeful, builds to a soft peak", kind: "music", model: "musicgen", provider: "replicate", format: "mp3", durationSec: 10.0, bitrateKbps: 192, createdAt: "2026-05-30T20:15:00Z" },
-  { name: "Deploy success sting", prompt: "short triumphant success sting, warm bell, resolves major", kind: "sfx", model: "sound-generation", provider: "elevenlabs", format: "mp3", durationSec: 2.2, bitrateKbps: 192, createdAt: "2026-05-10T08:47:00Z" },
-  { name: "Assistant greeting", prompt: "Running on the configured voice route and ready for the next task.", kind: "voice", model: "gpt-4o-mini-tts", provider: "openai", format: "wav", durationSec: 4.8, bitrateKbps: 256, createdAt: "2026-04-12T16:30:00Z" },
-  { name: "Terminal ambience", prompt: "dark drone, distant server hum, sci-fi control room, slow evolving pad", kind: "music", model: "stable-audio", provider: "fal", format: "mp3", durationSec: 30.0, bitrateKbps: 192, createdAt: "2026-03-28T13:10:00Z" },
-  { name: "Error buzz", prompt: "muted low error buzz, short, non-alarming", kind: "sfx", model: "sound-generation", provider: "elevenlabs", format: "mp3", durationSec: 0.9, bitrateKbps: 192, createdAt: "2026-03-15T10:00:00Z" },
-];
-
-function catalogClips(): Clip[] {
-  return CATALOG.map((s, i) => ({
-    id: `cat-${i}`,
-    name: s.name,
-    prompt: s.prompt,
-    kind: s.kind,
-    source: "sample",
-    model: s.model,
-    provider: s.provider,
-    url: null,
-    format: s.format,
-    createdAt: s.createdAt,
-    durationSec: s.durationSec,
-    bitrateKbps: s.bitrateKbps,
-    seed: hash(`cat-${i}-${s.name}`),
-  }));
 }
 
 function shortTitle(prompt: string): string {
@@ -186,74 +139,129 @@ function shortTitle(prompt: string): string {
   return words.length ? words.charAt(0).toUpperCase() + words.slice(1) : "Untitled generation";
 }
 
+/* Format a benchmark suffix for a picker option: "MOS 4.35 · 90ms". */
+function benchSuffix(m: AudioModel): string {
+  const parts: string[] = [];
+  if (typeof m.mos === "number") parts.push(`MOS ${m.mos.toFixed(2)}`);
+  if (typeof m.ttfMs === "number") parts.push(`${Math.round(m.ttfMs)}ms`);
+  return parts.length ? ` · ${parts.join(" · ")}` : "";
+}
+
 /* ── inline icons (Atlas 24-grid stroke dialect) ──────────────────────────── */
 const IcPlay = <svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8V4z" fill="currentColor" stroke="none" /></svg>;
 const IcPause = <svg viewBox="0 0 24 24"><path d="M7 4h3v16H7zM14 4h3v16h-3z" fill="currentColor" stroke="none" /></svg>;
 const IcSpark = <svg viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M17.7 6.3l-2.5 2.5M8.8 15.2l-2.5 2.5" /></svg>;
+const IcDownload = <svg viewBox="0 0 24 24"><path d="M12 3v11M8 10l4 4 4-4M5 20h14" /></svg>;
+const IcAlert = <svg viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.5M12 3l9 16H3z" /></svg>;
 
 /* ── data loading ─────────────────────────────────────────────────────────── */
-async function loadModels(): Promise<AudioModel[]> {
-  const out: AudioModel[] = [];
+
+/* Derive honest voice-model options from the real voice library — used only
+   when benchmarks are unreachable/empty so the picker never dead-ends. No
+   metrics are invented; only the provider/engine actually on record surface. */
+async function loadLibraryVoiceModels(): Promise<AudioModel[]> {
   try {
-    const [tts, gen] = await Promise.all([
-      fetch("/api/inference/benchmarks?modality=tts").then((r) => r.json()),
-      fetch("/api/inference/benchmarks?modality=audio-gen").then((r) => r.json()),
+    const r = await fetch("/api/voice/library?includeDrafts=1");
+    if (!r.ok) return [];
+    const lib = await r.json().catch(() => null);
+    const assets: RawAsset[] = lib?.assets ?? [];
+    const out: AudioModel[] = [];
+    const seen = new Set<string>();
+    for (const a of assets) {
+      const model = a.engineId || a.modelId;
+      if (!model || !a.providerId) continue;
+      const key = `${a.providerId}/${model}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ key, provider: a.providerId, model, kind: "voice" });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+async function loadModels(): Promise<{ models: AudioModel[]; error?: string }> {
+  const out: AudioModel[] = [];
+  let error: string | undefined;
+  try {
+    const [ttsR, genR] = await Promise.all([
+      fetch("/api/inference/benchmarks?modality=tts"),
+      fetch("/api/inference/benchmarks?modality=audio-gen"),
     ]);
+    if (!ttsR.ok || !genR.ok) throw new Error(`benchmarks HTTP ${!ttsR.ok ? ttsR.status : genR.status}`);
+    const tts = await ttsR.json();
+    const gen = await genR.json();
     for (const e of (tts?.entries ?? []) as RawBenchEntry[]) {
       out.push({ key: `${e.providerId}/${e.model}`, provider: e.providerId, model: e.model, kind: "voice", mos: e.metrics?.qualityMos, ttfMs: e.metrics?.timeToFirstMs, note: e.note });
     }
     for (const e of (gen?.entries ?? []) as RawBenchEntry[]) {
-      out.push({ key: `${e.providerId}/${e.model}`, provider: e.providerId, model: e.model, kind: audioGenKind(e.model), mos: e.metrics?.qualityMos, note: e.note });
+      out.push({ key: `${e.providerId}/${e.model}`, provider: e.providerId, model: e.model, kind: audioGenKind(e.model), mos: e.metrics?.qualityMos, ttfMs: e.metrics?.timeToFirstMs, note: e.note });
     }
-  } catch {
-    /* fall through */
+    if (out.length === 0) throw new Error("no benchmark models");
+  } catch (e) {
+    error = `Benchmarks unreachable (${e instanceof Error ? e.message : "error"})`;
   }
-  // dedupe by key; guarantee at least one of each kind via fallback
-  const seen = new Set(out.map((m) => m.key));
-  for (const m of FALLBACK_MODELS) if (!seen.has(m.key)) { out.push(m); seen.add(m.key); }
-  return out;
+  // Benchmarks gave no voice models → fall back to the real voice library so
+  // speech generation still has an honest picker (never fabricated metrics).
+  if (!out.some((m) => m.kind === "voice")) {
+    const seen = new Set(out.map((m) => m.key));
+    for (const m of await loadLibraryVoiceModels()) if (!seen.has(m.key)) { out.push(m); seen.add(m.key); }
+  }
+  return { models: out, error };
 }
 
-async function loadLiveClips(): Promise<Clip[]> {
+async function loadLiveClips(): Promise<{ clips: Clip[]; error?: string }> {
+  let libRes: Response;
   try {
-    const lib = await fetch("/api/voice/library?includeDrafts=1").then((r) => r.json());
-    const assets: RawAsset[] = lib?.assets ?? [];
-    const perAsset = await Promise.all(
-      assets.map(async (a) => {
-        try {
-          const pv = await fetch(`/api/voice/previews?voiceAssetId=${a.id}`).then((r) => r.json());
-          const previews: RawPreview[] = pv?.previews ?? [];
-          return previews
-            .filter((p) => p.artifact?.url)
-            .map<Clip>((p) => {
-              const mime = p.artifact!.mimeType || "audio/wav";
-              const fmt = mime.includes("wav") ? "wav" : mime.includes("mpeg") || mime.includes("mp3") ? "mp3" : mime.split("/")[1] || "audio";
-              const model = p.meta?.engine || a.engineId || a.modelId || a.providerId || "unknown";
-              return {
-                id: p.id,
-                name: p.artifact!.name || shortTitle(p.promptText || a.name),
-                prompt: p.promptText,
-                kind: "voice",
-                source: "live",
-                model,
-                provider: a.providerId || "voice",
-                url: p.artifact!.url,
-                format: fmt,
-                createdAt: p.createdAt,
-                durationSec: 0, // resolved from <audio> metadata
-                bitrateKbps: null, // computed from Content-Length ÷ duration
-                seed: hash(p.id),
-              };
-            });
-        } catch {
-          return [] as Clip[];
-        }
-      }),
-    );
-    return perAsset.flat();
-  } catch {
-    return [];
+    libRes = await fetch("/api/voice/library?includeDrafts=1");
+  } catch (e) {
+    return { clips: [], error: `Voice library unreachable (${e instanceof Error ? e.message : "error"})` };
   }
+  if (!libRes.ok) return { clips: [], error: `Voice library HTTP ${libRes.status}` };
+  const lib = await libRes.json().catch(() => null);
+  const assets: RawAsset[] = lib?.assets ?? [];
+  let failedAssets = 0;
+  const perAsset = await Promise.all(
+    assets.map(async (a) => {
+      try {
+        const pvRes = await fetch(`/api/voice/previews?voiceAssetId=${a.id}`);
+        if (!pvRes.ok) throw new Error(`HTTP ${pvRes.status}`);
+        const pv = await pvRes.json();
+        const previews: RawPreview[] = pv?.previews ?? [];
+        return previews
+          .filter((p) => p.artifact?.url)
+          .map<Clip>((p) => {
+            const mime = p.artifact!.mimeType || "audio/wav";
+            const fmt = mime.includes("wav") ? "wav" : mime.includes("mpeg") || mime.includes("mp3") ? "mp3" : mime.split("/")[1] || "audio";
+            const model = p.meta?.engine || a.engineId || a.modelId || a.providerId || "unknown";
+            return {
+              id: p.id,
+              name: p.artifact!.name || shortTitle(p.promptText || a.name),
+              prompt: p.promptText,
+              kind: "voice",
+              source: "live",
+              model,
+              provider: a.providerId || "voice",
+              url: p.artifact!.url,
+              format: fmt,
+              createdAt: p.createdAt,
+              durationSec: 0, // resolved from <audio> metadata
+              bitrateKbps: null, // computed from Content-Length ÷ duration
+              byteSize: null,
+              seed: hash(p.id),
+            };
+          });
+      } catch {
+        failedAssets += 1;
+        return [] as Clip[];
+      }
+    }),
+  );
+  return {
+    clips: perAsset.flat(),
+    error: failedAssets > 0 ? `${failedAssets} voice asset${failedAssets === 1 ? "" : "s"} failed to load previews` : undefined,
+  };
 }
 
 /* ── page ─────────────────────────────────────────────────────────────────── */
@@ -261,8 +269,9 @@ type Filter = "all" | Kind;
 
 export default function AudioV2Page() {
   const [clips, setClips] = useState<Clip[]>([]);
-  const [models, setModels] = useState<AudioModel[]>(FALLBACK_MODELS);
+  const [models, setModels] = useState<AudioModel[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [errors, setErrors] = useState<string[]>([]);
 
   // player state — a single active clip at a time
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -273,7 +282,6 @@ export default function AudioV2Page() {
   // generation bar
   const [prompt, setPrompt] = useState("");
   const [selModel, setSelModel] = useState<string>("");
-  const [genDur, setGenDur] = useState(10);
 
   /* initial load */
   useEffect(() => {
@@ -281,38 +289,45 @@ export default function AudioV2Page() {
     void (async () => {
       const [mdls, live] = await Promise.all([loadModels(), loadLiveClips()]);
       if (!alive) return;
-      setModels(mdls);
-      setSelModel((prev) => prev || mdls[0]?.key || "");
-      const merged = [...live, ...catalogClips()].sort(
+      setModels(mdls.models);
+      setSelModel((prev) => prev || mdls.models[0]?.key || "");
+      const merged = [...live.clips].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
       setClips(merged);
+      const errs = [mdls.error, live.error].filter(Boolean) as string[];
+      if (errs.length) setErrors(errs);
     })();
     return () => {
       alive = false;
     };
   }, []);
 
-  /* resolve real duration + bitrate for live clips (metadata + HEAD) */
+  /* resolve real duration + bitrate for any url-bearing clip (metadata + HEAD) */
   useEffect(() => {
-    const live = clips.filter((c) => c.source === "live" && c.url && (c.durationSec === 0 || c.bitrateKbps === null));
-    if (live.length === 0) return;
+    const pending = clips.filter((c) => c.url && (c.durationSec === 0 || c.bitrateKbps === null));
+    if (pending.length === 0) return;
     let alive = true;
-    for (const c of live) {
+    for (const c of pending) {
       const el = new Audio();
       el.preload = "metadata";
       el.src = c.url!;
       el.addEventListener("loadedmetadata", () => {
         if (!alive || !Number.isFinite(el.duration) || el.duration <= 0) return;
         const dur = el.duration;
-        void fetch(c.url!, { method: "HEAD" })
-          .then((r) => Number(r.headers.get("content-length")) || 0)
-          .catch(() => 0)
-          .then((bytes) => {
-            if (!alive) return;
-            const kbps = bytes > 0 ? Math.round((bytes * 8) / dur / 1000) : null;
-            setClips((prev) => prev.map((x) => (x.id === c.id ? { ...x, durationSec: dur, bitrateKbps: kbps ?? x.bitrateKbps } : x)));
-          });
+        const apply = (bytes: number) => {
+          if (!alive) return;
+          const kbps = bytes > 0 ? Math.round((bytes * 8) / dur / 1000) : null;
+          setClips((prev) => prev.map((x) => (x.id === c.id ? { ...x, durationSec: dur, bitrateKbps: kbps ?? x.bitrateKbps } : x)));
+        };
+        if (c.byteSize != null) {
+          apply(c.byteSize);
+        } else {
+          void fetch(c.url!, { method: "HEAD" })
+            .then((r) => Number(r.headers.get("content-length")) || 0)
+            .catch(() => 0)
+            .then(apply);
+        }
       });
     }
     return () => {
@@ -322,51 +337,56 @@ export default function AudioV2Page() {
 
   const activeClip = useMemo(() => clips.find((c) => c.id === activeId) ?? null, [clips, activeId]);
 
-  /* playback clock — drives progress for both real and simulated clips */
+  /* playback clock — real clips read audio.currentTime */
   useEffect(() => {
-    if (!playing || !activeClip) return;
+    if (!playing || !activeClip || !activeClip.url) return;
     let raf = 0;
-    let last = performance.now();
-    const loop = (t: number) => {
-      if (activeClip.url) {
-        const a = audioRef.current;
-        if (a) setPos(a.currentTime);
-      } else {
-        const dt = (t - last) / 1000;
-        last = t;
-        setPos((p) => p + dt);
-      }
+    const loop = () => {
+      const a = audioRef.current;
+      if (a) setPos(a.currentTime);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [playing, activeClip]);
 
-  /* stop a simulated clip when it runs out */
-  useEffect(() => {
-    if (playing && activeClip && !activeClip.url && activeClip.durationSec > 0 && pos >= activeClip.durationSec) {
-      setPlaying(false);
-      setPos(0);
-    }
-  }, [pos, playing, activeClip]);
-
-  const startLive = useCallback((clip: Clip, at: number) => {
+  /* play the shared element for a clip; a rejection (404 artifact, revoked blob,
+     autoplay block) surfaces a danger tag on the row instead of silently
+     snapping to paused. Success clears any prior playback error. */
+  const runPlay = useCallback((clipId: string) => {
     const a = audioRef.current;
     if (!a) return;
-    a.src = clip.url!;
-    a.currentTime = at;
-    void a.play().catch(() => setPlaying(false));
+    void a
+      .play()
+      .then(() => setClips((prev) => prev.map((c) => (c.id === clipId && c.playError ? { ...c, playError: undefined } : c))))
+      .catch(() => {
+        setPlaying(false);
+        setClips((prev) => prev.map((c) => (c.id === clipId ? { ...c, playError: "playback failed — artifact unreachable" } : c)));
+      });
   }, []);
+
+  const startLive = useCallback(
+    (clip: Clip, at: number) => {
+      const a = audioRef.current;
+      if (!a) return;
+      a.src = clip.url!;
+      a.currentTime = at;
+      runPlay(clip.id);
+    },
+    [runPlay],
+  );
+
+  const playable = (c: Clip) => c.source === "live" || c.source === "generated";
 
   const toggle = useCallback(
     (clip: Clip) => {
-      if (clip.source === "queued") return;
+      if (!playable(clip) || !clip.url) return;
       if (activeId === clip.id) {
         if (playing) {
           audioRef.current?.pause();
           setPlaying(false);
         } else {
-          if (clip.url) void audioRef.current?.play().catch(() => setPlaying(false));
+          runPlay(clip.id);
           setPlaying(true);
         }
         return;
@@ -374,25 +394,25 @@ export default function AudioV2Page() {
       audioRef.current?.pause();
       setActiveId(clip.id);
       setPos(0);
-      if (clip.url) startLive(clip, 0);
+      startLive(clip, 0);
       setPlaying(true);
     },
-    [activeId, playing, startLive],
+    [activeId, playing, startLive, runPlay],
   );
 
   const seek = useCallback(
     (clip: Clip, frac: number) => {
-      if (clip.source === "queued") return;
+      if (!playable(clip) || !clip.url || clip.durationSec <= 0) return;
       const f = Math.max(0, Math.min(1, frac));
       const at = f * clip.durationSec;
       if (activeId === clip.id) {
         setPos(at);
-        if (clip.url && audioRef.current) audioRef.current.currentTime = at;
+        if (audioRef.current) audioRef.current.currentTime = at;
       } else {
         audioRef.current?.pause();
         setActiveId(clip.id);
         setPos(at);
-        if (clip.url) startLive(clip, at);
+        startLive(clip, at);
         setPlaying(true);
       }
     },
@@ -404,35 +424,73 @@ export default function AudioV2Page() {
     setPos(0);
   }, []);
 
-  /* generation */
+  const download = useCallback((clip: Clip) => {
+    if (!clip.url) return;
+    const a = document.createElement("a");
+    a.href = clip.url;
+    const base = clip.name.replace(/[^\w.-]+/g, "_").slice(0, 60) || "clip";
+    a.download = base.includes(".") ? base : `${base}.${clip.format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, []);
+
+  /* generation — real: voice → POST /api/voice/tts (audio bytes → blob clip). */
   const model = useMemo(() => models.find((m) => m.key === selModel), [models, selModel]);
-  const generate = useCallback(() => {
+  const canGenerate = !!prompt.trim() && !!model && model.kind === "voice";
+
+  const generate = useCallback(async () => {
     const p = prompt.trim();
-    if (!p || !model) return;
-    const words = p.split(/\s+/).length;
-    const dur = model.kind === "voice" ? Math.max(2, Math.min(30, Math.round(words * 0.42 * 10) / 10)) : genDur;
+    if (!p || !model || model.kind !== "voice") return;
     const id = `gen-${Date.now()}`;
-    const clip: Clip = {
+    const queued: Clip = {
       id,
       name: shortTitle(p),
       prompt: p,
-      kind: model.kind,
+      kind: "voice",
       source: "queued",
       model: model.model,
       provider: model.provider,
       url: null,
-      format: model.kind === "voice" ? "wav" : "mp3",
+      format: "wav",
       createdAt: new Date().toISOString(),
-      durationSec: dur,
-      bitrateKbps: model.kind === "voice" ? 256 : 192,
+      durationSec: 0,
+      bitrateKbps: null,
+      byteSize: null,
       seed: hash(id),
     };
-    setClips((prev) => [clip, ...prev]);
+    setClips((prev) => [queued, ...prev]);
     setPrompt("");
-    window.setTimeout(() => {
-      setClips((prev) => prev.map((c) => (c.id === id ? { ...c, source: "sample" } : c)));
-    }, 1500);
-  }, [prompt, model, genDur]);
+    try {
+      const res = await fetch("/api/voice/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: p, format: "wav", model: model.model }),
+      });
+      if (!res.ok) {
+        let msg = `TTS failed (HTTP ${res.status})`;
+        try {
+          const j = await res.json();
+          if (j?.error) msg = j.error;
+        } catch {
+          /* non-JSON error body */
+        }
+        // 503 = no TTS provider bound → offer the bind action (→ /v2/models).
+        const needsBind = res.status === 503;
+        setClips((prev) => prev.map((c) => (c.id === id ? { ...c, source: "error", error: msg, needsBind } : c)));
+        return;
+      }
+      const blob = await res.blob();
+      if (blob.size === 0) throw new Error("TTS returned empty audio");
+      const url = URL.createObjectURL(blob);
+      const mime = blob.type || res.headers.get("content-type") || "audio/wav";
+      const fmt = mime.includes("wav") ? "wav" : mime.includes("mpeg") || mime.includes("mp3") ? "mp3" : mime.split("/")[1] || "audio";
+      setClips((prev) => prev.map((c) => (c.id === id ? { ...c, source: "generated", url, format: fmt, byteSize: blob.size } : c)));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "generation failed";
+      setClips((prev) => prev.map((c) => (c.id === id ? { ...c, source: "error", error: msg } : c)));
+    }
+  }, [prompt, model]);
 
   /* derived */
   const shown = useMemo(() => (filter === "all" ? clips : clips.filter((c) => c.kind === filter)), [clips, filter]);
@@ -458,7 +516,7 @@ export default function AudioV2Page() {
           <div className="hero-lede">
             <span className="kicker">Audio · generations & clips</span>
             <h1>Audio</h1>
-            <p>A library of generated clips — voice, music, and effects — with compact players. Live previews play real bytes; the rest reuse the deck&rsquo;s real model catalog.</p>
+            <p>A library of generated speech and voice previews with compact players. Every clip plays real bytes; new speech is synthesised through the bound TTS provider.</p>
           </div>
           <div className="hero-side">
             <div className="chip"><i>clips</i><b>{clips.length}</b></div>
@@ -468,18 +526,27 @@ export default function AudioV2Page() {
           </div>
         </header>
 
+        {/* ── error chips (fail loud) ───────────────────────────────────── */}
+        {errors.length > 0 && (
+          <div className="errs" role="alert">
+            {errors.map((e, i) => (
+              <span key={i} className="err-chip"><span className="ic">{IcAlert}</span>{e}</span>
+            ))}
+          </div>
+        )}
+
         {/* ── generation bar ────────────────────────────────────────────── */}
         <section className="genbar card">
           <div className="genbar-field">
             <span className="ic ic-lead">{IcSpark}</span>
             <input
               className="gen-input"
-              placeholder="Describe a sound to generate — “warm lo-fi focus loop, 70 bpm” or a line to speak…"
-              aria-label="Generation prompt"
+              placeholder="Type a line to speak — “Welcome to Control Deck. Let’s get your rig configured.”"
+              aria-label="Text to synthesise"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") generate();
+                if (e.key === "Enter") void generate();
               }}
             />
           </div>
@@ -491,10 +558,10 @@ export default function AudioV2Page() {
                   const group = models.filter((m) => m.kind === k);
                   if (group.length === 0) return null;
                   return (
-                    <optgroup key={k} label={KIND_LABEL[k]}>
+                    <optgroup key={k} label={k === "voice" ? KIND_LABEL[k] : `${KIND_LABEL[k]} — no backend route`}>
                       {group.map((m) => (
                         <option key={m.key} value={m.key}>
-                          {m.model} · {m.provider}
+                          {m.model} · {m.provider}{benchSuffix(m)}
                         </option>
                       ))}
                     </optgroup>
@@ -503,18 +570,9 @@ export default function AudioV2Page() {
               </select>
             </label>
             {model && model.kind !== "voice" && (
-              <label className="sel">
-                <span className="sel-lbl">length</span>
-                <select value={genDur} onChange={(e) => setGenDur(Number(e.target.value))} aria-label="Length">
-                  {[5, 10, 20, 30, 45].map((d) => (
-                    <option key={d} value={d}>
-                      {d}s
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <span className="gen-note"><span className="ic">{IcAlert}</span>no backend route for {KIND_LABEL[model.kind].toLowerCase()} generation</span>
             )}
-            <button className="btn btn--pri" onClick={generate} disabled={!prompt.trim() || !model}>
+            <button className="btn btn--pri" onClick={() => void generate()} disabled={!canGenerate}>
               <span className="ic">{IcSpark}</span>
               Generate
             </button>
@@ -545,7 +603,11 @@ export default function AudioV2Page() {
         {/* ── library ───────────────────────────────────────────────────── */}
         <section className="lib">
           {shown.length === 0 ? (
-            <div className="empty">No clips in this view. Generate one above.</div>
+            <div className="empty">
+              {clips.length === 0
+                ? "No clips yet — synthesise a line above, or generate voice previews from the Voice lab."
+                : "No clips match this filter."}
+            </div>
           ) : (
             shown.map((c) => {
               const isActive = activeId === c.id;
@@ -553,20 +615,31 @@ export default function AudioV2Page() {
               const playedIdx = Math.floor(frac * WAVE_BARS);
               const bars = waveform(c.seed);
               const queued = c.source === "queued";
+              const errored = c.source === "error";
+              const canPlay = playable(c) && !!c.url;
               return (
-                <article key={c.id} className={"clip" + (isActive ? " is-active" : "") + (queued ? " is-queued" : "")}>
+                <article key={c.id} className={"clip" + (isActive ? " is-active" : "") + (queued ? " is-queued" : "") + (errored ? " is-error" : "")}>
                   <button
                     className="play"
                     onClick={() => toggle(c)}
-                    disabled={queued}
+                    disabled={!canPlay}
                     aria-label={isActive && playing ? `Pause ${c.name}` : `Play ${c.name}`}
                   >
-                    <span className="ic">{queued ? <span className="spin" /> : isActive && playing ? IcPause : IcPlay}</span>
+                    <span className="ic">{queued ? <span className="spin" /> : errored ? IcAlert : isActive && playing ? IcPause : IcPlay}</span>
                   </button>
 
                   <div className="clip-id">
                     <div className="clip-name">{c.name}</div>
-                    {c.prompt && <div className="clip-prompt">{c.prompt}</div>}
+                    {errored ? (
+                      <div className="clip-err">
+                        <span className="clip-err-msg">{c.error}</span>
+                        {c.needsBind && (
+                          <a className="clip-err-link" href="/v2/models">bind tts provider →</a>
+                        )}
+                      </div>
+                    ) : (
+                      c.prompt && <div className="clip-prompt">{c.prompt}</div>
+                    )}
                   </div>
 
                   <div
@@ -580,10 +653,12 @@ export default function AudioV2Page() {
                     aria-valuemin={0}
                     aria-valuemax={100}
                     aria-valuenow={Math.round(frac * 100)}
-                    tabIndex={queued ? -1 : 0}
+                    tabIndex={canPlay ? 0 : -1}
                   >
                     {queued ? (
-                      <span className="wave-queued">generating…</span>
+                      <span className="wave-queued">synthesising…</span>
+                    ) : errored ? (
+                      <span className="wave-queued">generation failed</span>
                     ) : (
                       bars.map((h, i) => (
                         <span
@@ -596,14 +671,26 @@ export default function AudioV2Page() {
                   </div>
 
                   <div className="clip-meta">
-                    <span className="dur">
-                      {isActive && c.durationSec > 0 ? `${fmtDur(pos)} / ` : ""}
-                      {c.durationSec > 0 ? fmtDur(c.durationSec) : "—:—"}
-                    </span>
+                    <div className="clip-meta-top">
+                      <span className="dur">
+                        {isActive && c.durationSec > 0 ? `${fmtDur(pos)} / ` : ""}
+                        {c.durationSec > 0 ? fmtDur(c.durationSec) : "—:—"}
+                      </span>
+                      {canPlay && (
+                        <button className="clip-dl" onClick={() => download(c)} aria-label={`Download ${c.name}`} title="Download">
+                          <span className="ic">{IcDownload}</span>
+                        </button>
+                      )}
+                    </div>
                     <div className="clip-tags">
                       <span className="tag tag--accent">{c.model}</span>
                       <span className="tag">{KIND_LABEL[c.kind]}</span>
-                      <span className={"tag tag--dot tag--" + (c.source === "live" ? "live" : "sample")}>{c.source === "live" ? "live" : "sample"}</span>
+                      <span className={"tag tag--dot tag--" + c.source}>
+                        {c.source === "live" ? "live" : c.source === "generated" ? "new" : c.source === "queued" ? "queued" : "error"}
+                      </span>
+                      {c.playError && (
+                        <span className="tag tag--dot tag--error" title={c.playError}>playback failed</span>
+                      )}
                     </div>
                     <span className="clip-sub">
                       {c.bitrateKbps ? `${c.bitrateKbps} kbps · ` : ""}

@@ -8,16 +8,56 @@ import { z } from "zod";
 import { MemoryToolInputSchema } from "@/lib/memory/schema";
 import { SkillManageInputSchema } from "@/lib/skills/schema";
 
+export const SAMPLERS = [
+  "euler",
+  "euler_ancestral",
+  "dpmpp_2m",
+  "dpmpp_2m_sde",
+  "dpmpp_3m_sde",
+  "res_multistep",
+  "lcm",
+  "uni_pc",
+  "ddim",
+] as const;
+
+export const SCHEDULERS = [
+  "normal",
+  "simple",
+  "karras",
+  "exponential",
+  "sgm_uniform",
+  "beta",
+] as const;
+
 /**
- * Edit an image using natural language instructions (Qwen Image Edit)
+ * Edit an image using natural language instructions
  */
 export const EditImageSchema = z.object({
   name: z.literal("edit_image"),
   args: z.object({
     image_id: z.string().describe("Upload ID of the image to edit"),
     instruction: z.string().min(1).describe("Natural language edit instruction"),
+    backend: z.enum(["qwen-local", "flux2-local", "fal", "auto"]).default("auto").describe("Image edit backend"),
     seed: z.number().int().optional().describe("Random seed for reproducibility"),
   }),
+});
+
+const UpscaleImageArgsSchema = z.object({
+  image_id: z.string().optional().describe("Upload ID of the image to upscale"),
+  image_url: z.string().optional().describe("artifact URL returned by generate/edit tools (/api/artifacts/...)"),
+  model: z.enum(["realesrgan-x4", "ultrasharp-x4"]).optional().describe("Upscale model"),
+  backend: z.enum(["local", "fal"]).default("local").describe("Upscale backend"),
+}).refine(
+  (args) => Boolean(args.image_id) !== Boolean(args.image_url),
+  { message: "Provide exactly one of image_id or image_url" },
+);
+
+/**
+ * Upscale an image using a local ComfyUI upscaler or FAL
+ */
+export const UpscaleImageSchema = z.object({
+  name: z.literal("upscale_image"),
+  args: UpscaleImageArgsSchema,
 });
 
 /**
@@ -44,14 +84,21 @@ export const ImageTo3DSchema = z.object({
 });
 
 /**
- * Generate an image from text (SDXL Turbo - fast)
+ * Generate an image from text
  */
 export const GenerateImageSchema = z.object({
   name: z.literal("generate_image"),
   args: z.object({
     prompt: z.string().min(1).describe("Description of the image to generate"),
-    width: z.number().int().min(512).max(1024).default(768).describe("Image width (default 768)"),
-    height: z.number().int().min(512).max(1024).default(768).describe("Image height (default 768)"),
+    preset: z.enum(["sdxl-turbo", "sdxl-t2i", "flux-gguf", "flux-nunchaku", "flux2-klein", "z-image-turbo", "fal"]).optional().describe("Image generation preset/backend"),
+    negative_prompt: z.string().optional().describe("Negative prompt for models that support it"),
+    width: z.number().int().min(256).max(2048).default(768).describe("Image width (default 768)"),
+    height: z.number().int().min(256).max(2048).default(768).describe("Image height (default 768)"),
+    steps: z.number().int().min(1).max(100).optional().describe("Diffusion steps"),
+    cfg: z.number().min(0).max(20).optional().describe("Classifier-free guidance scale"),
+    sampler: z.enum(SAMPLERS).optional().describe("ComfyUI sampler"),
+    scheduler: z.enum(SCHEDULERS).optional().describe("ComfyUI scheduler"),
+    shift: z.number().min(0).max(12).optional().describe("ModelSampling shift (AuraFlow-family models)"),
     seed: z.number().int().optional().describe("Random seed for reproducibility"),
   }),
 });
@@ -620,6 +667,7 @@ export const ApplyPatchSchema = z.object({
 
 export const ToolCallSchema = z.discriminatedUnion("name", [
   EditImageSchema,
+  UpscaleImageSchema,
   GenerateAudioSchema,
   ImageTo3DSchema,
   GenerateImageSchema,
@@ -681,6 +729,7 @@ export type ToolName = ToolCall["name"];
  */
 export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
   edit_image:                 EditImageSchema.shape.args,
+  upscale_image:              UpscaleImageSchema.shape.args,
   generate_audio:             GenerateAudioSchema.shape.args,
   image_to_3d:                ImageTo3DSchema.shape.args,
   generate_image:             GenerateImageSchema.shape.args,
@@ -734,6 +783,7 @@ export const TOOL_SCHEMAS: Partial<Record<ToolName, z.ZodType>> = {
 
 // Type helpers for individual tools
 export type EditImageArgs = z.infer<typeof EditImageSchema>["args"];
+export type UpscaleImageArgs = z.infer<typeof UpscaleImageSchema>["args"];
 export type GenerateAudioArgs = z.infer<typeof GenerateAudioSchema>["args"];
 export type ImageTo3DArgs = z.infer<typeof ImageTo3DSchema>["args"];
 export type GenerateImageArgs = z.infer<typeof GenerateImageSchema>["args"];
@@ -799,11 +849,22 @@ export interface ToolDefinition {
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "edit_image",
-    description: "Edit an image using natural language instructions with Qwen AI",
+    description: "Edit an image using natural language instructions with local Qwen/Flux2 or FAL",
     parameters: [
       { name: "image_id", type: "string", required: true, description: "Upload ID of the image to edit" },
       { name: "instruction", type: "string", required: true, description: "What to change (e.g., 'make the sky sunset colors', 'remove the car')" },
+      { name: "backend", type: "string", required: false, description: "Backend: qwen-local, flux2-local, fal, or auto", default: "auto" },
       { name: "seed", type: "number", required: false, description: "Random seed for reproducibility" },
+    ],
+  },
+  {
+    name: "upscale_image",
+    description: "Upscale an uploaded or generated image using local ComfyUI upscalers or FAL",
+    parameters: [
+      { name: "image_id", type: "string", required: false, description: "Upload ID of the image to upscale" },
+      { name: "image_url", type: "string", required: false, description: "artifact URL returned by generate/edit tools (/api/artifacts/...)" },
+      { name: "model", type: "string", required: false, description: "Upscale model: realesrgan-x4 or ultrasharp-x4" },
+      { name: "backend", type: "string", required: false, description: "Backend: local or fal", default: "local" },
     ],
   },
   {
@@ -825,11 +886,18 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "generate_image",
-    description: "Generate an image from text description. Use for: photos, artwork, illustrations, diagrams, scenes, visual concepts. Do NOT use for text content (poems, stories, essays, code) - write those directly.",
+    description: "Generate an image from text description using local presets or FAL. Use for: photos, artwork, illustrations, diagrams, scenes, visual concepts. Do NOT use for text content (poems, stories, essays, code) - write those directly.",
     parameters: [
       { name: "prompt", type: "string", required: true, description: "Detailed description of the image" },
-      { name: "width", type: "number", required: false, description: "Image width (512-1024)", default: 768 },
-      { name: "height", type: "number", required: false, description: "Image height (512-1024)", default: 768 },
+      { name: "preset", type: "string", required: false, description: "Preset/backend: sdxl-turbo, sdxl-t2i, flux-gguf, flux-nunchaku, flux2-klein, z-image-turbo, or fal" },
+      { name: "negative_prompt", type: "string", required: false, description: "Negative prompt for models that support it" },
+      { name: "width", type: "number", required: false, description: "Image width (256-2048)", default: 768 },
+      { name: "height", type: "number", required: false, description: "Image height (256-2048)", default: 768 },
+      { name: "steps", type: "number", required: false, description: "Diffusion steps (1-100)" },
+      { name: "cfg", type: "number", required: false, description: "Classifier-free guidance scale (0-20)" },
+      { name: "sampler", type: "string", required: false, description: `Sampler: ${SAMPLERS.join(", ")}` },
+      { name: "scheduler", type: "string", required: false, description: `Scheduler: ${SCHEDULERS.join(", ")}` },
+      { name: "shift", type: "number", required: false, description: "ModelSampling shift for AuraFlow-family models (0-12)" },
       { name: "seed", type: "number", required: false, description: "Random seed for reproducibility" },
     ],
   },

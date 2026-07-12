@@ -20,8 +20,9 @@
  *   · GET  /api/settings                      — approval + runs policy.
  *   · POST /api/agui/approvals { id, decision } — approve / deny.
  *   · PUT  /api/settings { section, value }     — persist a policy switch.
- * When the queue is empty we render a carved empty-state plus a couple of
- * clearly-marked sample rows so the design still reads.
+ * No fabricated data: an unreachable approvals API renders an explicit error +
+ * retry (never a false "queue clear"), and a failed policy read leaves the
+ * switches disabled with a retry rather than presenting defaults as fact.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -48,7 +49,6 @@ interface ApprovalView {
   runId: string | null;
   createdAt: string;
   estimatedCostUsd: number | null;
-  sample?: boolean;
 }
 
 /** Raw row shape from GET /api/agui/approvals (tool_args pre-parsed by route). */
@@ -66,31 +66,6 @@ interface PolicyState {
   gateOn: boolean; // approval gate active  (= runs.autoExecuteTools === false)
   confirmTools: boolean; // approval.defaultMode === "ask"
 }
-
-/* ── sample rows (shown only when the real queue is empty) ────────────────── */
-const now = Date.now();
-const SAMPLE_ROWS: ApprovalView[] = [
-  {
-    id: "sample-1",
-    toolName: "execute_code",
-    args: { language: "bash", code: "rm -rf ./.cache/*", timeout: 30000 },
-    reason: "Gated by policy: side-effect",
-    runId: "run_7f2a9c14",
-    createdAt: new Date(now - 42_000).toISOString(),
-    estimatedCostUsd: null,
-    sample: true,
-  },
-  {
-    id: "sample-2",
-    toolName: "vector_ingest",
-    args: { url: "https://docs.internal/api/v3", collection: "kb" },
-    reason: "Gated by policy: ask",
-    runId: "run_1b8e0d33",
-    createdAt: new Date(now - 5 * 60_000).toISOString(),
-    estimatedCostUsd: 0.004,
-    sample: true,
-  },
-];
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 function relTime(iso: string): string {
@@ -144,9 +119,11 @@ function truncate(s: string, n: number): string {
 export default function ControlV2Page() {
   const [pending, setPending] = useState<ApprovalView[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [reachable, setReachable] = useState(true); // approvals API reachable
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [policy, setPolicy] = useState<PolicyState>({ gateOn: false, confirmTools: false });
   const [policyLoaded, setPolicyLoaded] = useState(false);
+  const [policyError, setPolicyError] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
   /* ---- live queue (polled) ---- */
@@ -165,9 +142,11 @@ export default function ControlV2Page() {
         estimatedCostUsd: a.estimated_cost_usd,
       }));
       setPending(rows);
+      setReachable(true);
     } catch {
-      // Leave the last-known queue in place; the empty-state fallback covers
-      // a cold start so the surface never renders blank.
+      // Backend unreachable — surface it honestly rather than rendering an empty
+      // queue that a down API would be indistinguishable from.
+      setReachable(false);
     } finally {
       setLoaded(true);
     }
@@ -179,27 +158,31 @@ export default function ControlV2Page() {
     return () => clearInterval(t);
   }, [refreshQueue]);
 
-  /* ---- policy (loaded once) ---- */
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/settings", { cache: "no-store" });
-        if (!r.ok) throw new Error(String(r.status));
-        const s = (await r.json()) as {
-          runs?: { autoExecuteTools?: boolean };
-          approval?: { defaultMode?: string };
-        };
-        setPolicy({
-          gateOn: s.runs?.autoExecuteTools === false,
-          confirmTools: s.approval?.defaultMode === "ask",
-        });
-      } catch {
-        /* keep defaults */
-      } finally {
-        setPolicyLoaded(true);
-      }
-    })();
+  /* ---- policy (loaded once, retryable) ---- */
+  const loadPolicy = useCallback(async () => {
+    setPolicyError(false);
+    try {
+      const r = await fetch("/api/settings", { cache: "no-store" });
+      if (!r.ok) throw new Error(String(r.status));
+      const s = (await r.json()) as {
+        runs?: { autoExecuteTools?: boolean };
+        approval?: { defaultMode?: string };
+      };
+      setPolicy({
+        gateOn: s.runs?.autoExecuteTools === false,
+        confirmTools: s.approval?.defaultMode === "ask",
+      });
+      setPolicyLoaded(true);
+    } catch {
+      // Never present unread defaults as loaded truth — a blind toggle write from
+      // a wrong baseline can invert the intended policy. Keep switches disabled.
+      setPolicyError(true);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadPolicy();
+  }, [loadPolicy]);
 
   /* ---- decide ---- */
   const decide = useCallback(
@@ -265,10 +248,11 @@ export default function ControlV2Page() {
   }, [policy.confirmTools, writePolicy]);
 
   /* ---- derived ---- */
-  const isEmpty = loaded && pending.length === 0;
-  const rows = isEmpty ? SAMPLE_ROWS : pending;
+  const showUnreachable = loaded && !reachable;
+  const isEmpty = loaded && reachable && pending.length === 0;
   const pendingCount = pending.length;
-  const gateLabel = !policyLoaded ? "…" : policy.gateOn ? "ON" : "OFF";
+  const pendingLabel = !loaded || !reachable ? "—" : pendingCount;
+  const gateLabel = policyError ? "—" : !policyLoaded ? "…" : policy.gateOn ? "ON" : "OFF";
 
   return (
     <div className="av2-control">
@@ -286,8 +270,8 @@ export default function ControlV2Page() {
           </div>
           <div className="hstats">
             <div className="hstat">
-              <span className={"hstat__n" + (pendingCount > 0 ? " is-live" : "")}>
-                {loaded ? pendingCount : "—"}
+              <span className={"hstat__n" + (reachable && pendingCount > 0 ? " is-live" : "")}>
+                {pendingLabel}
               </span>
               <span className="hstat__l">pending</span>
             </div>
@@ -303,43 +287,54 @@ export default function ControlV2Page() {
         {/* ── queue ── */}
         <section className="section" aria-label="Pending approvals">
           <div className="sec-label">
-            Queue<span className="sec-label__n">{loaded ? pendingCount : ""}</span>
+            Queue<span className="sec-label__n">{loaded && reachable ? pendingCount : ""}</span>
             {isEmpty && <span className="sec-label__note">clear</span>}
           </div>
 
+          {showUnreachable && (
+            <div className="card card--well empty empty--error">
+              <span className="empty__mark ic" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}
+                  strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <path d="M12 9v4M12 17h.01" />
+                </svg>
+              </span>
+              <h3>Approvals API unreachable</h3>
+              <p>The gate can&rsquo;t be read right now, so pending calls can&rsquo;t be shown.
+                Retrying every 5s.</p>
+              <button type="button" className="btn" onClick={() => void refreshQueue()}>retry</button>
+            </div>
+          )}
+
           {isEmpty && (
-            <>
-              <div className="card card--well empty">
-                <span className="empty__mark ic" aria-hidden>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}
-                    strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                    <path d="M9 12l2 2 4-4" />
-                  </svg>
-                </span>
-                <h3>Queue clear</h3>
-                <p>No tool calls are waiting on you. New approvals appear here the moment the gate
-                  holds one.</p>
-              </div>
-              <div className="sample-note">Sample — what a pending call looks like</div>
-            </>
+            <div className="card card--well empty">
+              <span className="empty__mark ic" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}
+                  strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+              </span>
+              <h3>Queue clear</h3>
+              <p>No tool calls are waiting on you. New approvals appear here the moment the gate
+                holds one.</p>
+            </div>
           )}
 
           <div className="queue">
-            {rows.map((a) => {
+            {pending.map((a) => {
               const { risk, tone } = riskFor(a.toolName);
               const isBusy = !!busy[a.id];
-              const sample = !!a.sample;
               return (
                 <article
                   key={a.id}
-                  className={"card appr" + (sample ? " appr--sample" : "") + (isBusy ? " is-busy" : "")}
+                  className={"card appr" + (isBusy ? " is-busy" : "")}
                 >
                   <div className="appr__main">
                     <div className="appr__head">
                       <span className="appr__name">{a.toolName}</span>
                       <span className={"tag tag--status tag--" + tone}>{risk.replace("_", " ")}</span>
-                      {sample && <span className="tag">sample</span>}
                     </div>
                     <div className="card card--well appr__args">
                       <ArgsPreview args={a.args} />
@@ -360,14 +355,14 @@ export default function ControlV2Page() {
                     <button
                       className="btn btn--danger"
                       onClick={() => decide(a.id, "denied")}
-                      disabled={sample || isBusy}
+                      disabled={isBusy}
                     >
                       Deny
                     </button>
                     <button
                       className="btn btn--primary"
                       onClick={() => decide(a.id, "approved")}
-                      disabled={sample || isBusy}
+                      disabled={isBusy}
                     >
                       Approve
                     </button>
@@ -384,6 +379,13 @@ export default function ControlV2Page() {
             Standing policies
             <span className="sec-label__note">what has to stop for sign-off</span>
           </div>
+          {policyError && (
+            <div className="errline">
+              Couldn&rsquo;t read the policy — the settings API didn&rsquo;t respond, so the switches
+              stay locked to avoid writing from a wrong baseline.{" "}
+              <button type="button" className="linkbtn" onClick={() => void loadPolicy()}>retry</button>
+            </div>
+          )}
           <div className="card pol">
             <PolicyRow
               title="Approval gate"

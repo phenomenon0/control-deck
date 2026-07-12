@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./atlas-v2.css";
 import { useThreads } from "@/lib/hooks/useThreads";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
+import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
 import {
   groupThreadsByDate,
   setStoredThreads,
@@ -25,6 +26,7 @@ const P: Record<string, string> = {
   bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>',
   paperclip: '<path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>',
   mic: '<path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>',
+  headphones: '<path d="M3 14v-3a9 9 0 0118 0v3"/><rect x="3" y="13" width="4" height="8" rx="1.6"/><rect x="17" y="13" width="4" height="8" rx="1.6"/>',
   send: '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   file: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6"/>',
@@ -52,6 +54,27 @@ function Ico({ name, sm, style }: { name: string; sm?: boolean; style?: React.CS
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Flatten assistant markdown into plain prose the TTS engine can read cleanly:
+ *  drop code fences entirely, unwrap inline code / emphasis / links, strip
+ *  list bullets and heading hashes. Voice mode speaks this, never raw markdown. */
+function stripMarkdownForSpeech(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, " ") // fenced code blocks
+    .replace(/`([^`]+)`/g, "$1") // inline code
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ") // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // links → text
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "") // headings
+    .replace(/^\s*>\s?/gm, "") // blockquotes
+    .replace(/^\s*[-*+]\s+/gm, "") // bullet markers
+    .replace(/^\s*\d+\.\s+/gm, "") // ordered markers
+    .replace(/^\s*[-*_]{3,}\s*$/gm, " ") // horizontal rules
+    .replace(/(\*\*|__)(.*?)\1/g, "$2") // bold
+    .replace(/(\*|_)(.*?)\1/g, "$2") // italic
+    .replace(/~~(.*?)~~/g, "$1") // strikethrough
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /** Read the deck's real user prefs (localStorage `deck.prefs`). No provider is
  *  mounted on this standalone route, so we read the persisted store directly —
@@ -109,10 +132,164 @@ export default function ChatV2Page() {
   const agentRun = useAgentRun();
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
+
+  // Voice mode — "talk to a voice in chat". ON mounts useVoiceChat: continuous
+  // VAD listening → each final transcript auto-sends through sendText → when the
+  // assistant reply lands we speak() it back. Coexists with (but is mutually
+  // exclusive from) the single-tap dictation mic below.
+  const [voiceMode, setVoiceMode] = useState(false);
+  // True while the start_pipeline recovery action is in flight (offline strip).
+  const [startingVoice, setStartingVoice] = useState(false);
+  const voiceModeRef = useRef(false);
+  useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
+  // True while a spoken utterance is mid-turn (send → reply → speak). The
+  // onListeningStopped no-speech restart must skip this window so it doesn't
+  // fight the turn's own restart.
+  const turnInFlightRef = useRef(false);
+
+  const voice = useVoiceChat({
+    enabled: voiceMode,
+    onAutoSend: (text) => {
+      turnInFlightRef.current = true;
+      void (async () => {
+        try {
+          await sendText(text);
+        } finally {
+          turnInFlightRef.current = false;
+          if (voiceModeRef.current) void voiceRef.current.startListening();
+        }
+      })();
+    },
+    onListeningStopped: () => {
+      // No-speech / empty-transcript case: the autoSend path didn't claim the
+      // turn, so resume listening ourselves. Real utterances set turnInFlightRef
+      // and own their own restart.
+      if (!voiceModeRef.current || turnInFlightRef.current) return;
+      window.setTimeout(() => {
+        if (voiceModeRef.current && !turnInFlightRef.current) void voiceRef.current.startListening();
+      }, 150);
+    },
+  });
+  // Latest-ref so the callbacks above always drive the current hook instance.
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+
+  // Kick off the first listen once voice mode is on and the route is reachable.
+  useEffect(() => {
+    if (!voiceMode || voice.voiceApiStatus !== "connected") return;
+    if (voice.isListening || voice.isSpeaking || voice.isProcessingSTT || turnInFlightRef.current) return;
+    void voice.startListening();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceMode, voice.voiceApiStatus]);
+
+  // Fail loud: a mic-denied / STT / TTS error tears voice mode down and surfaces
+  // the message via the shared danger chip.
+  useEffect(() => {
+    if (!voiceMode || !voice.error) return;
+    showDictError(voice.error);
+    turnInFlightRef.current = false;
+    void voice.stopListening();
+    voice.stopSpeaking();
+    voice.clearQueue();
+    setVoiceMode(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.error, voiceMode]);
+
+  function toggleVoiceMode() {
+    if (voiceMode) {
+      turnInFlightRef.current = false;
+      void voice.stopListening();
+      voice.stopSpeaking();
+      voice.clearQueue();
+      setVoiceMode(false);
+    } else {
+      voice.clearError();
+      setDictError(null);
+      setDictErrAction(null);
+      setVoiceMode(true);
+    }
+  }
+
+  // (Re)start the s2s voice pipeline with the supervisor's active config
+  // (mirrors store.applyConfig's restart POST, minimally). Returns false when
+  // the lab proxy 502s — i.e. the supervisor process itself is unreachable.
+  async function restartVoicePipeline(): Promise<boolean> {
+    let activeConfig: unknown = {};
+    try {
+      const s = await fetch("/api/voice/lab/status", { cache: "no-store" });
+      if (s.ok) {
+        const d = (await s.json().catch(() => null)) as { active_config?: unknown } | null;
+        activeConfig = d?.active_config ?? {};
+      }
+    } catch {
+      /* supervisor unreachable — the restart POST below will 502 too */
+    }
+    const res = await fetch("/api/voice/lab/restart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(activeConfig ?? {}),
+    }).catch(() => null);
+    return !!res && res.ok;
+  }
+
+  // Offline-strip recovery: start the pipeline. If the supervisor is down
+  // (restart 502s), spawn it via lab-start, wait, then retry once. Re-probe
+  // voice health so the strip flips out of the offline state on success.
+  async function startVoiceBackend() {
+    if (startingVoice) return;
+    setStartingVoice(true);
+    try {
+      let ok = await restartVoicePipeline();
+      if (!ok) {
+        await fetch("/api/voice/lab-start", { method: "POST" }).catch(() => {});
+        await sleep(5000);
+        ok = await restartVoicePipeline();
+      }
+      await voice.checkVoiceApi();
+    } finally {
+      setStartingVoice(false);
+    }
+  }
+
+  const voiceState: "listening" | "thinking" | "speaking" | "connecting" | "offline" | "ready" = voice.isSpeaking
+    ? "speaking"
+    : agentRun.isRunning || voice.isProcessingSTT || voice.isProcessingTTS
+      ? "thinking"
+      : voice.isListening
+        ? "listening"
+        : voice.voiceApiStatus === "connected"
+          ? "ready"
+          : voice.voiceApiStatus === "disconnected"
+            ? "offline"
+            : "connecting";
+  const voiceStateLabel: Record<typeof voiceState, string> = {
+    listening: "listening",
+    thinking: "thinking…",
+    speaking: "speaking",
+    connecting: "connecting…",
+    offline: "voice backend offline",
+    ready: "ready",
+  };
+
+  // Dictation — mic → MediaRecorder → /api/voice/stt → append to composer.
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const [dictError, setDictError] = useState<string | null>(null);
+  // Recovery affordance attached to the dict-err chip (e.g. STT 503 → bind provider).
+  const [dictErrAction, setDictErrAction] = useState<"bind-stt" | null>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const recStreamRef = useRef<MediaStream | null>(null);
+  const recChunksRef = useRef<Blob[]>([]);
+  const recTimerRef = useRef<number | null>(null);
+  const dictErrTimerRef = useRef<number | null>(null);
   const [live, setLive] = useState<{ text: string; running: boolean }>({ text: "", running: false });
   // AUTO-SWAP chain — per-step status lines emitted by the image tool
   // (StepStarted via /api/agui/stream) plus the lazy chat-model reload.
   const [swapSteps, setSwapSteps] = useState<string[]>([]);
+  // Fail loud: the last send produced no assistant reply. Gates the inline
+  // danger chip (real error, retry, and reload-model when residency smells off).
+  const [sendFailed, setSendFailed] = useState(false);
 
   // Canvas
   const [canvasOpen, setCanvasOpen] = useState(false);
@@ -128,6 +305,7 @@ export default function ChatV2Page() {
   useEffect(() => {
     setLive({ text: "", running: false });
     setSwapSteps([]);
+    setSendFailed(false);
     setCanvasObject(null);
     setCanvasOpen(false);
     setCanvasFull(false);
@@ -188,6 +366,18 @@ export default function ChatV2Page() {
     [messages],
   );
   const modelLabel = agentRun.state.resolvedModel || readPrefsModel() || "auto";
+
+  // The real run error (fail-loud). Surfaced as an inline danger chip in the
+  // flow — never a fabricated assistant turn.
+  const runError = agentRun.state.runState.phase === "error" ? agentRun.state.runState.error : null;
+  const runFailMsg = sendFailed ? runError ?? "run failed" : null;
+  // Offer reload-model only when the failure smells like the chat model isn't
+  // resident and the active provider is one /api/ollama/reload can actually warm.
+  const canReloadModel = (() => {
+    if (!runFailMsg || !/\b(model|not found|not loaded|no such|not resident|unavailable|out of memory|pull|load|unload)\b/i.test(runError ?? "")) return false;
+    const p = readPrefs();
+    return !!p.model && (p.providerId === "ollama" || !p.providerId);
+  })();
 
   function newThread() {
     resetFallbackThreadId();
@@ -351,6 +541,7 @@ export default function ChatV2Page() {
     const runId = crypto.randomUUID();
 
     setLive({ text: "", running: true });
+    setSendFailed(false);
     // Clear the previous turn's swap chain, then lazily reload the chat model
     // if it was evicted for an image on a prior turn — before the run starts.
     setSwapSteps([]);
@@ -378,29 +569,37 @@ export default function ChatV2Page() {
       persistMessage(result.threadId, assistant, result.runId);
       const { objects } = parseAssistant(assistant.id, assistant.content, assistant.artifacts);
       if (objects.length) openObject(objects[0]);
+      // Voice mode: speak the assistant reply (plain prose, no markdown).
+      if (voiceModeRef.current) {
+        const spoken = stripMarkdownForSpeech(result.fullText);
+        if (spoken) {
+          try {
+            await voiceRef.current.speak(spoken);
+          } catch {
+            /* speak() surfaces its own error via voice.error → auto-stop effect */
+          }
+        }
+      }
     } else {
-      // Graceful degrade — the model backend (agent-ts) is offline. Stream a
-      // labelled stub so the wired data path still shows a full turn instead
-      // of crashing. Inference is the only thing that's down.
-      await streamStub(trimmed, result.threadId);
+      // Fail loud — no fabricated reply, nothing persisted. The inline danger
+      // chip (runFailMsg) surfaces the real error with retry / reload-model.
+      setLive({ text: "", running: false });
+      setSendFailed(true);
     }
   }
 
-  async function streamStub(userText: string, threadId: string) {
-    const stub =
-      `*Stubbed reply — the model backend (agent-ts) isn't reachable, so no live model produced this. ` +
-      `Threads, persistence, and the streaming pipeline are wired to the real deck backend; only inference is offline.*\n\n` +
-      `You said: "${userText}"`;
-    let acc = "";
-    for (const token of stub.split(/(\s+)/)) {
-      acc += token;
-      setLive({ text: acc, running: true });
-      await sleep(12);
-    }
-    const assistant: Message = { id: crypto.randomUUID(), role: "assistant", content: stub };
-    setMessages((prev) => [...prev, assistant]);
-    setLive({ text: "", running: false });
-    persistMessage(threadId, assistant);
+  // Recovery for a model-residency failure: warm the model via /api/ollama/reload
+  // then retry the last turn. Reload failure just re-surfaces the error chip.
+  async function reloadModelAndRetry() {
+    const prefs = readPrefs();
+    if (!prefs.model) { retryLast(); return; }
+    setSwapSteps((s) => [...s, `reloading ${prefs.model}…`]);
+    await fetch("/api/ollama/reload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: prefs.model }),
+    }).catch(() => {});
+    retryLast();
   }
 
   function onComposerKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -415,6 +614,131 @@ export default function ChatV2Page() {
     const lastUser = [...messages].reverse().find((m) => m.role === "user");
     if (lastUser) void sendText(lastUser.content);
   }
+
+  /* ─── dictation ─── */
+
+  // Stop the mic timer + release every capture track. Idempotent.
+  function releaseMic() {
+    if (recTimerRef.current !== null) {
+      clearInterval(recTimerRef.current);
+      recTimerRef.current = null;
+    }
+    if (recStreamRef.current) {
+      recStreamRef.current.getTracks().forEach((t) => t.stop());
+      recStreamRef.current = null;
+    }
+    recRef.current = null;
+  }
+
+  // Surface a dictation failure as a danger chip. Default fades after ~6s; a
+  // sticky error (e.g. no STT provider bound) carries a recovery action and
+  // stays until dismissed or replaced.
+  function showDictError(msg: string, opts?: { sticky?: boolean; action?: "bind-stt" }) {
+    setDictError(msg);
+    setDictErrAction(opts?.action ?? null);
+    if (dictErrTimerRef.current !== null) {
+      clearTimeout(dictErrTimerRef.current);
+      dictErrTimerRef.current = null;
+    }
+    if (!opts?.sticky) {
+      dictErrTimerRef.current = window.setTimeout(() => {
+        setDictError(null);
+        setDictErrAction(null);
+      }, 6000);
+    }
+  }
+
+  async function startDictation() {
+    setDictError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      showDictError(
+        err instanceof Error && err.name === "NotAllowedError"
+          ? "Microphone permission denied"
+          : "Could not access microphone",
+      );
+      return;
+    }
+    recStreamRef.current = stream;
+    // Some browser shells reject an explicit mimeType — walk a fallback chain
+    // and let MediaRecorder pick the platform default if none is supported.
+    const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find(
+      (t) => typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(t),
+    );
+    const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    recRef.current = rec;
+    recChunksRef.current = [];
+    rec.ondataavailable = (e) => {
+      if (e.data.size > 0) recChunksRef.current.push(e.data);
+    };
+    rec.onstop = () => void transcribeRecording();
+    rec.start();
+    setRecSecs(0);
+    recTimerRef.current = window.setInterval(() => setRecSecs((s) => s + 1), 1000);
+    setRecording(true);
+  }
+
+  function stopDictation() {
+    const rec = recRef.current;
+    if (recTimerRef.current !== null) {
+      clearInterval(recTimerRef.current);
+      recTimerRef.current = null;
+    }
+    setRecording(false);
+    // rec.stop() fires onstop → transcribeRecording (which releases the mic).
+    if (rec && rec.state !== "inactive") rec.stop();
+    else releaseMic();
+  }
+
+  async function transcribeRecording() {
+    const type = recRef.current?.mimeType || "audio/webm";
+    const blob = new Blob(recChunksRef.current, { type });
+    recChunksRef.current = [];
+    releaseMic(); // the blob is assembled — free the tracks now
+    if (blob.size < 1000) {
+      showDictError("No audio recorded");
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const form = new FormData();
+      form.append("audio", blob, "speech.webm");
+      form.append("mimeType", type);
+      const res = await fetch("/api/voice/stt", { method: "POST", body: form });
+      const data = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
+      if (res.status === 503) {
+        // No STT provider bound — sticky chip + a link to the bindings page.
+        showDictError(data?.error ?? "No speech-to-text provider is bound.", { sticky: true, action: "bind-stt" });
+        return;
+      }
+      if (!res.ok) throw new Error(data?.error ?? `STT failed: ${res.status}`);
+      const text = (data?.text ?? "").trim();
+      if (!text) {
+        showDictError("No speech detected");
+        return;
+      }
+      setInput((prev) => (prev.trim() ? prev.replace(/\s*$/, "") + " " + text : text));
+      requestAnimationFrame(() => {
+        taRef.current?.focus();
+        autogrow();
+      });
+    } catch (err) {
+      showDictError(err instanceof Error ? err.message : "Transcription failed");
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  // Release the mic + pending timers if the page unmounts mid-capture.
+  useEffect(() => {
+    return () => {
+      if (recTimerRef.current !== null) clearInterval(recTimerRef.current);
+      if (dictErrTimerRef.current !== null) clearTimeout(dictErrTimerRef.current);
+      if (recStreamRef.current) recStreamRef.current.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   const exec = canvasObject ? execById[canvasObject.id] : undefined;
 
@@ -523,11 +847,73 @@ export default function ChatV2Page() {
                   )}
                 </div>
               )}
+
+              {runFailMsg && (
+                <div className="run-err" role="alert">
+                  <div className="run-err__msg">
+                    <span className="run-err__dot" aria-hidden />
+                    <span>{runFailMsg}</span>
+                  </div>
+                  <div className="acts-row">
+                    <a onClick={retryLast}><Ico name="refresh" sm />retry</a>
+                    {canReloadModel && (
+                      <a onClick={() => void reloadModelAndRetry()}><Ico name="cpu" sm />reload_model</a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="compose">
+            {voiceMode && (
+              <div className="vstrip" data-state={voiceState}>
+                <span className="vstrip__dot" />
+                <span className="vstrip__label">{voiceStateLabel[voiceState]}</span>
+                {voiceState === "offline" ? (
+                  <>
+                    <span className="vstrip__gap" />
+                    <button
+                      type="button"
+                      className="vstrip__act"
+                      onClick={() => void startVoiceBackend()}
+                      disabled={startingVoice}
+                    >
+                      {startingVoice ? "starting…" : "start_pipeline"}
+                    </button>
+                    <a className="vstrip__act" href="/v2/voice">open_voice</a>
+                    <button type="button" className="vstrip__stop" onClick={toggleVoiceMode}>
+                      <Ico name="stop" sm />exit
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="vstrip__level" aria-hidden>
+                      <i style={voiceState === "listening" ? { transform: `scaleX(${Math.max(0.04, voice.audioLevel)})` } : undefined} />
+                    </span>
+                    <button
+                      type="button"
+                      className="vstrip__stop"
+                      onClick={() => {
+                        if (voice.isSpeaking) { voice.stopSpeaking(); voice.clearQueue(); }
+                        else toggleVoiceMode();
+                      }}
+                    >
+                      <Ico name="stop" sm />{voice.isSpeaking ? "interrupt" : "exit"}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             <div className="compose__inner">
+              {dictError && (
+                <div className="dict-err" role="alert">
+                  <span>{dictError}</span>
+                  {dictErrAction === "bind-stt" && (
+                    <a className="dict-err__act" href="/v2/models">bind_stt_provider →</a>
+                  )}
+                </div>
+              )}
               <div className="compose__field">
                 <button className="iconbtn iconbtn--flush" aria-label="Attach file"><Ico name="paperclip" /></button>
                 <textarea
@@ -540,7 +926,33 @@ export default function ChatV2Page() {
                   rows={1}
                   placeholder="reply — the well climbs when you focus it…"
                 />
-                <button className="iconbtn iconbtn--flush" aria-label="Voice / dictate"><Ico name="mic" /></button>
+                {(recording || transcribing) && (
+                  <span className="rec-chip" aria-live="polite">
+                    {recording
+                      ? `${Math.floor(recSecs / 60)}:${String(recSecs % 60).padStart(2, "0")}`
+                      : "transcribing…"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className={"iconbtn iconbtn--flush" + (recording ? " is-rec" : "")}
+                  aria-label={recording ? "Stop dictation" : "Voice / dictate"}
+                  aria-pressed={recording}
+                  disabled={transcribing || voiceMode}
+                  onClick={() => { if (recording) stopDictation(); else void startDictation(); }}
+                >
+                  <Ico name="mic" />
+                </button>
+                <button
+                  type="button"
+                  className={"iconbtn iconbtn--flush" + (voiceMode ? " is-voice" : "")}
+                  aria-label={voiceMode ? "Exit voice mode" : "Voice mode — talk to Atlas"}
+                  aria-pressed={voiceMode}
+                  disabled={recording || transcribing}
+                  onClick={toggleVoiceMode}
+                >
+                  <Ico name="headphones" />
+                </button>
                 {agentRun.isRunning ? (
                   <button className="btn btn--primary send" onClick={() => agentRun.stop()}>
                     <Ico name="stop" />stop

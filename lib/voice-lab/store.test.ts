@@ -60,6 +60,8 @@ const UPSTREAM_LAUNCH_CONFIG_KEYS = [
   "qwen3_tts_backend",
   "qwen3_tts_speaker",
   "qwen3_tts_language",
+  "qwen3_tts_ref_audio",
+  "qwen3_tts_ref_text",
   "qwen3_tts_streaming_chunk_size",
   "qwen3_tts_non_streaming_mode",
   "qwen3_tts_mlx_quantization",
@@ -81,7 +83,7 @@ describe("voice lab LaunchConfig schema", () => {
     expect([...LAUNCH_CONFIG_KEYS]).toEqual([...UPSTREAM_LAUNCH_CONFIG_KEYS]);
     expect(CONFIG_FIELDS.map((field) => field.key)).toEqual([...UPSTREAM_LAUNCH_CONFIG_KEYS]);
     expect(new Set(LAUNCH_CONFIG_KEYS).size).toBe(UPSTREAM_LAUNCH_CONFIG_KEYS.length);
-    expect(CONFIG_FIELDS.length).toBe(55);
+    expect(CONFIG_FIELDS.length).toBe(57);
   });
 
   test("maps full LaunchConfig-shaped knobs to a supervisor restart payload", () => {

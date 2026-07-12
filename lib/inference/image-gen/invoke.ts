@@ -40,6 +40,31 @@ export async function invokeImageGen(
   }
 }
 
+export async function invokeImageGenProvider(
+  providerId: string,
+  args: ImageGenArgs,
+): Promise<ImageGenResult> {
+  return invokeImageGen(providerId, { providerId }, args);
+}
+
+export interface ImageUpscaleArgs {
+  imageUrl: string;
+  model?: string;
+  extras?: Record<string, unknown>;
+}
+
+export async function invokeImageUpscaleProvider(
+  providerId: string,
+  args: ImageUpscaleArgs,
+): Promise<ImageGenResult> {
+  switch (providerId) {
+    case "fal":
+      return invokeFalUpscale({ providerId: "fal" }, args);
+    default:
+      throw new Error(`image-upscale provider not supported: ${providerId}`);
+  }
+}
+
 /** OpenAI DALL-E 3 — POST /v1/images/generations. */
 async function invokeOpenAi(
   config: InferenceProviderConfig,
@@ -141,7 +166,50 @@ async function invokeFal(
 ): Promise<ImageGenResult> {
   const apiKey = config.apiKey ?? process.env.FAL_API_KEY;
   if (!apiKey) throw new Error("fal: FAL_API_KEY not set");
-  const model = args.model ?? config.model ?? "fal-ai/flux/schnell";
+  const inputImageUrl = args.inputImage ? imageUrlForFal(args.inputImage) : undefined;
+  const model = inputImageUrl
+    ? args.model ?? config.model ?? process.env.FAL_EDIT_MODEL ?? "fal-ai/qwen-image-edit"
+    : args.model ?? config.model ?? process.env.FAL_IMAGE_MODEL ?? "fal-ai/flux/schnell";
+  const body: Record<string, unknown> = {
+    prompt: args.prompt,
+    image_size:
+      args.width && args.height ? { width: args.width, height: args.height } : "square_hd",
+    num_inference_steps: args.steps,
+    seed: args.seed,
+    negative_prompt: args.negativePrompt,
+    ...(args.extras ?? {}),
+  };
+  if (inputImageUrl) body.image_url = inputImageUrl;
+
+  const res = await fetch(`${FAL_BASE}/${model}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`fal ${res.status}: ${await res.text()}`);
+  const data = (await res.json()) as {
+    images?: Array<{ url?: string; content_type?: string }>;
+    image?: { url?: string; content_type?: string };
+  };
+  const first = data.images?.[0] ?? data.image;
+  if (!first?.url) throw new Error("fal: no images in response");
+  return {
+    imageUrl: first.url,
+    mime: first.content_type ?? "image/png",
+    providerId: "fal",
+  };
+}
+
+async function invokeFalUpscale(
+  config: InferenceProviderConfig,
+  args: ImageUpscaleArgs,
+): Promise<ImageGenResult> {
+  const apiKey = config.apiKey ?? process.env.FAL_API_KEY;
+  if (!apiKey) throw new Error("fal: FAL_API_KEY not set");
+  const model = args.model ?? config.model ?? process.env.FAL_UPSCALE_MODEL ?? "fal-ai/esrgan";
   const res = await fetch(`${FAL_BASE}/${model}`, {
     method: "POST",
     headers: {
@@ -149,21 +217,17 @@ async function invokeFal(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      prompt: args.prompt,
-      image_size:
-        args.width && args.height ? { width: args.width, height: args.height } : "square_hd",
-      num_inference_steps: args.steps,
-      seed: args.seed,
-      negative_prompt: args.negativePrompt,
+      image_url: args.imageUrl,
       ...(args.extras ?? {}),
     }),
   });
-  if (!res.ok) throw new Error(`fal ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`fal-upscale ${res.status}: ${await res.text()}`);
   const data = (await res.json()) as {
     images?: Array<{ url?: string; content_type?: string }>;
+    image?: { url?: string; content_type?: string };
   };
-  const first = data.images?.[0];
-  if (!first?.url) throw new Error("fal: no images in response");
+  const first = data.images?.[0] ?? data.image;
+  if (!first?.url) throw new Error("fal-upscale: no image in response");
   return {
     imageUrl: first.url,
     mime: first.content_type ?? "image/png",
@@ -251,6 +315,14 @@ async function invokeBfl(
 }
 
 // -- helpers ---------------------------------------------------------
+
+function imageUrlForFal(inputImage: NonNullable<ImageGenArgs["inputImage"]>): string {
+  if (inputImage.url) return inputImage.url;
+  if (inputImage.base64) {
+    return `data:${inputImage.mimeType ?? "image/png"};base64,${inputImage.base64}`;
+  }
+  throw new Error("fal: inputImage requires url or base64");
+}
 
 function sizeFor(args: ImageGenArgs, allowed: string[]): string {
   if (args.width && args.height) {

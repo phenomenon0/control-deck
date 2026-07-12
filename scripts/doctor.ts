@@ -135,6 +135,40 @@ if (!QUICK) {
   }
 }
 
+
+// ------------------------------------------------- release-QA invariants (G2)
+{
+  console.log("\n— release-QA invariants —");
+
+  // B1: the installer script every missing-weights hint references must exist.
+  if (existsSync(`${ROOT}/scripts/download-image-models.sh`)) report("ok", "download-image-models.sh exists");
+  else report("fail", "scripts/download-image-models.sh missing — missing-weights hints point at it", "restore from git");
+
+  // B1/B4: weights catalog ↔ availability definitions stay in lockstep.
+  {
+    const catalog = readFileSync(`${ROOT}/lib/models/weights-catalog.ts`, "utf8");
+    const comfyModels = readFileSync(`${ROOT}/lib/tools/comfyModels.ts`, "utf8");
+    const presetKeys = [...catalog.matchAll(/^  "?([a-z0-9-]+)"?: \[/gm)].map((m) => m[1]);
+    const missing = presetKeys.filter((p) => !comfyModels.includes(`"${p}"`) && !comfyModels.includes(`${p}:`));
+    if (missing.length === 0) report("ok", `weights catalog covers ${presetKeys.length} presets, all known to availability checks`);
+    else report("warn", `catalog presets missing availability entries: ${missing.join(", ")}`);
+  }
+
+  // F4: execute_code needs unprivileged user namespaces.
+  {
+    const probe = sh(["unshare", "--net", "--map-root-user", "true"]);
+    if (probe.code === 0) report("ok", "unshare user-namespaces available (execute_code sandbox)");
+    else report("warn", "unshare --net --map-root-user failed — execute_code will refuse to run", "check kernel.unprivileged_userns_clone");
+  }
+
+  // C1: arbiter reachable when the deck is up (informational when down).
+  if (!QUICK) {
+    const probe = sh(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "6", "http://localhost:3333/api/resource/ledger"]);
+    if (probe.code === 0 && probe.out.startsWith("2")) report("ok", "VRAM arbiter ledger answering");
+    else report("info", "deck not running — arbiter ledger unchecked");
+  }
+}
+
 console.log("");
 if (failures > 0) {
   console.log(`\x1b[31m${failures} drift issue(s) found.\x1b[0m`);

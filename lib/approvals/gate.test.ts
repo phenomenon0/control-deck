@@ -12,10 +12,12 @@ const dbState: {
   nextStatus: Array<"pending" | "approved" | "denied">;
   created: Array<{ id: string; toolName: string }>;
   decided: Array<{ id: string; decision: string }>;
-} = { nextStatus: [], created: [], decided: [] };
+  createThrows: boolean;
+} = { nextStatus: [], created: [], decided: [], createThrows: false };
 
 const dbStubs: Record<string, unknown> = {
   createApproval: mock((input: { id: string; toolName: string }) => {
+    if (dbState.createThrows) throw new Error("db down");
     dbState.created.push({ id: input.id, toolName: input.toolName });
   }),
   decideApproval: mock((id: string, decision: string) => {
@@ -25,6 +27,9 @@ const dbStubs: Record<string, unknown> = {
     const status = dbState.nextStatus.shift() ?? "pending";
     return { status } as { status: "pending" | "approved" | "denied" };
   }),
+  // Named-export resolution doesn't reach the Proxy fallback; warn.ts
+  // (imported by gate.ts) needs this binding to exist at module shape.
+  saveEvent: mock(() => {}),
 };
 
 // Proxy fills in noop stubs for every export gate.ts (or its transitive
@@ -53,13 +58,17 @@ interface Policy {
 interface Runs {
   autoExecuteTools: boolean;
 }
-const state: { approval: Policy; runs: Runs } = {
+const state: { approval: Policy; runs: Runs; resolveThrows: boolean } = {
   approval: { defaultMode: "ask", perTool: {}, costThresholdUsd: 0.05, timeoutSeconds: 2 },
   runs: { autoExecuteTools: true },
+  resolveThrows: false,
 };
 
 mock.module("@/lib/settings/resolve", () => ({
-  resolveSection: (s: "approval" | "runs") => (s === "approval" ? state.approval : state.runs),
+  resolveSection: (s: "approval" | "runs") => {
+    if (state.resolveThrows) throw new Error("settings db down");
+    return s === "approval" ? state.approval : state.runs;
+  },
   resolveAll: () => ({ approval: state.approval, runs: state.runs }),
 }));
 
@@ -69,8 +78,10 @@ beforeEach(() => {
   dbState.nextStatus = [];
   dbState.created.length = 0;
   dbState.decided.length = 0;
+  dbState.createThrows = false;
   state.approval = { defaultMode: "ask", perTool: {}, costThresholdUsd: 0.05, timeoutSeconds: 2 };
   state.runs = { autoExecuteTools: true };
+  state.resolveThrows = false;
 });
 
 afterEach(() => {
@@ -135,6 +146,41 @@ describe("gateToolCall — policy decisions", () => {
     const verdict = await gateToolCall({ toolName: "web_search", toolArgs: {} });
     expect(verdict.decision).toBe("approved");
     expect(dbState.created).toHaveLength(1);
+  });
+});
+
+describe("gateToolCall — infra faults must not widen permissions", () => {
+  // A broken settings store or approvals table is an availability problem,
+  // never an authorization grant: side-effect tools fail closed so a DB
+  // outage can't be exploited (or stumbled through) into unapproved writes,
+  // while read-only tools keep working because blocking pure reads on an
+  // approvals outage buys no safety.
+  test("settings resolution throws → side-effect tool is DENIED", async () => {
+    state.resolveThrows = true;
+    const verdict = await gateToolCall({ toolName: "execute_code", toolArgs: {} });
+    expect(verdict.decision).toBe("denied");
+    expect(verdict.reason).toContain("fail-closed");
+  });
+
+  test("settings resolution throws → read-only tool still runs", async () => {
+    state.resolveThrows = true;
+    const verdict = await gateToolCall({ toolName: "vector_search", toolArgs: {} });
+    expect(verdict.decision).toBe("approved");
+  });
+
+  test("approval row insert throws → side-effect tool is DENIED", async () => {
+    state.approval.defaultMode = "ask";
+    dbState.createThrows = true;
+    const verdict = await gateToolCall({ toolName: "execute_code", toolArgs: {} });
+    expect(verdict.decision).toBe("denied");
+    expect(verdict.reason).toContain("fail-closed");
+  });
+
+  test("approval row insert throws → read-only tool gated by ask-mode still runs", async () => {
+    state.approval.defaultMode = "ask";
+    dbState.createThrows = true;
+    const verdict = await gateToolCall({ toolName: "vector_search", toolArgs: {} });
+    expect(verdict.decision).toBe("approved");
   });
 });
 

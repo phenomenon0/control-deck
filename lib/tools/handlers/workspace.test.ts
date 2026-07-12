@@ -17,6 +17,9 @@ const publishQueryMock = mock((command: string, args: Record<string, unknown>, t
   return Promise.resolve(value);
 });
 
+/** F1: how many workspace tabs the mocked relay pretends are connected. */
+const subscriberState = { count: 1 };
+
 mock.module("@/lib/workspace/command-relay", () => ({
   publishCommand: mock((cmd: { command: string; args: Record<string, unknown> }) => ({
     id: "cmd_test",
@@ -24,6 +27,7 @@ mock.module("@/lib/workspace/command-relay", () => ({
     ...cmd,
   })),
   publishQuery: publishQueryMock,
+  subscriberCount: () => subscriberState.count,
 }));
 
 const {
@@ -32,11 +36,16 @@ const {
   executeWorkspacePaneCall,
   executeWorkspaceWriteNote,
   executeWorkspaceShowCanvas,
+  executeWorkspaceOpenPane,
+  executeWorkspaceClosePane,
+  executeWorkspaceFocusPane,
+  executeWorkspaceReset,
 } = await import("./workspace");
 
 beforeEach(() => {
   relayState.calls = [];
   relayState.next = [];
+  subscriberState.count = 1;
   publishQueryMock.mockClear();
 });
 
@@ -206,6 +215,29 @@ describe("workspace tool handlers", () => {
       workspaceOpen: false,
       query: "query:list_panes",
     });
+  });
+
+  test("fire-and-forget commands error workspace_not_open with zero subscribers (F1: no fake success)", () => {
+    // A queued command with no listening tab is silently dropped; reporting
+    // success:true would mislead the agent into chaining doomed calls.
+    subscriberState.count = 0;
+    const results = [
+      executeWorkspaceOpenPane({ type: "notes" }),
+      executeWorkspaceClosePane({ paneId: "notes:notes-default" }),
+      executeWorkspaceFocusPane({ paneId: "notes:notes-default" }),
+      executeWorkspaceReset(),
+    ];
+    for (const out of results) {
+      expect(out.success).toBe(false);
+      expect(out.error_code).toBe("workspace_not_open");
+      expect(out.safe_to_retry).toBe(true);
+    }
+  });
+
+  test("fire-and-forget commands queue normally with a live subscriber", () => {
+    const out = executeWorkspaceOpenPane({ type: "notes" });
+    expect(out.success).toBe(true);
+    expect(out.message).toContain("open_pane");
   });
 
   test("workspace_pane_call returns stale-handle guidance for missing panes", async () => {

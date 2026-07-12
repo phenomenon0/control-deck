@@ -135,6 +135,11 @@ export function submitResponse(id: string, data: unknown, error?: string): boole
   return true;
 }
 
+/** Number of connected SSE clients. 0 means no workspace tab is open. */
+export function subscriberCount(): number {
+  return getRelay().listeners.size;
+}
+
 export function subscribeCommands(fn: Listener): () => void {
   const relay = getRelay();
   relay.listeners.add(fn);

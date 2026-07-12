@@ -31,6 +31,7 @@ import {
 import { resolveSection } from "@/lib/settings/resolve";
 import type { ApprovalMode } from "@/lib/settings/schema";
 import { hub } from "@/lib/agui/hub";
+import { raiseWarning } from "@/lib/agui/warn";
 import { getManifest, hasManifestEntry } from "@/lib/tools/manifest";
 
 export interface GateOptions {
@@ -110,8 +111,8 @@ function shouldGate(
 
 export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
   // Pull policy + runs master switch. Resolution errors (e.g. DB down in
-  // test env) fall through to "approved" — the alternative is every run
-  // hanging, which is worse.
+  // test env) must never widen permissions: side-effect tools fail closed,
+  // read-only tools continue — an infra fault shouldn't stall pure reads.
   let mode: ApprovalMode = "ask";
   let perTool: Record<string, ApprovalMode> = {};
   let costThreshold = 0.05;
@@ -125,7 +126,7 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
     timeoutSeconds = pol.timeoutSeconds;
     autoExecuteTools = resolveSection("runs").autoExecuteTools;
   } catch {
-    return { decision: "approved", reason: "settings unavailable; auto-approved" };
+    return failSafeVerdict(options, "settings unavailable");
   }
 
   const effectiveMode = perTool[options.toolName] ?? mode;
@@ -147,7 +148,7 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
     });
   } catch (e) {
     console.error("[approval] failed to create approval row:", e);
-    return { decision: "approved", reason: "approval persistence failed; auto-approved" };
+    return failSafeVerdict(options, "approval persistence failed");
   }
 
   if (options.threadId) {
@@ -166,8 +167,15 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
           toolName: options.toolName,
         },
       } as never);
-    } catch {
-      // Hub publish is best-effort; approval still works via polling.
+    } catch (err) {
+      // Approval still works via polling, but a UI relying on the hub
+      // would miss the prompt — surface that.
+      raiseWarning({
+        source: "approvals.hub",
+        message: `InterruptRequested publish failed for approval ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        threadId: options.threadId,
+        runId: options.runId,
+      });
     }
   }
 
@@ -191,6 +199,21 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
     reason: `approval timed out after ${timeoutSeconds}s`,
     approvalId: id,
   };
+}
+
+/**
+ * Verdict when the gate itself is broken (settings unreadable, approval row
+ * uninsertable). A broken gate must not widen permissions: tools with side
+ * effects are denied, read-only tools are allowed through.
+ */
+function failSafeVerdict(options: GateOptions, cause: string): GateVerdict {
+  if (isSideEffectTool(options.toolName, options.toolArgs)) {
+    return {
+      decision: "denied",
+      reason: `${cause}; side-effect tool denied (fail-closed)`,
+    };
+  }
+  return { decision: "approved", reason: `${cause}; read-only tool allowed` };
 }
 
 function finalise(id: string, status: ApprovalStatus, threadId?: string): GateVerdict {

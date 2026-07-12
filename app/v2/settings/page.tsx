@@ -31,10 +31,6 @@ function Ico({ name, size = 15 }: { name: string; size?: number }) {
 }
 const Chev = <span className="chev ic"><svg viewBox="0 0 24 24" style={{ width: 15, height: 15 }} dangerouslySetInnerHTML={{ __html: P["chevron-down"] }} /></span>;
 
-/* Honest marker for controls that are UI-only — they hold live in-memory state
-   but do NOT write to deck.prefs (unlike the badge-less rows, which do). */
-const Pv = <span className="pv" title="UI preview — not saved to deck.prefs">preview</span>;
-
 /* ── real-prefs shape (subset of DeckPrefs we surface here) ─────────────────── */
 /* 12 selectable Atlas themes — matches the [data-theme] blocks in app/atlas.css
    that V2AppearanceHost applies to .v2-host. */
@@ -155,10 +151,10 @@ function Seg<T extends string>({ value, options, onChange }: { value: T; options
     </div>
   );
 }
-function SwitchRow({ title, desc, checked, onChange, disabled, preview }: { title: string; desc: string; checked: boolean; onChange?: (v: boolean) => void; disabled?: boolean; preview?: boolean }) {
+function SwitchRow({ title, desc, checked, onChange, disabled }: { title: string; desc: string; checked: boolean; onChange?: (v: boolean) => void; disabled?: boolean }) {
   return (
     <div className="srow">
-      <span className="st"><b>{title}{preview && Pv}</b><small>{desc}</small></span>
+      <span className="st"><b>{title}</b><small>{desc}</small></span>
       <span className="ctlwrap"><Switch checked={checked} onChange={onChange} disabled={disabled} /></span>
     </div>
   );
@@ -223,19 +219,16 @@ const SECTIONS = [
   { id: "capabilities", icon: "layers", label: "capabilities" },
   { id: "hardware", icon: "sliders", label: "hardware" },
   { id: "safety", icon: "shield", label: "safety" },
-  { id: "data", icon: "database", label: "data" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 const HEAD: Record<SectionId, { title: string; sub: string }> = {
   appearance: { title: "Appearance", sub: "theme, accent, and motion across the deck" },
-  agent: { title: "Agent defaults", sub: "the model, prompt, and sampling every new thread inherits" },
+  agent: { title: "Agent defaults", sub: "the model, prompt, and chat surface every new thread inherits" },
   capabilities: { title: "Capabilities", sub: "skills, rules, and MCP servers the agent can reach" },
-  hardware: { title: "Hardware & providers", sub: "inference engines, VRAM budget, routing" },
-  safety: { title: "Safety", sub: "approval gates and the guardrails on tool use" },
-  data: { title: "Data", sub: "library indexing, exports, and workspace lifecycle" },
+  hardware: { title: "Hardware & providers", sub: "inference engine and model-picker routing" },
+  safety: { title: "Safety", sub: "policy lives in Control — one source of truth" },
 };
 
-const MODELS = ["qwen3-30b-a3b", "llama3.3-70b", "gpt-oss-20b", "gemma3-27b", "deepseek-r1-14b"];
 const PROVIDERS: { v: Provider; label: string }[] = [
   { v: "ollama", label: "Ollama" },
   { v: "vllm", label: "vLLM" },
@@ -247,22 +240,26 @@ export default function SettingsV2Page() {
   const [section, setSection] = useState<SectionId>("appearance");
   const [prefs, setPrefs] = useState<RealPrefs>(DEFAULTS);
   const [hydrated, setHydrated] = useState(false);
-
-  // surface-only controls (no deck.pref backs these — pure in-memory state,
-  // flagged in the UI with the `preview` chip so nothing fakes persistence)
-  const [temp, setTemp] = useState(0.7);
-  const [autoUnload, setAutoUnload] = useState(true);
-  const [routeOnOom, setRouteOnOom] = useState(false);
-  const [confirmTools, setConfirmTools] = useState(true);
-  const [approvalGate, setApprovalGate] = useState(true);
-  const [sandbox, setSandbox] = useState(true);
-  const [redact, setRedact] = useState(true);
-  const [publishLibrary, setPublishLibrary] = useState(false);
-  const [telemetry, setTelemetry] = useState(false);
+  // Live model catalog from the local runtime — no fabricated inventory.
+  // While loading (or with Ollama down) the picker holds the persisted value.
+  const [models, setModels] = useState<string[]>([]);
 
   useEffect(() => {
     setPrefs((p) => ({ ...p, ...readPrefs() }));
     setHydrated(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/ollama/tags", { cache: "no-store" });
+        if (!r.ok) return;
+        const d = (await r.json()) as { models?: Array<{ name?: string }> };
+        const names = (d.models ?? []).map((m) => m.name).filter((n): n is string => !!n);
+        if (!cancelled && names.length) setModels(names);
+      } catch {
+        /* runtime down — picker degrades to the persisted value */
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // one setter that keeps in-memory state + persisted deck.prefs in lockstep
@@ -290,7 +287,6 @@ export default function SettingsV2Page() {
           </nav>
           <div className="side-foot">
             <span className="meta">atlas visual 2</span>
-            <span className="meta">46.62.210.42 · local</span>
           </div>
         </aside>
 
@@ -368,12 +364,14 @@ export default function SettingsV2Page() {
                       <div className="field">
                         <label className="field__label">default_model</label>
                         <div className="selectwrap">
-                          <select className="field__input" value={MODELS.includes(prefs.model) ? prefs.model : MODELS[0]} onChange={(e) => set("model", e.target.value)}>
-                            {MODELS.map((m) => <option key={m}>{m}</option>)}
+                          <select className="field__input" value={prefs.model} onChange={(e) => set("model", e.target.value)}>
+                            {(models.includes(prefs.model) ? models : [prefs.model, ...models]).map((m) => <option key={m}>{m}</option>)}
                           </select>
                           {Chev}
                         </div>
-                        <span className="field__help">first pick for every new thread</span>
+                        <span className="field__help">
+                          {models.length ? `first pick for every new thread · ${models.length} installed` : "first pick for every new thread · runtime offline, showing saved value"}
+                        </span>
                       </div>
                       <div className="field">
                         <label className="field__label">latency_preset</label>
@@ -403,20 +401,20 @@ export default function SettingsV2Page() {
                 </div>
 
                 <div className="group">
-                  <div className="glabel">Sampling</div>
+                  <div className="glabel">Chat surface</div>
                   <div className="card panel">
                     <div className="srow">
-                      <span className="st"><b>Temperature{Pv}</b><small>higher = more exploratory sampling</small></span>
+                      <span className="st"><b>Agent latitude</b><small>how much the agent does before asking</small></span>
                       <span className="ctlwrap">
-                        <div className="stepper">
-                          <button type="button" className="btn" aria-label="Lower" onClick={() => setTemp((t) => Math.max(0, +(t - 0.1).toFixed(1)))}>−</button>
-                          <input className="field__input" value={temp.toFixed(1)} readOnly inputMode="decimal" aria-label="temperature" />
-                          <button type="button" className="btn" aria-label="Higher" onClick={() => setTemp((t) => Math.min(2, +(t + 0.1).toFixed(1)))}>+</button>
-                        </div>
+                        <Seg<Surface>
+                          value={prefs.chatSurface}
+                          onChange={(v) => set("chatSurface", v)}
+                          options={[{ v: "safe", label: "safe" }, { v: "brave", label: "brave" }, { v: "radical", label: "radical" }]}
+                        />
                       </span>
                     </div>
                     <div className="card card--well codewell">
-                      <code>{prefs.model} · {prefs.providerId} · temp {temp.toFixed(1)} · preset {prefs.preset}</code>
+                      <code>{prefs.model} · {prefs.providerId} · preset {prefs.preset} · {prefs.chatSurface}</code>
                     </div>
                   </div>
                 </div>
@@ -461,26 +459,15 @@ export default function SettingsV2Page() {
                         </div>
                       </span>
                     </div>
-                    <SwitchRow title="Auto-unload idle models" desc="after 15m idle, keep one warm" checked={autoUnload} onChange={setAutoUnload} preview />
-                    <SwitchRow title="Route to cloud on OOM" desc="OpenRouter fallback when VRAM is exhausted" checked={routeOnOom} onChange={setRouteOnOom} preview />
                     <SwitchRow title="Show online models" desc="surface free-tier + cloud catalogs in pickers" checked={prefs.showOnlineModels} onChange={(v) => set("showOnlineModels", v)} />
                   </div>
                 </div>
 
                 <div className="group">
-                  <div className="glabel">Budget</div>
+                  <div className="glabel">Memory</div>
                   <div className="card panel">
-                    <div className="formgrid">
-                      <div className="field">
-                        <label className="field__label">vram_ceiling_gb{Pv}</label>
-                        <input className="field__input" defaultValue="22" inputMode="numeric" />
-                        <span className="field__help">of 24G on the 4090 · leaves headroom for the compositor</span>
-                      </div>
-                      <div className="field">
-                        <label className="field__label">gpu_layers{Pv}</label>
-                        <input className="field__input" defaultValue="99" inputMode="numeric" />
-                        <span className="field__help">99 = offload the whole graph</span>
-                      </div>
+                    <div className="srow">
+                      <span className="st"><b>VRAM strategy</b><small>the runtime arbitrates GPU memory itself — nothing to configure here</small></span>
                     </div>
                   </div>
                 </div>
@@ -490,60 +477,19 @@ export default function SettingsV2Page() {
             {section === "safety" && (
               <>
                 <div className="group">
-                  <div className="glabel">Approvals</div>
+                  <div className="glabel">One source of truth</div>
                   <div className="card panel">
                     <div className="srow">
-                      <span className="st"><b>Chat surface</b><small>how much latitude the agent takes before asking</small></span>
-                      <span className="ctlwrap">
-                        <Seg<Surface>
-                          value={prefs.chatSurface}
-                          onChange={(v) => set("chatSurface", v)}
-                          options={[{ v: "safe", label: "safe" }, { v: "brave", label: "brave" }, { v: "radical", label: "radical" }]}
-                        />
-                      </span>
-                    </div>
-                    <SwitchRow title="Confirm before running tools" desc="one look at the call before it fires" checked={confirmTools} onChange={setConfirmTools} preview />
-                    <SwitchRow title="Approval gate for side effects" desc="writes, deploys, and deletes queue for review" checked={approvalGate} onChange={setApprovalGate} preview />
-                  </div>
-                </div>
-
-                <div className="group">
-                  <div className="glabel">Execution</div>
-                  <div className="card panel">
-                    <SwitchRow title="Sandbox code execution" desc="run execute_code in an isolated jail" checked={sandbox} onChange={setSandbox} preview />
-                    <SwitchRow title="Redact secrets in logs" desc="mask tokens and keys before they hit the transcript" checked={redact} onChange={setRedact} preview />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {section === "data" && (
-              <>
-                <div className="group">
-                  <div className="glabel">Library</div>
-                  <div className="card panel">
-                    <SwitchRow title="Publish renders to library" desc="vector-indexed for later retrieval" checked={publishLibrary} onChange={setPublishLibrary} preview />
-                    <SwitchRow title="Usage telemetry" desc="local-only counters · never leaves the machine" checked={telemetry} onChange={setTelemetry} preview />
-                  </div>
-                </div>
-
-                <div className="group">
-                  <div className="glabel">Danger zone{Pv}</div>
-                  <div className="card panel danger">
-                    <div className="srow">
-                      <span className="st"><span className="glabel-inline">Export everything</span><small>threads, renders, and vector store — one archive</small></span>
-                      <button type="button" className="btn">export_archive</button>
+                      <span className="st"><b>Approval gate & tool policy</b><small>the live approval queue, auto-execute switch, and default approval mode are managed in Control — the only place these persist</small></span>
                     </div>
                     <div className="srow">
-                      <span className="st"><span className="glabel-inline">Clear model cache</span><small>frees ~48G of downloaded weights · re-pullable</small></span>
-                      <button type="button" className="btn">clear_cache</button>
-                    </div>
-                    <div className="srow">
-                      <span className="st"><span className="glabel-inline">Reset workspace</span><small>irreversible · wipes prefs, threads, and library</small></span>
-                      <button type="button" className="btn btn--danger">reset_workspace</button>
+                      <span className="st"><b>Sandbox & redaction</b><small>enforced by the runtime; their status is reported in Control</small></span>
                     </div>
                   </div>
                 </div>
+                <a className="btn btn--primary" href="/v2/control" style={{ alignSelf: "flex-start", textDecoration: "none" }}>
+                  Open Control →
+                </a>
               </>
             )}
           </div>

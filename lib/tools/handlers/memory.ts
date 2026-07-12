@@ -18,6 +18,7 @@ import {
   type MemoryProvider,
 } from "@/lib/memory/provider";
 import { resolveSection } from "@/lib/settings/resolve";
+import { raiseWarning } from "@/lib/agui/warn";
 
 interface MemoryErrorShape {
   message: string;
@@ -125,7 +126,11 @@ function mirrorAddToProvider(
       metadata: { target, source: "memory_tool" },
     })
     .catch((err) => {
-      console.warn(`[memory] provider ${provider.id} mirror failed`, err);
+      raiseWarning({
+        source: "memory.mirror",
+        message: `provider ${provider.id} mirror failed: ${err instanceof Error ? err.message : String(err)}`,
+        data: { target },
+      });
     });
 }
 

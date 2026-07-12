@@ -13,6 +13,7 @@
  */
 
 import { hub } from "@/lib/agui/hub";
+import { raiseWarning } from "@/lib/agui/warn";
 import {
   createEvent,
   generateId,
@@ -693,9 +694,13 @@ export async function POST(req: Request) {
       // ignored req.run_id and allocated its own — the legacy reconcile
       // path is gone, so this would silently break artifact/run linkage.
       if (agentRunId && agentRunId !== runId) {
-        console.warn(
-          `[Chat] agent-ts run id divergence: deck=${runId} agent=${agentRunId}`,
-        );
+        raiseWarning({
+          source: "chat.run-id",
+          message: `agent-ts run id divergence: deck=${runId} agent=${agentRunId} — artifact/run linkage may break`,
+          threadId,
+          runId,
+          data: { agentRunId },
+        });
       }
 
       // Stream events from agent-ts. Retry the initial connect; mid-stream

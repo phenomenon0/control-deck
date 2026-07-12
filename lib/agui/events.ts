@@ -204,6 +204,21 @@ export interface LLMResolved extends AGUIBase {
   resolveMs?: number;
 }
 
+/**
+ * WarningRaised — a non-fatal fault that would otherwise be swallowed
+ * (mirror sync failed, run-id divergence, degraded fallback). Runs render
+ * these as amber rows in the step timeline; nothing may catch-and-drop an
+ * error without raising one of these. See `lib/agui/warn.ts`.
+ */
+export interface WarningRaised extends AGUIBase {
+  type: "WarningRaised";
+  runId?: string;
+  /** Subsystem that raised it, eg "memory.mirror" | "chat.run-id" | "approvals.hub". */
+  source: string;
+  message: string;
+  data?: DeckPayload;
+}
+
 export type AGUIEvent =
   | RunStarted
   | RunFinished
@@ -220,7 +235,8 @@ export type AGUIEvent =
   | InterruptResolved
   | StepStarted
   | StepFinished
-  | LLMResolved;
+  | LLMResolved
+  | WarningRaised;
 
 export type AGUIEventType = AGUIEvent["type"];
 

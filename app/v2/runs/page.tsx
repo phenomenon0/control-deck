@@ -5,12 +5,13 @@
    timeline. Wired to the LIVE run store: GET /api/agui/runs (list + today's
    cost) and POST /api/agui/runs { runId } (per-run AG-UI events → step
    timeline). Shape mirrors the real Run/RunEvent contract
-   (components/panes/runs/types.ts → lib/agui/db.ts). Fetches on mount and
-   falls back to the realistic mock below on error/empty so it never looks
-   broken. Markup is unchanged from the mock version.
+   (components/panes/runs/types.ts → lib/agui/db.ts). No fabricated data: an
+   empty store shows an honest "no runs yet" state, a failed fetch shows an
+   error state with retry, and a per-run events failure shows an inline warning
+   row (with retry) rather than a bland placeholder step.
    ============================================================================= */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./runs-v2.css";
 import type { Run, RunEvent } from "@/components/panes/runs/types";
 import { formatDuration, formatTime } from "@/components/panes/runs/types";
@@ -18,6 +19,7 @@ import type { DeckPayload } from "@/lib/agui/payload";
 
 type Status = "running" | "finished" | "error";
 type Tone = "positive" | "caution" | "danger";
+type ListState = "loading" | "ok" | "error";
 
 interface RunV {
   id: string;
@@ -35,7 +37,7 @@ interface RunV {
 interface Step {
   tool: string;
   detail: string;
-  status: "complete" | "running" | "error";
+  status: "complete" | "running" | "error" | "warning";
   dur: string;
 }
 
@@ -44,65 +46,6 @@ const STATUS: Record<Status, { tone: Tone; label: string }> = {
   finished: { tone: "positive", label: "ok" },
   error: { tone: "danger", label: "failed" },
 };
-
-const RUNS: RunV[] = [
-  {
-    id: "run_9f3ac2", task: "Render a 768² sunset skyline and index it", status: "running",
-    model: "qwen3-30b-a3b", input_tokens: 4120, output_tokens: 812, cost_usd: 0.0091,
-    started_at: "18:42:07", duration: "…", when: "now",
-    steps: [
-      { tool: "web_search", detail: "reference: golden-hour skyline palettes", status: "complete", dur: "1.2s" },
-      { tool: "generate_image", detail: "prompt · 768×768 · seed 41208", status: "complete", dur: "1.4s" },
-      { tool: "analyze_image", detail: "verify horizon + colour balance", status: "complete", dur: "0.7s" },
-      { tool: "vector_store", detail: "collection=renders · indexing", status: "running", dur: "…" },
-    ],
-  },
-  {
-    id: "run_8e7b10", task: "Summarise routing-thresholds.md and store", status: "finished",
-    model: "llama3.3-70b", input_tokens: 8930, output_tokens: 1204, cost_usd: 0.0212,
-    started_at: "18:31:55", duration: "6.8s", when: "11m ago",
-    steps: [
-      { tool: "read_file", detail: "docs/routing-thresholds.md", status: "complete", dur: "0.1s" },
-      { tool: "vector_search", detail: "prior routing notes · hybrid k=5", status: "complete", dur: "0.4s" },
-      { tool: "vector_store", detail: "collection=docs · 3 chunks", status: "complete", dur: "0.3s" },
-    ],
-  },
-  {
-    id: "run_7c1d94", task: "Build a live GPU meter on the canvas", status: "finished",
-    model: "qwen3-30b-a3b", input_tokens: 2610, output_tokens: 2988, cost_usd: 0.0140,
-    started_at: "17:58:12", duration: "4.1s", when: "45m ago",
-    steps: [
-      { tool: "execute_code", detail: "language=html · canvas mini-app", status: "complete", dur: "2.9s" },
-      { tool: "workspace_open_pane", detail: "type=canvas · beside chat", status: "complete", dur: "0.2s" },
-    ],
-  },
-  {
-    id: "run_6a0f52", task: "Convert product shot to a 3D GLB", status: "error",
-    model: "qwen3-30b-a3b", input_tokens: 1840, output_tokens: 402, cost_usd: 0.0038,
-    started_at: "17:20:44", duration: "12.4s", when: "1h ago",
-    steps: [
-      { tool: "analyze_image", detail: "upload_2f19 · subject on white", status: "complete", dur: "0.6s" },
-      { tool: "image_to_3d", detail: "hunyuan3d · draco compression", status: "error", dur: "11.8s" },
-    ],
-  },
-  {
-    id: "run_5b9e33", task: "Find semantically similar model cards", status: "finished",
-    model: "llama3.3-70b", input_tokens: 5210, output_tokens: 640, cost_usd: 0.0116,
-    started_at: "16:47:03", duration: "1.9s", when: "2h ago",
-    steps: [
-      { tool: "vector_search", detail: "query · hybrid · k=8", status: "complete", dur: "0.5s" },
-      { tool: "web_search", detail: "cross-check publisher pages", status: "complete", dur: "1.1s" },
-    ],
-  },
-  {
-    id: "run_4d2a08", task: "Draft a sigil for the newsroom masthead", status: "finished",
-    model: "qwen3-30b-a3b", input_tokens: 980, output_tokens: 1450, cost_usd: 0.0061,
-    started_at: "15:12:39", duration: "0.9s", when: "3h ago",
-    steps: [
-      { tool: "glyph_motif", detail: "style=sigil · size 256 · seed 7", status: "complete", dur: "0.3s" },
-    ],
-  },
-];
 
 function tokens(n: number) {
   return n.toLocaleString("en-US");
@@ -223,6 +166,17 @@ function buildSteps(events: RunEvent[], runStatus: Status): Step[] {
         }
         break;
       }
+      case "WarningRaised": {
+        activeText = null; // warnings punctuate the flow like tool steps
+        const src = typeof e.source === "string" ? e.source : "warning";
+        steps.push({
+          tool: `⚠ ${src}`,
+          detail: typeof e.message === "string" ? e.message : "",
+          status: "warning",
+          dur: "",
+        });
+        break;
+      }
       case "RunError": {
         errorMsg = e.error?.message ?? "error";
         break;
@@ -273,52 +227,43 @@ function mapRun(r: Run): RunV {
   };
 }
 
-function fallbackSteps(a: RunV, loading: boolean): Step[] {
-  return [
-    {
-      tool: loading ? "loading" : "run",
-      detail: loading ? "fetching events…" : a.task,
-      status: a.status === "error" ? "error" : a.status === "running" ? "running" : "complete",
-      dur: a.duration === "…" ? "" : a.duration,
-    },
-  ];
-}
-
 export default function RunsV2Page() {
-  const [runs, setRuns] = useState<RunV[]>(RUNS);
-  const [usingMock, setUsingMock] = useState(true);
+  const [runs, setRuns] = useState<RunV[]>([]);
+  const [listState, setListState] = useState<ListState>("loading");
   const [filter, setFilter] = useState<"all" | Status>("all");
-  const [selected, setSelected] = useState<string>(RUNS[0].id);
+  const [selected, setSelected] = useState<string>("");
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
+  const [stepsErr, setStepsErr] = useState<Record<string, boolean>>({});
   const [loadingSteps, setLoadingSteps] = useState(false);
 
-  // Fetch recent runs from the live store on mount; keep the mock on error/empty.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/agui/runs?limit=50");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const live: Run[] = Array.isArray(data.runs) ? data.runs : [];
-        if (!cancelled && live.length > 0) {
-          const mapped = live.map(mapRun);
-          setRuns(mapped);
-          setUsingMock(false);
-          setSelected(mapped[0].id);
-        }
-      } catch (err) {
-        console.warn("[runs-v2] live fetch failed, using mock:", err);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // Fetch recent runs from the live store. Honest states only: no runs → empty,
+  // fetch failure → error + retry. Never fabricated feed data.
+  const loadRuns = useCallback(async () => {
+    setListState("loading");
+    try {
+      const res = await fetch("/api/agui/runs?limit=50", { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const live: Run[] = Array.isArray(data.runs) ? data.runs : [];
+      const mapped = live.map(mapRun);
+      setRuns(mapped);
+      setSelected((prev) => (prev && mapped.some((r) => r.id === prev) ? prev : mapped[0]?.id ?? ""));
+      setListState("ok");
+    } catch (err) {
+      console.warn("[runs-v2] live fetch failed:", err);
+      setListState("error");
+    }
   }, []);
 
-  // Pull the selected run's real events → step timeline (cached per run).
   useEffect(() => {
-    if (usingMock || !selected || stepsByRun[selected]) return;
+    void loadRuns();
+  }, [loadRuns]);
+
+  // Pull the selected run's real events → step timeline (cached per run). A
+  // failure is recorded distinctly so the timeline can offer a retry instead of
+  // masquerading as a step-less run.
+  useEffect(() => {
+    if (!selected || stepsByRun[selected] || stepsErr[selected]) return;
     let cancelled = false;
     setLoadingSteps(true);
     (async () => {
@@ -328,13 +273,14 @@ export default function RunsV2Page() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ runId: selected }),
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const events: RunEvent[] = Array.isArray(data.events) ? data.events : [];
         const runStatus = (runs.find((r) => r.id === selected)?.status ?? "finished") as Status;
         if (!cancelled) setStepsByRun((prev) => ({ ...prev, [selected]: buildSteps(events, runStatus) }));
       } catch (err) {
         console.warn("[runs-v2] events fetch failed:", err);
-        if (!cancelled) setStepsByRun((prev) => ({ ...prev, [selected]: [] }));
+        if (!cancelled) setStepsErr((prev) => ({ ...prev, [selected]: true }));
       } finally {
         if (!cancelled) setLoadingSteps(false);
       }
@@ -342,7 +288,20 @@ export default function RunsV2Page() {
     return () => {
       cancelled = true;
     };
-  }, [usingMock, selected, stepsByRun, runs]);
+  }, [selected, stepsByRun, stepsErr, runs]);
+
+  const retryEvents = useCallback((id: string) => {
+    setStepsErr((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setStepsByRun((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
 
   const filtered = useMemo(
     () => (filter === "all" ? runs : runs.filter((r) => r.status === filter)),
@@ -357,18 +316,22 @@ export default function RunsV2Page() {
     error: runs.filter((r) => r.status === "error").length,
   };
 
-  const cached = stepsByRun[active.id];
-  const activeSteps = usingMock
-    ? active.steps
-    : cached && cached.length
-      ? cached
-      : fallbackSteps(active, loadingSteps);
+  const eventsFailed = active ? !!stepsErr[active.id] : false;
+  const cached = active ? stepsByRun[active.id] : undefined;
+  const activeSteps = cached ?? [];
+
+  const countLabel =
+    listState === "loading" && runs.length === 0
+      ? "loading…"
+      : listState === "error"
+        ? "unavailable"
+        : `${runs.length} recent`;
 
   return (
     <div className="av2-runs">
       <header className="top">
         <h1>Runs</h1>
-        <span className="count">{runs.length} recent</span>
+        <span className="count">{countLabel}</span>
         <div className="spacer" />
         <nav className="segs" aria-label="Filter by status">
           {(["all", "running", "finished", "error"] as const).map((k) => (
@@ -385,80 +348,159 @@ export default function RunsV2Page() {
         </nav>
       </header>
 
-      <div className="body">
-        {/* ── run feed ────────────────────────────────────────────────── */}
-        <div className="feed" role="listbox" aria-label="Runs">
-          {filtered.map((r) => {
-            const s = STATUS[r.status];
-            return (
-              <button
-                key={r.id}
-                type="button"
-                className={"run" + (r.id === selected ? " is-active" : "")}
-                onClick={() => setSelected(r.id)}
-                role="option"
-                aria-selected={r.id === selected}
-              >
-                <span className="run__head">
-                  <span className="run__id">{shortId(r.id)}</span>
-                  <span className={"tag tag--status tag--" + s.tone + (r.status === "running" ? " is-live" : "")}>
-                    {s.label}
-                  </span>
-                  <span className="run__when">{r.when}</span>
-                </span>
-                <span className="run__task">{r.task}</span>
-                <span className="run__stats">
-                  <span className="run__model">{r.model}</span>
-                  <span className="dotsep">·</span>
-                  <span>{r.duration}</span>
-                  <span className="dotsep">·</span>
-                  <span>{tokens(r.input_tokens + r.output_tokens)} tok</span>
-                  <span className="dotsep">·</span>
-                  <span>${r.cost_usd.toFixed(4)}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── detail: run + step timeline ─────────────────────────────── */}
-        <aside className="detail">
-          <div className="card panel">
-            <span className="kicker">{shortId(active.id)}</span>
-            <h2 className="rtitle">{active.task}</h2>
-            <div className="rmeta">
-              <span className={"tag tag--status tag--" + STATUS[active.status].tone}>
-                {STATUS[active.status].label}
-              </span>
-              <span className="tag">{active.model}</span>
-              <span className="tag">{active.started_at}</span>
-            </div>
-
-            <div className="kpis">
-              <div className="kpi"><span className="kpi__v">{active.duration}</span><span className="kpi__l">duration</span></div>
-              <div className="kpi"><span className="kpi__v">{tokens(active.input_tokens)}</span><span className="kpi__l">in tok</span></div>
-              <div className="kpi"><span className="kpi__v">{tokens(active.output_tokens)}</span><span className="kpi__l">out tok</span></div>
-              <div className="kpi"><span className="kpi__v">${active.cost_usd.toFixed(4)}</span><span className="kpi__l">cost</span></div>
-            </div>
-
-            <div className="sec-label">Timeline<span className="sec-label__n">{activeSteps.length} steps</span></div>
-            <ol className="timeline">
-              {activeSteps.map((st, i) => (
-                <li key={i} className={"tstep tstep--" + st.status}>
-                  <span className="tstep__rail"><span className="tstep__dot" /></span>
-                  <span className="tstep__body">
-                    <span className="tstep__top">
-                      <b className="tstep__tool">{st.tool}</b>
-                      <span className="tstep__dur">{st.dur}</span>
-                    </span>
-                    <small className="tstep__detail">{st.detail}</small>
-                  </span>
-                </li>
-              ))}
-            </ol>
+      {listState === "error" ? (
+        /* ── honest error state ─────────────────────────────────────────── */
+        <div className="statewrap">
+          <div className="card statecard statecard--error">
+            <span className="statecard__mark ic" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}
+                strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <path d="M12 9v4M12 17h.01" />
+              </svg>
+            </span>
+            <h3>Couldn&rsquo;t load runs</h3>
+            <p>The run store didn&rsquo;t respond. Nothing is lost — retry once it&rsquo;s reachable.</p>
+            <button type="button" className="btn" onClick={() => void loadRuns()}>retry</button>
           </div>
-        </aside>
-      </div>
+        </div>
+      ) : listState === "loading" && runs.length === 0 ? (
+        /* ── first load ─────────────────────────────────────────────────── */
+        <div className="statewrap">
+          <div className="card statecard">
+            <p>Loading runs…</p>
+          </div>
+        </div>
+      ) : runs.length === 0 ? (
+        /* ── honest empty state ─────────────────────────────────────────── */
+        <div className="statewrap">
+          <div className="card statecard">
+            <span className="statecard__mark ic" aria-hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6}
+                strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 4h16v16H4z" opacity="0" />
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+              </svg>
+            </span>
+            <h3>No runs yet</h3>
+            <p>Agent runs appear here as they happen. Start one from Chat and its step timeline lands here live.</p>
+          </div>
+        </div>
+      ) : (
+        <div className="body">
+          {/* ── run feed ────────────────────────────────────────────────── */}
+          <div className="feed" role="listbox" aria-label="Runs">
+            {filtered.map((r) => {
+              const s = STATUS[r.status];
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  className={"run" + (r.id === selected ? " is-active" : "")}
+                  onClick={() => setSelected(r.id)}
+                  role="option"
+                  aria-selected={r.id === selected}
+                >
+                  <span className="run__head">
+                    <span className="run__id">{shortId(r.id)}</span>
+                    <span className={"tag tag--status tag--" + s.tone + (r.status === "running" ? " is-live" : "")}>
+                      {s.label}
+                    </span>
+                    <span className="run__when">{r.when}</span>
+                  </span>
+                  <span className="run__task">{r.task}</span>
+                  <span className="run__stats">
+                    <span className="run__model">{r.model}</span>
+                    <span className="dotsep">·</span>
+                    <span>{r.duration}</span>
+                    <span className="dotsep">·</span>
+                    <span>{tokens(r.input_tokens + r.output_tokens)} tok</span>
+                    <span className="dotsep">·</span>
+                    <span>${r.cost_usd.toFixed(4)}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ── detail: run + step timeline ─────────────────────────────── */}
+          <aside className="detail">
+            {active && (
+              <div className="card panel">
+                <span className="kicker">{shortId(active.id)}</span>
+                <h2 className="rtitle">{active.task}</h2>
+                <div className="rmeta">
+                  <span className={"tag tag--status tag--" + STATUS[active.status].tone}>
+                    {STATUS[active.status].label}
+                  </span>
+                  <span className="tag">{active.model}</span>
+                  <span className="tag">{active.started_at}</span>
+                </div>
+
+                <div className="kpis">
+                  <div className="kpi"><span className="kpi__v">{active.duration}</span><span className="kpi__l">duration</span></div>
+                  <div className="kpi"><span className="kpi__v">{tokens(active.input_tokens)}</span><span className="kpi__l">in tok</span></div>
+                  <div className="kpi"><span className="kpi__v">{tokens(active.output_tokens)}</span><span className="kpi__l">out tok</span></div>
+                  <div className="kpi"><span className="kpi__v">${active.cost_usd.toFixed(4)}</span><span className="kpi__l">cost</span></div>
+                </div>
+
+                <div className="sec-label">
+                  Timeline
+                  <span className="sec-label__n">
+                    {eventsFailed ? "" : `${activeSteps.length} steps`}
+                  </span>
+                </div>
+                <ol className="timeline">
+                  {eventsFailed ? (
+                    <li className="tstep tstep--error">
+                      <span className="tstep__rail"><span className="tstep__dot" /></span>
+                      <span className="tstep__body">
+                        <span className="tstep__top">
+                          <b className="tstep__tool">couldn&rsquo;t load events</b>
+                        </span>
+                        <small className="tstep__detail">
+                          The events store didn&rsquo;t respond for this run.{" "}
+                          <button type="button" className="linkbtn" onClick={() => retryEvents(active.id)}>
+                            retry
+                          </button>
+                        </small>
+                      </span>
+                    </li>
+                  ) : loadingSteps && !cached ? (
+                    <li className="tstep tstep--running">
+                      <span className="tstep__rail"><span className="tstep__dot" /></span>
+                      <span className="tstep__body">
+                        <span className="tstep__top"><b className="tstep__tool">loading events…</b></span>
+                      </span>
+                    </li>
+                  ) : activeSteps.length === 0 ? (
+                    <li className="tstep">
+                      <span className="tstep__rail"><span className="tstep__dot" /></span>
+                      <span className="tstep__body">
+                        <span className="tstep__top"><b className="tstep__tool">no steps</b></span>
+                        <small className="tstep__detail">This run recorded no tool or message events.</small>
+                      </span>
+                    </li>
+                  ) : (
+                    activeSteps.map((st, i) => (
+                      <li key={i} className={"tstep tstep--" + st.status}>
+                        <span className="tstep__rail"><span className="tstep__dot" /></span>
+                        <span className="tstep__body">
+                          <span className="tstep__top">
+                            <b className="tstep__tool">{st.tool}</b>
+                            <span className="tstep__dur">{st.dur}</span>
+                          </span>
+                          <small className="tstep__detail">{st.detail}</small>
+                        </span>
+                      </li>
+                    ))
+                  )}
+                </ol>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

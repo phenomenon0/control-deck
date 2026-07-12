@@ -15,7 +15,7 @@ import type {
   WorkspaceWriteNoteArgs,
   WorkspaceShowCanvasArgs,
 } from "../definitions";
-import { publishCommand, publishQuery } from "@/lib/workspace/command-relay";
+import { publishCommand, publishQuery, subscriberCount } from "@/lib/workspace/command-relay";
 import type { ToolExecutionResult } from "../executor";
 
 const WORKSPACE_QUERY_TIMEOUT_MS = 5_000;
@@ -186,7 +186,27 @@ function resultLoaded(result: unknown): boolean {
   return typeof result === "object" && result !== null && (result as { loaded?: unknown }).loaded === true;
 }
 
+/**
+ * Fire-and-forget commands must not report success into the void: with no
+ * SSE subscriber there is no workspace tab, and the command would be
+ * silently dropped. Same error shape as the query-timeout path.
+ */
+function noWorkspaceClient(command: string): ToolExecutionResult {
+  return workspaceMacroError(
+    "workspace_error",
+    "workspace_not_open",
+    "No workspace tab is connected. Open /deck/workspace and retry the workspace operation.",
+    [
+      "Open http://localhost:3333/deck/workspace",
+      "Wait until the workspace finishes loading",
+      "Retry the workspace operation",
+    ],
+    { query: command, workspaceOpen: false },
+  );
+}
+
 export function executeWorkspaceOpenPane(args: WorkspaceOpenPaneArgs): ToolExecutionResult {
+  if (subscriberCount() === 0) return noWorkspaceClient("open_pane");
   const cmd = publishCommand({
     command: "open_pane",
     args: args as unknown as Record<string, unknown>,
@@ -199,6 +219,7 @@ export function executeWorkspaceOpenPane(args: WorkspaceOpenPaneArgs): ToolExecu
 }
 
 export function executeWorkspaceClosePane(args: WorkspaceClosePaneArgs): ToolExecutionResult {
+  if (subscriberCount() === 0) return noWorkspaceClient("close_pane");
   const cmd = publishCommand({
     command: "close_pane",
     args: args as unknown as Record<string, unknown>,
@@ -211,6 +232,7 @@ export function executeWorkspaceClosePane(args: WorkspaceClosePaneArgs): ToolExe
 }
 
 export function executeWorkspaceFocusPane(args: WorkspaceFocusPaneArgs): ToolExecutionResult {
+  if (subscriberCount() === 0) return noWorkspaceClient("focus_pane");
   const cmd = publishCommand({
     command: "focus_pane",
     args: args as unknown as Record<string, unknown>,
@@ -223,6 +245,7 @@ export function executeWorkspaceFocusPane(args: WorkspaceFocusPaneArgs): ToolExe
 }
 
 export function executeWorkspaceReset(): ToolExecutionResult {
+  if (subscriberCount() === 0) return noWorkspaceClient("reset");
   const cmd = publishCommand({ command: "reset", args: {} });
   return {
     success: true,

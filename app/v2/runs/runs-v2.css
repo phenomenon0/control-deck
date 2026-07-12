@@ -91,6 +91,26 @@
 .av2-runs .tstep__dur { margin-left: auto; font-family: var(--font-data); font-size: 10px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .av2-runs .tstep__detail { display: block; font-family: var(--font-ui); font-size: 11.5px; color: var(--ink-soft); line-height: 1.45; margin-top: 2px; }
 .av2-runs .tstep--error .tstep__tool { color: color-mix(in srgb, rgb(var(--danger-rgb)) 70%, var(--ink-strong) 30%); }
+.av2-runs .tstep--warning .tstep__dot { border-color: rgb(var(--caution-rgb)); }
+.av2-runs .tstep--warning .tstep__tool { color: color-mix(in srgb, rgb(var(--caution-rgb)) 70%, var(--ink-strong) 30%); }
+
+/* ── honest empty / error states ──────────────────────────────────────────── */
+.av2-runs .statewrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: var(--space-7); }
+.av2-runs .statecard { max-width: 420px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: var(--space-7) var(--space-6); background: var(--surface-sunken); border-color: rgba(var(--fg-rgb), 0.06); box-shadow: 0 1px 3px var(--depth) inset, 0 1px 0 var(--sheen); }
+.av2-runs .statecard__mark { width: 32px; height: 32px; color: var(--ink-faint); opacity: 0.8; }
+.av2-runs .statecard__mark svg { width: 32px; height: 32px; }
+.av2-runs .statecard--error .statecard__mark { color: rgb(var(--danger-rgb)); opacity: 0.9; }
+.av2-runs .statecard h3 { font-family: var(--font-reading); font-size: var(--text-lg); font-weight: 600; color: var(--ink-strong); }
+.av2-runs .statecard p { font-family: var(--font-ui); font-size: var(--text-sm); color: var(--ink-soft); max-width: 340px; line-height: var(--leading-body); }
+
+/* ── retry button + inline link action ────────────────────────────────────── */
+.av2-runs .btn { font-family: var(--font-data); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; line-height: 1; height: var(--btn-h-md); padding: 0 var(--space-4); margin-top: 4px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); border-radius: var(--btn-radius); border: 1px solid var(--btn-line); background: var(--btn-fill); color: var(--ink-strong); cursor: pointer; transition: background var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out); }
+.av2-runs .btn:hover { background: var(--btn-fill-hover); border-color: var(--btn-pri-line); }
+.av2-runs .linkbtn { font-family: var(--font-data); font-size: 11px; color: var(--accent-text); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.av2-runs .linkbtn:hover { color: var(--ink-strong); }
+
+/* warning-toned timeline dot reuses --error tone; running dot pulses (loading) */
+.av2-runs .ic svg { display: block; }
 
 /* ── mobile fold ────────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {

@@ -16,6 +16,7 @@ const CODE_EXEC_LIMITS = {
 import type {
   ToolCall,
   EditImageArgs,
+  UpscaleImageArgs,
   GenerateAudioArgs,
   ImageTo3DArgs,
   GenerateImageArgs,
@@ -80,16 +81,19 @@ import { executeSkillView } from "./handlers/skill";
 import { executeSkillManage } from "./handlers/skill-manage";
 import { vectorSearch, vectorStore, vectorIngestUrl, vectorStoreChunked } from "./vectordb";
 import { executeComfyWorkflow, saveImageToComfyInput, type ComfyToolContext, type ComfyToolResult } from "./comfy";
+import { getImageModelAvailability } from "./comfyModels";
 import { loadWorkflow } from "./workflows";
 import { applyWorkflowParams, getComfyWorkflow, listComfyWorkflows } from "@/lib/comfy/workflows";
 import { getUpload, createArtifact, getArtifact, saveEvent } from "@/lib/agui/db";
 import { generateGlyphSvg, generateGlyphSheet, type GlyphStyle } from "./glyph";
 import { createEvent, type ArtifactCreated } from "@/lib/agui/events";
 import { hub } from "@/lib/agui/hub";
+import { raiseWarning } from "@/lib/agui/warn";
 import { executeCode as runCode } from "./code-exec";
 import { type DeckPayload, jsonPayload, smartEncode } from "@/lib/agui/payload";
-import { artifactFilePath, artifactRunDir, artifactUrl } from "@/lib/storage/paths";
+import { artifactFilePath, artifactRoot, artifactRunDir, artifactUrl } from "@/lib/storage/paths";
 import * as fs from "fs/promises";
+import { realpathSync, statSync } from "fs";
 
 // GLYPH encoding configuration
 const GLYPH_CONFIG = {
@@ -107,6 +111,7 @@ const GLYPH_EXCLUDE_TOOLS = new Set([
   'execute_code',     // Text stdout - keep as text
   'generate_image',   // Artifact refs only
   'edit_image',       // Artifact refs only
+  'upscale_image',    // Artifact refs only
   'generate_audio',   // Artifact refs only
   'image_to_3d',      // Artifact refs only
   'glyph_motif',      // SVG artifact
@@ -175,8 +180,15 @@ export async function executeTool(
           envelope,
         };
       }
-    } catch {
-      // Envelope capture must not mask the original error.
+    } catch (envErr) {
+      // Envelope capture must not mask the original error — but its own
+      // failure shouldn't vanish either.
+      raiseWarning({
+        source: "native.envelope",
+        message: `failure-envelope capture failed for ${tool.name}: ${envErr instanceof Error ? envErr.message : String(envErr)}`,
+        threadId: ctx.threadId,
+        runId: ctx.runId,
+      });
     }
   }
 
@@ -191,6 +203,8 @@ async function dispatchTool(
     switch (tool.name) {
       case "edit_image":
         return await executeEditImage(tool.args, ctx);
+      case "upscale_image":
+        return await executeUpscaleImage(tool.args, ctx);
       case "generate_audio":
         return await executeGenerateAudio(tool.args, ctx);
       case "image_to_3d":
@@ -332,8 +346,221 @@ export async function executeToolWithGlyph(
   return result;
 }
 
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif"]);
+
+const MODEL_ENV_OVERRIDES: Record<string, string[]> = {
+  "qwen-edit": ["QWEN_EDIT_UNET", "QWEN_EDIT_CLIP", "QWEN_EDIT_VAE"],
+  "flux2-klein": ["FLUX2_KLEIN_UNET", "FLUX2_KLEIN_CLIP", "FLUX2_KLEIN_VAE"],
+  "z-image-turbo": ["Z_IMAGE_UNET", "Z_IMAGE_CLIP", "Z_IMAGE_VAE"],
+  upscale: ["UPSCALE_MODEL"],
+};
+
+const UPSCALE_MODEL_FILES: Record<NonNullable<UpscaleImageArgs["model"]>, string> = {
+  "realesrgan-x4": "RealESRGAN_x4plus.pth",
+  "ultrasharp-x4": "4x-UltraSharp.pth",
+};
+
+type ImageModelAvailabilityResult = Awaited<ReturnType<typeof getImageModelAvailability>>;
+
+interface ImageSourceData {
+  base64: string;
+  mimeType: string;
+  label: string;
+}
+
+export function resolveArtifactImagePath(imageUrl: string): string | null {
+  try {
+    const parsed = parseArtifactImageUrl(imageUrl);
+    if (!parsed) return null;
+    if (!isPlainPathSegment(parsed.runId) || !isPlainPathSegment(parsed.filename)) return null;
+    if (!IMAGE_EXTENSIONS.has(path.extname(parsed.filename).toLowerCase())) return null;
+
+    const root = realpathSync(artifactRoot());
+    const candidate = path.resolve(root, parsed.runId, parsed.filename);
+    const realPath = realpathSync(candidate);
+    const stats = statSync(realPath);
+    if (!stats.isFile()) return null;
+    if (realPath !== root && realPath.startsWith(root + path.sep)) {
+      return realPath;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseArtifactImageUrl(imageUrl: string): { runId: string; filename: string } | null {
+  let url: URL;
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(imageUrl);
+    if (hasScheme && !/^https?:\/\//i.test(imageUrl)) return null;
+    url = new URL(imageUrl, "http://control-deck.local");
+  } catch {
+    return null;
+  }
+
+  const segments = url.pathname.split("/");
+  if (segments.length !== 5 || segments[1] !== "api" || segments[2] !== "artifacts") {
+    return null;
+  }
+
+  try {
+    return {
+      runId: decodeURIComponent(segments[3]),
+      filename: decodeURIComponent(segments[4]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isPlainPathSegment(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value !== "." &&
+    value !== ".." &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !path.isAbsolute(value)
+  );
+}
+
+function mimeTypeForImagePath(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  if (ext === ".bmp") return "image/bmp";
+  if (ext === ".avif") return "image/avif";
+  return "image/png";
+}
+
+function imageDataUri(source: ImageSourceData): string {
+  return `data:${source.mimeType};base64,${source.base64}`;
+}
+
+async function readUpscaleSource(args: UpscaleImageArgs): Promise<
+  | { source: ImageSourceData; failure?: undefined }
+  | { source?: undefined; failure: ToolExecutionResult }
+> {
+  if (args.image_id) {
+    const upload = getUpload(args.image_id);
+    if (!upload) {
+      return {
+        failure: {
+          success: false,
+          message: `Image not found: ${args.image_id}`,
+          error: "Image not found",
+        },
+      };
+    }
+    return {
+      source: {
+        base64: upload.data,
+        mimeType: upload.mime_type,
+        label: upload.filename ?? args.image_id,
+      },
+    };
+  }
+
+  const imageUrl = args.image_url ?? "";
+  const filePath = resolveArtifactImagePath(imageUrl);
+  if (!filePath) {
+    return {
+      failure: {
+        success: false,
+        message: `Artifact image not found or not allowed: ${imageUrl}`,
+        error: "Invalid artifact image URL",
+        error_code: "invalid_artifact_image_url",
+        recovery: ["Pass an artifact URL of the form /api/artifacts/<runId>/<filename> for an existing image artifact."],
+        safe_to_retry: false,
+      },
+    };
+  }
+
+  const bytes = await fs.readFile(filePath);
+  return {
+    source: {
+      base64: bytes.toString("base64"),
+      mimeType: mimeTypeForImagePath(filePath),
+      label: path.basename(filePath),
+    },
+  };
+}
+
+function localPresetUnavailableResult(
+  preset: string,
+  availability: ImageModelAvailabilityResult,
+): ToolExecutionResult | null {
+  const presetAvailability = availability.presets[preset];
+  if (availability.online && presetAvailability?.available) return null;
+
+  const missing = presetAvailability?.missing ?? [];
+  const missingNodes = presetAvailability?.missingNodes ?? [];
+  const detail = [
+    ...missing,
+    ...missingNodes.map((node) => `node:${node}`),
+  ].join(", ") || (availability.online ? "unknown missing model or node" : "ComfyUI offline");
+
+  return {
+    success: false,
+    message: `Local image preset unavailable for ${preset}: ${detail}`,
+    error: `Local image preset unavailable: ${preset}`,
+    error_code: availability.online ? "image_model_unavailable" : "comfy_offline",
+    recovery: [imagePresetRecovery(preset, availability)],
+    safe_to_retry: true,
+    data: {
+      online: availability.online,
+      preset,
+      missing,
+      missingNodes,
+    },
+  };
+}
+
+function imagePresetRecovery(
+  preset: string,
+  availability: ImageModelAvailabilityResult,
+): string {
+  const presetAvailability = availability.presets[preset];
+  const missing = presetAvailability?.missing ?? [];
+  const missingNodes = presetAvailability?.missingNodes ?? [];
+  const envOverrides = MODEL_ENV_OVERRIDES[preset] ?? [];
+  const envText = envOverrides.length ? ` (env overrides: ${envOverrides.join(", ")})` : "";
+
+  if (!availability.online) {
+    return `ComfyUI offline -> start with: bash ~/ai/ComfyUI/start-comfy.sh. Then download/check models with: bash scripts/download-image-models.sh ${preset}${envText}`;
+  }
+
+  const missingText = missing.length ? missing.join(", ") : "none reported";
+  const nodeText = missingNodes.length ? ` Missing ComfyUI nodes: ${missingNodes.join(", ")}.` : "";
+  return `Model files missing for ${preset}: ${missingText}.${nodeText} Download with: bash scripts/download-image-models.sh ${preset}${envText}`;
+}
+
+function noAutoEditBackendResult(availability: ImageModelAvailabilityResult): ToolExecutionResult {
+  return {
+    success: false,
+    message: "No image edit backend is available.",
+    error: "No image edit backend is available",
+    error_code: availability.online ? "image_edit_backend_unavailable" : "comfy_offline",
+    recovery: [
+      imagePresetRecovery("qwen-edit", availability),
+      imagePresetRecovery("flux2-klein", availability),
+      "Set FAL_API_KEY to allow the fal edit backend.",
+    ],
+    safe_to_retry: true,
+    data: {
+      online: availability.online,
+      presets: {
+        "qwen-edit": availability.presets["qwen-edit"],
+        "flux2-klein": availability.presets["flux2-klein"],
+      },
+    },
+  };
+}
+
 /**
- * Edit image using Qwen Image Edit
+ * Edit image using local Qwen/Flux2 or FAL.
  */
 async function executeEditImage(
   args: EditImageArgs,
@@ -349,24 +576,118 @@ async function executeEditImage(
     };
   }
 
-  // Save image to ComfyUI input folder
-  const imageFilename = await saveImageToComfyInput(upload.data, upload.mime_type);
+  const backend = args.backend ?? "auto";
+  const seed = args.seed ?? Math.floor(Math.random() * 1000000);
+  let imageFilename: string | undefined;
+  const getImageFilename = async () => {
+    imageFilename ??= await saveImageToComfyInput(upload.data, upload.mime_type);
+    return imageFilename;
+  };
 
-  // Build workflow with parameters
-  const workflow = loadWorkflow("qwen-edit", {
-    image_filename: imageFilename,
-    instruction: args.instruction,
-    seed: args.seed ?? Math.floor(Math.random() * 1000000),
-  });
+  if (backend === "fal") {
+    return await executeFalEditImage(upload.data, upload.mime_type, args.instruction, args.seed, ctx);
+  }
 
-  const result = await executeComfyWorkflow(
-    workflow,
-    `edit_${Date.now()}`,
-    ctx,
-    "qwen-edit"
+  const availability = await getImageModelAvailability();
+
+  if (backend === "qwen-local") {
+    const unavailable = localPresetUnavailableResult("qwen-edit", availability);
+    if (unavailable) return unavailable;
+
+    const workflow = loadWorkflow("qwen-edit", {
+      image_filename: await getImageFilename(),
+      instruction: args.instruction,
+      seed,
+    });
+
+    const result = await executeComfyWorkflow(
+      workflow,
+      `edit_${Date.now()}`,
+      ctx,
+      "qwen-edit"
+    );
+
+    return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
+  }
+
+  if (backend === "flux2-local") {
+    const unavailable = localPresetUnavailableResult("flux2-klein", availability);
+    if (unavailable) return unavailable;
+
+    const workflow = loadWorkflow("flux2-klein", {
+      image_filename: await getImageFilename(),
+      prompt: args.instruction,
+      seed,
+    });
+
+    const result = await executeComfyWorkflow(
+      workflow,
+      `edit_${Date.now()}`,
+      ctx,
+      "flux2-klein"
+    );
+
+    return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
+  }
+
+  const autoPreset = ["qwen-edit", "flux2-klein"].find((preset) =>
+    availability.online && availability.presets[preset]?.available
   );
+  if (autoPreset) {
+    const workflow = autoPreset === "qwen-edit"
+      ? loadWorkflow("qwen-edit", {
+          image_filename: await getImageFilename(),
+          instruction: args.instruction,
+          seed,
+        })
+      : loadWorkflow("flux2-klein", {
+          image_filename: await getImageFilename(),
+          prompt: args.instruction,
+          seed,
+        });
 
-  return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
+    const result = await executeComfyWorkflow(
+      workflow,
+      `edit_${Date.now()}`,
+      ctx,
+      autoPreset
+    );
+
+    return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
+  }
+
+  if (process.env.FAL_API_KEY) {
+    return await executeFalEditImage(upload.data, upload.mime_type, args.instruction, args.seed, ctx);
+  }
+
+  return noAutoEditBackendResult(availability);
+}
+
+async function executeFalEditImage(
+  base64: string,
+  mimeType: string,
+  instruction: string,
+  seed: number | undefined,
+  ctx: ExecutorContext,
+): Promise<ToolExecutionResult> {
+  const { invokeImageGenProvider } = await import("@/lib/inference/image-gen/invoke");
+  try {
+    const cloudResult = await invokeImageGenProvider("fal", {
+      prompt: instruction,
+      seed,
+      inputImage: { url: `data:${mimeType};base64,${base64}` },
+    });
+    return await cloudImageToExecutorResult(cloudResult, instruction, ctx);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "fal image edit failed";
+    return {
+      success: false,
+      message: `FAL image edit failed: ${msg}`,
+      error: msg,
+      recovery: ["Set FAL_API_KEY and verify FAL_EDIT_MODEL, or use a local edit backend after downloading its models."],
+      safe_to_retry: true,
+    };
+  }
 }
 
 /**
@@ -473,6 +794,60 @@ async function executeGenerateImage(
   args: GenerateImageArgs,
   ctx: ExecutorContext
 ): Promise<ToolExecutionResult> {
+  if (args.preset === "fal") {
+    const { invokeImageGenProvider } = await import("@/lib/inference/image-gen/invoke");
+    try {
+      const cloudResult = await invokeImageGenProvider("fal", {
+        prompt: args.prompt,
+        width: args.width,
+        height: args.height,
+        steps: args.steps,
+        seed: args.seed,
+        negativePrompt: args.negative_prompt,
+        extras: args.cfg !== undefined ? { guidance_scale: args.cfg } : undefined,
+      });
+      return await cloudImageToExecutorResult(cloudResult, args.prompt, ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "image-gen failed";
+      return {
+        success: false,
+        message: `FAL image-gen failed: ${msg}`,
+        error: msg,
+        recovery: ["Set FAL_API_KEY and verify FAL_IMAGE_MODEL, or use a local preset after downloading its models."],
+        safe_to_retry: true,
+      };
+    }
+  }
+
+  if (args.preset) {
+    const availability = await getImageModelAvailability();
+    const unavailable = localPresetUnavailableResult(args.preset, availability);
+    if (unavailable) return unavailable;
+
+    console.log(`[Executor] Using ComfyUI backend (${args.preset})`);
+    const workflow = loadWorkflow(args.preset, {
+      prompt: args.prompt,
+      negative_prompt: args.negative_prompt,
+      width: args.width,
+      height: args.height,
+      steps: args.steps,
+      cfg: args.cfg,
+      sampler: args.sampler,
+      scheduler: args.scheduler,
+      shift: args.shift,
+      seed: args.seed ?? Math.floor(Math.random() * 1000000),
+    });
+
+    const result = await executeComfyWorkflow(
+      workflow,
+      `img_${Date.now()}`,
+      ctx,
+      args.preset
+    );
+
+    return comfyResultToExecutorResult(result, `Generated image: "${args.prompt}"`);
+  }
+
   // Cloud slot opt-in: only when the user explicitly binds a provider via
   // IMAGE_GEN_PROVIDER env. Default (no binding) preserves the Lite/ComfyUI
   // routing below.
@@ -495,6 +870,10 @@ async function executeGenerateImage(
     }
   }
 
+  const availability = await getImageModelAvailability();
+  const unavailable = localPresetUnavailableResult("sdxl-turbo", availability);
+  if (unavailable) return unavailable;
+
   console.log("[Executor] Using ComfyUI backend (SDXL Turbo)");
   const workflow = loadWorkflow("sdxl-turbo", {
     prompt: args.prompt,
@@ -512,6 +891,53 @@ async function executeGenerateImage(
   );
 
   return comfyResultToExecutorResult(result, `Generated image: "${args.prompt}"`);
+}
+
+async function executeUpscaleImage(
+  args: UpscaleImageArgs,
+  ctx: ExecutorContext
+): Promise<ToolExecutionResult> {
+  const sourceResult = await readUpscaleSource(args);
+  if (sourceResult.failure) return sourceResult.failure;
+  const source = sourceResult.source;
+
+  if ((args.backend ?? "local") === "fal") {
+    const { invokeImageUpscaleProvider } = await import("@/lib/inference/image-gen/invoke");
+    try {
+      const cloudResult = await invokeImageUpscaleProvider("fal", {
+        imageUrl: imageDataUri(source),
+      });
+      return await cloudImageToExecutorResult(cloudResult, `upscaled image: ${source.label}`, ctx);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "fal image upscale failed";
+      return {
+        success: false,
+        message: `FAL image upscale failed: ${msg}`,
+        error: msg,
+        recovery: ["Set FAL_API_KEY and verify FAL_UPSCALE_MODEL, or use backend local after downloading the upscale model."],
+        safe_to_retry: true,
+      };
+    }
+  }
+
+  const availability = await getImageModelAvailability();
+  const unavailable = localPresetUnavailableResult("upscale", availability);
+  if (unavailable) return unavailable;
+
+  const imageFilename = await saveImageToComfyInput(source.base64, source.mimeType);
+  const workflow = loadWorkflow("upscale", {
+    image_filename: imageFilename,
+    upscale_model: args.model ? UPSCALE_MODEL_FILES[args.model] : undefined,
+  });
+
+  const result = await executeComfyWorkflow(
+    workflow,
+    `upscale_${Date.now()}`,
+    ctx,
+    "upscale"
+  );
+
+  return comfyResultToExecutorResult(result, `Upscaled image: "${source.label}"`);
 }
 
 function cleanWorkflowRef(value: string): string {

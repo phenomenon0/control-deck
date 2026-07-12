@@ -132,6 +132,14 @@ function CapacityBar({ snapshot }: { snapshot: LedgerSnapshot | null }) {
         </span>
         <span style={{ ...meta, opacity: 0.6 }}>source: {source}</span>
       </div>
+      {snapshot?.ram ? (
+        <div style={{ marginBottom: 6 }}>
+          <span style={meta}>
+            host RAM <strong style={snapshot.ram.availableMb < snapshot.ram.reserveMb ? { color: "rgb(var(--danger-rgb, 224 106 112))" } : undefined}>{fmtMb(snapshot.ram.availableMb)}</strong> available
+            <span style={{ opacity: 0.6 }}> / {fmtMb(snapshot.ram.totalMb)} · guard at {fmtMb(snapshot.ram.reserveMb)}</span>
+          </span>
+        </div>
+      ) : null}
       <div style={barTrack}>
         <div style={{ ...barFill, width: `${Math.min(100, usedPct)}%` }} />
         <div

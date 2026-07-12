@@ -207,8 +207,9 @@ export async function GET() {
   const TERMINAL_SERVICE_URL = process.env.TERMINAL_SERVICE_URL ?? "http://127.0.0.1:4010";
 
   // Check all services in parallel
-  const [gpu, ollama, comfy, voice, vectordb, searxng, terminalService] = await Promise.all([
+  const [gpu, ram, ollama, comfy, voice, vectordb, searxng, terminalService] = await Promise.all([
     getGpuStats(),
+    import("@/lib/resource/ledger").then((m) => m.readHostRam()).catch(() => null),
     checkService("Ollama", `${OLLAMA_URL}/api/tags`),
     checkService("ComfyUI", `${COMFY_URL}/system_stats`),
     checkService("Voice (s2s)", `${VOICE_URL}/v1/pool`),
@@ -219,6 +220,8 @@ export async function GET() {
 
   return NextResponse.json({
     gpu,
+    // Host RAM (MemAvailable-based) — the axis the OOM-killer fires on.
+    ram,
     services: [ollama, comfy, terminalService, vectordb, searxng, voice],
     timestamp: new Date().toISOString(),
   });

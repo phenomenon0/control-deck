@@ -22,6 +22,7 @@ import type { GpuProcess } from "@/lib/hardware/gpu-types";
 
 import { attachProcessMemory, collectKvCaches } from "./kv-cache";
 import type {
+  HostRam,
   KvCacheTelemetry,
   LedgerSnapshot,
   Reservation,
@@ -48,6 +49,56 @@ const POLL_INTERVAL_MS = (() => {
   }
   return 10_000;
 })();
+
+/**
+ * Host-RAM floor for admission control. The first release-QA torture run
+ * proved the failure mode: VRAM arbitration succeeded, but streaming 12 GB
+ * of weights spiked host RAM and the kernel OOM-killer took the session.
+ */
+const RAM_RESERVE_MB = (() => {
+  const raw = process.env.DECK_RAM_RESERVE_MB;
+  if (raw) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return 3072;
+})();
+
+/**
+ * Host RAM sample. Linux reads /proc/meminfo (MemAvailable is the
+ * OOM-killer-relevant number); darwin approximates via sysctl + vm_stat;
+ * anything else returns null and the guard stays out of the way.
+ */
+export async function readHostRam(): Promise<HostRam | null> {
+  try {
+    if (process.platform === "linux") {
+      const { readFile } = await import("node:fs/promises");
+      const info = await readFile("/proc/meminfo", "utf8");
+      const kb = (key: string): number => {
+        const m = new RegExp(`^${key}:\\s*(\\d+) kB`, "m").exec(info);
+        return m ? Number.parseInt(m[1], 10) : 0;
+      };
+      const totalMb = Math.floor(kb("MemTotal") / 1024);
+      const availableMb = Math.floor(kb("MemAvailable") / 1024);
+      if (totalMb <= 0) return null;
+      return { totalMb, usedMb: totalMb - availableMb, availableMb, reserveMb: RAM_RESERVE_MB };
+    }
+    if (process.platform === "darwin") {
+      const total = await execAsync("sysctl -n hw.memsize", { timeout: 1000 });
+      const totalMb = Math.floor(Number.parseInt(total.stdout.trim(), 10) / (1024 * 1024));
+      const vm = await execAsync("vm_stat", { timeout: 1000 });
+      const pageMb = 16384 / (1024 * 1024);
+      const availableMb = Math.floor(
+        (matchVmStat(vm.stdout, "Pages free") + matchVmStat(vm.stdout, "Pages inactive")) * pageMb,
+      );
+      if (totalMb <= 0) return null;
+      return { totalMb, usedMb: totalMb - availableMb, availableMb, reserveMb: RAM_RESERVE_MB };
+    }
+  } catch {
+    /* fall through */
+  }
+  return null;
+}
 
 /**
  * Raw GPU memory read. Returns null if no GPU is detected (caller should
@@ -122,6 +173,7 @@ interface LedgerState {
   listeners: Set<ResourceEventListener>;
   reservationProvider: () => Reservation[];
   memoryOverride: (() => Promise<GpuMemory | null>) | null;
+  ramOverride: (() => Promise<HostRam | null>) | null;
   reserveOverrideMb: number | null;
 }
 
@@ -146,6 +198,7 @@ function ledgerState(): LedgerState {
       listeners: new Set(),
       reservationProvider: () => [],
       memoryOverride: null,
+      ramOverride: null,
       reserveOverrideMb: null,
     };
   }
@@ -184,10 +237,11 @@ export function getSnapshot(): LedgerSnapshot {
 export async function refreshSnapshot(): Promise<LedgerSnapshot> {
   const s = ledgerState();
   const memFn = s.memoryOverride ?? readGpuMemory;
-  const [mem, procs, rawKvCaches] = await Promise.all([
+  const [mem, procs, rawKvCaches, ram] = await Promise.all([
     memFn(),
     s.memoryOverride ? Promise.resolve([]) : collectGpuProcesses(),
     s.memoryOverride ? Promise.resolve([]) : collectKvCaches(),
+    (s.ramOverride ?? readHostRam)(),
   ]);
   const gpuProcesses = procs ?? [];
   const kvCaches = attachProcessMemory(rawKvCaches, llamaCppProcessMemoryMb(gpuProcesses));
@@ -197,9 +251,11 @@ export async function refreshSnapshot(): Promise<LedgerSnapshot> {
     s.reservationProvider(),
     s.reserveOverrideMb ?? DEFAULT_RESERVE_MB,
     kvCaches,
+    ram,
   );
   s.currentSnapshot = next;
   emit({ kind: "ledger", at: next.at, snapshot: next });
+  warnIfRamLow(ram);
   return next;
 }
 
@@ -220,6 +276,7 @@ export function buildSnapshot(
   reservations: Reservation[],
   reserveMb: number,
   kvCaches: KvCacheTelemetry[] = [],
+  ram: HostRam | null = null,
 ): LedgerSnapshot {
   if (!mem) {
     return {
@@ -229,6 +286,7 @@ export function buildSnapshot(
       usedMb: 0,
       freeMb: 0,
       reserveMb,
+      ram,
       processes: procs,
       kvCaches,
       reservations,
@@ -241,10 +299,31 @@ export function buildSnapshot(
     usedMb: mem.usedMb,
     freeMb: mem.freeMb,
     reserveMb,
+    ram,
     processes: procs,
     kvCaches,
     reservations,
   };
+}
+
+/**
+ * Throttled low-RAM watermark: the OOM-killer gives no warning, so the deck
+ * does. One WarningRaised per 5 minutes while available RAM sits under the
+ * reserve — visible on the hub and in Runs, without spamming either.
+ */
+let lastRamWarnAt = 0;
+function warnIfRamLow(ram: HostRam | null): void {
+  if (!ram || ram.availableMb >= ram.reserveMb) return;
+  const now = Date.now();
+  if (now - lastRamWarnAt < 5 * 60_000) return;
+  lastRamWarnAt = now;
+  void import("@/lib/agui/warn").then(({ raiseWarning }) =>
+    raiseWarning({
+      source: "resource.ram",
+      message: `host RAM low: ${ram.availableMb} MB available (< ${ram.reserveMb} MB reserve) — new GPU work will be refused`,
+      data: { availableMb: ram.availableMb, totalMb: ram.totalMb },
+    }),
+  ).catch(() => null);
 }
 
 /**
@@ -284,6 +363,9 @@ export const __test = {
   setMemoryOverride(fn: (() => Promise<GpuMemory | null>) | null) {
     ledgerState().memoryOverride = fn;
   },
+  setRamOverride(fn: (() => Promise<HostRam | null>) | null) {
+    ledgerState().ramOverride = fn;
+  },
   setReserveOverride(mb: number | null) {
     ledgerState().reserveOverrideMb = mb;
   },
@@ -303,6 +385,7 @@ export const __test = {
     s.listeners.clear();
     s.reservationProvider = () => [];
     s.memoryOverride = null;
+    s.ramOverride = null;
     s.reserveOverrideMb = null;
   },
 };

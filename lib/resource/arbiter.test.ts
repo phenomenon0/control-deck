@@ -20,9 +20,47 @@ function setReserve(mb: number) {
   ledgerTest.setReserveOverride(mb);
 }
 
+function setHostRam(availableMb: number, reserveMb = 3072, totalMb = 65536) {
+  ledgerTest.setRamOverride(async () => ({
+    totalMb,
+    usedMb: totalMb - availableMb,
+    availableMb,
+    reserveMb,
+  }));
+}
+
 afterEach(() => {
   arbiterTest.reset();
   ledgerTest.reset();
+});
+
+describe("arbiter.acquire — host-RAM admission guard", () => {
+  // Weights stream through host RAM on their way to the GPU; the kernel
+  // OOM-killer fires on MemAvailable. Evicting VRAM tenants can't rescue a
+  // box that is out of RAM, so the guard must deny BEFORE any eviction —
+  // this is the exact failure the first release-QA torture run hit.
+  test("denies with a RAM reason when available RAM is under the reserve, even with free VRAM", async () => {
+    setFree(20_000);
+    setHostRam(1024, 3072);
+    const r = await acquire({ lane: "image", estimateMb: 6000, reason: "test" });
+    expect(r.status).toBe("denied");
+    expect(r.reason).toContain("host RAM too low");
+    expect(listReservations()).toHaveLength(0);
+  });
+
+  test("grants normally when available RAM clears the reserve", async () => {
+    setFree(20_000);
+    setHostRam(16_000, 3072);
+    const r = await acquire({ lane: "image", estimateMb: 6000, reason: "test" });
+    expect(r.status).toBe("granted");
+  });
+
+  test("RAM probe unavailable (null) → guard stays out of the way", async () => {
+    setFree(20_000);
+    ledgerTest.setRamOverride(async () => null);
+    const r = await acquire({ lane: "image", estimateMb: 6000, reason: "test" });
+    expect(r.status).toBe("granted");
+  });
 });
 
 describe("arbiter.acquire — fast path", () => {

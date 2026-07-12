@@ -140,6 +140,21 @@ export interface KvCacheTelemetry {
   error?: string;
 }
 
+/**
+ * Host RAM sample. `availableMb` is the kernel's MemAvailable — what can be
+ * claimed without swapping (page cache counts as reclaimable) — the axis the
+ * OOM-killer actually fires on. Streaming model weights spikes RAM through
+ * the page cache and heap even when VRAM has room, so admission control
+ * must watch both.
+ */
+export interface HostRam {
+  totalMb: number;
+  usedMb: number;
+  availableMb: number;
+  /** Floor below which acquire() refuses new GPU work (DECK_RAM_RESERVE_MB). */
+  reserveMb: number;
+}
+
 export interface LedgerSnapshot {
   /** When the snapshot was taken (epoch ms). */
   at: number;
@@ -150,6 +165,8 @@ export interface LedgerSnapshot {
   usedMb: number;
   freeMb: number;
   reserveMb: number;
+  /** Host RAM sample (null when the platform probe fails). */
+  ram?: HostRam | null;
   /** Live GPU processes from nvidia-smi / ps. */
   processes: GpuProcess[];
   /** Provider-level KV/context telemetry when exposed by the backend. */

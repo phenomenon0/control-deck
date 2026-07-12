@@ -218,6 +218,7 @@ function VoiceRecovery() {
 
 export default function HardwarePage() {
   const [gpu, setGpu] = useState<GpuStats | null>(SEED_GPU);
+  const [ram, setRam] = useState<{ totalMb: number; usedMb: number; availableMb: number; reserveMb: number } | null>(null);
   const [services, setServices] = useState<ServiceStatus[]>(SEED_SERVICES);
   const [profile, setProfile] = useState<SystemProfile | null>(SEED_PROFILE);
   const [installed, setInstalled] = useState<InstalledModel[]>([]);
@@ -235,8 +236,13 @@ export default function HardwarePage() {
         fetch("/api/inference/system-profile", { cache: "no-store" }),
       ]);
       if (sr.ok) {
-        const sd = (await sr.json()) as { gpu: GpuStats | null; services?: ServiceStatus[] };
+        const sd = (await sr.json()) as {
+          gpu: GpuStats | null;
+          ram?: { totalMb: number; usedMb: number; availableMb: number; reserveMb: number } | null;
+          services?: ServiceStatus[];
+        };
         setGpu(sd.gpu ?? null);
+        setRam(sd.ram ?? null);
         gpuLiveRef.current = !!sd.gpu;
         if (Array.isArray(sd.services)) setServices(sd.services);
         anyOk = true;
@@ -391,13 +397,35 @@ export default function HardwarePage() {
             </div>
           </div>
 
-          {/* RAM */}
+          {/* RAM — live MemAvailable, the axis the OOM-killer fires on */}
           <div className="card res">
             <div className="res-head"><span className="kicker">System RAM</span></div>
-            <div className="res-sub-id">total installed memory</div>
-            <div className="res-big"><b>{profile?.ram ?? "—"}</b><i>GB total</i></div>
-            <div className="meter meter--unsampled"><div className="meter-fill" /></div>
-            <span className="meter-cap">live usage not sampled by host</span>
+            <div className="res-sub-id">{ram ? "available = what fits before the OOM-killer" : "total installed memory"}</div>
+            {ram ? (
+              <>
+                <div className="res-big">
+                  <b className={ram.availableMb < ram.reserveMb ? "crit" : ram.availableMb < ram.reserveMb * 2 ? "warn" : ""}>
+                    {fx(ram.availableMb / 1024, 1)}
+                  </b>
+                  <i>GB available of {fx(ram.totalMb / 1024, 0)}</i>
+                </div>
+                <div className={"meter" + (ram.availableMb < ram.reserveMb ? " meter--danger" : ram.availableMb < ram.reserveMb * 2 ? " meter--caution" : "")}>
+                  <div
+                    className="meter-fill"
+                    style={{ width: `${Math.min(100, Math.round((ram.usedMb / ram.totalMb) * 100))}%` }}
+                  />
+                </div>
+                <span className="meter-cap">
+                  {Math.round((ram.usedMb / ram.totalMb) * 100)}% in use · arbiter refuses GPU work under {fx(ram.reserveMb / 1024, 0)} GB
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="res-big"><b>{profile?.ram ?? "—"}</b><i>GB total</i></div>
+                <div className="meter meter--unsampled"><div className="meter-fill" /></div>
+                <span className="meter-cap">live usage not sampled by host</span>
+              </>
+            )}
             <div className="res-foot">
               <span><em>per core</em> <b>{profile && profile.cpuCores ? fx(profile.ram / profile.cpuCores, 1) : "—"} GB</b></span>
               <span><em>mode</em> <b>{profile?.mode ?? "—"}</b></span>

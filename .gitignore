@@ -78,7 +78,10 @@ benchmarks/osworld/trace-*.json
 .eslintcache
 .cache
 .hf/
-models/
+# Local model weights/caches. Keep source routes and modules whose directory
+# segment is also named `models` visible to Git.
+/models
+/public/models/
 *.tsbuildinfo
 target/
 **/src-tauri/gen/
@@ -103,6 +106,3 @@ scripts/terminal-service.js
 # postinstall; the worklet bundle .js stays committed).
 public/audio-worklets/ort-wasm-*.wasm
 public/audio-worklets/ort-wasm-*.mjs
-
-# local model storage (symlink to external drive)
-/models

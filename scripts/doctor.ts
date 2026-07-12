@@ -12,6 +12,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import ts from "typescript";
 
 const ROOT = join(import.meta.dir, "..");
 const QUICK = process.argv.includes("--quick");
@@ -25,12 +26,70 @@ function report(level: Level, msg: string, recovery?: string) {
   if (level === "fail") failures++;
 }
 
-function sh(cmd: string[], cwd = ROOT): { code: number; out: string } {
-  const r = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-  return { code: r.exitCode, out: (r.stdout.toString() + r.stderr.toString()).trim() };
+function sh(cmd: string[], cwd = ROOT): { code: number; out: string; stdout: string; stderr: string } {
+  try {
+    const r = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+    const stdout = r.stdout.toString();
+    const stderr = r.stderr.toString();
+    return { code: r.exitCode, out: (stdout + stderr).trim(), stdout, stderr };
+  } catch (error) {
+    // Bun.spawnSync throws for a missing executable. A doctor probe should
+    // report that capability as unavailable, not take down the whole doctor.
+    return {
+      code: 127,
+      out: "",
+      stdout: "",
+      stderr: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 const expand = (p: string) => p.replace(/^~/, homedir());
+
+/**
+ * Read the static top-level keys from a named object-literal declaration.
+ * This deliberately scopes parsing to the declaration and tracks nesting,
+ * so strings/comments/nested model definitions cannot masquerade as preset
+ * keys (the old whole-file substring check could).
+ */
+function objectLiteralKeys(source: string, declaration: string): string[] | null {
+  const sourceFile = ts.createSourceFile("doctor-input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let literal: ts.ObjectLiteralExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === declaration
+      && node.initializer
+      && ts.isObjectLiteralExpression(node.initializer)
+    ) {
+      literal = node.initializer;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!literal) return null;
+
+  const keys: string[] = [];
+  for (const property of literal.properties) {
+    if (!ts.isPropertyAssignment(property)) return null;
+    const name = property.name;
+    if (!ts.isIdentifier(name) && !ts.isStringLiteral(name) && !ts.isNumericLiteral(name)) return null;
+    keys.push(name.text);
+  }
+  return keys;
+}
+
+function isLedgerSnapshot(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const snapshot = value as Record<string, unknown>;
+  return ["at", "totalMb", "usedMb", "freeMb", "reserveMb"].every(
+    (key) => typeof snapshot[key] === "number" && Number.isFinite(snapshot[key]),
+  ) && typeof snapshot.source === "string"
+    && Array.isArray(snapshot.processes)
+    && Array.isArray(snapshot.reservations);
+}
 
 // ---------------------------------------------------------------- toolchain
 console.log("\n— toolchain (mise.toml) —");
@@ -140,32 +199,117 @@ if (!QUICK) {
 {
   console.log("\n— release-QA invariants —");
 
-  // B1: the installer script every missing-weights hint references must exist.
-  if (existsSync(`${ROOT}/scripts/download-image-models.sh`)) report("ok", "download-image-models.sh exists");
-  else report("fail", "scripts/download-image-models.sh missing — missing-weights hints point at it", "restore from git");
+  // B1/B4: release-critical installer/model surfaces must ship in Git. Merely
+  // existing locally is insufficient: ignored/untracked files disappear from
+  // a clone and previously produced a false-green release check.
+  const criticalReleaseFiles = [
+    "scripts/download-image-models.sh",
+    "lib/models/weights-catalog.ts",
+    "lib/models/downloader.ts",
+    "app/api/models/weights/route.ts",
+    "app/api/comfy/models/route.ts",
+    "app/v2/models/page.tsx",
+    "app/v2/models/models-v2.css",
+  ];
+  {
+    const trackedProbe = sh(["git", "ls-files", "--", ...criticalReleaseFiles]);
+    if (trackedProbe.code !== 0) {
+      report("fail", "could not inspect Git index for critical release files", "run this doctor from a Git checkout");
+    } else {
+      const tracked = new Set(trackedProbe.stdout.split(/\r?\n/).filter(Boolean));
+      const missing = criticalReleaseFiles.filter((file) => !existsSync(join(ROOT, file)));
+      const untracked = criticalReleaseFiles.filter((file) => existsSync(join(ROOT, file)) && !tracked.has(file));
+      if (missing.length === 0 && untracked.length === 0) {
+        report("ok", `all ${criticalReleaseFiles.length} critical release files exist and are Git-tracked`);
+      } else {
+        if (missing.length > 0) {
+          report("fail", `critical release files missing: ${missing.join(", ")}`, "restore the files before shipping");
+        }
+        if (untracked.length > 0) {
+          report("fail", `critical release files are not Git-tracked: ${untracked.join(", ")}`, `git add -- ${untracked.join(" ")}  # then commit them`);
+        }
+      }
+    }
+  }
 
   // B1/B4: weights catalog ↔ availability definitions stay in lockstep.
   {
-    const catalog = readFileSync(`${ROOT}/lib/models/weights-catalog.ts`, "utf8");
-    const comfyModels = readFileSync(`${ROOT}/lib/tools/comfyModels.ts`, "utf8");
-    const presetKeys = [...catalog.matchAll(/^  "?([a-z0-9-]+)"?: \[/gm)].map((m) => m[1]);
-    const missing = presetKeys.filter((p) => !comfyModels.includes(`"${p}"`) && !comfyModels.includes(`${p}:`));
-    if (missing.length === 0) report("ok", `weights catalog covers ${presetKeys.length} presets, all known to availability checks`);
-    else report("warn", `catalog presets missing availability entries: ${missing.join(", ")}`);
+    const catalogPath = join(ROOT, "lib/models/weights-catalog.ts");
+    const availabilityPath = join(ROOT, "lib/tools/comfyModels.ts");
+    const catalogKeys = existsSync(catalogPath)
+      ? objectLiteralKeys(readFileSync(catalogPath, "utf8"), "PRESET_WEIGHTS")
+      : null;
+    const availabilityKeys = existsSync(availabilityPath)
+      ? objectLiteralKeys(readFileSync(availabilityPath, "utf8"), "PRESET_DEFINITIONS")
+      : null;
+
+    if (!catalogKeys || catalogKeys.length === 0 || !availabilityKeys || availabilityKeys.length === 0) {
+      report(
+        "fail",
+        "could not read non-empty PRESET_WEIGHTS and PRESET_DEFINITIONS maps",
+        "keep both preset maps as static object-literal declarations",
+      );
+    } else {
+      const catalogSet = new Set(catalogKeys);
+      const availabilitySet = new Set(availabilityKeys);
+      const catalogOnly = [...catalogSet].filter((preset) => !availabilitySet.has(preset));
+      const availabilityOnly = [...availabilitySet].filter((preset) => !catalogSet.has(preset));
+      if (catalogOnly.length === 0 && availabilityOnly.length === 0) {
+        report("ok", `${catalogSet.size} catalog and availability presets match bidirectionally`);
+      } else {
+        const drift = [
+          catalogOnly.length > 0 ? `catalog-only: ${catalogOnly.join(", ")}` : "",
+          availabilityOnly.length > 0 ? `availability-only: ${availabilityOnly.join(", ")}` : "",
+        ].filter(Boolean).join("; ");
+        report("fail", `preset definition drift — ${drift}`, "update PRESET_WEIGHTS and PRESET_DEFINITIONS together");
+      }
+    }
   }
 
   // F4: execute_code needs unprivileged user namespaces.
   {
-    const probe = sh(["unshare", "--net", "--map-root-user", "true"]);
-    if (probe.code === 0) report("ok", "unshare user-namespaces available (execute_code sandbox)");
-    else report("warn", "unshare --net --map-root-user failed — execute_code will refuse to run", "check kernel.unprivileged_userns_clone");
+    if (process.platform !== "linux") {
+      report("warn", `unshare network isolation unavailable on ${process.platform} — execute_code will refuse isolated runs`, "use a Linux host for execute_code network isolation");
+    } else {
+      // Keep this command identical to the runtime capability probe.
+      const probe = sh(["unshare", "--net", "--map-root-user", "/bin/true"]);
+      if (probe.code === 0) report("ok", "unshare user-namespaces available (execute_code sandbox)");
+      else if (probe.code === 127) report("warn", "unshare binary missing — execute_code will refuse isolated runs", "install util-linux");
+      else report("warn", "unshare --net --map-root-user failed — execute_code will refuse to run", "check kernel.unprivileged_userns_clone");
+    }
   }
 
-  // C1: arbiter reachable when the deck is up (informational when down).
+  // C1: offline is informational, but a live endpoint must return a healthy
+  // 2xx JSON ledger rather than being mistaken for "deck not running".
   if (!QUICK) {
-    const probe = sh(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "6", "http://localhost:3333/api/resource/ledger"]);
-    if (probe.code === 0 && probe.out.startsWith("2")) report("ok", "VRAM arbiter ledger answering");
-    else report("info", "deck not running — arbiter ledger unchecked");
+    const ledgerUrl = "http://localhost:3333/api/resource/ledger";
+    const statusMarker = "\n__CONTROL_DECK_DOCTOR_HTTP_STATUS__:";
+    const probe = sh(["curl", "-sS", "--max-time", "6", "-w", `${statusMarker}%{http_code}`, ledgerUrl]);
+    const markerAt = probe.stdout.lastIndexOf(statusMarker);
+    const body = markerAt >= 0 ? probe.stdout.slice(0, markerAt) : "";
+    const status = markerAt >= 0
+      ? Number.parseInt(probe.stdout.slice(markerAt + statusMarker.length).trim(), 10)
+      : 0;
+
+    if (probe.code === 127) {
+      report("warn", "curl unavailable — arbiter ledger unchecked", "install curl to run live endpoint checks");
+    } else if (status === 0 && probe.code !== 0) {
+      report("info", "deck not running — arbiter ledger connection unavailable");
+    } else if (markerAt < 0 || !Number.isInteger(status)) {
+      report("fail", "arbiter ledger probe returned no valid HTTP status", `inspect ${ledgerUrl}`);
+    } else if (probe.code !== 0) {
+      report("fail", `arbiter ledger response failed during transfer (HTTP ${status})`, `inspect ${ledgerUrl} and deck logs`);
+    } else if (status < 200 || status >= 300) {
+      report("fail", `arbiter ledger unhealthy (HTTP ${status})`, `inspect ${ledgerUrl} and deck logs`);
+    } else {
+      try {
+        const payload: unknown = JSON.parse(body);
+        if (isLedgerSnapshot(payload)) report("ok", "VRAM arbiter ledger answering with a valid snapshot");
+        else report("fail", "arbiter ledger returned JSON with an invalid snapshot shape", `inspect ${ledgerUrl} and deck logs`);
+      } catch {
+        report("fail", "arbiter ledger returned invalid JSON", `inspect ${ledgerUrl} and deck logs`);
+      }
+    }
   }
 }
 

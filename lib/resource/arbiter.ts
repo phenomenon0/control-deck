@@ -163,6 +163,26 @@ export async function acquire(req: AcquireRequest): Promise<AcquireResult> {
   const reserveMb = snap.reserveMb;
   const freeMb = snap.freeMb;
 
+  // Host-RAM admission guard. Weights stream through host RAM on their way
+  // to the GPU, and the kernel OOM-killer fires on MemAvailable — evicting
+  // VRAM tenants can't save a box that's out of RAM, so this denies before
+  // any eviction is attempted. (First torture run: VRAM arbitration worked,
+  // host RAM OOM killed the session.)
+  if (snap.ram && snap.ram.availableMb < snap.ram.reserveMb) {
+    const why =
+      `host RAM too low: ${snap.ram.availableMb} MB available < ${snap.ram.reserveMb} MB reserve ` +
+      `(DECK_RAM_RESERVE_MB). Close RAM-heavy processes and retry.`;
+    emit({
+      kind: "acquire-denied",
+      at: Date.now(),
+      lane: req.lane,
+      estimateMb: req.estimateMb,
+      reason: why,
+      freeMb,
+    });
+    return { status: "denied", freeAfterMb: freeMb - req.estimateMb, reserveMb, reason: why };
+  }
+
   // Fast path — fits without evicting anything.
   if (freeMb >= req.estimateMb + reserveMb) {
     const ticket = grant(req, evicts, priority, ttlMs, restoreOnIdle);

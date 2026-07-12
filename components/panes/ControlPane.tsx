@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * ControlPane — 5th surface, a tabbed dashboard unifying Runs, Tools,
- * UI Studio (née DoJo), and AgentGo. The default tab is Runs,
- * which acts as a blended overview of activity across the other tabs.
+ * ControlPane — a tabbed dashboard unifying Runs, Tools, and AgentGo.
+ * The default tab is Runs, which acts as a blended overview of activity
+ * across the other tabs.
  *
  * Tabs are URL-persisted via `?tab=`.
  */
@@ -11,11 +11,10 @@
 import { Suspense, type ComponentType } from "react";
 import { RunsPane } from "@/components/panes/RunsPane";
 import { ToolsPane } from "@/components/panes/ToolsPane";
-import { DojoPane } from "@/components/dojo";
 import { AgentGoPane } from "@/components/panes/AgentGoPane";
 import { useUrlTab } from "@/lib/hooks/useUrlTab";
 
-type TabId = "runs" | "tools" | "studio" | "agentgo";
+type TabId = "runs" | "tools" | "agentgo";
 
 interface TabDef {
   id: TabId;
@@ -29,7 +28,6 @@ interface TabDef {
 const TABS: readonly TabDef[] = [
   { id: "runs", label: "Runs", Component: RunsPane },
   { id: "tools", label: "Tools", Component: ToolsPane },
-  { id: "studio", label: "UI Studio", Component: DojoPane },
   { id: "agentgo", label: "Agent-GO", Component: AgentGoPane },
 ];
 

@@ -26,6 +26,7 @@ import {
   type RiskLevel,
   type SideEffectKind,
 } from "@/lib/tools/manifest";
+import { isToolSupportedOnPlatform } from "@/lib/tools/platformSupport";
 
 export const runtime = "nodejs";
 
@@ -88,6 +89,7 @@ function buildCatalog(includeSuspended: boolean): CatalogResponse {
   for (const def of TOOL_DEFINITIONS) {
     if (!BRIDGE_TOOLS.has(def.name)) continue;
     if (!includeSuspended && SUSPENDED_FROM_CATALOG(def.name)) continue;
+    if (!isToolSupportedOnPlatform(def.name)) continue;
     const properties: Record<string, JsonSchemaProperty> = {};
     const required: string[] = [];
     for (const p of def.parameters) {

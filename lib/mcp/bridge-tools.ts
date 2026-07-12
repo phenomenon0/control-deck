@@ -16,6 +16,7 @@ import {
   type ToolName,
 } from "@/lib/tools/definitions";
 import { getMcpProfileToolNames, type McpProfile } from "@/lib/tools/mcpProfiles";
+import { isToolSupportedOnPlatform } from "@/lib/tools/platformSupport";
 import { callBridgeToolForMcp } from "./dispatch";
 
 export interface RegisterBridgeToolsOptions {
@@ -32,6 +33,7 @@ export function registerBridgeTools(
   for (const def of TOOL_DEFINITIONS) byName.set(def.name, def);
 
   for (const toolName of getMcpProfileToolNames(BRIDGE_TOOLS, opts.profiles)) {
+    if (!isToolSupportedOnPlatform(toolName)) continue;
     const def = byName.get(toolName as ToolName);
     const description = def?.description ?? `Bridge tool: ${toolName}`;
     const zodSchema = TOOL_SCHEMAS[toolName as ToolName];

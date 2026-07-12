@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BRIDGE_TOOLS } from "@/lib/tools/bridgeToolList";
+import { isToolSupportedOnPlatform } from "@/lib/tools/platformSupport";
 import type { McpProfile } from "@/lib/tools/mcpProfiles";
 import { registerBridgeTools } from "./bridge-tools";
 
@@ -78,9 +79,19 @@ describe("registerBridgeTools MCP profile filtering", () => {
     expect(names).not.toContain("native_click");
   });
 
-  test("full profile registers the canonical bridge surface", () => {
+  test("full profile registers the canonical bridge surface (minus tools this platform can't run)", () => {
     const names = registeredToolNames({ CONTROL_DECK_MCP_PROFILE: "full" });
 
-    expect(new Set(names)).toEqual(BRIDGE_TOOLS);
+    // A6: tools that can only return unsupported_platform here are hidden
+    // from the LLM-facing listing — offering guaranteed failures wastes
+    // tool-choice attention. On win32 the two sets are identical.
+    const expected = new Set(
+      [...BRIDGE_TOOLS].filter((t) => isToolSupportedOnPlatform(t)),
+    );
+    expect(new Set(names)).toEqual(expected);
+    if (process.platform !== "win32") {
+      expect(names).not.toContain("native_invoke");
+      expect(names).toContain("native_click");
+    }
   });
 });

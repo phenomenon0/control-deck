@@ -55,9 +55,47 @@ export default function V2AppearanceHost({ children }: { children: React.ReactNo
     apply();
     window.addEventListener("storage", apply);
     window.addEventListener("deck.prefs", apply);
+
+    // Server mirror (/api/prefs): localStorage is per browser partition, so
+    // the Electron shell would otherwise open in factory Atlas instead of
+    // the user's tuned theme. Hydrate from the mirror when local prefs are
+    // empty; push local changes back (debounced) so every client converges.
+    let pushTimer: ReturnType<typeof setTimeout> | null = null;
+    const push = () => {
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(() => {
+        const current = localStorage.getItem("deck.prefs");
+        if (!current) return;
+        void fetch("/api/prefs", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: current,
+        }).catch(() => null);
+      }, 800);
+    };
+    window.addEventListener("deck.prefs", push);
+
+    if (!localStorage.getItem("deck.prefs")) {
+      void (async () => {
+        try {
+          const res = await fetch("/api/prefs", { cache: "no-store" });
+          if (!res.ok) return;
+          const data = (await res.json()) as { prefs?: Record<string, unknown> | null };
+          if (data.prefs && !localStorage.getItem("deck.prefs")) {
+            localStorage.setItem("deck.prefs", JSON.stringify(data.prefs));
+            apply();
+          }
+        } catch {
+          /* mirror unavailable — factory defaults stand */
+        }
+      })();
+    }
+
     return () => {
       window.removeEventListener("storage", apply);
       window.removeEventListener("deck.prefs", apply);
+      window.removeEventListener("deck.prefs", push);
+      if (pushTimer) clearTimeout(pushTimer);
     };
   }, []);
 

@@ -43,6 +43,8 @@
 /* ── Buttons → Onyx Chip (material + mono label; hue preserved) ────────────── */
 [class*="-btn"] {
   font-family: var(--btn-font);
+  font-weight: 500;
+  letter-spacing: 0.02em;
   border: 1px solid var(--btn-line);
   border-radius: var(--btn-radius);
   background: var(--btn-fill);
@@ -56,6 +58,21 @@
 }
 [class*="-btn"]:active:not(:disabled) { background: var(--btn-fill-active); }
 [class*="-btn"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Primary = accent-flooded fill + machined sheen top-edge. Same weight as
+   siblings (D-004a): emphasis is material, never bolder type. */
+[class*="-btn"][class*="primary"],
+[class*="-btn"][class*="--pri"],
+.btn--primary {
+  background: var(--btn-pri-fill);
+  border-color: var(--btn-pri-line);
+  color: var(--accent-text);
+  box-shadow: 0 1px 0 var(--sheen) inset;
+}
+[class*="-btn"][class*="primary"]:hover:not(:disabled),
+.btn--primary:hover:not(:disabled) {
+  background: var(--btn-pri-fill-hover, var(--btn-pri-fill));
+}
 
 /* ── Chips / pills / badges → Engraved Stamp (mono, pressed in; hue preserved) */
 [class*="-chip"],
@@ -84,13 +101,19 @@ select[class*="-field"] {
   outline: none;
   transition: background var(--duration-base) var(--ease-out),
               border-color var(--duration-base) var(--ease-out),
-              box-shadow var(--duration-base) var(--ease-out);
+              box-shadow var(--duration-base) var(--ease-out),
+              transform var(--duration-base) var(--ease-out);
 }
-input[class*="-input"]:focus, textarea[class*="-input"]:focus, select[class*="-input"]:focus,
-input[class*="-field"]:focus, textarea[class*="-field"]:focus, select[class*="-field"]:focus {
+input[class*="-input"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus,
+textarea[class*="-input"]:focus,
+select[class*="-input"]:focus,
+input[class*="-field"]:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+textarea[class*="-field"]:focus,
+select[class*="-field"]:focus {
   background: var(--surface-raised);
   border-color: var(--field-focus-line);
   box-shadow: var(--field-focus-halo);
+  transform: translateY(var(--field-lift)); /* attention rises — the field climbs */
   outline: none;
 }
 input[class*="-input"]::placeholder, textarea[class*="-input"]::placeholder,
@@ -149,4 +172,57 @@ input[class*="-field"]::placeholder, textarea[class*="-field"]::placeholder {
 .capabilities-source-label,
 .variant-bar-label {
   font-family: var(--font-mono);
+}
+
+
+/* ── Sunken-Rail switch — "actuators travel" (design-lab controls.css) ────────
+   Global recipe for the deck's shared .ctl > input + .ctl__track idiom. The
+   keycap slides on state change and depresses under the pointer. */
+.ctl { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.ctl input { position: absolute; opacity: 0; inset: 0; cursor: inherit; }
+.ctl__track {
+  position: relative; display: inline-block;
+  width: var(--track-w); height: var(--track-h); border-radius: 6px;
+  background: rgba(var(--fg-rgb), 0.09);
+  border: 1px solid rgba(var(--fg-rgb), 0.08);
+  box-shadow: 0 1px 2px var(--depth) inset;
+  transition: background var(--duration-base) var(--ease-out);
+}
+.ctl__track::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: calc(var(--track-h) - 6px); height: calc(var(--track-h) - 6px);
+  border-radius: 3px;
+  background-color: var(--surface-raised);
+  background-image: linear-gradient(180deg, var(--sheen), transparent 60%);
+  border: 1px solid rgba(var(--fg-rgb), 0.18);
+  box-shadow: 0 1.5px 0 rgba(var(--fg-rgb), 0.2), 0 2px 3px var(--depth);
+  transition: left var(--duration-base) var(--ease-out),
+              background-color var(--duration-base) var(--ease-out),
+              border-color var(--duration-base) var(--ease-out),
+              box-shadow var(--duration-base) var(--ease-out),
+              transform var(--duration-fast, 120ms) var(--ease-out);
+}
+.ctl input:checked + .ctl__track { background: rgba(var(--acc-rgb), 0.3); }
+.ctl input:checked + .ctl__track::after {
+  left: calc(100% - var(--track-h) + 4px);
+  background-color: rgba(var(--acc-rgb), 0.9);
+  background-image: linear-gradient(0deg, var(--sheen), transparent 60%);
+  border-color: rgba(var(--acc-rgb), 0.8);
+  box-shadow: 0 1.5px 0 rgba(var(--acc-rgb), 0.55), 0 2px 3px var(--depth);
+}
+.ctl:active input:not(:disabled) + .ctl__track::after {
+  transform: translateY(1px);
+  box-shadow: 0 0 0 rgba(var(--fg-rgb), 0.2), 0 1px 1px var(--depth);
+}
+.ctl input:disabled + .ctl__track { opacity: 0.45; }
+.ctl input:focus-visible + .ctl__track { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* ── Progress — engraved channel + accent fill wearing a sheen (D-017) ─────── */
+[class*="-progress"],
+progress[class*="-meter"] {
+  height: var(--progress-track-h);
+  border-radius: var(--progress-radius);
+  background: var(--progress-track-bg);
+  box-shadow: var(--progress-track-well);
+  overflow: hidden;
 }

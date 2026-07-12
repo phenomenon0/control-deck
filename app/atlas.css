@@ -719,3 +719,110 @@ html[data-theme] {
   --nav-bg:      color-mix(in srgb, var(--surface-page) 92%, transparent);
   --white:       var(--ink-strong);
 }
+
+/* =============================================================================
+   TIER-3 MATERIAL TOKENS — vendored verbatim from design-lab/tokens/tokens.css
+   (release-QA "true Atlas" pass). The original port carried the theme layer
+   (palette, sheen/depth, spacing, type) but not the recipe layer, so every
+   switch/slider/tab/meter/menu/toast outside the hand-patched surfaces had no
+   Atlas material to resolve. These are theme-independent (they reference the
+   per-theme vars above).
+   ============================================================================= */
+:root, [data-theme] {
+  /* TYPE — display rhythm (mastheads, modal titles) */
+  --leading-display: 1.2;
+  --leading-title: 1.3;
+  --leading-label: 1.2;
+  --measure: 62ch;
+
+  /* ICON — stroke dialect */
+  --icon-sm: 14px; --icon-md: 16px; --icon-lg: 20px; --icon-xl: 24px;
+  --icon-stroke: 2;
+  --icon-stroke-display: 1.5;
+
+  /* Z-STACK — the stack is law */
+  --z-note: 3;
+  --z-standing: 5;
+  --z-lab: 30;
+  --z-overlay: 50;
+  --z-popover: 60;
+  --z-toast: 70;
+
+  /* FIELD — quiet register (Deep Well core is in the theme block above) */
+  --field-lift-quiet: -1px;
+  --field-baseline: rgba(var(--fg-rgb), 0.25);
+  --field-baseline-hover: rgba(var(--fg-rgb), 0.45);
+
+  /* CONTROLS — Carved Well checkbox + Sunken Rail switch (LOCKED D-007) */
+  --ctl-box: 18px;
+  --ctl-radius: var(--radius-xs);
+  --ctl-fill: rgba(var(--fg-rgb), 0.08);
+  --ctl-line: rgba(var(--fg-rgb), 0.1);
+  --ctl-on-fill: rgba(var(--acc-rgb), 0.28);
+  --ctl-on-line: rgba(var(--acc-rgb), 0.5);
+  --track-w: 32px; --track-h: 17px;
+
+  /* MENU — Floating Paper panel + accent-wash active row (LOCKED D-015) */
+  --menu-radius: var(--radius-md);
+  --menu-pad: 6px;
+  --menu-item-h: 30px;
+  --menu-item-radius: var(--radius-xs);
+  --menu-min-w: 232px;
+  --menu-shadow: 0 4px 14px var(--depth);
+  --menu-active-fill: rgba(var(--acc-rgb), 0.14);
+  --palette-w: 480px;
+  --palette-shadow: 0 4px 16px var(--depth), 0 28px 64px var(--depth);
+
+  /* OVERLAY — Floating Paper XL modal + floating drawer (LOCKED D-016) */
+  --overlay-radius: var(--radius-lg);
+  --overlay-w: 440px;
+  --overlay-shadow: 0 4px 10px var(--depth), 0 32px 64px var(--depth);
+  --overlay-rise: 12px;
+  --scrim-blur: 6px;
+  --overlay-danger-line: rgba(var(--danger-rgb), 0.35);
+  --drawer-w: 360px;
+
+  /* TABS — Baseline Ignite · SEGMENTED — Machined Key (LOCKED D-018) */
+  --tab-font: var(--font-data);
+  --tab-gap: var(--space-5);
+  --tab-ink-idle: var(--ink-faint);
+  --tab-underline-h: 2px;
+  --tab-underline-idle: rgba(var(--fg-rgb), 0.14);
+  --tab-lift: -1px;
+
+  --seg-track-fill: rgba(var(--fg-rgb), 0.09);
+  --seg-track-well: 0 1px 2px var(--depth) inset;
+  --seg-key-radius: var(--radius-xs);
+  --seg-key-fill: rgba(var(--acc-rgb), 0.9);
+  --seg-key-line: rgba(var(--acc-rgb), 0.8);
+
+  /* FEEDBACK — toast · progress · spinner · skeleton · tooltip (LOCKED D-017) */
+  --toast-max-w: 360px;
+  --toast-radius: var(--radius-md);
+  --toast-line: rgba(var(--fg-rgb), 0.14);
+  --toast-shadow: 0 1px 2px var(--depth), 0 4px 12px var(--depth), 0 1px 0 var(--sheen) inset;
+
+  --progress-track-h: 8px;
+  --progress-radius: var(--radius-xs);
+  --progress-track-bg: rgba(var(--fg-rgb), calc(var(--alpha-wash) + 0.03));
+  --progress-track-well: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen);
+  --progress-fill-bg: rgba(var(--acc-rgb), 0.55);
+  --progress-fill-sheen: 0 1px 0 var(--sheen) inset;
+
+  --spin-color: var(--ink-soft);
+  --spin-color-accent: var(--accent-text);
+
+  --skel-fill: rgba(var(--fg-rgb), var(--alpha-wash));
+  --skel-fill-strong: rgba(var(--fg-rgb), calc(var(--alpha-wash) + 0.03));
+  --skel-radius: var(--radius-xs);
+
+  --tip-line: rgba(var(--fg-rgb), 0.14);
+  --tip-shadow: 0 1px 2px var(--depth), 0 4px 10px var(--depth);
+  --tip-radius: var(--radius-xs);
+  --tip-lift: -2px;
+  --tip-delay: 400ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root, [data-theme] { --tip-delay: 0ms; }
+}

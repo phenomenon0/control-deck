@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ResourcePane } from "@/components/panes/ResourcePane";
 import "./hardware-v2.css";
 
 /* ── types (mirror the two endpoint payloads) ─────────────────────────────── */
@@ -310,10 +311,10 @@ export default function HardwarePage() {
         <header className="hero">
           <div className="hero-lede">
             <span className="kicker">System · {profile?.platform ?? "host"} · {profile?.mode ?? "—"} mode</span>
-            <h1>Hardware</h1>
+            <h1>System</h1>
             <p>Live telemetry for the inference rig — GPU, CPU, memory, and disk,
-              refreshed every five seconds, with loaded models and background
-              processes at a glance.</p>
+              refreshed every five seconds, with loaded models, background
+              processes, and the VRAM arbiter's reservations at a glance.</p>
           </div>
           <div className="hero-side">
             <span className={chipCls}><span className={chipDot} />{chipText}</span>
@@ -502,6 +503,19 @@ export default function HardwarePage() {
                 );
               })}
             </div>
+          </div>
+        </section>
+
+        {/* C5: VRAM arbiter — reservations, eviction log, per-process VRAM.
+            ResourcePane self-feeds from /api/resource/ledger + /api/resource/events. */}
+        <section className="card arbiter">
+          <div className="gpu-head">
+            <div className="gpu-id">
+              <span className="kicker">VRAM arbiter</span>
+            </div>
+          </div>
+          <div style={{ minHeight: 280 }}>
+            <ResourcePane />
           </div>
         </section>
 

@@ -2,6 +2,45 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+
+/* C5: ambient VRAM awareness — a tiny meter at the rail's foot, fed by the
+   same /api/system/stats the System page polls (10s cadence; the rail must
+   never become a chatty poller). Click-through lands on /v2/system. */
+function VramChip() {
+  const [gpu, setGpu] = useState<{ usedMb: number; totalMb: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const r = await fetch("/api/system/stats", { cache: "no-store" });
+        if (!r.ok) return;
+        const d = (await r.json()) as { gpu?: { memoryUsed?: number; memoryTotal?: number } };
+        if (!cancelled && d.gpu?.memoryTotal) {
+          setGpu({ usedMb: d.gpu.memoryUsed ?? 0, totalMb: d.gpu.memoryTotal });
+        }
+      } catch {
+        /* no GPU / stats down — chip simply doesn't render */
+      }
+    };
+    void poll();
+    const t = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+  if (!gpu) return null;
+  const pct = Math.min(100, Math.round((gpu.usedMb / gpu.totalMb) * 100));
+  const level = pct >= 92 ? "danger" : pct >= 78 ? "caution" : "ok";
+  return (
+    <Link
+      href="/v2/system"
+      className={`v2nav__vram v2nav__vram--${level}`}
+      title={`VRAM ${(gpu.usedMb / 1024).toFixed(1)} / ${(gpu.totalMb / 1024).toFixed(0)} GB — open System`}
+    >
+      <span className="v2nav__vrambar"><span style={{ height: `${pct}%` }} /></span>
+      <span className="v2nav__vramlbl">{pct}%</span>
+    </Link>
+  );
+}
 
 const I: Record<string, string> = {
   deck: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
@@ -56,6 +95,7 @@ export default function V2Nav() {
           </Link>
         ))}
       </div>
+      <VramChip />
       <Link href="/v2/settings" className={"v2nav__item v2nav__foot" + (path.startsWith("/v2/settings") ? " is-active" : "")}>
         <svg className="v2nav__ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: I.settings }} />
         <span className="v2nav__lbl">settings</span>

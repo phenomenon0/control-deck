@@ -7,7 +7,8 @@ import { mkdir, copyFile, writeFile } from "fs/promises";
 import path from "path";
 import os from "os";
 import { hub } from "@/lib/agui/hub";
-import { acquire, release, snapshot, ensureArbiterBooted } from "@/lib/resource/arbiter";
+import { acquire, release, snapshot, ensureArbiterBooted, reportOom } from "@/lib/resource/arbiter";
+import { raiseWarning } from "@/lib/agui/warn";
 import { refreshSnapshot } from "@/lib/resource/ledger";
 import type { LaneId, LedgerSnapshot } from "@/lib/resource/types";
 import {
@@ -576,7 +577,19 @@ export async function executeComfyWorkflow(
       emitStep(`freed ${(Math.max(0, post.freeMb - pre.freeMb) / 1024).toFixed(1)} GB`);
     }
   } catch (e) {
-    console.warn("[Comfy] arbiter acquire failed, proceeding unguarded:", e);
+    // C3: a broken arbiter must not mean an unguarded run — that risks the
+    // exact OOM the arbiter exists to prevent. Fail with a clear reason.
+    const msg = e instanceof Error ? e.message : String(e);
+    raiseWarning({
+      source: "comfy.arbiter",
+      message: `arbiter acquire threw for ${name}: ${msg}`,
+      threadId,
+      runId,
+    });
+    return {
+      status: "error",
+      error: `VRAM arbiter unavailable (${msg}) — refusing to run ${name} unguarded. Check /v2/system, or retry once the ledger answers.`,
+    };
   }
 
   // Ensure VRAM is available (frees memory first)
@@ -724,6 +737,13 @@ export async function executeComfyWorkflow(
     return queuedResult;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : "Unknown error";
+
+    // C1: close the OOM feedback loop. A CUDA OOM inside ComfyUI means the
+    // ledger's estimates were wrong — reportOom flushes reservations and
+    // triggers restore-on-idle so the next acquire re-plans from reality.
+    if (/\b(out of memory|cuda error|oom)\b/i.test(errorMsg)) {
+      await reportOom(lane, `comfy ${name}: ${errorMsg}`).catch(() => null);
+    }
 
     const errorResult: ComfyToolResult = {
       status: "error",

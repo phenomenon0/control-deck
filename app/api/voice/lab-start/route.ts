@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { NextResponse } from "next/server";
 
 import { s2sDir, s2sLabUrl } from "@/lib/voice/s2s-url";
+import { acquireOmniLane } from "@/lib/resource/voice-lane";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,20 @@ export async function POST() {
   try {
     if (await supervisorAnswering()) {
       return NextResponse.json({ alreadyRunning: true });
+    }
+
+    // C1: the supervisor may load pipeline weights on boot — reserve the
+    // omni lane before spawning so idle tenants are evicted first.
+    const acq = await acquireOmniLane("voice-lab supervisor start");
+    if (acq.status !== "granted") {
+      return NextResponse.json(
+        {
+          error:
+            `Not enough VRAM to start the voice pipeline: ${acq.reason ?? acq.status}. ` +
+            "Free GPU memory (see /v2/system) and retry.",
+        },
+        { status: 503 },
+      );
     }
 
     const dir = s2sDir();

@@ -56,6 +56,24 @@
 .v2nav__ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .v2nav__lbl { font-family: var(--font-data); font-size: 9px; letter-spacing: .03em; }
 
+/* C5: ambient VRAM meter at the rail's foot — links to /v2/system */
+.v2nav__vram {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 52px; padding: 6px 0; border-radius: var(--radius-sm);
+  text-decoration: none; color: var(--ink-soft);
+}
+.v2nav__vram:hover { background: var(--btn-fill-hover); }
+.v2nav__vrambar {
+  display: flex; align-items: flex-end; width: 8px; height: 26px;
+  border: 1px solid var(--line-subtle); border-radius: 2px; overflow: hidden;
+  background: var(--surface-sunken, var(--surface-page));
+}
+.v2nav__vrambar > span { display: block; width: 100%; background: rgb(var(--positive-rgb)); transition: height var(--duration-base) var(--ease-out); }
+.v2nav__vram--caution .v2nav__vrambar > span { background: rgb(var(--caution-rgb)); }
+.v2nav__vram--danger .v2nav__vrambar > span { background: rgb(var(--danger-rgb)); }
+.v2nav__vramlbl { font-family: var(--font-data); font-size: 8.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) { .v2nav__vram { display: none; } }
+
 /* reserve the rail: shift each surface's fixed root right by the rail width.
    ALSO paint the theme's --surface-texture (grain + atmospheric haze) over each
    surface's solid --surface-page. Higher specificity than a surface's own

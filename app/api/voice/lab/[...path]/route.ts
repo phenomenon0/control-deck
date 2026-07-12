@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { s2sLabUrl } from "@/lib/voice/s2s-url";
+import { acquireOmniLane } from "@/lib/resource/voice-lane";
 
 export const runtime = "nodejs";
 
@@ -39,6 +40,23 @@ async function proxyVoiceLab(
   const { path = [] } = await context.params;
   if (path.length === 0) {
     return Response.json({ error: "Missing Voice Lab path." }, { status: 400 });
+  }
+
+  // C1: an s2s restart loads STT/TTS (and possibly LLM) weights onto the
+  // GPU. Reserve the omni lane first — the arbiter hard-evicts idle
+  // tenants; if even that can't make room, refuse instead of OOMing.
+  if (method === "POST" && path[0] === "restart") {
+    const acq = await acquireOmniLane("voice-lab restart");
+    if (acq.status !== "granted") {
+      return Response.json(
+        {
+          error:
+            `Not enough VRAM to start the voice pipeline: ${acq.reason ?? acq.status}. ` +
+            "Free GPU memory (see /v2/system) and retry.",
+        },
+        { status: 503 },
+      );
+    }
   }
 
   const base = s2sLabUrl().replace(/\/+$/, "");

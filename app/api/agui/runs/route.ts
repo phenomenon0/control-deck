@@ -1,4 +1,4 @@
-import { getRuns, getEvents, getTotalCost, clearRuns } from "@/lib/agui/db";
+import { getRuns, getEvents, getArtifacts, getTotalCost, clearRuns } from "@/lib/agui/db";
 import {
   costOverTime,
   errorRateOverTime,
@@ -64,5 +64,9 @@ export async function POST(req: Request) {
   }
 
   const events = getEvents(runId);
-  return NextResponse.json({ events });
+  // E1: runs show what they produced — artifact rows ride along so the
+  // timeline can render an artifacts strip (runId linkage existed in the
+  // DB since day one; no UI ever read it).
+  const artifacts = getArtifacts(runId, 24);
+  return NextResponse.json({ events, artifacts });
 }

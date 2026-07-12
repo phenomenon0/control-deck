@@ -197,6 +197,29 @@
 .av2-visual .plate-cell.is-selected .img-plate { border-color: var(--accent); box-shadow: inset 0 0 0 2px rgba(var(--acc-rgb), 0.55), 0 1px 3px var(--depth) inset; }
 .av2-visual .plate-meta { font-family: var(--font-data); font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; line-height: 1.5; padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .av2-visual .plate-meta b { color: var(--accent-text); font-weight: 500; }
+
+/* E3/E4 — hover verbs on plates + gallery filter row */
+.av2-visual .plate-cell { position: relative; }
+.av2-visual .plate-verbs { position: absolute; top: var(--space-2); right: var(--space-2); display: flex; gap: 3px; opacity: 0; transition: opacity var(--duration-base) var(--ease-out); }
+.av2-visual .plate-cell:hover .plate-verbs,
+.av2-visual .plate-verbs:focus-within { opacity: 1; }
+.av2-visual .plate-verb {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-data); font-size: 9.5px; color: var(--ink-soft);
+  background: var(--surface-raised); border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-sm); padding: 3px 6px; cursor: pointer;
+  box-shadow: 0 1px 2px var(--depth);
+}
+.av2-visual .plate-verb:hover { color: var(--accent-text); border-color: var(--accent); }
+.av2-visual .plate-verb.is-starred { color: var(--accent-text); }
+.av2-visual .gallery-filters { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
+.av2-visual .gallery-filter {
+  font-family: var(--font-data); font-size: 11px; color: var(--ink-soft);
+  background: var(--surface-raised); border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-sm); padding: 4px 8px;
+}
+.av2-visual .word-act.is-active { color: var(--accent-text); }
+.av2-visual .lightbox__dl--danger { color: rgb(var(--danger-rgb)); }
 .av2-visual .gallery-more { margin-top: var(--space-5); }
 .av2-visual .gallery-state { display: grid; place-items: center; min-height: 160px; font-family: var(--font-data); font-size: 12px; color: var(--ink-faint); text-align: center; padding: var(--space-4); }
 .av2-visual .gallery-state--error { color: rgb(var(--danger-rgb)); }

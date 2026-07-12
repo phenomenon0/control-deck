@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import Image from "next/image";
 import { ChevronDown, ChevronsUp, LoaderCircle, Paperclip, X } from "lucide-react";
 
-import { Gallery } from "./Gallery";
+import { Gallery, type RecentImage } from "./Gallery";
 import { JobStrip } from "./JobStrip";
 import {
   useImageSource,
@@ -42,6 +42,17 @@ export function UpscaleTab() {
 
   const [source, setSource] = useState<SelectedImageSource | null>(null);
   const { busyLabel, error: sourceError, uploadFile, pickGalleryImage } = useImageSource("upscale", setSource);
+
+  // E4: gallery "send to upscale" — stages the clicked plate as this tab's source.
+  useEffect(() => {
+    const onSendTo = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { mode?: string; image?: RecentImage } | undefined;
+      if (detail?.mode !== "upscale" || !detail.image) return;
+      void pickGalleryImage(detail.image);
+    };
+    window.addEventListener("deck:image-sendto", onSendTo);
+    return () => window.removeEventListener("deck:image-sendto", onSendTo);
+  }, [pickGalleryImage]);
   const [model, setModel] = useState<UpscaleModel>("realesrgan-x4");
   const [backend, setBackend] = useState<UpscaleBackend>("local");
   const fileRef = useRef<HTMLInputElement | null>(null);

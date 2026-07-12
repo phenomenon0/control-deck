@@ -39,12 +39,10 @@
 .av2-hardware .tag--caution  { --status-rgb: var(--caution-rgb); }
 .av2-hardware .tag--danger   { --status-rgb: var(--danger-rgb); }
 
-/* ── hero ────────────────────────────────────────────────────────────────────── */
-.av2-hardware .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); margin-bottom: var(--space-5); }
-.av2-hardware .hero-lede { max-width: 560px; }
-.av2-hardware .hero h1 { font-family: var(--font-reading); font-size: var(--text-3xl); font-weight: 600; line-height: 1.05; color: var(--ink-strong); margin: 4px 0 6px; }
-.av2-hardware .hero p { font-family: var(--font-ui); font-size: var(--text-md); line-height: var(--leading-body); color: var(--ink-soft); }
-.av2-hardware .hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); flex: none; }
+/* ── quiet masthead — surface name + live status chips in one slim row (no hero) ── */
+.av2-hardware .masthead { display: flex; align-items: center; gap: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--line-subtle); margin-bottom: var(--space-5); }
+.av2-hardware .mast-name { font-family: var(--font-data); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-strong); flex: 1; min-width: 0; }
+.av2-hardware .mast-side { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: flex-end; }
 .av2-hardware .status-chip { font-family: var(--font-data); font-size: 11px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: var(--radius-sm); background: rgba(var(--fg-rgb), var(--alpha-wash)); color: var(--ink-soft); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .av2-hardware .status-chip .dot { width: 7px; height: 7px; border-radius: var(--radius-full); background: rgb(var(--positive-rgb)); box-shadow: 0 0 5px rgba(var(--positive-rgb), 0.6); }
 .av2-hardware .status-chip .dot.live { animation: hw-pulse 2.2s var(--ease-in-out) infinite; }
@@ -157,8 +155,8 @@
 }
 @media (max-width: 720px) {
   .av2-hardware .wrap { padding: var(--space-5) var(--space-4) var(--space-6); }
-  .av2-hardware .hero { flex-direction: column; }
-  .av2-hardware .hero-side { align-items: flex-start; }
+  .av2-hardware .masthead { flex-wrap: wrap; }
+  .av2-hardware .mast-side { justify-content: flex-start; }
   .av2-hardware .gpu-head { flex-direction: column; }
   .av2-hardware .gpu-read { text-align: left; }
   .av2-hardware .gpu-cells { grid-template-columns: 1fr; }

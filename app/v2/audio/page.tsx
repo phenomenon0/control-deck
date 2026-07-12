@@ -511,14 +511,10 @@ export default function AudioV2Page() {
       <audio ref={audioRef} onEnded={onEnded} preload="none" />
 
       <div className="wrap">
-        {/* ── hero ──────────────────────────────────────────────────────── */}
-        <header className="hero">
-          <div className="hero-lede">
-            <span className="kicker">Audio · generations & clips</span>
-            <h1>Audio</h1>
-            <p>A library of generated speech and voice previews with compact players. Every clip plays real bytes; new speech is synthesised through the bound TTS provider.</p>
-          </div>
-          <div className="hero-side">
+        {/* ── quiet masthead — surface name + live tallies (no hero) ──────── */}
+        <header className="masthead">
+          <span className="mast-name">Audio</span>
+          <div className="mast-side">
             <div className="chip"><i>clips</i><b>{clips.length}</b></div>
             <div className="chip"><i>runtime</i><b>{fmtDur(totalDur)}</b></div>
             <div className="chip"><i>models</i><b>{modelCount}</b></div>

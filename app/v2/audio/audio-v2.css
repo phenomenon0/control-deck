@@ -37,7 +37,6 @@
 .av2-audio .ic { display: inline-flex; }
 
 .av2-audio .wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-7) var(--space-8); }
-.av2-audio .kicker { font-family: var(--font-data); font-size: 9.5px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--ink-faint); }
 
 /* ── shared recipes ─────────────────────────────────────────────────────────── */
 .av2-audio .card { border-radius: var(--card-radius); background: var(--surface-raised); border: 1px solid var(--line-subtle); box-shadow: var(--card-shadow-rest); }
@@ -56,12 +55,10 @@
 .av2-audio .btn--pri { border-color: var(--btn-pri-line); background: var(--btn-pri-fill); color: var(--accent-text); box-shadow: 0 1px 0 var(--sheen) inset; }
 .av2-audio .btn--pri:hover:not(:disabled) { background: var(--btn-pri-fill-hover); border-color: var(--btn-pri-line-hover); }
 
-/* ── hero ───────────────────────────────────────────────────────────────────── */
-.av2-audio .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); margin-bottom: var(--space-5); }
-.av2-audio .hero-lede { max-width: 560px; }
-.av2-audio .hero h1 { font-family: var(--font-reading); font-size: var(--text-3xl); font-weight: 600; line-height: 1.05; color: var(--ink-strong); margin: 4px 0 6px; }
-.av2-audio .hero p { font-family: var(--font-ui); font-size: var(--text-md); line-height: var(--leading-body); color: var(--ink-soft); }
-.av2-audio .hero-side { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; flex: none; max-width: 200px; }
+/* ── quiet masthead — surface name + live tallies in one slim row (no hero) ──── */
+.av2-audio .masthead { display: flex; align-items: center; gap: var(--space-4); padding-bottom: var(--space-3); border-bottom: 1px solid var(--line-subtle); margin-bottom: var(--space-5); }
+.av2-audio .mast-name { font-family: var(--font-data); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-strong); flex: 1; min-width: 0; }
+.av2-audio .mast-side { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 .av2-audio .chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 11px; border-radius: var(--radius-sm); background: rgba(var(--fg-rgb), var(--alpha-wash)); box-shadow: 0 1px 2px var(--depth) inset, 0 1px 0 var(--sheen); }
 .av2-audio .chip i { font-style: normal; font-family: var(--font-data); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
 .av2-audio .chip b { font-family: var(--font-data); font-size: 13px; font-weight: 500; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
@@ -152,8 +149,8 @@
 
 /* ── fold ────────────────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
-  .av2-audio .hero { flex-direction: column; }
-  .av2-audio .hero-side { justify-content: flex-start; max-width: none; }
+  .av2-audio .masthead { flex-wrap: wrap; }
+  .av2-audio .mast-side { justify-content: flex-start; }
 }
 @media (max-width: 720px) {
   .av2-audio .wrap { padding: var(--space-5) var(--space-4) var(--space-6); }

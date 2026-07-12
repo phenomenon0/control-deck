@@ -307,16 +307,10 @@ export default function HardwarePage() {
   return (
     <div className="av2-hardware">
       <div className="wrap">
-        {/* hero */}
-        <header className="hero">
-          <div className="hero-lede">
-            <span className="kicker">System · {profile?.platform ?? "host"} · {profile?.mode ?? "—"} mode</span>
-            <h1>System</h1>
-            <p>Live telemetry for the inference rig — GPU, CPU, memory, and disk,
-              refreshed every five seconds, with loaded models, background
-              processes, and the VRAM arbiter's reservations at a glance.</p>
-          </div>
-          <div className="hero-side">
+        {/* quiet masthead — surface name + live status chips (no hero) */}
+        <header className="masthead">
+          <span className="mast-name">System · {profile?.platform ?? "host"} · {profile?.mode ?? "—"} mode</span>
+          <div className="mast-side">
             <span className={chipCls}><span className={chipDot} />{chipText}</span>
             <span className="status-chip">
               {profile?.backend?.toUpperCase() ?? "CPU"} · {onlineCount}/{services.length} services

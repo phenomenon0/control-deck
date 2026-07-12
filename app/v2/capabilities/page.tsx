@@ -248,13 +248,9 @@ export default function CapabilitiesV2Page() {
 
   return (
     <div className="av2-capabilities">
-      <header className="hero">
-        <span className="eyebrow">Agent capabilities</span>
-        <h1>Capabilities</h1>
-        <p className="lede">
-          Everything your local agent can reach for — the skills it runs, the rules it obeys, and the tool
-          servers it connects to.
-        </p>
+      {/* quiet masthead — surface name + layer tallies (no hero) */}
+      <header className="masthead">
+        <span className="mast-name">Capabilities</span>
         <div className="tally">
           <b>{data.skills.length}</b> skills
           <span className="sep">·</span>

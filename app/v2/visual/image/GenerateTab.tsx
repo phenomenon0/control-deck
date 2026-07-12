@@ -32,6 +32,34 @@ import { useWeightsInfo, fitLabel, downloadLabel } from "./useWeightsInfo";
 import { ComfyOfflineHint, MissingWeightsHint } from "./recovery";
 import { useImageJobs } from "./useImageJobs";
 
+
+/* D4: per-preset saved defaults — any advanced value you change is remembered
+   for that preset (LM Studio's "set once" pattern), so the advanced fold
+   converges instead of drifting back to factory defaults every session. */
+const ADV_SAVE_KEY = "deck.visual.advanced";
+
+function advancedForPresetWithSaved(preset: GeneratePreset) {
+  const base = advancedStateForPreset(preset);
+  try {
+    const all = JSON.parse(localStorage.getItem(ADV_SAVE_KEY) || "{}") as Record<string, Partial<typeof base>>;
+    const saved = all[preset];
+    return saved ? { ...base, ...saved, preset } : base;
+  } catch {
+    return base;
+  }
+}
+
+function saveAdvancedForPreset(state: ReturnType<typeof advancedStateForPreset>) {
+  try {
+    const all = JSON.parse(localStorage.getItem(ADV_SAVE_KEY) || "{}") as Record<string, unknown>;
+    const { preset, ...values } = state;
+    all[preset] = values;
+    localStorage.setItem(ADV_SAVE_KEY, JSON.stringify(all));
+  } catch {
+    /* private mode */
+  }
+}
+
 export function GenerateTab() {
   const { presets, online, loading } = useComfyStatus();
   const weightsInfo = useWeightsInfo();
@@ -49,10 +77,14 @@ export function GenerateTab() {
 
   const [prompt, setPrompt] = useState("");
   const [advancedState, setAdvancedState] = useState(() => advancedStateForPreset(DEFAULT_PRESET));
+  useEffect(() => setAdvancedState(advancedForPresetWithSaved(DEFAULT_PRESET)), []);
   const { preset, steps, cfg, sampler, scheduler, shift, negativePrompt } = advancedState;
   const [width, setWidth] = useState(768);
   const [height, setHeight] = useState(768);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  useEffect(() => {
+    if (advancedState.preset !== "fal") saveAdvancedForPreset(advancedState);
+  }, [advancedState]);
   const [seedValue, setSeedValue] = useState("");
   const [lastSeed, setLastSeed] = useState<number | null>(null);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -64,7 +96,46 @@ export function GenerateTab() {
   }, [presets]);
 
   const resetAdvancedForPreset = useCallback((nextPreset: GeneratePreset) => {
-    setAdvancedState(advancedStateForPreset(nextPreset));
+    // explicit reset returns to factory defaults AND clears the saved values
+    const base = advancedStateForPreset(nextPreset);
+    saveAdvancedForPreset(base);
+    setAdvancedState(base);
+  }, []);
+
+  // E2 recall — Use All / Remix from the gallery. REPLACE semantics, never
+  // merge: state resets to the preset's defaults first, then the manifest's
+  // fields land on top, and any staged source is cleared. (InvokeAI's chronic
+  // recall bug class is stale fields leaking into the next generation.)
+  useEffect(() => {
+    const onRecall = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { mode: "all" | "remix"; manifest: Record<string, unknown> }
+        | undefined;
+      const m = detail?.manifest;
+      if (!m || m.tool !== "generate_image") return;
+      const nextPreset = LOCAL_PRESETS.some((o) => o.id === m.preset)
+        ? (m.preset as GeneratePreset)
+        : DEFAULT_PRESET;
+      const base = advancedStateForPreset(nextPreset);
+      setAdvancedState({
+        ...base,
+        steps: typeof m.steps === "number" ? m.steps : base.steps,
+        cfg: typeof m.cfg === "number" ? m.cfg : base.cfg,
+        sampler: typeof m.sampler === "string" ? (m.sampler as typeof base.sampler) : base.sampler,
+        scheduler: typeof m.scheduler === "string" ? (m.scheduler as typeof base.scheduler) : base.scheduler,
+        shift: typeof m.shift === "number" ? m.shift : base.shift,
+        negativePrompt: typeof m.negative_prompt === "string" ? m.negative_prompt : "",
+      });
+      setPrompt(typeof m.prompt === "string" ? m.prompt : "");
+      setWidth(typeof m.width === "number" ? m.width : 768);
+      setHeight(typeof m.height === "number" ? m.height : 768);
+      setSeedValue(detail.mode === "all" && typeof m.seed === "number" ? String(m.seed) : "");
+      setSource(null);
+      setAdvancedOpen(true);
+      promptRef.current?.focus();
+    };
+    window.addEventListener("deck:image-recall", onRecall);
+    return () => window.removeEventListener("deck:image-recall", onRecall);
   }, []);
 
   useEffect(() => {
@@ -73,7 +144,7 @@ export function GenerateTab() {
       if (current.preset === "fal") return current;               // explicit FAL pick stays
       if (presets[current.preset]?.available) return current;      // current local rig is ready
       if (firstAvailableLocal && firstAvailableLocal !== current.preset) {
-        return advancedStateForPreset(firstAvailableLocal);        // hop to a ready local rig
+        return advancedForPresetWithSaved(firstAvailableLocal);   // hop to a ready local rig
       }
       return current;  // no local ready (offline / weights missing) — stay local, show the hint
     });
@@ -99,7 +170,9 @@ export function GenerateTab() {
 
   const handlePresetChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const next = event.target.value as GeneratePreset;
-    resetAdvancedForPreset(next);
+    // Switching presets LOADS that preset's saved defaults; only the explicit
+    // "reset" button (resetAdvancedForPreset) returns to factory + clears them.
+    setAdvancedState(advancedForPresetWithSaved(next));
   };
 
   const chooseSquareSize = (size: number) => {

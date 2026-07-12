@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./atlas-v2.css";
 import { useThreads } from "@/lib/hooks/useThreads";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
@@ -74,6 +74,74 @@ function stripMarkdownForSpeech(md: string): string {
     .replace(/~~(.*?)~~/g, "$1") // strikethrough
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/* D2: compact model picker in the composer — mid-thread switching without a
+   round-trip to Settings. Options come from the live Ollama catalog; loaded
+   models are marked ●, fit rides the tag size vs live free VRAM. Writes the
+   choice back into deck.prefs (the same key every surface reads). */
+function ComposerModelPicker({ value, onPick }: { value: string; onPick: (m: string) => void }) {
+  const [tags, setTags] = useState<Array<{ name: string; size: number }>>([]);
+  const [loaded, setLoaded] = useState<Set<string>>(new Set());
+  const [freeMb, setFreeMb] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [tagsRes, psRes, statsRes] = await Promise.all([
+          fetch("/api/ollama/tags", { cache: "no-store" }),
+          fetch("/api/ollama/ps", { cache: "no-store" }),
+          fetch("/api/system/stats", { cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+        if (tagsRes.ok) {
+          const d = (await tagsRes.json()) as { models?: Array<{ name?: string; size?: number }> };
+          setTags((d.models ?? []).filter((m): m is { name: string; size: number } => !!m.name).map((m) => ({ name: m.name, size: m.size ?? 0 })));
+        }
+        if (psRes.ok) {
+          const d = (await psRes.json()) as { models?: Array<{ name?: string }> };
+          setLoaded(new Set((d.models ?? []).map((m) => m.name).filter((n): n is string => !!n)));
+        }
+        if (statsRes.ok) {
+          const d = (await statsRes.json()) as { gpu?: { memoryUsed?: number; memoryTotal?: number } };
+          if (d.gpu?.memoryTotal) setFreeMb(d.gpu.memoryTotal - (d.gpu.memoryUsed ?? 0));
+        }
+      } catch {
+        /* picker degrades to the saved value */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const label = (m: { name: string; size: number }) => {
+    const isLoaded = loaded.has(m.name);
+    if (isLoaded) return `● ${m.name}`;
+    if (freeMb != null && m.size > 0) {
+      const estMb = (m.size / 1024 / 1024) * 1.3 + 512;
+      if (estMb > freeMb) return `${m.name} · tight`;
+    }
+    return m.name;
+  };
+
+  const options = tags.some((t) => t.name === value) || !value
+    ? tags
+    : [{ name: value, size: 0 }, ...tags];
+
+  return (
+    <select
+      className="tag compose__model"
+      value={value || ""}
+      onChange={(e) => onPick(e.target.value)}
+      aria-label="chat model"
+      title="model for the next turn — switches mid-thread"
+    >
+      {!value ? <option value="">auto</option> : null}
+      {options.map((m) => (
+        <option key={m.name} value={m.name}>{label(m)}</option>
+      ))}
+    </select>
+  );
 }
 
 /** Read the deck's real user prefs (localStorage `deck.prefs`). No provider is
@@ -366,6 +434,21 @@ export default function ChatV2Page() {
     [messages],
   );
   const modelLabel = agentRun.state.resolvedModel || readPrefsModel() || "auto";
+
+  // D2: composer model picker — persisted choice, applied on the next turn.
+  const [pickedModel, setPickedModel] = useState("");
+  useEffect(() => setPickedModel(readPrefsModel()), []);
+  const pickModel = useCallback((m: string) => {
+    setPickedModel(m);
+    try {
+      const p = JSON.parse(localStorage.getItem("deck.prefs") || "{}");
+      p.model = m;
+      localStorage.setItem("deck.prefs", JSON.stringify(p));
+      window.dispatchEvent(new Event("deck.prefs"));
+    } catch {
+      /* private mode — in-memory only */
+    }
+  }, []);
 
   // The real run error (fail-loud). Surfaced as an inline danger chip in the
   // flow — never a fabricated assistant turn.
@@ -966,7 +1049,7 @@ export default function ChatV2Page() {
             </div>
             <div className="compose__bar">
               <span className="tag"><Ico name="cpu" style={{ width: 12, height: 12 }} />local</span>
-              <span className="tag"><Ico name="music" style={{ width: 12, height: 12 }} />{modelLabel}</span>
+              <ComposerModelPicker value={pickedModel || (modelLabel !== "auto" ? modelLabel : "")} onPick={pickModel} />
               <span className="tag tag--accent"><Ico name="sliders" style={{ width: 12, height: 12 }} />tweaks</span>
               <span className="grow" />
               <span className="hint">↵ sends · shift-↵ newline</span>

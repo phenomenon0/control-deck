@@ -40,6 +40,13 @@ interface Step {
   status: "complete" | "running" | "error" | "warning";
   dur: string;
 }
+/** E1: artifact rows for the selected run (subset of the DB shape). */
+interface RunArtifact {
+  id: string;
+  mime_type: string;
+  name: string;
+  url: string;
+}
 
 const STATUS: Record<Status, { tone: Tone; label: string }> = {
   running: { tone: "caution", label: "running" },
@@ -233,6 +240,7 @@ export default function RunsV2Page() {
   const [filter, setFilter] = useState<"all" | Status>("all");
   const [selected, setSelected] = useState<string>("");
   const [stepsByRun, setStepsByRun] = useState<Record<string, Step[]>>({});
+  const [artifactsByRun, setArtifactsByRun] = useState<Record<string, RunArtifact[]>>({});
   const [stepsErr, setStepsErr] = useState<Record<string, boolean>>({});
   const [loadingSteps, setLoadingSteps] = useState(false);
 
@@ -276,8 +284,12 @@ export default function RunsV2Page() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const events: RunEvent[] = Array.isArray(data.events) ? data.events : [];
+        const artifacts: RunArtifact[] = Array.isArray(data.artifacts) ? data.artifacts : [];
         const runStatus = (runs.find((r) => r.id === selected)?.status ?? "finished") as Status;
-        if (!cancelled) setStepsByRun((prev) => ({ ...prev, [selected]: buildSteps(events, runStatus) }));
+        if (!cancelled) {
+          setStepsByRun((prev) => ({ ...prev, [selected]: buildSteps(events, runStatus) }));
+          setArtifactsByRun((prev) => ({ ...prev, [selected]: artifacts }));
+        }
       } catch (err) {
         console.warn("[runs-v2] events fetch failed:", err);
         if (!cancelled) setStepsErr((prev) => ({ ...prev, [selected]: true }));
@@ -496,6 +508,26 @@ export default function RunsV2Page() {
                     ))
                   )}
                 </ol>
+
+                {(artifactsByRun[active.id] ?? []).length > 0 ? (
+                  <div className="run-artifacts">
+                    <div className="run-artifacts__label">artifacts · {(artifactsByRun[active.id] ?? []).length}</div>
+                    <div className="run-artifacts__strip">
+                      {(artifactsByRun[active.id] ?? []).map((a) =>
+                        a.mime_type.startsWith("image/") ? (
+                          <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="run-artifact" title={a.name}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={a.url} alt={a.name} loading="lazy" />
+                          </a>
+                        ) : (
+                          <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="run-artifact run-artifact--file" title={a.name}>
+                            {a.mime_type.split("/")[1] ?? "file"}
+                          </a>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
           </aside>

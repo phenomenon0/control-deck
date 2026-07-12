@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { open, readdir, stat } from "fs/promises";
+import { open, readdir, stat, unlink } from "fs/promises";
 import * as path from "path";
 import { artifactRoot, artifactUrl } from "@/lib/storage/paths";
 
@@ -22,6 +22,7 @@ const MAX_LIMIT = 500;
 type ImageKind = "generate" | "edit" | "upscale" | "unknown";
 
 interface RecentImage {
+  runId: string;
   url: string;
   name: string;
   width: number | null;
@@ -29,6 +30,8 @@ interface RecentImage {
   mtime: number;
   model: string;
   kind: ImageKind;
+  /** E2 recall manifest (tool, preset, prompt, seed, params) when the DB has one. */
+  manifest: Record<string, unknown> | null;
 }
 
 const MODEL_PREFIXES: Array<{ prefix: string; model: string; kind: Exclude<ImageKind, "unknown"> }> = [
@@ -80,6 +83,26 @@ async function pngSize(filePath: string): Promise<{ width: number; height: numbe
   }
 }
 
+/** E4: delete an artifact image from disk (traversal-guarded). */
+export async function DELETE(req: NextRequest) {
+  const runId = req.nextUrl.searchParams.get("runId") ?? "";
+  const name = req.nextUrl.searchParams.get("name") ?? "";
+  if (!runId || !name) {
+    return NextResponse.json({ error: "?runId=&name= required" }, { status: 400 });
+  }
+  const root = artifactRoot();
+  const target = path.resolve(root, runId, name);
+  if (!target.startsWith(path.resolve(root) + path.sep)) {
+    return NextResponse.json({ error: "path escapes artifact root" }, { status: 400 });
+  }
+  try {
+    await unlink(target);
+  } catch {
+    return NextResponse.json({ error: "file not found" }, { status: 404 });
+  }
+  return NextResponse.json({ deleted: true });
+}
+
 export async function GET(req: NextRequest) {
   const limit = parseLimit(req.nextUrl.searchParams.get("limit"));
   const root = artifactRoot();
@@ -112,6 +135,7 @@ export async function GET(req: NextRequest) {
           if (!st.isFile()) continue;
           const { model, kind } = modelInfoFor(name);
           collected.push({
+            runId,
             url: artifactUrl(runId, name),
             name,
             width: dims?.width ?? null,
@@ -119,6 +143,7 @@ export async function GET(req: NextRequest) {
             mtime: st.mtimeMs,
             model,
             kind,
+            manifest: null,
           });
         } catch {
           /* skip unreadable file */
@@ -128,6 +153,20 @@ export async function GET(req: NextRequest) {
   );
 
   collected.sort((a, b) => b.mtime - a.mtime);
+  const page = collected.slice(0, limit);
 
-  return NextResponse.json({ images: collected.slice(0, limit), total: collected.length });
+  // E2: enrich the visible page with recall manifests from the artifacts DB.
+  try {
+    const { getArtifactMetaByUrls } = await import("@/lib/agui/db");
+    const metas = getArtifactMetaByUrls(page.map((i) => i.url));
+    for (const img of page) {
+      const meta = metas.get(img.url);
+      const manifest = meta && typeof meta === "object" ? (meta as { manifest?: Record<string, unknown> }).manifest : undefined;
+      if (manifest) img.manifest = manifest;
+    }
+  } catch {
+    /* feed works without manifests */
+  }
+
+  return NextResponse.json({ images: page, total: collected.length });
 }

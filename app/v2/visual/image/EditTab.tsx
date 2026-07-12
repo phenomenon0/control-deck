@@ -12,7 +12,7 @@ import {
 import Image from "next/image";
 import { ChevronDown, LoaderCircle, Paperclip, Pencil, X } from "lucide-react";
 
-import { Gallery } from "./Gallery";
+import { Gallery, type RecentImage } from "./Gallery";
 import { JobStrip } from "./JobStrip";
 import {
   useImageSource,
@@ -49,6 +49,17 @@ export function EditTab() {
 
   const [source, setSource] = useState<SelectedImageSource | null>(null);
   const { busyLabel, error: sourceError, uploadFile, pickGalleryImage } = useImageSource("edit", setSource);
+
+  // E4: gallery "send to edit" — stages the clicked plate as this tab's source.
+  useEffect(() => {
+    const onSendTo = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { mode?: string; image?: RecentImage } | undefined;
+      if (detail?.mode !== "edit" || !detail.image) return;
+      void pickGalleryImage(detail.image);
+    };
+    window.addEventListener("deck:image-sendto", onSendTo);
+    return () => window.removeEventListener("deck:image-sendto", onSendTo);
+  }, [pickGalleryImage]);
   const [instruction, setInstruction] = useState("");
   const [backend, setBackend] = useState<EditBackend>("auto");
   const instructionRef = useRef<HTMLTextAreaElement | null>(null);

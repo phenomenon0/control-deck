@@ -99,6 +99,22 @@ export default function DashboardV2Page() {
   const [statsReady, setStatsReady] = useState(false);
   const [surfacesReady, setSurfacesReady] = useState(false);
   const [feedReady, setFeedReady] = useState(false);
+  // E1: ambient recents — the last few renders, linking into the gallery.
+  const [recents, setRecents] = useState<Array<{ url: string; name: string }>>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/image/recent?limit=6", { cache: "no-store" });
+        if (!r.ok) return;
+        const d = (await r.json()) as { images?: Array<{ url: string; name: string }> };
+        if (alive && d.images) setRecents(d.images);
+      } catch {
+        /* strip simply doesn't render */
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -252,6 +268,20 @@ export default function DashboardV2Page() {
                   ))}
             </div>
           </section>
+
+          {recents.length > 0 ? (
+            <section>
+              <div className="sec-head"><h2>Fresh renders</h2><a href="/v2/visual">gallery →</a></div>
+              <div className="recents-row">
+                {recents.map((r) => (
+                  <a key={r.url} href="/v2/visual" className="recent-thumb" title={r.name}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={r.url} alt={r.name} loading="lazy" />
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <div className="sec-head"><h2>Surfaces in motion</h2><a>view all →</a></div>

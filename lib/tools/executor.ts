@@ -604,7 +604,9 @@ async function executeEditImage(
       workflow,
       `edit_${Date.now()}`,
       ctx,
-      "qwen-edit"
+      "qwen-edit",
+      undefined,
+      { tool: "edit_image", preset: "qwen-edit", instruction: args.instruction, seed },
     );
 
     return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
@@ -624,7 +626,9 @@ async function executeEditImage(
       workflow,
       `edit_${Date.now()}`,
       ctx,
-      "flux2-klein"
+      "flux2-klein",
+      undefined,
+      { tool: "edit_image", preset: "flux2-klein", instruction: args.instruction, seed },
     );
 
     return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
@@ -650,7 +654,9 @@ async function executeEditImage(
       workflow,
       `edit_${Date.now()}`,
       ctx,
-      autoPreset
+      autoPreset,
+      undefined,
+      { tool: "edit_image", preset: autoPreset, instruction: args.instruction, seed },
     );
 
     return comfyResultToExecutorResult(result, `Edited image: "${args.instruction}"`);
@@ -825,6 +831,7 @@ async function executeGenerateImage(
     if (unavailable) return unavailable;
 
     console.log(`[Executor] Using ComfyUI backend (${args.preset})`);
+    const presetSeed = args.seed ?? Math.floor(Math.random() * 1000000);
     const workflow = loadWorkflow(args.preset, {
       prompt: args.prompt,
       negative_prompt: args.negative_prompt,
@@ -835,14 +842,29 @@ async function executeGenerateImage(
       sampler: args.sampler,
       scheduler: args.scheduler,
       shift: args.shift,
-      seed: args.seed ?? Math.floor(Math.random() * 1000000),
+      seed: presetSeed,
     });
 
     const result = await executeComfyWorkflow(
       workflow,
       `img_${Date.now()}`,
       ctx,
-      args.preset
+      args.preset,
+      undefined,
+      {
+        tool: "generate_image",
+        preset: args.preset,
+        prompt: args.prompt,
+        negative_prompt: args.negative_prompt,
+        width: args.width,
+        height: args.height,
+        steps: args.steps,
+        cfg: args.cfg,
+        sampler: args.sampler,
+        scheduler: args.scheduler,
+        shift: args.shift,
+        seed: presetSeed,
+      },
     );
 
     return comfyResultToExecutorResult(result, `Generated image: "${args.prompt}"`);
@@ -875,19 +897,30 @@ async function executeGenerateImage(
   if (unavailable) return unavailable;
 
   console.log("[Executor] Using ComfyUI backend (SDXL Turbo)");
+  const turboSeed = args.seed ?? Math.floor(Math.random() * 1000000);
   const workflow = loadWorkflow("sdxl-turbo", {
     prompt: args.prompt,
     width: args.width ?? 512,
     height: args.height ?? 512,
     steps: 4,
-    seed: args.seed ?? Math.floor(Math.random() * 1000000),
+    seed: turboSeed,
   });
 
   const result = await executeComfyWorkflow(
     workflow,
     `img_${Date.now()}`,
     ctx,
-    "sdxl-turbo"
+    "sdxl-turbo",
+    undefined,
+    {
+      tool: "generate_image",
+      preset: "sdxl-turbo",
+      prompt: args.prompt,
+      width: args.width ?? 512,
+      height: args.height ?? 512,
+      steps: 4,
+      seed: turboSeed,
+    },
   );
 
   return comfyResultToExecutorResult(result, `Generated image: "${args.prompt}"`);
@@ -934,7 +967,9 @@ async function executeUpscaleImage(
     workflow,
     `upscale_${Date.now()}`,
     ctx,
-    "upscale"
+    "upscale",
+    undefined,
+    { tool: "upscale_image", preset: "upscale", model: args.model ?? "realesrgan-x4" },
   );
 
   return comfyResultToExecutorResult(result, `Upscaled image: "${source.label}"`);

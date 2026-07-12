@@ -118,6 +118,16 @@ export default function VisualV2Page() {
 function VisualV2Body() {
   const [view, setView] = useState<View>("generate");
 
+  // Gallery verbs switch tabs via this event (send-to-edit, recall, …).
+  useEffect(() => {
+    const onView = (e: Event) => {
+      const v = (e as CustomEvent).detail?.view as View | undefined;
+      if (v === "generate" || v === "edit" || v === "upscale") setView(v);
+    };
+    window.addEventListener("deck:visual-view", onView);
+    return () => window.removeEventListener("deck:visual-view", onView);
+  }, []);
+
   const [comfy, setComfy] = useState<ComfyStatus>({ online: false, vramFreeMb: null, vramTotalMb: null });
   const { startError } = useComfyStart();
 

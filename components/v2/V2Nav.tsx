@@ -70,7 +70,6 @@ const NAV = [
   { href: "/v2/visual", label: "visual", icon: "visual" },
   { href: "/v2/audio", label: "audio", icon: "audio" },
   { href: "/v2/voice", label: "voice", icon: "voice" },
-  { href: "/v2/tools", label: "tools", icon: "tools" },
   { href: "/v2/runs", label: "runs", icon: "runs" },
   { href: "/v2/control", label: "control", icon: "control" },
   { href: "/v2/system", label: "system", icon: "hardware" },

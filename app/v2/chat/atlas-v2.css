@@ -283,3 +283,11 @@
 .av2 .ar-model-container { width: 100%; max-width: 100%; border-radius: var(--radius-md); box-shadow: 0 2px 10px var(--depth); }
 .av2 .ar-caption { width: 100%; justify-content: center; margin-top: var(--space-3); }
 .av2 .ar-fallback { margin: 0 auto; }
+
+/* D2: composer model picker — a tag that happens to be a select */
+.av2 .compose__model {
+  appearance: none; -webkit-appearance: none;
+  cursor: pointer; max-width: 220px;
+  text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+}
+.av2 .compose__model:hover { color: var(--accent-text); border-color: var(--accent); }

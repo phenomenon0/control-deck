@@ -25,7 +25,9 @@
  * switches disabled with a retry rather than presenting defaults as fact.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { ToolCatalog } from "./ToolCatalog";
 import { getManifest, type RiskLevel } from "@/lib/tools/manifest";
 import "./control-v2.css";
 
@@ -116,7 +118,14 @@ function truncate(s: string, n: number): string {
 }
 
 /* ── page ────────────────────────────────────────────────────────────────── */
-export default function ControlV2Page() {
+function ControlV2Inner() {
+  // D3: the static tool catalog folded in as a tab (?tab=tools).
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const tab = searchParams.get("tab") === "tools" ? "tools" : "approvals";
+  const setTab = useCallback((t: "approvals" | "tools") => {
+    router.replace(t === "tools" ? "/v2/control?tab=tools" : "/v2/control", { scroll: false });
+  }, [router]);
   const [pending, setPending] = useState<ApprovalView[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [reachable, setReachable] = useState(true); // approvals API reachable
@@ -257,33 +266,29 @@ export default function ControlV2Page() {
   return (
     <div className="av2-control">
       <div className="wrap">
-        {/* ── hero ── */}
-        <header className="hero">
-          <div className="hero-lede">
-            <span className="kicker">Control deck · approvals</span>
-            <h1>Control</h1>
-            <p>
-              Tool calls the agent wants to make land here first. Approve to release the waiting
-              dispatch, deny to block it. Standing policies below decide what has to stop for
-              sign-off at all.
-            </p>
-          </div>
-          <div className="hstats">
-            <div className="hstat">
-              <span className={"hstat__n" + (reachable && pendingCount > 0 ? " is-live" : "")}>
-                {pendingLabel}
-              </span>
-              <span className="hstat__l">pending</span>
-            </div>
-            <div className="hstat">
-              <span className="hstat__n">{gateLabel}</span>
-              <span className="hstat__l">gate</span>
-            </div>
+        {/* ── quiet masthead — surface name + live readouts (no hero) ── */}
+        <header className="masthead">
+          <span className="mast-name">Control</span>
+          <nav className="mast-tabs" aria-label="Control sections">
+            <button type="button" className={"mast-tab" + (tab === "approvals" ? " is-active" : "")} onClick={() => setTab("approvals")}>approvals</button>
+            <button type="button" className={"mast-tab" + (tab === "tools" ? " is-active" : "")} onClick={() => setTab("tools")}>tools</button>
+          </nav>
+          <div className="mast-side">
+            <span className="mstat">
+              <b className={reachable && pendingCount > 0 ? "is-live" : ""}>{pendingLabel}</b> pending
+            </span>
+            <span className="mstat">
+              <b>{gateLabel}</b> gate
+            </span>
           </div>
         </header>
 
         {flash && <div className="flash">{flash}</div>}
 
+        {tab === "tools" ? <ToolCatalog /> : null}
+
+        {tab === "tools" ? null : (
+        <>
         {/* ── queue ── */}
         <section className="section" aria-label="Pending approvals">
           <div className="sec-label">
@@ -417,8 +422,19 @@ export default function ControlV2Page() {
             />
           </div>
         </section>
+        </>
+        )}
       </div>
     </div>
+  );
+}
+
+/* useSearchParams requires a Suspense boundary in the app router. */
+export default function ControlV2Page() {
+  return (
+    <Suspense fallback={null}>
+      <ControlV2Inner />
+    </Suspense>
   );
 }
 

@@ -182,3 +182,9 @@
   .av2-dash .top { flex-wrap: wrap; }
   .av2-dash .top .searchbox { width: 100% !important; order: 5; }
 }
+
+/* E1: fresh renders strip */
+.av2-dash .recents-row { display: flex; gap: var(--space-3); overflow-x: auto; padding-bottom: var(--space-2); }
+.av2-dash .recent-thumb { flex: none; width: 96px; height: 96px; border: 1px solid var(--line-subtle); border-radius: var(--radius-md); overflow: hidden; background: var(--surface-sunken); }
+.av2-dash .recent-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.av2-dash .recent-thumb:hover { border-color: var(--accent); }

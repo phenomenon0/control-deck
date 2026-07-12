@@ -475,6 +475,11 @@ export async function executeComfyWorkflow(
   ctx: ComfyToolContext,
   preset?: string,
   resource?: { lane?: LaneId; estimateMb?: number },
+  /** E2: recall manifest (tool, preset, prompt, seed, params) persisted on
+   *  every artifact so the gallery's Use All / Remix can replace form state.
+   *  The PNG itself already carries the full API workflow in ComfyUI's own
+   *  `prompt` tEXt chunk; this is the DB copy that survives recompression. */
+  manifest?: Record<string, unknown>,
 ): Promise<ComfyToolResult> {
   const { threadId, runId, toolCallId } = ctx;
 
@@ -662,7 +667,7 @@ export async function executeComfyWorkflow(
               url,
               localPath: copied?.path,
               originalPath,
-              meta: { promptId, filename: img.filename, subfolder: img.subfolder },
+              meta: { promptId, filename: img.filename, subfolder: img.subfolder, ...(manifest ? { manifest } : {}) },
             });
 
             // Emit ArtifactCreated event
@@ -679,7 +684,7 @@ export async function executeComfyWorkflow(
                 name: artifactName,
                 originalPath,
                 localPath: copied?.path,
-                meta: { promptId, filename: img.filename },
+                meta: { promptId, filename: img.filename, ...(manifest ? { manifest } : {}) },
               }
             );
             saveEvent(artifactEvt);

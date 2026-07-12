@@ -601,6 +601,25 @@ export function relinkArtifactRun(opts: {
   }
 }
 
+/** Batch meta lookup for the gallery feed: url → parsed meta (or null). */
+export function getArtifactMetaByUrls(urls: string[]): Map<string, Record<string, unknown> | null> {
+  const out = new Map<string, Record<string, unknown> | null>();
+  if (urls.length === 0) return out;
+  const db = getDb();
+  const placeholders = urls.map(() => "?").join(",");
+  const rows = db
+    .prepare(`SELECT url, meta FROM artifacts WHERE url IN (${placeholders})`)
+    .all(...urls) as Array<{ url: string; meta: string | null }>;
+  for (const r of rows) {
+    try {
+      out.set(r.url, r.meta ? (JSON.parse(r.meta) as Record<string, unknown>) : null);
+    } catch {
+      out.set(r.url, null);
+    }
+  }
+  return out;
+}
+
 export function getArtifacts(runId?: string, limit: number = 50): ArtifactRow[] {
   const db = getDb();
   if (runId) {

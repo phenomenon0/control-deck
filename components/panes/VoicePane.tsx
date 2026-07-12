@@ -122,7 +122,7 @@ export function VoicePane() {
               </p>
             </div>
             <Link
-              href="/deck/chat"
+              href="/v2/chat"
               className="btn btn-primary text-sm"
             >
               Open Chat

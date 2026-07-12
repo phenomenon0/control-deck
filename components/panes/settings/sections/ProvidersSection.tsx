@@ -19,7 +19,7 @@ export function ProvidersSection() {
         <StubCard
           title="Key editor — coming soon"
           description="Editable key + endpoint management surfaces here once the storage story for secrets is decided. Today: set OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_BASE_URL, etc. in your shell or .env.local."
-          ctaHref="/deck/models?tab=system"
+          ctaHref="/v2/models?tab=system"
           ctaLabel="See detected providers"
         />
       </Panel>

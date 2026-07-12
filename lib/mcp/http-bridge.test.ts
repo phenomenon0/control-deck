@@ -81,10 +81,10 @@ describe("callToolBridgeHttp", () => {
   test("preserves normalized tool error envelopes from the HTTP bridge", async () => {
     const fetchImpl = async () => new Response(JSON.stringify({
       success: false,
-      message: "No workspace client responded. Open /deck/workspace and retry the workspace operation.",
-      error: "workspace query query:get_state timed out after 5000ms (no client responded — is /deck/workspace open?)",
+      message: "No workspace client responded. Open /v2/workspace and retry the workspace operation.",
+      error: "workspace query query:get_state timed out after 5000ms (no client responded — is /v2/workspace open?)",
       error_code: "workspace_not_open",
-      recovery: ["Open http://localhost:3333/deck/workspace", "Retry workspace_get_state before any workspace write"],
+      recovery: ["Open http://localhost:3333/v2/workspace", "Retry workspace_get_state before any workspace write"],
       safe_to_retry: true,
       data: { kind: "workspace_error", error_code: "workspace_not_open", workspaceOpen: false },
     }), { status: 200, headers: { "content-type": "application/json" } });
@@ -103,7 +103,7 @@ describe("callToolBridgeHttp", () => {
       success: false,
       error_code: "workspace_not_open",
       safe_to_retry: true,
-      recovery: ["Open http://localhost:3333/deck/workspace", "Retry workspace_get_state before any workspace write"],
+      recovery: ["Open http://localhost:3333/v2/workspace", "Retry workspace_get_state before any workspace write"],
       data: { kind: "workspace_error", error_code: "workspace_not_open", workspaceOpen: false },
     });
   });

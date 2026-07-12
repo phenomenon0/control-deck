@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * HardwareRunnerPane — /deck/hardware first-class surface.
+ * HardwareRunnerPane — /v2/system first-class surface.
  *
  * Tabbed shell: Overview / Models / Processes / Providers / Disk. Every
  * hook fires once here and threads down to children so tab-switching is

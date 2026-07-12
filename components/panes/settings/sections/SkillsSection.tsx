@@ -18,8 +18,8 @@ export function SkillsSection() {
       <Panel title="Skill catalogue">
         <StubCard
           title="Capabilities surface is the home for skill + tool management"
-          description="A skill is a SKILL.md prompt plus an allowed-tools manifest, invocable by name. Configure install state (auto / self-service / hidden) and inspect skill prompts in /deck/capabilities."
-          ctaHref="/deck/capabilities?tab=skills"
+          description="A skill is a SKILL.md prompt plus an allowed-tools manifest, invocable by name. Configure install state (auto / self-service / hidden) and inspect skill prompts in /v2/capabilities."
+          ctaHref="/v2/capabilities"
           ctaLabel="Open Capabilities"
         />
       </Panel>

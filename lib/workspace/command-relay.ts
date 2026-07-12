@@ -106,7 +106,7 @@ export function publishQuery<T = unknown>(
       relay.pending.delete(full.id);
       reject(new Error(
         `workspace query ${command} timed out after ${timeoutMs}ms ` +
-        `(no client responded — is /deck/workspace open?)`,
+        `(no client responded — is /v2/workspace open?)`,
       ));
     }, timeoutMs);
 

@@ -176,7 +176,7 @@ export function ToolsPane() {
               <h3 className="section-title mb-3">Quick Actions</h3>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => router.push("/deck/terminal")}
+                  onClick={() => router.push("/v2/terminal")}
                   className="rounded-[6px] border border-[var(--border)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.04)] transition-colors duration-150 ease-[cubic-bezier(0,0,0.2,1)] px-3 py-2.5 text-sm text-[var(--text-secondary)] text-left flex items-center justify-start gap-2"
                 >
                   Open Terminal Surface

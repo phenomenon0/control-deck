@@ -25,8 +25,8 @@ export function registerDeckMcpResources(
   opts: RegisterDeckMcpResourcesOptions = {},
 ): void {
   const profiles = [...(opts.profiles ?? resolveMcpProfiles())];
-  const deckUrl = opts.deckUrl ?? "http://localhost:3333/deck";
-  const workspaceUrl = opts.workspaceUrl ?? "http://localhost:3333/deck/workspace";
+  const deckUrl = opts.deckUrl ?? "http://localhost:3333/v2";
+  const workspaceUrl = opts.workspaceUrl ?? "http://localhost:3333/v2/workspace";
 
   server.registerResource(
     "agent-handbook",
@@ -66,7 +66,7 @@ export function registerDeckMcpResources(
     "control-deck://workspace/state",
     {
       title: "Control Deck Workspace State",
-      description: "Current workspace snapshot via workspace_get_state; requires an open /deck/workspace client.",
+      description: "Current workspace snapshot via workspace_get_state; requires an open /v2/workspace client.",
       mimeType: "application/json",
     },
     async (uri) => {
@@ -89,7 +89,7 @@ ${buildLocalAgentCockpitPrompt(profiles)}
 
 - control-deck://agent-handbook — this handbook.
 - control-deck://tool-manifest — active profile and exposed tool risk metadata.
-- control-deck://workspace/state — current workspace_get_state snapshot when /deck/workspace is open.
+- control-deck://workspace/state — current workspace_get_state snapshot when /v2/workspace is open.
 - control-deck://platform/capabilities — runtime URLs, OS support notes, and workspace requirements.
 
 ## Operating north star
@@ -141,8 +141,8 @@ export function buildPlatformCapabilitiesResource(opts: {
       nodeArch: process.arch,
     },
     urls: {
-      deck: opts.deckUrl ?? "http://localhost:3333/deck",
-      workspace: opts.workspaceUrl ?? "http://localhost:3333/deck/workspace",
+      deck: opts.deckUrl ?? "http://localhost:3333/v2",
+      workspace: opts.workspaceUrl ?? "http://localhost:3333/v2/workspace",
       bridge: opts.bridgeUrl ?? "http://localhost:3333/api/tools/bridge",
     },
     workspace: {
@@ -150,7 +150,7 @@ export function buildPlatformCapabilitiesResource(opts: {
       preferredObserveTool: "workspace_get_state",
       notOpenErrorCode: "workspace_not_open",
       recovery: [
-        "Open http://localhost:3333/deck/workspace",
+        "Open http://localhost:3333/v2/workspace",
         "Retry workspace_get_state",
       ],
     },

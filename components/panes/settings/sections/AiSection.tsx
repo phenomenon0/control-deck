@@ -18,7 +18,7 @@ export function AiSection() {
         <StubCard
           title="Configure bindings in the Models pane"
           description="Each modality (text, vision, image-gen, TTS, STT, embedding, etc.) binds to one provider. Row-click to bind in ProviderCompareTable."
-          ctaHref="/deck/models"
+          ctaHref="/v2/models"
           ctaLabel="Open Models"
         />
       </Panel>

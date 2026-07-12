@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * /v2/hardware — Atlas Visual 2 HARDWARE surface. A full hardware monitor,
+ * /v2/system — Atlas Visual 2 HARDWARE surface. A full hardware monitor,
  * fuller than the models VRAM panel: GPU, CPU, RAM, DISK, plus loaded models
  * and runtime processes, refreshed every 5s.
  *

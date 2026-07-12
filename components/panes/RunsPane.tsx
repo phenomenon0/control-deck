@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * RunsPane — thin coordinator for /deck/control?tab=runs.
+ * RunsPane — thin coordinator for /v2/runs.
  *
  * All data lives in `useRunsData`; every view is a small component under
  * `components/panes/runs/*`. This file's job is to switch views and thread

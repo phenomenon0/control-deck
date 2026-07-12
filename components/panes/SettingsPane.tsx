@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SettingsPane — first-class /deck/settings surface.
+ * SettingsPane — first-class /v2/settings surface.
  *
  * Mirrors the shape of `InferenceControlPane` (tabbar + URL sync) but lays
  * out as a left nav + detail pane because Settings has enough sections that

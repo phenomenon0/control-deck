@@ -48,7 +48,7 @@ export function StorageSection({
           <div className="settings-row-text">
             <label>Workbench directories</label>
             <span className="settings-row-hint">
-              The Rules observatory at /deck/capabilities?tab=rules walks up from this project
+              The Rules observatory at /v2/capabilities walks up from this project
               by default. Add a directory here (e.g. <code>~/code</code>) to also scan every sibling
               repo one level down for CLAUDE.md / AGENTS.md / .cursorrules. Equivalent to the
               DECK_RULES_SEARCH env var, but persisted.

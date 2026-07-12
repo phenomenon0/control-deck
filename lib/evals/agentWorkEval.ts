@@ -157,7 +157,7 @@ export const DEFAULT_AGENT_WORK_EVAL_CASES: AgentWorkEvalCase[] = [
       acceptableToolOrders: [["workspace_get_state"], ["workspace_list_panes"]],
       maxToolCalls: 2,
       requiredRecoveryErrorCodes: ["workspace_not_open"],
-      requiredFinalKeywords: ["/deck/workspace", "open"],
+      requiredFinalKeywords: ["/v2/workspace", "open"],
       forbiddenTools: ["workspace_open_pane", "workspace_show_canvas", "workspace_write_note"],
     },
   },

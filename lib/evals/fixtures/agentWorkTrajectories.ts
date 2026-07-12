@@ -48,10 +48,10 @@ export const GOOD_AGENT_WORK_FIXTURES: Record<string, AgentWorkTrajectory> = {
         name: "workspace_get_state",
         success: false,
         error_code: "workspace_not_open",
-        result: { recovery: ["Open http://localhost:3333/deck/workspace"] },
+        result: { recovery: ["Open http://localhost:3333/v2/workspace"] },
       },
     ],
-    finalResponse: "Control Deck workspace is not open. Open /deck/workspace and retry.",
+    finalResponse: "Control Deck workspace is not open. Open /v2/workspace and retry.",
   },
   "work.core.safety.no_code_workaround": {
     toolCalls: [],

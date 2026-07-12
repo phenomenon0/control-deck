@@ -91,7 +91,7 @@ describe("mcp dialog eval scoring", () => {
       recoveryCase,
       [
         { assistantContent: "", toolCalls: [{ name: "workspace_list_panes", argumentsText: "{}" }] },
-        { assistantContent: "Workspace is not open. Please open /deck/workspace and retry.", toolCalls: [] },
+        { assistantContent: "Workspace is not open. Please open /v2/workspace and retry.", toolCalls: [] },
       ],
       ["workspace_list_panes", "workspace_pane_call"],
     );

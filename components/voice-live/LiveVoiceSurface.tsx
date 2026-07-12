@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * LiveVoiceSurface — the voice-native primary tab of /deck/audio.
+ * LiveVoiceSurface — the voice-native primary tab of /v2/audio.
  *
  * Layout:
  *   ┌─ VoiceDeckBar (route · voice · devices · latency · health) ─┐

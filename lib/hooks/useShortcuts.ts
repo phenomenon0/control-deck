@@ -160,7 +160,7 @@ function ensureGlobalListener() {
  *
  * @example
  *   useShortcut("mod+k", () => setPaletteOpen(o => !o), { label: "Toggle command palette" });
- *   useShortcut("1", () => navigate("/deck/chat"), { when: "no-input", label: "Go to Chat" });
+ *   useShortcut("1", () => navigate("/v2/chat"), { when: "no-input", label: "Go to Chat" });
  *   useShortcut("escape", () => onClose(), { enabled: open, priority: 100, label: "Close palette" });
  */
 export function useShortcut(

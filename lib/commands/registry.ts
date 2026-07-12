@@ -3,8 +3,8 @@
  * commands to the command palette while they're mounted. The palette is
  * the sole consumer; everything else registers via `useCommands`.
  *
- * Commands carry an optional `scope` — a route prefix like `/deck/chat`
- * or `/deck/control`. When the palette opens, commands whose scope
+ * Commands carry an optional `scope` — a route prefix like `/v2/chat`
+ * or `/v2/control`. When the palette opens, commands whose scope
  * matches the current pathname are ranked first.
  */
 
@@ -13,7 +13,7 @@ export interface RegisteredCommand {
   label: string;
   category: string;
   shortcut?: string;
-  /** Route prefix this command is most relevant under, e.g. "/deck/chat" */
+  /** Route prefix this command is most relevant under, e.g. "/v2/chat" */
   scope?: string;
   action: () => void | Promise<void>;
 }

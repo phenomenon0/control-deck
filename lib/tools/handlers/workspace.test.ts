@@ -64,7 +64,7 @@ describe("workspace tool handlers", () => {
           autoThrottled: [],
         },
       ],
-      client: { route: "/deck/workspace", ready: true, panelCount: 1 },
+      client: { route: "/v2/workspace", ready: true, panelCount: 1 },
     });
 
     const out = await executeWorkspaceGetState({ includeLayout: false });
@@ -200,7 +200,7 @@ describe("workspace tool handlers", () => {
 
   test("workspace_list_panes returns structured workspace_not_open envelope on timeout", async () => {
     relayState.next.push(
-      new Error("workspace query query:list_panes timed out after 5000ms (no client responded — is /deck/workspace open?)"),
+      new Error("workspace query query:list_panes timed out after 5000ms (no client responded — is /v2/workspace open?)"),
     );
 
     const out = await executeWorkspaceListPanes();
@@ -208,7 +208,7 @@ describe("workspace tool handlers", () => {
     expect(out.success).toBe(false);
     expect(out.error_code).toBe("workspace_not_open");
     expect(out.safe_to_retry).toBe(true);
-    expect(out.recovery).toContain("Open http://localhost:3333/deck/workspace");
+    expect(out.recovery).toContain("Open http://localhost:3333/v2/workspace");
     expect(out.data).toMatchObject({
       kind: "workspace_error",
       error_code: "workspace_not_open",

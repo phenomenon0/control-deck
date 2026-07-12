@@ -54,7 +54,7 @@ describe("mcp live trajectory eval", () => {
     const events = await runLiveTrajectoryCase(testCase, async () => ({
       success: false,
       error_code: "workspace_not_open",
-      recovery: ["Open /deck/workspace"],
+      recovery: ["Open /v2/workspace"],
     }));
 
     expect(events[0].success).toBe(false);

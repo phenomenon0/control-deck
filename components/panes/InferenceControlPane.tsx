@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * InferenceControlPane — the first-class Models surface at /deck/models.
+ * InferenceControlPane — the first-class Models surface at /v2/models.
  *
  * Top-level shell: a header describing the control plane state, a tabstrip
  * (Overview + one tab per modality), and the active tab's body. Tab choice

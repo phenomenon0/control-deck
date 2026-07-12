@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * CapabilitiesPane — first-class /deck/capabilities surface.
+ * CapabilitiesPane — first-class /v2/capabilities surface.
  *
  * Two tabs (Tools / Skills) share a list+detail inspector shell. Tools are
  * code-authored (read-only schema viewer + usage stats); skills are

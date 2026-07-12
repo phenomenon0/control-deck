@@ -192,7 +192,7 @@ export function simulateWorkToolCall(opts: {
         result: {
           success: false,
           error_code: "workspace_not_open",
-          recovery: ["Open http://localhost:3333/deck/workspace, then retry."],
+          recovery: ["Open http://localhost:3333/v2/workspace, then retry."],
         },
       };
     }

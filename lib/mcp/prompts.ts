@@ -118,7 +118,7 @@ Workspace rules:
 - Prefer semantic/macro tools when available. Use raw workspace_pane_call only after discovering the target pane and capability.
 - Safe core pane calls are notes read/append/replace, canvas load_code/load_preview/load_artifact, chat append_text, and browser navigate.
 - Terminal I/O via workspace_pane_call requires a developer/full-style profile. Do not route terminal work through core.
-- If workspace is not open, report/open /deck/workspace if browser control is available, then retry workspace_get_state once.
+- If workspace is not open, report/open /v2/workspace if browser control is available, then retry workspace_get_state once.
 - Verify after every note/canvas/browser write by reading state or the pane capability result.`;
 }
 

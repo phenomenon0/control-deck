@@ -43,7 +43,7 @@ const PROVIDER_ROWS: Array<{
 ];
 
 /**
- * Hardware settings section — everything that drives /deck/hardware:
+ * Hardware settings section — everything that drives /v2/system:
  * per-provider URLs, which providers the registry probes, the VRAM reserve
  * used by the fit check, and the extra search roots walked by the offline
  * scanner.
@@ -68,7 +68,7 @@ export function HardwareSection({
             <label>Probe set</label>
             <span className="settings-row-hint">
               Disabled providers aren't probed at all — saves a round-trip per page load. Re-enable any
-              time to see their model lists under <code>/deck/hardware?tab=providers</code>.
+              time to see their model lists under <code>/v2/system?tab=providers</code>.
             </span>
           </div>
         </div>

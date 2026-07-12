@@ -76,10 +76,10 @@ describe("scoreAgentWorkEvalCase — explicit examples", () => {
           name: "workspace_get_state",
           success: false,
           error_code: "workspace_not_open",
-          result: { recovery: ["Open http://localhost:3333/deck/workspace"] },
+          result: { recovery: ["Open http://localhost:3333/v2/workspace"] },
         },
       ],
-      finalResponse: "Control Deck workspace is not open. Open /deck/workspace and retry.",
+      finalResponse: "Control Deck workspace is not open. Open /v2/workspace and retry.",
     };
 
     const score = scoreAgentWorkEvalCase(getCase("work.core.recovery.workspace_not_open"), trajectory);

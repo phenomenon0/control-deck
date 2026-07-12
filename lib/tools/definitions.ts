@@ -1155,7 +1155,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "workspace_open_pane",
-    description: "Open a new pane in the user's workspace (must be on /deck/workspace). Fire-and-forget: the command relays to any connected WorkspaceShell which adds the panel via Dockview. Types: chat, terminal, canvas, browser, notes, agentgo, audio, comfy, control, models, runs, tools, voice.",
+    description: "Open a new pane in the user's workspace (must be on /v2/workspace). Fire-and-forget: the command relays to any connected WorkspaceShell which adds the panel via Dockview. Types: chat, terminal, canvas, browser, notes, agentgo, audio, comfy, control, models, runs, tools, voice.",
     parameters: [
       { name: "type", type: "string", required: true, description: "Pane component key" },
       { name: "title", type: "string", required: false, description: "Tab title; defaults to the type name" },
@@ -1184,14 +1184,14 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "workspace_get_state",
-    description: "Observe the current /deck/workspace state as a normalized snapshot: open panes, pane capabilities, topic rates, client readiness, warnings, and optionally Dockview layout JSON. Prefer this before and after workspace writes for agent verify loops.",
+    description: "Observe the current /v2/workspace state as a normalized snapshot: open panes, pane capabilities, topic rates, client readiness, warnings, and optionally Dockview layout JSON. Prefer this before and after workspace writes for agent verify loops.",
     parameters: [
       { name: "includeLayout", type: "boolean", required: false, description: "Include Dockview layout JSON; set false for a smaller observe result", default: true },
     ],
   },
   {
     name: "workspace_list_panes",
-    description: "Query the workspace for a snapshot of every registered pane — handle id, type, label, capabilities, declared topics + their current rate. Use this before workspace_pane_call to discover what's callable. Returns within 5s or errors if /deck/workspace isn't open.",
+    description: "Query the workspace for a snapshot of every registered pane — handle id, type, label, capabilities, declared topics + their current rate. Use this before workspace_pane_call to discover what's callable. Returns within 5s or errors if /v2/workspace isn't open.",
     parameters: [],
   },
   {

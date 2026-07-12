@@ -52,9 +52,9 @@ function workspaceError(err: unknown, ctx: WorkspaceErrorContext): ToolExecution
 
   if (lower.includes("timed out") && lower.includes("no client responded")) {
     errorCode = "workspace_not_open";
-    message = "No workspace client responded. Open /deck/workspace and retry the workspace operation.";
+    message = "No workspace client responded. Open /v2/workspace and retry the workspace operation.";
     recovery = [
-      "Open http://localhost:3333/deck/workspace",
+      "Open http://localhost:3333/v2/workspace",
       "Wait until the workspace finishes loading",
       "Retry workspace_get_state before any workspace write",
     ];
@@ -195,9 +195,9 @@ function noWorkspaceClient(command: string): ToolExecutionResult {
   return workspaceMacroError(
     "workspace_error",
     "workspace_not_open",
-    "No workspace tab is connected. Open /deck/workspace and retry the workspace operation.",
+    "No workspace tab is connected. Open /v2/workspace and retry the workspace operation.",
     [
-      "Open http://localhost:3333/deck/workspace",
+      "Open http://localhost:3333/v2/workspace",
       "Wait until the workspace finishes loading",
       "Retry the workspace operation",
     ],
@@ -335,7 +335,7 @@ export async function executeWorkspaceWriteNote(args: WorkspaceWriteNoteArgs): P
         "workspace_pane_not_found",
         "No matching notes pane is open in the workspace.",
         [
-          "Open a notes pane in /deck/workspace",
+          "Open a notes pane in /v2/workspace",
           "Retry workspace_write_note, or pass paneId from workspace_get_state",
         ],
         { requestedType: "notes", paneId: args.paneId },
@@ -522,7 +522,7 @@ export async function executeWorkspaceShowCanvas(args: WorkspaceShowCanvasArgs):
         "workspace_pane_not_found",
         "No matching canvas pane is open in the workspace.",
         [
-          "Open a canvas pane in /deck/workspace",
+          "Open a canvas pane in /v2/workspace",
           "Retry workspace_show_canvas, or pass paneId from workspace_get_state",
         ],
         { requestedType: "canvas", paneId: args.paneId, mode: prepared.mode },

@@ -22,7 +22,7 @@ interface TabDef {
   Component: ComponentType;
 }
 
-// Models moved to its own first-class surface at /deck/models (see
+// Models moved to its own first-class surface at /v2/models (see
 // InferenceControlPane). The Ollama-specific ModelsPane is now reachable
 // from inside the Models pane's provider inspector.
 const TABS: readonly TabDef[] = [

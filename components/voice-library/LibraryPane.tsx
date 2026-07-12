@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * LibraryPane — the "Voices" tab of /deck/audio.
+ * LibraryPane — the "Voices" tab of /v2/audio.
  *
  * Primary job: help the user pick or audition a voice fast. The dominant CTA
  * on every card is `Use in Live`; governance actions (publish/restrict/archive)

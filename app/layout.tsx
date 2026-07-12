@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Sans, Literata, JetBrains_Mono } from "next/font/google";
-import "./globals.css";
-import "./warp.css";
-import "./audio.css";
-import "./blog-theme.css";
 import "./atlas.css";
 import "./atlas-components.css";
 import "@wterm/react/css";
-import { WarpProvider } from "@/components/warp/WarpProvider";
+
+/* True-Atlas pass: the legacy sheets (globals/warp/audio — Tailwind engine,
+   pane class library, audio dock) load ONLY on /v2/workspace, the one route
+   that still hosts legacy panes. Every other surface resolves pure Atlas.
+   blog-theme.css was deleted outright — atlas.css (loaded later) shadowed
+   every token it defined and its component rules had no surviving consumer.
+   WarpProvider moved with the panes (its one live consumer is the chat
+   pane's ComposerTweaks). */
 
 /* Atlas design language fonts — self-hosted by next/font at build time so the
    packaged Electron desktop app renders them OFFLINE (no CDN dependency).
@@ -43,7 +46,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`dark ${fontPlex.variable} ${fontLiterata.variable} ${fontJetBrains.variable}`} data-warmth="warm" data-type="matter" data-accent="amber" data-theme="dark">
+    <html lang="en" className={`dark ${fontPlex.variable} ${fontLiterata.variable} ${fontJetBrains.variable}`} data-theme="dark">
       <head>
         {/* Anti-FOUC: read persisted theme before React hydrates */}
         <script
@@ -57,9 +60,7 @@ export default function RootLayout({
         {/* Atlas fonts (IBM Plex Sans · Literata · JetBrains Mono) are self-hosted
             via next/font — see fontPlex/fontLiterata/fontJetBrains above. */}
       </head>
-      <body className="antialiased">
-        <WarpProvider>{children}</WarpProvider>
-      </body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

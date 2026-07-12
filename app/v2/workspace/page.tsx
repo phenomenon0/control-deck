@@ -17,6 +17,14 @@ import { ThreadManagerProvider } from "@/lib/hooks/useThreadManager";
 import { CanvasProvider } from "@/lib/hooks/useCanvas";
 import { ChatInspectorProvider } from "@/lib/hooks/useChatInspector";
 import { AudioDockProvider } from "@/components/audio/AudioDockProvider";
+import { WarpProvider } from "@/components/warp/WarpProvider";
+/* Legacy sheets are scoped HERE, not the root layout (true-Atlas pass):
+   the panes this route hosts still consume Tailwind utilities (globals),
+   the warp class library, and the audio-dock styles. Every other v2 route
+   now loads pure Atlas. These imports die with the pane→v2-surface swap. */
+import "../../globals.css";
+import "../../warp.css";
+import "../../audio.css";
 import "./workspace-v2.css";
 
 // Dockview touches `window` at module evaluation time, so the shell MUST be
@@ -33,6 +41,7 @@ const WorkspaceShell = dynamic(
 export default function WorkspaceV2Page() {
   return (
     <div className="av2-workspace">
+      <WarpProvider>
       <DeckSettingsProvider>
         <ThreadManagerProvider>
           <CanvasProvider>
@@ -44,6 +53,7 @@ export default function WorkspaceV2Page() {
           </CanvasProvider>
         </ThreadManagerProvider>
       </DeckSettingsProvider>
+      </WarpProvider>
     </div>
   );
 }

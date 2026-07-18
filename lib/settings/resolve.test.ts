@@ -4,17 +4,19 @@
  * the module boundary because the real implementation hits sqlite.
  */
 
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { afterAll, describe, expect, test, beforeEach, mock, spyOn } from "bun:test";
+import * as actualDb from "@/lib/agui/db";
 
-// Mock the db module BEFORE importing resolve.ts (resolve imports from it).
+// Spies on the real db module, not mock.module: bun module mocks are
+// process-global and cannot be undone, so a partial mock shape leaks into
+// later test files. Spies keep the real export shape and mock.restore()
+// reverts them (see afterAll at the bottom).
 const mockDb = {
-  getSetting: mock(() => undefined as Record<string, unknown> | undefined),
-  getAllSettings: mock(() => ({} as Record<string, Record<string, unknown>>)),
+  getSetting: spyOn(actualDb, "getSetting").mockReturnValue(undefined),
+  getAllSettings: spyOn(actualDb, "getAllSettings").mockReturnValue({}),
 };
 
-mock.module("@/lib/agui/db", () => mockDb);
-
-// Dynamic imports so the mock is in place first.
+// Dynamic imports so the spies are in place first.
 const { resolveAll, resolveSection } = await import("./resolve");
 const { DEFAULT_SETTINGS } = await import("./defaults");
 
@@ -86,4 +88,9 @@ describe("resolveAll", () => {
     expect(tree.runs.temperature).toBe(DEFAULT_SETTINGS.runs.temperature);
     expect(tree.telemetry.analyticsEnabled).toBe(true);
   });
+});
+
+afterAll(() => {
+  // Revert the db spies so later test files see real db behaviour.
+  mock.restore();
 });

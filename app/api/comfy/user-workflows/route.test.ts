@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { NextRequest } from "next/server";
+import * as actualUserdata from "@/lib/comfy/userdata";
 
 const state: {
   loadedPaths: string[];
@@ -9,22 +10,39 @@ const state: {
   saved: [],
 };
 
-mock.module("@/lib/comfy/userdata", () => ({
-  comfyWorkflowPath: (slugOrName: string) => `workflows/${slugOrName.toLowerCase()}.json`,
-  getComfyUserWorkflow: mock(async (path: string) => {
-    state.loadedPaths.push(path);
-    return { nodes: [], links: [], path };
-  }),
-  listComfyUserWorkflows: mock(async () => [
-    { name: "FLUX-GGUF.json", path: "workflows/FLUX-GGUF.json", size: 42 },
-  ]),
-  saveComfyUserWorkflow: mock(async (path: string, workflowJson: unknown) => {
-    state.saved.push({ path, workflowJson });
-    return { name: path.split("/").pop() ?? path, path, size: 42 };
-  }),
-}));
+// Spies on the real userdata module, not mock.module: bun module mocks are
+// process-global and cannot be undone, so they leak into later test files.
+// Spies keep the real export shape and mock.restore() reverts them.
+const userdataSpies = {
+  comfyWorkflowPath: spyOn(actualUserdata, "comfyWorkflowPath").mockImplementation(
+    ((slugOrName: string) => `workflows/${slugOrName.toLowerCase()}.json`) as never,
+  ),
+  getComfyUserWorkflow: spyOn(actualUserdata, "getComfyUserWorkflow").mockImplementation(
+    (async (path: string) => {
+      state.loadedPaths.push(path);
+      return { nodes: [], links: [], path };
+    }) as never,
+  ),
+  listComfyUserWorkflows: spyOn(actualUserdata, "listComfyUserWorkflows").mockImplementation(
+    (async () => [
+      { name: "FLUX-GGUF.json", path: "workflows/FLUX-GGUF.json", size: 42 },
+    ]) as never,
+  ),
+  saveComfyUserWorkflow: spyOn(actualUserdata, "saveComfyUserWorkflow").mockImplementation(
+    (async (path: string, workflowJson: unknown) => {
+      state.saved.push({ path, workflowJson });
+      return { name: path.split("/").pop() ?? path, path, size: 42 };
+    }) as never,
+  ),
+};
 
 const { GET, POST } = await import("./route");
+
+afterAll(() => {
+  // Revert the userdata spies so later test files see real behaviour.
+  for (const spy of Object.values(userdataSpies)) spy.mockClear();
+  mock.restore();
+});
 
 beforeEach(() => {
   state.loadedPaths.length = 0;

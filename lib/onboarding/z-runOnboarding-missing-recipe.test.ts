@@ -1,13 +1,14 @@
-import { afterAll, describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock, spyOn } from "bun:test";
+import * as actualRecipe from "./recipe";
 
-// Mock the recipe loader BEFORE the orchestrator is imported, so the
-// orchestrator's `loadRecipe` reference points at our throwing stub. This
-// simulates a platform without a YAML on disk (e.g. windows before we ship one).
-mock.module("./recipe", () => ({
-  loadRecipe: () => {
-    throw new Error("no recipe for this-platform");
-  },
-}));
+// Spy the recipe loader BEFORE the orchestrator is imported, so its
+// `loadRecipe` calls hit our throwing stub. This simulates a platform
+// without a YAML on disk (e.g. windows before we ship one).
+// spyOn + mock.restore(), not mock.module: bun module mocks are
+// process-global and cannot be undone, so they leak into later test files.
+spyOn(actualRecipe, "loadRecipe").mockImplementation(() => {
+  throw new Error("no recipe for this-platform");
+});
 
 // Force the probe to report ollama as missing so we enter the install branch.
 const ORIG_PATH = process.env.PATH;

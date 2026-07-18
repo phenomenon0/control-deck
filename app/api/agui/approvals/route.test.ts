@@ -5,7 +5,9 @@
  * we can exercise the timeout fallback.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as actualDb from "@/lib/agui/db";
+import * as actualResolve from "@/lib/settings/resolve";
 
 const dbState: {
   expireCalls: Array<{ ageSeconds: number; reason?: string }>;
@@ -26,29 +28,32 @@ const dbState: {
   approvalsList: [],
 };
 
-const dbStubs: Record<string, unknown> = {
-  expirePendingApprovals: mock((age: number, reason?: string) => {
-    dbState.expireCalls.push({ ageSeconds: age, reason });
-    return dbState.expireResult;
-  }),
-  createApproval: mock((input: { id: string; toolName: string }) => {
-    dbState.created.push({ id: input.id, toolName: input.toolName });
-  }),
-  decideApproval: mock((id: string, decision: string, note?: string) => {
-    dbState.decided.push({ id, decision, note });
-  }),
-  getApprovals: mock(() => dbState.approvalsList),
-  getApproval: mock(() => undefined),
+// Spies on the real modules, not mock.module: bun module mocks are
+// process-global and cannot be undone, so a mocked export shape leaks into
+// later-evaluated test files. Spies keep the real shape; mock.restore()
+// reverts them (afterAll at the bottom).
+const dbSpies = {
+  expirePendingApprovals: spyOn(actualDb, "expirePendingApprovals").mockImplementation(
+    ((age: number, reason?: string) => {
+      dbState.expireCalls.push({ ageSeconds: age, reason });
+      return dbState.expireResult;
+    }) as never,
+  ),
+  createApproval: spyOn(actualDb, "createApproval").mockImplementation(
+    ((input: { id: string; toolName: string }) => {
+      dbState.created.push({ id: input.id, toolName: input.toolName });
+    }) as never,
+  ),
+  decideApproval: spyOn(actualDb, "decideApproval").mockImplementation(
+    ((id: string, decision: string, note?: string) => {
+      dbState.decided.push({ id, decision, note });
+    }) as never,
+  ),
+  getApprovals: spyOn(actualDb, "getApprovals").mockImplementation(
+    (() => dbState.approvalsList) as never,
+  ),
+  getApproval: spyOn(actualDb, "getApproval").mockImplementation((() => undefined) as never),
 };
-
-const dbMock = new Proxy(dbStubs, {
-  get(target, prop: string) {
-    if (prop in target) return target[prop];
-    return mock(() => undefined);
-  },
-});
-
-mock.module("@/lib/agui/db", () => dbMock);
 
 interface Policy {
   defaultMode: string;
@@ -61,13 +66,13 @@ const settingsState: { approval: Policy; throwOnResolve: boolean } = {
   throwOnResolve: false,
 };
 
-mock.module("@/lib/settings/resolve", () => ({
-  resolveSection: (section: string) => {
+const resolveSectionSpy = spyOn(actualResolve, "resolveSection").mockImplementation(
+  ((section: string) => {
     if (settingsState.throwOnResolve) throw new Error("settings unavailable");
     if (section === "approval") return settingsState.approval;
     return {};
-  },
-}));
+  }) as never,
+);
 
 const { GET, POST } = await import("./route");
 
@@ -94,9 +99,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const k of Object.keys(dbStubs)) {
-    (dbStubs[k] as ReturnType<typeof mock>).mockClear();
-  }
+  for (const spy of Object.values(dbSpies)) spy.mockClear();
+  resolveSectionSpy.mockClear();
+});
+
+afterAll(() => {
+  // Revert the spies so later test files see real module behaviour.
+  mock.restore();
 });
 
 function reqGet(qs = "") {

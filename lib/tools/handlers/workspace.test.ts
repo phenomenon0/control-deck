@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as actualRelay from "@/lib/workspace/command-relay";
 
 type RelayCall = { command: string; args: Record<string, unknown>; timeoutMs?: number };
 
@@ -10,25 +11,30 @@ const relayState: {
   next: [],
 };
 
-const publishQueryMock = mock((command: string, args: Record<string, unknown>, timeoutMs?: number) => {
-  relayState.calls.push({ command, args, timeoutMs });
-  const value = relayState.next.shift();
-  if (value instanceof Error) return Promise.reject(value);
-  return Promise.resolve(value);
-});
-
 /** F1: how many workspace tabs the mocked relay pretends are connected. */
 const subscriberState = { count: 1 };
 
-mock.module("@/lib/workspace/command-relay", () => ({
-  publishCommand: mock((cmd: { command: string; args: Record<string, unknown> }) => ({
+// Spies on the real relay module, not mock.module: bun module mocks are
+// process-global and cannot be undone, so they leak into later test files.
+// Spies keep the real export shape and mock.restore() reverts them.
+const publishCommandSpy = spyOn(actualRelay, "publishCommand").mockImplementation(
+  ((cmd: { command: string; args: Record<string, unknown> }) => ({
     id: "cmd_test",
     at: 1,
     ...cmd,
-  })),
-  publishQuery: publishQueryMock,
-  subscriberCount: () => subscriberState.count,
-}));
+  })) as never,
+);
+const publishQueryMock = spyOn(actualRelay, "publishQuery").mockImplementation(
+  ((command: string, args: Record<string, unknown>, timeoutMs?: number) => {
+    relayState.calls.push({ command, args, timeoutMs });
+    const value = relayState.next.shift();
+    if (value instanceof Error) return Promise.reject(value);
+    return Promise.resolve(value);
+  }) as never,
+);
+const subscriberCountSpy = spyOn(actualRelay, "subscriberCount").mockImplementation(
+  (() => subscriberState.count) as never,
+);
 
 const {
   executeWorkspaceGetState,
@@ -47,6 +53,13 @@ beforeEach(() => {
   relayState.next = [];
   subscriberState.count = 1;
   publishQueryMock.mockClear();
+  publishCommandSpy.mockClear();
+  subscriberCountSpy.mockClear();
+});
+
+afterAll(() => {
+  // Revert the relay spies so later test files see real behaviour.
+  mock.restore();
 });
 
 describe("workspace tool handlers", () => {

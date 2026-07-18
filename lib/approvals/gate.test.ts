@@ -6,7 +6,10 @@
  * "approved" on the third call, proving the gate resolves promptly.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import * as actualDb from "@/lib/agui/db";
+import { hub } from "@/lib/agui/hub";
+import * as actualResolve from "@/lib/settings/resolve";
 
 const dbState: {
   nextStatus: Array<"pending" | "approved" | "denied">;
@@ -15,39 +18,33 @@ const dbState: {
   createThrows: boolean;
 } = { nextStatus: [], created: [], decided: [], createThrows: false };
 
-const dbStubs: Record<string, unknown> = {
-  createApproval: mock((input: { id: string; toolName: string }) => {
+// Spies on the real modules, not mock.module: bun module mocks are
+// process-global and cannot be undone (mock.restore() does not revert them),
+// so a mocked export shape leaks into every later-evaluated test file.
+// Spies mutate the shared module record and mock.restore() reverts them.
+const createApprovalSpy = spyOn(actualDb, "createApproval").mockImplementation(
+  ((input: { id: string; toolName: string }) => {
     if (dbState.createThrows) throw new Error("db down");
     dbState.created.push({ id: input.id, toolName: input.toolName });
-  }),
-  decideApproval: mock((id: string, decision: string) => {
+  }) as never,
+);
+const decideApprovalSpy = spyOn(actualDb, "decideApproval").mockImplementation(
+  ((id: string, decision: string) => {
     dbState.decided.push({ id, decision });
-  }),
-  getApproval: mock(() => {
+  }) as never,
+);
+const getApprovalSpy = spyOn(actualDb, "getApproval").mockImplementation(
+  (() => {
     const status = dbState.nextStatus.shift() ?? "pending";
-    return { status } as { status: "pending" | "approved" | "denied" };
-  }),
-  // Named-export resolution doesn't reach the Proxy fallback; warn.ts
-  // (imported by gate.ts) needs this binding to exist at module shape.
-  saveEvent: mock(() => {}),
-};
+    return { status };
+  }) as never,
+);
+// warn.ts (imported by gate.ts) must not write warning events to the real DB.
+const saveEventSpy = spyOn(actualDb, "saveEvent").mockImplementation((() => {}) as never);
 
-// Proxy fills in noop stubs for every export gate.ts (or its transitive
-// imports) might ask for when the composite bun-test run has already
-// loaded the real db module. The spy'd functions above are still returned
-// for the three we care about.
-const dbMock = new Proxy(dbStubs, {
-  get(target, prop: string) {
-    if (prop in target) return target[prop];
-    // Return a no-op for anything else; type-cast is safe at runtime.
-    return mock(() => undefined);
-  },
-});
-
-mock.module("@/lib/agui/db", () => dbMock);
-mock.module("@/lib/agui/hub", () => ({
-  hub: { publish: mock(() => {}), subscribe: mock(() => () => {}), subscribeAll: mock(() => () => {}) },
-}));
+const hubPublishSpy = spyOn(hub, "publish").mockImplementation((() => {}) as never);
+const hubSubscribeSpy = spyOn(hub, "subscribe").mockImplementation((() => () => {}) as never);
+const hubSubscribeAllSpy = spyOn(hub, "subscribeAll").mockImplementation((() => () => {}) as never);
 
 interface Policy {
   defaultMode: "never" | "ask" | "cost" | "side-effect";
@@ -64,13 +61,15 @@ const state: { approval: Policy; runs: Runs; resolveThrows: boolean } = {
   resolveThrows: false,
 };
 
-mock.module("@/lib/settings/resolve", () => ({
-  resolveSection: (s: "approval" | "runs") => {
+const resolveSectionSpy = spyOn(actualResolve, "resolveSection").mockImplementation(
+  ((s: "approval" | "runs") => {
     if (state.resolveThrows) throw new Error("settings db down");
     return s === "approval" ? state.approval : state.runs;
-  },
-  resolveAll: () => ({ approval: state.approval, runs: state.runs }),
-}));
+  }) as never,
+);
+const resolveAllSpy = spyOn(actualResolve, "resolveAll").mockImplementation(
+  (() => ({ approval: state.approval, runs: state.runs })) as never,
+);
 
 const { gateToolCall } = await import("./gate");
 
@@ -85,10 +84,20 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Spies are declared inside the Proxy stubs map; reach through.
-  (dbStubs.createApproval as ReturnType<typeof mock>).mockClear();
-  (dbStubs.decideApproval as ReturnType<typeof mock>).mockClear();
-  (dbStubs.getApproval as ReturnType<typeof mock>).mockClear();
+  createApprovalSpy.mockClear();
+  decideApprovalSpy.mockClear();
+  getApprovalSpy.mockClear();
+  saveEventSpy.mockClear();
+  hubPublishSpy.mockClear();
+  hubSubscribeSpy.mockClear();
+  hubSubscribeAllSpy.mockClear();
+  resolveSectionSpy.mockClear();
+  resolveAllSpy.mockClear();
+});
+
+afterAll(() => {
+  // Restore every spy so later test files see the real module behaviour.
+  mock.restore();
 });
 
 describe("gateToolCall — policy decisions", () => {

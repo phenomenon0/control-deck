@@ -35,7 +35,7 @@ export const VOICE_ROUTE_PRESET_INFO: Record<VoiceRoutePreset, VoiceRoutePresetI
   local: {
     id: "local",
     label: "Local",
-    description: "Local-first path — privacy-preserving, still uses cloud LLM if configured.",
+    description: "Local-first STT/TTS (qwen-omni-local) — falls back to configured cloud providers when local is unavailable.",
   },
   fast: {
     id: "fast",
@@ -98,7 +98,7 @@ const LOCAL_VOICE_PROVIDER_ID = "qwen-omni-local";
 /** Preference order per preset. Earlier entries win if available. */
 const STT_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
   offline: [LOCAL_VOICE_PROVIDER_ID],
-  local: ["groq", "deepgram"],
+  local: [LOCAL_VOICE_PROVIDER_ID, "groq", "deepgram"],
   fast: ["groq", "deepgram", "assemblyai"],
   quality: ["assemblyai", "deepgram", "openai"],
   expressive: ["assemblyai", "deepgram"],
@@ -106,7 +106,7 @@ const STT_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
 
 const TTS_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
   offline: [LOCAL_VOICE_PROVIDER_ID],
-  local: ["cartesia", "deepgram"],
+  local: [LOCAL_VOICE_PROVIDER_ID, "cartesia", "deepgram"],
   fast: ["cartesia", "deepgram"],
   quality: ["elevenlabs", "google", "cartesia"],
   expressive: ["hume", "elevenlabs", "inworld"],

@@ -25,11 +25,6 @@
       "project": "pyenvs/omni",
       "python": "3.12",
       "rebuild": "UV_PROJECT_ENVIRONMENT=$PWD/.venv-omni uv sync --frozen --directory pyenvs/omni"
-    },
-    ".venv-vllm": {
-      "project": "pyenvs/vllm",
-      "python": "3.11",
-      "rebuild": "UV_PROJECT_ENVIRONMENT=$PWD/.venv-vllm uv sync --frozen --directory pyenvs/vllm"
     }
   },
   "hostServices": {

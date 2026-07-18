@@ -48,6 +48,64 @@ describe("resolveVoiceRoute", () => {
     expect(r.tts).toBeNull();
   });
 
+  test("local preset prefers the local omni provider for both modalities", () => {
+    const r = resolveVoiceRoute({
+      preset: "local",
+      sttProviders: [avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, true), avail("groq", "Groq", true, true)],
+      ttsProviders: [avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, true), avail("cartesia", "Cartesia", true, true)],
+    });
+    expect(r.stt?.providerId).toBe("qwen-omni-local");
+    expect(r.stt?.model).toBe("Qwen/Qwen2.5-Omni-7B-AWQ");
+    expect(r.tts?.providerId).toBe("qwen-omni-local");
+    expect(r.tts?.model).toBe("Qwen/Qwen2.5-Omni-7B-AWQ");
+    expect(r.fallbacksApplied).toEqual([]);
+  });
+
+  test("local preset falls back to cloud when the local provider is not registered", () => {
+    const r = resolveVoiceRoute({
+      preset: "local",
+      sttProviders: [avail("groq", "Groq", true, true)],
+      ttsProviders: [avail("cartesia", "Cartesia", true, true)],
+    });
+    expect(r.stt?.providerId).toBe("groq");
+    expect(r.tts?.providerId).toBe("cartesia");
+    // The local provider was never registered, so this is the primary pick,
+    // not a fallback from a failed provider.
+    expect(r.fallbacksApplied).toEqual([]);
+  });
+
+  test("local preset falls back to cloud when the local provider is unavailable", () => {
+    const r = resolveVoiceRoute({
+      preset: "local",
+      sttProviders: [
+        avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, false),
+        avail("groq", "Groq", true, true),
+      ],
+      ttsProviders: [
+        avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", false),
+        avail("deepgram", "Deepgram", true, true),
+      ],
+    });
+    expect(r.stt?.providerId).toBe("groq");
+    expect(r.tts?.providerId).toBe("deepgram");
+    expect(r.fallbacksApplied).toEqual(["stt", "tts"]);
+    expect(r.rationale.toLowerCase()).toContain("fell back");
+  });
+
+  test("local preset mixes local STT with cloud TTS fallback", () => {
+    const r = resolveVoiceRoute({
+      preset: "local",
+      sttProviders: [avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, true)],
+      ttsProviders: [
+        avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, false),
+        avail("cartesia", "Cartesia", true, true),
+      ],
+    });
+    expect(r.stt?.providerId).toBe("qwen-omni-local");
+    expect(r.tts?.providerId).toBe("cartesia");
+    expect(r.fallbacksApplied).toEqual(["tts"]);
+  });
+
   test("fast preset prefers low-latency cloud providers", () => {
     const r = resolveVoiceRoute({
       preset: "fast",

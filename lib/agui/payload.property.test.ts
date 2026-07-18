@@ -16,7 +16,14 @@ import { wrapPayload } from "./events";
 
 // Arbitraries ───────────────────────────────────────────────────────
 
-const jsonValueArb: fc.Arbitrary<unknown> = fc.jsonValue();
+// fc.jsonValue() can generate -0, which is outside the JSON domain this suite
+// covers (JSON.stringify(-0) === "0"; decode yields 0 exactly like JSON.parse).
+// Normalize generated values through a JSON round-trip so the arbitrary
+// generates precisely JSON-compatible data. The -0 → 0 decode behavior is
+// pinned as an explicit decision in the "legacy handling" describe below.
+const jsonValueArb: fc.Arbitrary<unknown> = fc
+  .jsonValue()
+  .map((v) => JSON.parse(JSON.stringify(v)) as unknown);
 
 const textPayloadArb: fc.Arbitrary<DeckPayload> = fc.string().map((t) => textPayload(t));
 const jsonPayloadArb: fc.Arbitrary<DeckPayload> = jsonValueArb.map((v) => jsonPayload(v));
@@ -97,6 +104,13 @@ describe("DeckPayload properties", () => {
       }),
       { numRuns: 100 },
     );
+  });
+
+  // Pinned decision: the GLYPH envelope preserves -0 (stronger than JSON,
+  // where stringify(-0) === "0"). The plain-JSON envelope cannot — and the
+  // property generator above stays inside the JSON domain for that reason.
+  test("jsonPayload of -0 round-trips -0 faithfully (GLYPH envelope)", () => {
+    expect(Object.is(decodePayload(jsonPayload(-0)), -0)).toBe(true);
   });
 
   test("textPayload decode returns the exact string", () => {

@@ -1,7 +1,7 @@
 # Stack: bundling, pinning, and drift control
 
-Control Deck spans five package ecosystems (bun/node, three uv-managed Python
-envs, a conda env, external git repos, and host binaries). Everything is pinned
+Control Deck spans five package ecosystems (bun/node, a uv-managed Python
+env, a conda env, external git repos, and host binaries). Everything is pinned
 declaratively; `bun scripts/doctor.ts` verifies the pins hold and prints the
 exact recovery command when they don't.
 
@@ -11,7 +11,7 @@ exact recovery command when they don't.
 |---|---|
 | `mise.toml` | tool versions: node, bun, uv, process-compose |
 | `bun.lock` | all JS deps — root + `apps/agent-ts` (bun workspace). **npm is banned in this repo**; use `bun` / `bun x` |
-| `pyenvs/omni/` `pyenvs/vllm/` | `pyproject.toml` + `uv.lock` for `.venv-omni` / `.venv-vllm` (CUDA torch pinned via the pytorch index) |
+| `pyenvs/omni/` | `pyproject.toml` + `uv.lock` for `.venv-omni` (CUDA torch pinned via the pytorch index) |
 | `stack.lock.json` | external repo commits (s2s, atlas, llama.cpp), venv↔project mapping, host-service registry |
 | `process-compose.yml` | service definitions: commands, env, health probes, dependency order |
 
@@ -56,5 +56,9 @@ Logs: `~/.local/state/control-deck/{agent-ts,controldeck,s2s-lab}.log`.
   comes back, run it as a podman container (podman 5.x is installed; no docker).
 - **`.venv-voice`** is orphaned (old voice-core kokoro/moonshine stack, 695 MB)
   — safe to delete.
+- **`.venv-vllm`** is orphaned (vllm 0.19.1 env, ~10 GB) — safe to delete. The
+  deck only ever talks to vLLM as an externally-launched OpenAI-compat server
+  (`lib/hardware/providers/vllm.ts`; "start it yourself with `vllm serve`"),
+  so the pinned `pyenvs/vllm/` had no launcher and was dropped.
 - **llama.cpp/** is a gitignored vendored clone, CUDA-built on host; pinned by
   commit in `stack.lock.json`.

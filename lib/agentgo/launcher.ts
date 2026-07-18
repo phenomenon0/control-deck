@@ -56,8 +56,13 @@ export function withAgentTsAuth(headers: HeadersInit = {}): Headers {
 /**
  * Resolve where the agent-ts entry lives. Order:
  *   1. AGENT_TS_ENTRY env (explicit override) — must end in .js or .ts.
- *   2. Compiled bundle at apps/agent-ts/dist/server/main.js.
- *   3. Source entry at apps/agent-ts/src/server/main.ts (run via tsx).
+ *   2. Source entry at apps/agent-ts/src/server/main.ts (run via tsx).
+ *
+ * tsx is the only sanctioned runtime: dev/start/test scripts and the
+ * process-compose prod definition all run the TypeScript source directly.
+ * There is no compiled dist — tsconfig sets noEmit (typecheck-only), and
+ * the sources import repo-root TS (lib/agui/events), which a plain tsc
+ * emit cannot bundle.
  */
 function resolveAgentTsEntry(): { entry: string; mode: "node" | "tsx" } | null {
   const explicit = process.env.AGENT_TS_ENTRY;
@@ -65,8 +70,6 @@ function resolveAgentTsEntry(): { entry: string; mode: "node" | "tsx" } | null {
     const mode = explicit.endsWith(".ts") || explicit.endsWith(".tsx") ? "tsx" : "node";
     return { entry: explicit, mode };
   }
-  const dist = path.join(REPO_ROOT, "apps", "agent-ts", "dist", "server", "main.js");
-  if (fs.existsSync(dist)) return { entry: dist, mode: "node" };
   const src = path.join(REPO_ROOT, "apps", "agent-ts", "src", "server", "main.ts");
   if (fs.existsSync(src)) return { entry: src, mode: "tsx" };
   return null;
@@ -129,7 +132,7 @@ export async function launchAgent(): Promise<LaunchResult> {
       status: "failed",
       url: AGENTGO_URL,
       error:
-        "agent-ts entry not found. Set AGENT_TS_ENTRY, build apps/agent-ts (dist/), or check that apps/agent-ts/src/server/main.ts exists.",
+        "agent-ts entry not found. Set AGENT_TS_ENTRY, or check that apps/agent-ts/src/server/main.ts exists.",
     };
   }
 

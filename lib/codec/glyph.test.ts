@@ -255,6 +255,52 @@ describe("wrapGlyphBlock", () => {
 });
 
 describe("edge cases", () => {
+  test("__proto__ keys round-trip as own properties (regression: fast-check counterexample)", () => {
+    // Minimal counterexample from property fuzzing (fc.jsonValue,
+    // seed -462561218): decodeGlyph used plain assignment, so "__proto__"
+    // hit the Object.prototype setter — the key silently vanished, and an
+    // object value polluted the decoded object's prototype.
+    const obj = JSON.parse('{"__proto__": false}');
+    const glyph = encodeGlyph(obj);
+    expect(glyph).toBe("@[__proto__](f)");
+    const decoded = decodeGlyph(glyph) as Record<string, unknown>;
+    expect(Object.keys(decoded)).toEqual(["__proto__"]);
+    expect(Object.prototype.hasOwnProperty.call(decoded, "__proto__")).toBe(true);
+    expect(decoded.__proto__).toBe(false);
+  });
+
+  test("object-valued __proto__ key does not pollute the decoded prototype", () => {
+    const obj = JSON.parse('{"__proto__": {"polluted": 1}}');
+    const decoded = decodeGlyph(encodeGlyph(obj)) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(decoded, "__proto__")).toBe(true);
+    expect((decoded.__proto__ as Record<string, unknown>).polluted).toBe(1);
+    // A fresh object must not inherit the payload.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  test("__proto__ tabular column round-trips", () => {
+    const arr = [
+      JSON.parse('{"__proto__": 1, "a": 2}'),
+      JSON.parse('{"__proto__": 3, "a": 4}'),
+      JSON.parse('{"__proto__": 5, "a": 6}'),
+      JSON.parse('{"__proto__": 7, "a": 8}'),
+    ];
+    const glyph = encodeGlyph(arr, { autoTabular: true, minRows: 4 });
+    expect(glyph).toContain("@tab");
+    const decoded = decodeGlyph(glyph) as Record<string, unknown>[];
+    expect(Object.keys(decoded[0]).sort()).toEqual(["__proto__", "a"]);
+    expect(decoded[0].__proto__).toBe(1);
+    expect(decoded[3].__proto__).toBe(7);
+  });
+
+  test("constructor/prototype keys round-trip as own properties", () => {
+    const obj = JSON.parse('{"constructor": 1, "prototype": 2}');
+    const decoded = decodeGlyph(encodeGlyph(obj)) as Record<string, unknown>;
+    expect(Object.keys(decoded).sort()).toEqual(["constructor", "prototype"]);
+    expect(decoded["constructor"]).toBe(1);
+    expect(decoded["prototype"]).toBe(2);
+  });
+
   test("deeply nested structure", () => {
     const deep = { a: { b: { c: { d: { e: 1 } } } } };
     const glyph = encodeGlyph(deep);

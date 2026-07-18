@@ -31,6 +31,22 @@ interface Token {
   pos: number;
 }
 
+/**
+ * Set a decoded key as an own data property. Plain assignment
+ * (`obj[key] = value`) routes "__proto__" through the Object.prototype
+ * setter — the key vanishes, and an object value silently pollutes the
+ * decoded object's prototype (fast-check counterexample:
+ * `@[__proto__](f)` decoded to `{}`).
+ */
+function defineEntry(obj: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(obj, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
 class Tokenizer {
   private input: string;
   private pos: number = 0;
@@ -325,7 +341,7 @@ class Parser {
 
     const result: Record<string, unknown> = {};
     for (let i = 0; i < keys.length; i++) {
-      result[keys[i]] = values[i];
+      defineEntry(result, keys[i], values[i]);
     }
     return result;
   }
@@ -428,7 +444,7 @@ class Parser {
 
     const result: Record<string, unknown> = {};
     for (let i = 0; i < columns.length; i++) {
-      result[columns[i]] = values[i];
+      defineEntry(result, columns[i], values[i]);
     }
     return result;
   }

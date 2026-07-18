@@ -15,6 +15,12 @@
 import { hub } from "@/lib/agui/hub";
 import { raiseWarning } from "@/lib/agui/warn";
 import {
+  encodeSSE,
+  encodeHeartbeat,
+  sseHeaders,
+  HEARTBEAT_MS,
+} from "@/lib/agui/sse";
+import {
   createEvent,
   generateId,
   type RunStarted,
@@ -23,6 +29,7 @@ import {
   type TextMessageEnd,
   type RunFinished,
   type RunError,
+  type LLMResolved,
   type ToolCallStart,
   type ToolCallArgs,
   type ToolCallResult,
@@ -266,6 +273,19 @@ function mapAndPublishEvent(
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
         costUsd: event.costUsd,
+      });
+      break;
+
+    case "LLMResolved":
+      // Model-attribution event — the ledger keeps which provider/model
+      // actually served the run (agent-ts emits it right after RunStarted).
+      aguiEvent = createEvent<LLMResolved>("LLMResolved", threadId, {
+        runId,
+        provider: (event.provider as string) ?? "unknown",
+        modelId: (event.modelId as string) ?? "unknown",
+        label: event.label as string | undefined,
+        local: event.local as boolean | undefined,
+        resolveMs: event.resolveMs as number | undefined,
       });
       break;
 
@@ -610,11 +630,11 @@ export async function POST(req: Request) {
     isAborted = true;
   });
 
-  /** Write an SSE-formatted event to the response stream */
-  const safeWriteSSE = async (event: object): Promise<boolean> => {
+  /** Write one AG-UI event to the response stream, framed by the keystone. */
+  const safeWriteSSE = async (event: AGUIEvent): Promise<boolean> => {
     if (isAborted) return false;
     try {
-      await writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      await writer.write(encoder.encode(encodeSSE(event)));
       return true;
     } catch (err) {
       console.error("[Chat] Stream write failed:", err);
@@ -622,6 +642,16 @@ export async function POST(req: Request) {
       return false;
     }
   };
+
+  // Heartbeat keeps the socket alive through long tool calls that emit no
+  // events (proxies cull idle connections). Comment frames — every consumer
+  // (line scanner, EventSource, SSEParser) ignores them.
+  const heartbeat = setInterval(() => {
+    if (isAborted) return;
+    writer.write(encoder.encode(encodeHeartbeat())).catch(() => {
+      /* stream already closing; the finally below clears this interval */
+    });
+  }, HEARTBEAT_MS);
 
   // Background task to proxy Agent-GO events as SSE
   (async () => {
@@ -804,6 +834,7 @@ export async function POST(req: Request) {
         await safeWriteSSE(runError);
       }
     } finally {
+      clearInterval(heartbeat);
       await writer.close().catch((err) => console.warn("[Chat] writer.close failed:", err));
     }
   })();
@@ -811,9 +842,7 @@ export async function POST(req: Request) {
   // Return SSE streaming response
   return new Response(stream.readable, {
     headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
+      ...sseHeaders(),
       "X-Thread-Id": thread,
       "X-Run-Id": runId,
       "X-Message-Id": messageId,

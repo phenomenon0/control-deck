@@ -8,6 +8,7 @@
 import { NextRequest } from "next/server";
 import { executeCode, isLanguageSupported, getSupportedLanguages } from "@/lib/tools/code-exec";
 import type { CodeExecRequest, CodeExecChunk } from "@/lib/tools/code-exec";
+import { sseHeaders } from "@/lib/agui/sse";
 
 export const maxDuration = 60;
 
@@ -87,13 +88,7 @@ export async function POST(request: NextRequest) {
       },
     });
     
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-      },
-    });
+    return new Response(stream, { headers: sseHeaders() });
     
   } catch (error) {
     console.error("[Code Stream API] Error:", error);

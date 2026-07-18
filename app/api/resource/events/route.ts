@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { ensureArbiterBooted } from "@/lib/resource/arbiter";
 import { subscribe } from "@/lib/resource/ledger";
 import type { ResourceEvent } from "@/lib/resource/types";
+import { encodeHeartbeat, sseHeaders } from "@/lib/agui/sse";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,9 +37,11 @@ export async function GET(_req: NextRequest): Promise<Response> {
         }
       });
 
+      // Periodic heartbeat so idle connections don't get culled by
+      // intermediaries (route-specific 25s cadence; keystone comment frame).
       const heartbeat = setInterval(() => {
         try {
-          controller.enqueue(encoder.encode(": ping\n\n"));
+          controller.enqueue(encoder.encode(encodeHeartbeat()));
         } catch {
           clearInterval(heartbeat);
           unsubscribe();
@@ -54,12 +57,5 @@ export async function GET(_req: NextRequest): Promise<Response> {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: sseHeaders() });
 }

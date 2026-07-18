@@ -2,6 +2,7 @@
 
 import { runOnboarding, type Consents, type Step } from "@/lib/onboarding/orchestrator";
 import type { TierId } from "@/lib/inference/hardware-tiers";
+import { encodeHeartbeat, sseHeaders, HEARTBEAT_MS } from "@/lib/agui/sse";
 
 export const dynamic = "force-dynamic";
 
@@ -46,10 +47,10 @@ export async function POST(req: Request): Promise<Response> {
       const emit = (step: Step) => {
         safeEnqueue(encoder.encode(`data: ${JSON.stringify(step)}\n\n`));
       };
-      // 15s heartbeat keeps proxies + laptop-sleep recoveries from dropping the socket.
+      // Heartbeat keeps proxies + laptop-sleep recoveries from dropping the socket.
       const heartbeat = setInterval(() => {
-        safeEnqueue(encoder.encode(`: heartbeat ${Date.now()}\n\n`));
-      }, 15000);
+        safeEnqueue(encoder.encode(encodeHeartbeat()));
+      }, HEARTBEAT_MS);
       try {
         for await (const step of runOnboarding({
           tierOverride: body.tier,
@@ -83,12 +84,5 @@ export async function POST(req: Request): Promise<Response> {
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return new Response(stream, { headers: sseHeaders() });
 }

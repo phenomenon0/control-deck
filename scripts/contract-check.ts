@@ -205,6 +205,10 @@ const ALLOWLIST: Record<string, string> = {
   // Compiled output of scripts/macos-ax-helper (Swift package) built by
   // scripts/build-macos-helper.sh — a local build artifact, never committed.
   "scripts/macos-ax-helper.bin": "build artifact of scripts/macos-ax-helper via build-macos-helper.sh; not committed",
+  // Untracked 5.4 GB Tauri skeleton deleted per the elite-cockpit T12 plan;
+  // never committed. Remaining mentions in tasks/*.md (electron-alternatives,
+  // elite-cockpit, first-grade-engine, pake-fit) are plan/evaluation records.
+  "apps/model-tray": "deleted untracked Tauri skeleton; historical plan/eval references in tasks/*.md",
 };
 
 const DOC_PATH_ROOTS = [

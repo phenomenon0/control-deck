@@ -6,7 +6,11 @@ import {
   type ChatPrefillPayload,
 } from "./chatPrefill";
 
-// ── minimal DOM shim (bun:test has no window) ─────────────────────
+// ── minimal DOM shim ──────────────────────────────────────────────
+// The suite-wide happy-dom preload (tests/setup-happy-dom.ts) installs
+// real DOM globals; these tests still pin against fakes. Save/restore
+// (not delete) so the happy-dom globals survive intact for later test
+// files in this shared bun:test process.
 
 type StorageEntry = { key: string; newValue: string | null };
 
@@ -48,9 +52,15 @@ class FakeBroadcastChannel {
 
 type StorageListener = (e: StorageEntry) => void;
 let storageListeners: StorageListener[] = [];
+let savedGlobals: { window: unknown; BroadcastChannel: unknown; localStorage: unknown };
 
 beforeEach(() => {
   const g = globalThis as unknown as GS;
+  savedGlobals = {
+    window: g.window,
+    BroadcastChannel: g.BroadcastChannel,
+    localStorage: g.localStorage,
+  };
   const ls = makeLS();
   g.localStorage = ls;
   g.BroadcastChannel = FakeBroadcastChannel;
@@ -69,9 +79,9 @@ beforeEach(() => {
 
 afterEach(() => {
   const g = globalThis as unknown as GS;
-  delete g.window;
-  delete g.BroadcastChannel;
-  delete g.localStorage;
+  g.window = savedGlobals.window;
+  g.BroadcastChannel = savedGlobals.BroadcastChannel;
+  g.localStorage = savedGlobals.localStorage as GS["localStorage"];
 });
 
 // ── tests ─────────────────────────────────────────────────────────

@@ -1,0 +1,7 @@
+# bun test configuration.
+# preload registers the DOM environment (happy-dom) for the whole suite —
+# see tests/setup-happy-dom.ts. Applies to every test dir in the root
+# `bun run test` scope, so keep the preload side-effect-light.
+
+[test]
+preload = ["./tests/setup-happy-dom.ts"]

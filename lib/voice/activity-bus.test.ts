@@ -11,22 +11,44 @@ class MemoryStorage {
 }
 
 const realDateNow = Date.now;
+const realWindow = (globalThis as { window?: unknown }).window;
+const realLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
 let mockedNow: number | null = null;
 
 beforeAll(() => {
   const storage = new MemoryStorage();
-  (globalThis as unknown as { window: unknown }).window = {
-    localStorage: storage,
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent() { return true; },
-  };
-  (globalThis as unknown as { localStorage: unknown }).localStorage = storage;
+  // Patch only what the module needs, and restore it in afterAll — replacing
+  // these globals outright clobbers the shared DOM env for later test files.
+  Object.defineProperty(globalThis, "window", {
+    value: {
+      localStorage: storage,
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() { return true; },
+    },
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    value: storage,
+    configurable: true,
+    writable: true,
+  });
   Date.now = () => mockedNow ?? realDateNow();
 });
 
 afterAll(() => {
   Date.now = realDateNow;
+  for (const [key, value] of [
+    ["window", realWindow],
+    ["localStorage", realLocalStorage],
+  ] as const) {
+    if (value === undefined) {
+      delete (globalThis as Record<string, unknown>)[key];
+    } else {
+      Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+    }
+  }
 });
 
 function setNow(value: number) {

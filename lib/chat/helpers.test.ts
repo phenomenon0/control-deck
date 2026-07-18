@@ -9,8 +9,10 @@ import {
 } from "./helpers";
 
 // ── tiny in-memory window.localStorage shim ───────────────────────
-// bun:test does not set up DOM globals; the helpers read/write
-// localStorage + check `typeof window`. Provide just enough.
+// The suite-wide happy-dom preload (tests/setup-happy-dom.ts) installs
+// real DOM globals; these tests still pin the helpers against a minimal
+// in-memory shim. Save/restore (not delete) so the happy-dom globals
+// survive intact for later test files in this shared bun:test process.
 
 const makeLocalStorage = () => {
   const map = new Map<string, string>();
@@ -30,17 +32,22 @@ interface GlobalScope {
   [k: string]: unknown;
 }
 
+let savedWindow: unknown;
+let savedLocalStorage: unknown;
+
 beforeEach(() => {
   const g = globalThis as unknown as GlobalScope;
   const ls = makeLocalStorage();
+  savedWindow = g.window;
+  savedLocalStorage = g.localStorage;
   g.window = { localStorage: ls };
   g.localStorage = ls;
 });
 
 afterEach(() => {
   const g = globalThis as unknown as GlobalScope;
-  delete g.window;
-  delete g.localStorage;
+  g.window = savedWindow as GlobalScope["window"];
+  g.localStorage = savedLocalStorage as GlobalScope["localStorage"];
 });
 
 // ── active-thread UI pref + legacy purge ─────────────────────────

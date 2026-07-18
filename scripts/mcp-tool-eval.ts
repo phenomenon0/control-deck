@@ -38,6 +38,9 @@ import {
   simulateWorkToolCall,
   type WorkSimulatorOutcome,
 } from "../lib/evals/agentWorkSimulator";
+import { BRIDGE_TOOLS } from "../lib/tools/bridgeToolList";
+import { getMcpProfileToolNames, type McpProfile } from "../lib/tools/mcpProfiles";
+import { isToolSupportedOnPlatform } from "../lib/tools/platformSupport";
 
 type McporterTool = {
   name: string;
@@ -873,13 +876,88 @@ function formatWorkSummary(results: WorkEvalResult[], model: string, baseUrl: st
   return `${lines.join("\n")}\n`;
 }
 
+// ---------------------------------------------------------------------------
+// Hermetic mode (--mode hermetic / --hermetic)
+//
+// Runs every part of the eval harness that does NOT need live services, so CI
+// can gate on a meaningful subset:
+//   - tool discovery is mirrored in-process from the MCP registry
+//     (getMcpProfileToolNames + platform support filter — the same inputs
+//     registerBridgeTools uses) instead of spawning mcporter/stdio
+//   - first/dialog/work cases are validated statically against that surface
+//   - scorer/simulator gold paths are replayed offline: the ideal trajectory
+//     for every case must score as a pass, which pins case definitions,
+//     scorers, and the scripted work simulator to each other
+// Live probes (llama-swap model endpoint, deck tool bridge) are reported as
+// explicit SKIP lines. Unlike the live modes, hermetic results are
+// deterministic, so main() sets a non-zero exit code when any check fails.
+
+type HermeticCheck = {
+  id: string;
+  kind: "discovery" | "first" | "dialog" | "work";
+  profile: string;
+  passed: boolean;
+  reasons: string[];
+};
+
+function hermeticProfileTools(profile: McpEvalProfile): { surface: string[]; platformFiltered: string[] } {
+  // Full profile surface (what the MCP server exposes for
+  // CONTROL_DECK_MCP_PROFILE=<profile> before the per-platform filter).
+  // Cases are validated against the surface — not the platform-filtered list —
+  // because e.g. Windows-only native_* tools legitimately appear in
+  // desktop-control cases evaluated on a Linux CI runner.
+  const surface = [...getMcpProfileToolNames(BRIDGE_TOOLS, [profile as McpProfile])].sort();
+  const platformFiltered = surface.filter((name) => !isToolSupportedOnPlatform(name));
+  return { surface, platformFiltered };
+}
+
+function goldArgsForWorkCase(testCase: AgentWorkEvalCase, toolName: string): Record<string, unknown> {
+  if (toolName === "workspace_show_canvas" || toolName === "workspace_write_note") {
+    // Carry every artifact marker the rubric asserts on so the simulator
+    // records passing artifacts.
+    const markers = [...new Set((testCase.rubric.requiredArtifacts ?? []).flatMap((expectation) => expectation.contains ?? []))];
+    return { markdown: markers.length > 0 ? markers.join("\n") : "checkpoint" };
+  }
+  if (toolName === "workspace_focus_pane") {
+    // The discrimination rubric wants writes to land on the 'Project Status'
+    // canvas (canvas:status); harmless for cases that never focus a pane.
+    return { paneId: "canvas:status" };
+  }
+  if (toolName === "execute_code") return { language: "python", code: "print(191 * 223)" };
+  return {};
+}
+
+function formatHermeticSummary(checks: HermeticCheck[], skips: string[], outDir: string): string {
+  const passed = checks.filter((check) => check.passed).length;
+  const lines: string[] = [];
+  lines.push("# Control Deck MCP hermetic eval (offline subset)");
+  lines.push("");
+  lines.push(`- Checks: ${checks.length}`);
+  lines.push(`- Pass rate: ${passed}/${checks.length} (${Math.round((passed / Math.max(1, checks.length)) * 100)}%)`);
+  lines.push(`- Live probes skipped: ${skips.length}`);
+  lines.push(`- Output dir: \`${outDir}\``);
+  lines.push("");
+  lines.push("| check | kind | profile | pass | notes |");
+  lines.push("| --- | --- | --- | --- | --- |");
+  for (const check of checks) {
+    const notes = check.reasons.join("; ").replace(/\|/g, "\\|");
+    lines.push(`| ${check.id} | ${check.kind} | ${check.profile} | ${check.passed ? "yes" : "NO"} | ${notes} |`);
+  }
+  lines.push("");
+  lines.push("## Skipped live probes");
+  lines.push("");
+  for (const skip of skips) lines.push(`- SKIP: ${skip}`);
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
 async function main() {
   const model = argValue("--model", process.env.CONTROL_DECK_EVAL_MODEL ?? "qwen3.5-9b")!;
   const baseUrl = argValue("--base-url", process.env.CONTROL_DECK_EVAL_BASE_URL ?? "http://127.0.0.1:8080/v1")!;
   const wrapper = argValue("--wrapper", DEFAULT_WRAPPER)!;
   const bridgeUrl = argValue("--bridge-url", process.env.CONTROL_DECK_TOOL_BRIDGE_URL ?? "http://localhost:3333/api/tools/bridge")!;
   const profiles = parseProfiles(argValue("--profiles"));
-  const mode = argValue("--mode", "first")!;
+  const mode = argValue("--mode", hasFlag("--hermetic") ? "hermetic" : "first")!;
   const limitRaw = argValue("--limit");
   const limit = limitRaw ? Number(limitRaw) : undefined;
   const timeoutMs = Number(argValue("--timeout-ms", "180000"));
@@ -892,8 +970,9 @@ async function main() {
   const runDialog = mode === "dialog" || mode === "both" || mode === "all";
   const runLive = mode === "live" || mode === "all";
   const runWork = mode === "work" || mode === "all";
-  if (!runFirst && !runDialog && !runLive && !runWork) {
-    throw new Error(`unknown --mode ${mode}; expected first, dialog, live, work, both, or all`);
+  const runHermetic = mode === "hermetic";
+  if (!runFirst && !runDialog && !runLive && !runWork && !runHermetic) {
+    throw new Error(`unknown --mode ${mode}; expected first, dialog, live, work, both, all, or hermetic`);
   }
   const workMaxTurns = Number(argValue("--work-max-turns", "8"));
   const workLive = hasFlag("--work-live");
@@ -1116,6 +1195,153 @@ async function main() {
     await writeFile(path.join(outDir, "work-summary.md"), markdown);
     console.log("");
     console.log(markdown);
+  }
+
+  if (runHermetic) {
+    const checks: HermeticCheck[] = [];
+    const record = (check: HermeticCheck) => {
+      checks.push(check);
+      console.log(
+        `[${check.passed ? "PASS" : "FAIL"}] ${check.id}${check.reasons.length > 0 ? ` — ${check.reasons.join("; ")}` : ""}`,
+      );
+    };
+
+    console.log("— hermetic discovery (in-process MCP registry mirror) —");
+    const surfaceByProfile = new Map<McpEvalProfile, string[]>();
+    for (const profile of profiles) {
+      const { surface, platformFiltered } = hermeticProfileTools(profile);
+      surfaceByProfile.set(profile, surface);
+      const filteredNote = platformFiltered.length > 0
+        ? ` (${platformFiltered.length} not supported on ${process.platform}: ${platformFiltered.join(", ")})`
+        : "";
+      console.log(`[discover] ${profile}: ${surface.length} tools${filteredNote}`);
+      record({
+        id: `hermetic.discovery.${profile}`,
+        kind: "discovery",
+        profile,
+        passed: surface.length > 0,
+        reasons: surface.length > 0 ? [`${surface.length} tools on profile surface`] : ["profile exposes zero tools — registry drift?"],
+      });
+    }
+
+    console.log("— first-action cases (static + scorer gold path) —");
+    const firstCases = DEFAULT_MCP_TOOL_EVAL_CASES
+      .filter((testCase) => profiles.includes(testCase.profile))
+      .slice(0, Number.isFinite(limit) && limit && limit > 0 ? limit : undefined);
+    for (const testCase of firstCases) {
+      const surface = surfaceByProfile.get(testCase.profile) ?? [];
+      const reasons: string[] = [];
+      const named = [testCase.expectedFirstTool, ...(testCase.acceptableFirstTools ?? [])]
+        .filter((name): name is string => typeof name === "string");
+      const unexposed = named.filter((name) => !surface.includes(name));
+      if (unexposed.length > 0) {
+        reasons.push(`expected tool(s) not on ${testCase.profile} profile surface: ${unexposed.join(", ")}`);
+      }
+      const goldFirst = testCase.expectedFirstTool ?? testCase.acceptableFirstTools?.[0];
+      const goldCalls: ObservedToolCall[] = testCase.expectNoTool || !goldFirst
+        ? []
+        : [{ name: goldFirst, argumentsText: "{}" }];
+      const goldContent = (testCase.requiredResponseKeywords ?? []).join(" ");
+      const score = scoreMcpToolEvalCase(testCase, goldCalls, goldContent, surface);
+      if (!score.passed) reasons.push(...score.reasons);
+      record({ id: testCase.id, kind: "first", profile: testCase.profile, passed: reasons.length === 0, reasons });
+    }
+
+    console.log("— dialog cases (static + scorer gold path) —");
+    const dialogCases = DEFAULT_MCP_DIALOG_EVAL_CASES
+      .filter((testCase) => profiles.includes(testCase.profile))
+      .slice(0, Number.isFinite(limit) && limit && limit > 0 ? limit : undefined);
+    for (const testCase of dialogCases) {
+      const surface = surfaceByProfile.get(testCase.profile) ?? [];
+      const reasons: string[] = [];
+      const unexposed = testCase.expectedToolSequence.filter((name) => !surface.includes(name));
+      if (unexposed.length > 0) {
+        reasons.push(`expected tool(s) not on ${testCase.profile} profile surface: ${unexposed.join(", ")}`);
+      }
+      // The dialog harness feeds scriptedToolResults by global call index, so
+      // they must align with the expected sequence positionally.
+      for (let index = 0; index < testCase.expectedToolSequence.length; index += 1) {
+        const scripted = testCase.scriptedToolResults[index];
+        if (scripted && scripted.toolName !== testCase.expectedToolSequence[index]) {
+          reasons.push(`scriptedToolResults[${index}] is ${scripted.toolName}, expected ${testCase.expectedToolSequence[index]}`);
+        }
+      }
+      const goldTurns: ObservedDialogTurn[] = testCase.expectedToolSequence.map((toolName, index) => ({
+        assistantContent: "",
+        toolCalls: [{ name: toolName, argumentsText: JSON.stringify(testCase.expectedArgsByTurn?.[index] ?? {}) }],
+      }));
+      goldTurns.push({ assistantContent: (testCase.requiredFinalKeywords ?? []).join(" "), toolCalls: [] });
+      const score = scoreMcpDialogEvalCase(testCase, goldTurns, surface);
+      if (!score.passed) reasons.push(...score.reasons);
+      record({ id: testCase.id, kind: "dialog", profile: testCase.profile, passed: reasons.length === 0, reasons });
+    }
+
+    console.log("— agent work cases (scripted-simulator gold path) —");
+    const hermeticWorkCases = DEFAULT_AGENT_WORK_EVAL_CASES
+      .filter((testCase) => profiles.includes(testCase.profile as McpEvalProfile))
+      .slice(0, Number.isFinite(limit) && limit && limit > 0 ? limit : undefined);
+    for (const testCase of hermeticWorkCases) {
+      const surface = surfaceByProfile.get(testCase.profile as McpEvalProfile) ?? [];
+      const reasons: string[] = [];
+      const orders = testCase.rubric.acceptableToolOrders
+        ?? (testCase.rubric.requiredToolOrder ? [testCase.rubric.requiredToolOrder] : []);
+      if (orders.length > 0 && !orders.some((order) => order.every((name) => surface.includes(name)))) {
+        reasons.push(`no acceptable tool order is fully on the ${testCase.profile} profile surface`);
+      }
+      const goldOrder = testCase.rubric.requiredToolOrder ?? testCase.rubric.acceptableToolOrders?.[0] ?? [];
+      const dispatcher = makeScriptedWorkDispatcher(testCase.id);
+      const trajectory: AgentWorkTrajectory = { finalResponse: "", toolCalls: [], artifacts: {}, verifications: [] };
+      for (let callIndex = 0; callIndex < goldOrder.length; callIndex += 1) {
+        const toolName = goldOrder[callIndex];
+        const args = goldArgsForWorkCase(testCase, toolName);
+        const outcome = await dispatcher({ toolName, args, callIndex });
+        const result = outcome.result;
+        trajectory.toolCalls.push({
+          name: toolName,
+          args,
+          success: typeof result.success === "boolean" ? result.success : true,
+          error_code: typeof result.error_code === "string" ? result.error_code : undefined,
+          result,
+        });
+        if (outcome.artifact) trajectory.artifacts![outcome.artifact.name] = outcome.artifact.content;
+        if (outcome.verification) trajectory.verifications!.push(outcome.verification);
+      }
+      // The gold final answer is the rubric's required keywords; the scorer
+      // also checks it does not contain any forbidden keywords.
+      trajectory.finalResponse = (testCase.rubric.requiredFinalKeywords ?? []).join(" ");
+      const score = scoreAgentWorkEvalCase(testCase, trajectory);
+      if (!score.passed) reasons.push(...score.reasons);
+      record({ id: testCase.id, kind: "work", profile: testCase.profile, passed: reasons.length === 0, reasons });
+    }
+
+    const skips = [
+      `model endpoint ${baseUrl} (llama-swap) — no live LLM in hermetic mode`,
+      `tool bridge ${bridgeUrl} — no live deck in hermetic mode`,
+      "mcporter stdio discovery — replaced by the in-process registry mirror above",
+    ];
+    console.log("— live probes —");
+    for (const skip of skips) console.log(`[SKIP] ${skip}`);
+
+    if (checks.length === 0) {
+      throw new Error("no hermetic eval checks selected for the active profiles");
+    }
+
+    const jsonl = checks.map((check) => JSON.stringify(check)).join("\n") + "\n";
+    await writeFile(path.join(outDir, "hermetic-results.jsonl"), jsonl);
+    await writeFile(
+      path.join(outDir, "hermetic-summary.json"),
+      JSON.stringify({ mode: "hermetic", profiles, checks, skips }, null, 2),
+    );
+    const markdown = formatHermeticSummary(checks, skips, outDir);
+    await writeFile(path.join(outDir, "hermetic-summary.md"), markdown);
+    console.log("");
+    console.log(markdown);
+
+    const failures = checks.filter((check) => !check.passed).length;
+    if (failures > 0) {
+      console.error(`hermetic eval: ${failures}/${checks.length} checks failed`);
+      process.exitCode = 1;
+    }
   }
 }
 

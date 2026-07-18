@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Control Deck pre-push gate — runs the full local verify pipeline and blocks
+# the push when it fails.
+#
+# Enable once per clone (repo-local, not global):
+#
+#   git config core.hooksPath .githooks
+#
+# Verify with:  git config core.hooksPath   # should print: .githooks
+# Bypass in an emergency:  git push --no-verify
+#
+# What runs: bun run verify = doctor --quick → contract-check → tsc --noEmit
+# → eslint --quiet → scoped bun tests → agent-ts tests. Expect tens of
+# seconds; push waits for it.
+set -euo pipefail
+
+# Hooks run with cwd at the worktree root already, but be explicit so the
+# hook also behaves when invoked by hand from elsewhere.
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[pre-push] running bun run verify (push is blocked on failure)…"
+exec bun run verify

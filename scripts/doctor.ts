@@ -5,9 +5,10 @@
  *
  *   bun scripts/doctor.ts          # full check (lockfiles, repos, services)
  *   bun scripts/doctor.ts --quick  # toolchain + stray-lockfile checks only
+ *   bun scripts/doctor.ts --ci     # CI mode: host-provisioned deps become info-skips
  *
  * Sources of truth it reads: mise.toml (tool versions), bun.lock,
- * pyenvs/{omni,vllm} (uv.lock), stack.lock.json (external repos + host services).
+ * pyenvs/omni (uv.lock), stack.lock.json (external repos + host services).
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +17,21 @@ import ts from "typescript";
 
 const ROOT = join(import.meta.dir, "..");
 const QUICK = process.argv.includes("--quick");
+
+// CI mode (`--ci` flag or CONTROL_DECK_DOCTOR_CI=1) — for runners that are not
+// this repo's host machine. Host-provisioned dependencies cannot exist on a
+// fresh CI checkout and are not what `bun run verify` gates, so they downgrade
+// from hard fail to an informational skip:
+//   - uv / process-compose binaries (mise-provisioned on hosts)
+//   - .venv-* python sidecar envs (gitignored, rebuilt per host)
+//   - external repo checkouts from stack.lock.json (host paths / gitignored
+//     vendored clones like llama.cpp)
+// Everything else still gates: node/bun presence + versions, stray lockfiles,
+// and the release-QA invariants. Host-service probes were already
+// informational-only and only run in full (non-quick) mode — unchanged.
+const CI_MODE = process.argv.includes("--ci") || process.env.CONTROL_DECK_DOCTOR_CI === "1";
+// node/bun are NEVER skippable: CI installs them and verify runs on them.
+const CI_HOST_PROVISIONED_TOOLS = new Set(["uv", "process-compose"]);
 
 type Level = "ok" | "fail" | "warn" | "info";
 let failures = 0;
@@ -111,7 +127,13 @@ for (const [tool, want] of Object.entries(pins)) {
   if (!getter) continue;
   let got = "";
   try { got = getter(); } catch { /* not installed */ }
-  if (!got) report("fail", `${tool}: not installed (want ${want})`, `install ${tool} ${want} — or run: mise install`);
+  if (!got) {
+    if (CI_MODE && CI_HOST_PROVISIONED_TOOLS.has(tool)) {
+      report("info", `${tool}: not installed — CI skip (host-provisioned; hosts want ${want} via mise)`);
+    } else {
+      report("fail", `${tool}: not installed (want ${want})`, `install ${tool} ${want} — or run: mise install`);
+    }
+  }
   else if (got !== want) report("warn", `${tool}: ${got} (pinned ${want})`, `align with mise.toml or update the pin deliberately`);
   else report("ok", `${tool} ${got}`);
 }
@@ -139,6 +161,10 @@ for (const [venv, cfg] of Object.entries<any>(stackLock.pythonEnvs)) {
     else report("fail", `${cfg.project}: uv.lock stale`, `uv lock --directory ${cfg.project}  # then commit`);
   }
   if (!existsSync(venvPy)) {
+    if (CI_MODE) {
+      report("info", `${venv}: missing — CI skip (sidecar venvs are gitignored, host-rebuilt)`);
+      continue;
+    }
     report("fail", `${venv}: missing`, cfg.rebuild);
     continue;
   }
@@ -170,6 +196,10 @@ console.log("\n— external repos (stack.lock.json) —");
 for (const [name, cfg] of Object.entries<any>(stackLock.externalRepos)) {
   const path = cfg.path.startsWith("~") ? expand(cfg.path) : join(ROOT, cfg.path);
   if (!existsSync(path)) {
+    if (CI_MODE) {
+      report("info", `${name}: missing at ${cfg.path} — CI skip (external checkout, not part of the repo gate)`);
+      continue;
+    }
     report("fail", `${name}: missing at ${cfg.path}`, `git clone ${cfg.remote} ${path} && git -C ${path} checkout ${cfg.commit}`);
     continue;
   }

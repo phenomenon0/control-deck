@@ -223,6 +223,9 @@ const ALLOWLIST: Record<string, string> = {
   // references are the plan threads that called for exactly these deletions.
   "apps/agent-ts/src/server/store.ts": "deleted Phase 3 (agent-ts runs.db second ledger); historical plan references",
   "lib/canvas/bus.ts": "deleted Phase 3 (canvas bus folded into workspace bus); historical plan references",
+  // Deleted in Phase 3/4; execution-log and stack.md notes record the deletions.
+  "lib/canvas": "deleted Phase 3 (folded into lib/workspace/canvas.ts); historical records",
+  "pyenvs/vllm": "dropped Phase 4 (no launcher consumed it); stack.md orphan note + plan records",
 };
 
 const DOC_PATH_ROOTS = [

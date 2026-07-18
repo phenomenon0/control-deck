@@ -5,7 +5,7 @@
    the rail's width by shifting those roots right.
    ============================================================================= */
 
-.v2-host { position: fixed; inset: 0; background: var(--surface-page); }
+.v2-host { position: fixed; inset: 0; background: var(--surface-page); background-image: var(--surface-texture, none); background-repeat: repeat; }
 
 /* Typography controls (Settings → Appearance). V2AppearanceHost sets --type-scale
    and --measure inline on .v2-host; here we redefine the Atlas --text-* scale in
@@ -24,7 +24,7 @@
 }
 
 .v2nav {
-  position: fixed; left: 0; top: 0; bottom: 0; width: 64px; z-index: 60;
+  position: fixed; left: 0; top: 0; bottom: 0; width: 64px; z-index: var(--z-popover);
   background: var(--surface-raised);
   border-right: 1px solid var(--line-subtle);
   display: flex; flex-direction: column; align-items: center;
@@ -65,10 +65,11 @@
 .v2nav__vram:hover { background: var(--btn-fill-hover); }
 .v2nav__vrambar {
   display: flex; align-items: flex-end; width: 8px; height: 26px;
-  border: 1px solid var(--line-subtle); border-radius: 2px; overflow: hidden;
-  background: var(--surface-sunken, var(--surface-page));
+  border: none; border-radius: var(--progress-radius); overflow: hidden;
+  background: var(--progress-track-bg);
+  box-shadow: var(--progress-track-well);      /* engraved channel (D-017) */
 }
-.v2nav__vrambar > span { display: block; width: 100%; background: rgb(var(--positive-rgb)); transition: height var(--duration-base) var(--ease-out); }
+.v2nav__vrambar > span { display: block; width: 100%; background: rgb(var(--positive-rgb)); box-shadow: var(--progress-fill-sheen); transition: height var(--duration-base) var(--ease-out); }
 .v2nav__vram--caution .v2nav__vrambar > span { background: rgb(var(--caution-rgb)); }
 .v2nav__vram--danger .v2nav__vrambar > span { background: rgb(var(--danger-rgb)); }
 .v2nav__vramlbl { font-family: var(--font-data); font-size: 8.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
@@ -102,4 +103,89 @@
   .v2nav__foot { margin-top: 0; }
   .v2nav__item.is-active::before { left: 9px; right: 9px; top: auto; bottom: 0; width: auto; height: 2px; }
   .v2-host > .av2, .v2-host > [class*="av2-"] { left: 0; bottom: 56px; }
+}
+
+/* D3: Atlas command palette — one keyboard-first path across the v2 shell. */
+.v2cmd {
+  position: fixed; inset: 0; z-index: var(--z-toast);
+  display: grid; place-items: start center;
+  padding: min(15vh, 144px) 16px 24px;
+  font-family: var(--font-ui);
+}
+.v2cmd__scrim {
+  position: absolute; inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur));
+}
+.v2cmd__dialog {
+  position: relative; width: min(640px, 100%); max-height: min(68vh, 680px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface-raised); color: var(--ink-strong);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--palette-shadow), 0 1px 0 var(--sheen) inset;
+  animation: v2cmd-enter 160ms var(--ease-out) both;
+}
+.v2cmd__search {
+  min-height: 58px; display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: 11px; padding: 0 16px;
+  border-bottom: 1px solid var(--line-subtle); color: var(--ink-soft);
+}
+.v2cmd__search > label {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+.v2cmd__search input {
+  min-width: 0; height: 56px; border: 0; outline: 0;
+  background: transparent; color: var(--ink-strong);
+  font: 500 var(--text-md)/1.3 var(--font-ui);
+}
+.v2cmd__search:focus-within {
+  border-bottom-color: var(--field-focus-line);
+  box-shadow: 0 1px 0 var(--field-focus-line);
+}
+.v2cmd__search input:focus-visible { box-shadow: none; }
+.v2cmd__search input::placeholder { color: var(--ink-faint); }
+.v2cmd kbd {
+  display: inline-flex; min-width: 23px; height: 22px; align-items: center; justify-content: center;
+  padding: 0 6px; border: 1px solid var(--line-subtle); border-radius: 4px;
+  background: var(--surface-sunken, var(--surface-page)); color: var(--ink-faint);
+  font: 500 10px/1 var(--font-data); text-transform: lowercase;
+}
+.v2cmd__results { overflow-y: auto; padding: 8px; overscroll-behavior: contain; }
+.v2cmd__category {
+  padding: 10px 10px 5px; color: var(--ink-faint);
+  font: 600 9px/1.2 var(--font-data); letter-spacing: .11em; text-transform: uppercase;
+}
+.v2cmd__entry button {
+  width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 9px 11px; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-strong); cursor: pointer; text-align: left;
+  font: 500 var(--text-sm)/1.35 var(--font-ui);
+  transition: background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.v2cmd__entry button:hover,
+.v2cmd__entry button.is-selected {
+  background: var(--btn-fill-hover); border-color: var(--line-subtle); color: var(--accent-text);
+}
+.v2cmd__entry button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.v2cmd__empty { padding: 40px 18px; color: var(--ink-soft); text-align: center; font-size: var(--text-sm); }
+.v2cmd__footer {
+  min-height: 38px; display: flex; align-items: center; justify-content: flex-end; gap: 16px;
+  padding: 7px 12px; border-top: 1px solid var(--line-subtle); color: var(--ink-faint);
+  font: 500 10px/1 var(--font-data);
+}
+.v2cmd__footer span { display: inline-flex; align-items: center; gap: 4px; }
+@keyframes v2cmd-enter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 520px) {
+  .v2cmd { padding: 12px; align-items: start; }
+  .v2cmd__dialog { max-height: calc(100dvh - 24px); }
+  .v2cmd__footer { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v2cmd__dialog { animation: none; }
+  .v2cmd__entry button { transition: none; }
 }

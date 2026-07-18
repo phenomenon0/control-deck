@@ -33,8 +33,8 @@ the lid off.
   same agent/tools/approvals spine as typed chat.
 - 🎧 **Live-music rig built in** — Tone.js transport, mixer, FX chains on
   the same surface as chat.
-- ⚡ **One keystroke away** — command palette (`Cmd/Ctrl+K`) reaches every
-  pane, every tool, every setting.
+- ⚡ **One keystroke away** — command palette (`Cmd/Ctrl+K`) opens every
+  V2 surface plus the live commands contributed by the surface you are in.
 
 ## Quick start
 

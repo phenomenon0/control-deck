@@ -198,3 +198,19 @@ Notes for the next run:
   in the arbiter commit; not VRAM-tracking desyncs.
 - Next phase per plan: Phase 2 — one router (`lib/engine/resolve.ts`, kill
   `freeTier.ts`, 33 `OLLAMA_BASE_URL` sites → resolver).
+
+## Execution log 2 — Phase 2 (one router), 2026-07-18
+
+Four-agent wave, gate green at HEAD (`bd1eb28`).
+
+| Commit | Thread | What landed |
+|---|---|---|
+| `f29297d` | T2/T3-adjacent | agent-ts obeys deck-resolved `llm` config verbatim — validate + 1.5s availability probe only; structured `llm_unavailable`/`llm_model_unserved` errors; no snap, no re-derivation. agent-ts 40/40 (+7) |
+| `c681d10` | **T2 FIXED** | `lib/engine/resolve.ts`: one `resolveModelRoute()` (request → binding → settings → LLM_* env → default). Chat, title-gen, plugin-maker, generative-ui consume it; providers.ts → shim. 17 resolver tests |
+| `19c7f7c` | **T6 FIXED** | 13 `OLLAMA_BASE_URL` bypass sites → `resolveProviderUrl` (per-request; Settings edits apply live). contract-check rule [5] bans new bypasses forever |
+| `bd1eb28` | T2 cleanup | freeTier.ts + free-tier routes + 4 lying DeckPrefs fields (+2 write-only) deleted; ModelsPane 712→248 lines; orphaned cloudProviders.ts + useCatalog.ts deleted |
+
+Follow-ups for the record:
+- providers.ts shim importers remaining on the legacy sync API: `app/api/backend/route.ts`, `app/api/newsroom/rewrite/route.ts`, `app/api/tools/glyph-eval/route.ts`, `lib/inference/catalog.ts`, `lib/inference/text/register.ts`, `lib/llm/index.ts` — migrate to `lib/engine` in a later pass, then drop the shim.
+- Resolver judgment calls (documented in commit c681d10): settings-chain URL everywhere incl. default; binding > env uniformly (title-gen used to invert); ultimate fallback model qwen3:0.6b; legacy runtimeOverride sits in the binding tier.
+- Next: Phase 3 — one ledger, one wire (agent-ts drops runs.db; one AGUI codec; one SSE framer/parser; merge thread stores; one client run controller; split db.ts last).

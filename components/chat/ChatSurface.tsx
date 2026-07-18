@@ -3,309 +3,57 @@
 /**
  * ChatSurface — orchestrator for the redesigned agent chat surface
  *
- * Replaces ChatPaneV2 (SURFACE.md §5.1) by composing Phase 1-3 components:
+ * Replaces ChatPaneV2 (SURFACE.md §5.1) by composing Phase 1-4 components:
+ *   - ChatSurfaceLayout (render assembly: header, timeline, strip, composer)
  *   - ChatTimeline (segment list with scroll management)
  *   - StatusStrip (persistent run status indicator)
  *   - ChatComposer (context-aware input composer)
+ *   - ChatSurfaceHeader / ChatControlTower (surface-variant chrome)
  *
  * Phase 4: Uses useAgentRun directly for SSE consumption — no bridge layer.
  * The hook consumes the SSE event stream from POST /api/chat and drives the
  * timeline + run state machine. Thread management and message persistence
- * are handled here in the orchestrator.
+ * are handled here in the orchestrator; focused logic lives in sibling
+ * hooks (ChatVoiceController, ChatSubmitController, ChatKeyboardShortcuts,
+ * ChatHistorySync, ChatInspectorSync, ChatCanvasAutoOpen, ChatAutoTTS).
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import {
-  useDeckSettings,
-  type ChatSurface as ChatSurfaceVariant,
-} from "@/components/settings/DeckSettingsProvider";
+import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { useThreadManager } from "@/lib/hooks/useThreadManager";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
-import { useVoiceSession } from "@/lib/voice/use-voice-session";
-import {
-  useOptionalVoiceSession,
-  VoiceSessionProvider,
-} from "@/lib/voice/VoiceSessionContext";
-import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
+import { VoiceSessionProvider } from "@/lib/voice/VoiceSessionContext";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
 import { useRunController } from "@/lib/hooks/useRunController";
 import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
-import { ChatTimeline } from "@/components/chat/ChatTimeline";
-import { StatusStrip } from "@/components/chat/StatusStrip";
-import { ChatComposer } from "@/components/chat/ChatComposer";
-import { UploadTray } from "@/components/chat/UploadTray";
-import { ContextRail } from "@/components/chat/ContextRail";
-import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
-import { InterruptDialog } from "@/components/chat/InterruptDialog";
-import { type Thread, type Message } from "@/lib/chat/helpers";
-import { useCanvas } from "@/lib/hooks/useCanvas";
-import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
 import { useCommands } from "@/lib/hooks/useCommands";
 import { subscribeChatPrefill } from "@/lib/messages/chatPrefill";
-import { PhraseConductor } from "@/lib/voice/phrase-conductor";
-import { cleanResponseForSpeech } from "@/lib/voice/conductor";
-import type { Artifact } from "@/components/chat/ArtifactRenderer";
-import type { AgentActivitySegment, ActivityStep, ArtifactSegment } from "@/lib/types/agentRun";
-
-type VoiceSubmitOrigin = "voice-dictation" | "voice-live";
-type SubmitOrigin = "typed" | VoiceSubmitOrigin;
+import { shouldMoveFocusTo } from "@/lib/dom/editable";
+import { ChatSurfaceLayout } from "@/components/chat/ChatSurfaceLayout";
+import { useChatHistorySync } from "@/components/chat/ChatHistorySync";
+import { useChatVoiceController } from "@/components/chat/ChatVoiceController";
+import { useChatInspectorSync } from "@/components/chat/ChatInspectorSync";
+import { useChatCanvasAutoOpen } from "@/components/chat/ChatCanvasAutoOpen";
+import { useChatAutoTTS } from "@/components/chat/ChatAutoTTS";
+import { useChatKeyboardShortcuts } from "@/components/chat/ChatKeyboardShortcuts";
+import {
+  useChatSubmitController,
+  type SubmitOrigin,
+  type VoiceSubmitOrigin,
+} from "@/components/chat/ChatSubmitController";
+import type { AgentActivitySegment, ActivityStep, TimelineSegment } from "@/lib/types/agentRun";
 
 interface ChatSurfaceProps {
   voiceSubmitOrigin?: VoiceSubmitOrigin;
 }
 
-/** Truncate string values in tool args to keep metadata compact.
- *  `code` is exempt — the inline code block in chat needs the full source on
- *  reload, otherwise old execute_code rows render as a 200-char stub. */
-function truncateArgs(args: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(args)) {
-    const keepFull = key === "code";
-    result[key] = !keepFull && typeof value === "string" && value.length > 200
-      ? value.slice(0, 200) + "..."
-      : value;
-  }
-  return result;
-}
-
-function formatModelLabel(model: string): string {
-  // No pinned model → routing resolves one per-request. "auto" reads as
-  // intentional; the old "model pending" looked broken on a healthy deck.
-  if (!model) return "auto";
-  const parts = model.split(/[/\\]/);
-  return parts[parts.length - 1].replace(/\.gguf$/i, "");
-}
-
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function phaseLabel(runState: import("@/lib/types/agentRun").RunState): string {
-  switch (runState.phase) {
-    case "submitted":
-      return "queued";
-    case "thinking":
-      return "thinking";
-    case "streaming":
-      return "writing";
-    case "executing":
-      return runState.toolName;
-    case "resuming":
-      return "resuming";
-    case "error":
-      return "error";
-    default:
-      return "standby";
-  }
-}
-
 function collectActivitySteps(
-  segments: import("@/lib/types/agentRun").TimelineSegment[],
+  segments: TimelineSegment[],
 ): ActivityStep[] {
   return segments
     .filter((segment): segment is AgentActivitySegment => segment.type === "agent-activity")
     .flatMap((segment) => segment.steps);
-}
-
-function summarizeToolSteps(steps: ActivityStep[]) {
-  return steps
-    .filter((step) => step.status !== "running")
-    .map((step) => ({
-      toolCallId: step.toolCallId,
-      toolName: step.toolName,
-      args: step.args ? truncateArgs(step.args) : undefined,
-      status: step.status as "complete" | "error",
-      durationMs: step.durationMs,
-      success: step.result?.success ?? true,
-      error: step.result?.error,
-    }));
-}
-
-function progressForRun(
-  runState: import("@/lib/types/agentRun").RunState,
-  steps: ActivityStep[],
-): number {
-  if (runState.phase === "error") return 100;
-  if (runState.phase === "idle") return steps.length ? 100 : 0;
-  if (runState.phase === "submitted") return 16;
-  if (runState.phase === "thinking") return 32;
-  if (runState.phase === "executing") return 58;
-  if (runState.phase === "streaming") return 78;
-  if (runState.phase === "resuming") return 88;
-  return 0;
-}
-
-function SurfaceHeader({
-  surface,
-  chatTitle,
-  model,
-  toolCount,
-  artifactCount,
-  messageCount,
-}: {
-  surface: ChatSurfaceVariant;
-  chatTitle: string;
-  model: string;
-  toolCount: number;
-  artifactCount: number;
-  messageCount: number;
-}) {
-  if (surface === "brave") {
-    return (
-      <header className="cs-thread-head cs-thread-head--brave">
-        <div className="cs-dossier-title-block">
-          <span className="cs-thread-kicker">Thread Brief</span>
-          <h1 className="cs-thread-title">{chatTitle}</h1>
-        </div>
-        <div className="cs-thread-meta cs-thread-meta--brave" aria-label="Thread routing">
-          <span className="cs-model-chip">{formatModelLabel(model)}</span>
-          <span>routed local</span>
-          <span>{messageCount} notes</span>
-          <span>{toolCount} tools</span>
-          <span>{artifactCount} files</span>
-        </div>
-      </header>
-    );
-  }
-
-  if (surface === "radical") {
-    return (
-      <header className="cs-thread-head cs-thread-head--radical">
-        <div className="cs-thread-title-block">
-          <span className="cs-thread-kicker">Session Log</span>
-          <h1 className="cs-thread-title">{chatTitle}</h1>
-        </div>
-        <div className="cs-thread-meta" aria-label="Thread routing">
-          <span className="cs-model-chip">{formatModelLabel(model)}</span>
-          <span>{toolCount} tools</span>
-          <span>{artifactCount} files</span>
-        </div>
-      </header>
-    );
-  }
-
-  return (
-    <header className="cs-thread-head">
-      <div className="cs-thread-title-block">
-        <span className="cs-thread-kicker">Field Journal</span>
-        <h1 className="cs-thread-title">{chatTitle}</h1>
-      </div>
-      <div className="cs-thread-meta" aria-label="Thread routing">
-        <span className="cs-model-chip">{formatModelLabel(model)}</span>
-        <span>local</span>
-        <span>{toolCount} tools</span>
-        <span>{artifactCount} files</span>
-      </div>
-    </header>
-  );
-}
-
-function RunDial({
-  runState,
-  elapsedMs,
-  steps,
-}: {
-  runState: import("@/lib/types/agentRun").RunState;
-  elapsedMs: number;
-  steps: ActivityStep[];
-}) {
-  const progress = progressForRun(runState, steps);
-  const running = runState.phase !== "idle" && runState.phase !== "error";
-  const angle = -135 + progress * 2.7;
-
-  return (
-    <div className={`cs-run-dial${running ? " cs-run-dial--active" : ""}`}>
-      <div className="cs-run-dial-ring" aria-hidden="true">
-        {Array.from({ length: 40 }).map((_, index) => (
-          <span
-            key={index}
-            className={index <= Math.round(progress / 2.5) ? "is-lit" : ""}
-            style={{ transform: `rotate(${index * 9}deg) translateY(-112px)` }}
-          />
-        ))}
-        <div
-          className="cs-run-dial-needle"
-          style={{ transform: `translate(-50%, -100%) rotate(${angle}deg)` }}
-        />
-      </div>
-      <div className="cs-run-dial-center">
-        <span>{phaseLabel(runState)}</span>
-        <strong>{running ? formatElapsed(elapsedMs) : "ready"}</strong>
-      </div>
-    </div>
-  );
-}
-
-function TowerPanel({
-  runState,
-  elapsedMs,
-  steps,
-  messageCount,
-  toolCount,
-  artifactCount,
-}: {
-  runState: import("@/lib/types/agentRun").RunState;
-  elapsedMs: number;
-  steps: ActivityStep[];
-  messageCount: number;
-  toolCount: number;
-  artifactCount: number;
-}) {
-  const recentSteps = steps.slice(-5).reverse();
-  const running = runState.phase !== "idle" && runState.phase !== "error";
-
-  return (
-    <aside className="cs-tower-panel" aria-label="Run control tower">
-      <div>
-        <span className="cs-thread-kicker">Control Tower</span>
-        <RunDial runState={runState} elapsedMs={elapsedMs} steps={steps} />
-      </div>
-
-      <div className="cs-tower-metrics" aria-label="Thread metrics">
-        <div>
-          <strong>{messageCount}</strong>
-          <span>entries</span>
-        </div>
-        <div>
-          <strong>{toolCount}</strong>
-          <span>tools</span>
-        </div>
-        <div>
-          <strong>{artifactCount}</strong>
-          <span>files</span>
-        </div>
-      </div>
-
-      <div className="cs-tower-card">
-        <span className="cs-thread-kicker">Run Trace</span>
-        {recentSteps.length ? (
-          <div className="cs-tower-step-list">
-            {recentSteps.map((step) => (
-              <div
-                key={step.toolCallId}
-                className={`cs-tower-step cs-tower-step--${step.status}`}
-              >
-                <span className="cs-tower-step-dot" />
-                <strong>{step.toolName}</strong>
-                <em>{step.status}</em>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p>No tools in this thread yet.</p>
-        )}
-      </div>
-
-      <div className="cs-tower-card">
-        <span className="cs-thread-kicker">Transmit</span>
-        <p>{running ? "Run is live. Keep the thread on task." : "Speak into the run when ready."}</p>
-      </div>
-    </aside>
-  );
 }
 
 export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: ChatSurfaceProps = {}) {
@@ -342,13 +90,9 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   const selectedModel = prefs.model;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const lastSpokenIdRef = useRef<string | null>(null);
   const sendMessageRef = useRef<(text: string, origin?: SubmitOrigin) => void>(() => {});
-  const pendingTTSRef = useRef<string | null>(null);
   const directSubmitRef = useRef<{ text: string; origin: SubmitOrigin } | null>(null);
   const voiceReplyMessageIdsRef = useRef<Set<string>>(new Set());
-  const lastSharedFinalSubmittedRef = useRef<string>("");
-  const voiceStateRef = useRef<string>("idle");
   const queueComposerFocus = useCallback((delay = 0) => {
     window.setTimeout(() => {
       if (shouldMoveFocusTo(inputRef.current)) {
@@ -393,139 +137,34 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   const { runState, segments } = agentState;
   const isStreaming = runState.phase === "streaming" || runState.phase === "executing";
 
-  const submitVoiceFinal = useCallback(
-    (text: string) => {
-      if (!prefs.voice.enabled) return;
-      if (voiceStateRef.current === "confirming") return;
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      if (trimmed === lastSharedFinalSubmittedRef.current) return;
-      lastSharedFinalSubmittedRef.current = trimmed;
-      // Dictation (composer mic): drop the text into the input so the user
-      // can review/edit/send manually. Only the full voice-mode sheet
-      // auto-sends — that's the hands-free contract.
-      if (!voiceModeOpen) {
-        setInputValue(trimmed);
-        return;
-      }
-      sendMessageRef.current(trimmed, "voice-live");
-    },
-    [prefs.voice.enabled, voiceModeOpen],
-  );
-
   // ---------------------------------------------------------------------------
-  // Voice chat
-  //
-  // If a parent surface (e.g. LiveVoiceSurface) provides a shared voice session,
-  // reuse its runtime — one mic, one WebSocket, one transcript. Otherwise this
-  // hook owns the voice runtime for standalone chat pages.
+  // Voice chat (session ownership + transcript plumbing)
   // ---------------------------------------------------------------------------
-  const sharedVoiceSession = useOptionalVoiceSession();
-  // Own a session when no parent provides one — and ALWAYS expose a session
-  // to downstream voice consumers (the sheet) via VoiceSessionProvider below.
-  // Without this, opening VoiceModeSheet on /chat spawns a parallel session
-  // that ChatSurface never observes, so transcripts go nowhere.
-  const ownSession = useVoiceSession({
-    enabled: !sharedVoiceSession,
-    onTranscriptFinal: submitVoiceFinal,
-    controller: runController,
+  const { voiceSession, voiceChat } = useChatVoiceController({
+    voiceEnabled: prefs.voice.enabled,
+    voiceModeOpen,
+    inputValue,
+    setInputValue,
+    runController,
+    sendMessageRef,
   });
-  const voiceSession = sharedVoiceSession ?? ownSession;
-  const voiceChat = voiceSession.voiceChat;
-  useEffect(() => {
-    voiceStateRef.current = voiceSession.state;
-  }, [voiceSession.state]);
-
-  const sharedPartial = voiceSession.transcriptPartial;
-  const sharedFinal = voiceSession.transcriptFinal;
-  useEffect(() => {
-    if (!prefs.voice.enabled) return;
-    if (sharedPartial) setInputValue(sharedPartial);
-  }, [prefs.voice.enabled, sharedPartial]);
-  useEffect(() => {
-    if (!prefs.voice.enabled) return;
-    submitVoiceFinal(sharedFinal);
-  }, [prefs.voice.enabled, sharedFinal, submitVoiceFinal]);
-
-  // Streaming STT can emit a blank final immediately after the real final.
-  // If React batches those updates, the non-empty `transcriptFinal` may never
-  // be observed by this component; the FSM still enters `submitting`, so use
-  // the composer text as the last-known final in that case.
-  useEffect(() => {
-    if (voiceSession.state !== "submitting") return;
-    submitVoiceFinal(sharedFinal || inputValue);
-  }, [inputValue, sharedFinal, submitVoiceFinal, voiceSession.state]);
-
-  // Drop the dedup memory once the FSM clears the shared transcript, so a
-  // genuinely identical follow-up utterance is not blocked.
-  useEffect(() => {
-    if (!sharedFinal && voiceSession.state === "idle") lastSharedFinalSubmittedRef.current = "";
-  }, [sharedFinal, voiceSession.state]);
 
   // ---------------------------------------------------------------------------
   // Inspector sync (SURFACE.md §5.4 — single update replaces 6 push effects)
   // ---------------------------------------------------------------------------
-  const updateInspector = useChatInspectorUpdate();
-
-  useEffect(() => {
-    const toolCalls = segments
-      .filter((s) => s.type === "agent-activity")
-      .flatMap((s) => (s as import("@/lib/types/agentRun").AgentActivitySegment).steps)
-      .map((step) => ({
-        id: step.toolCallId,
-        name: step.toolName,
-        status: step.status === "running" ? "running" as const : step.status === "complete" ? "complete" as const : "error" as const,
-        args: step.args,
-        result: step.result ? { success: step.result.success, message: step.result.message, error: step.result.error } : undefined,
-        durationMs: step.durationMs,
-        startedAt: step.startedAt,
-      }));
-    // Truth-tell: prefer the server-confirmed model from RunStarted over
-    // the composer's requested model. They match except when the server
-    // snapped the resolver to a different installed model — in which case
-    // the rail should show what actually answered.
-    const resolvedModel = agentRun.state.resolvedModel;
-    updateInspector({
-      threadId: activeThreadId,
-      model: resolvedModel ?? selectedModel,
-      route: "local",
-      isLoading: isRunning,
-      artifacts: messages.flatMap((m) => m.artifacts || []),
-      toolCalls,
-    });
-  }, [activeThreadId, selectedModel, isRunning, messages, segments, updateInspector, agentRun.state.resolvedModel]);
+  useChatInspectorSync({
+    activeThreadId,
+    selectedModel,
+    isRunning,
+    messages,
+    segments,
+    resolvedModel: agentRun.state.resolvedModel,
+  });
 
   // ---------------------------------------------------------------------------
   // Canvas auto-open: open artifacts in canvas when created during a run
-  // (Restores behavior lost in iteration 6 when useSSE was replaced by useAgentRun)
   // ---------------------------------------------------------------------------
-  const canvas = useCanvas();
-  const openedArtifactIdsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    const artifactSegments = segments.filter(
-      (s): s is ArtifactSegment => s.type === "artifact"
-    );
-    for (const seg of artifactSegments) {
-      const artifactId = seg.artifact.id;
-      if (openedArtifactIdsRef.current.has(artifactId)) continue;
-      openedArtifactIdsRef.current.add(artifactId);
-
-      // Only auto-open for code execution results and images during a live run
-      if (!isRunning) continue;
-      canvas.openArtifact({
-        id: artifactId,
-        url: seg.artifact.url,
-        name: seg.artifact.name,
-        mimeType: seg.artifact.mimeType,
-      });
-    }
-  }, [segments, isRunning, canvas]);
-
-  // Clear tracked artifact IDs when switching threads
-  useEffect(() => {
-    openedArtifactIdsRef.current.clear();
-  }, [effectiveThreadId]);
+  useChatCanvasAutoOpen({ segments, isRunning, effectiveThreadId });
 
   // Clean up local state on thread switch (uploads, input focus)
   // Replaces the side-effects that were previously in handleNewThread/handleSelectThread
@@ -557,73 +196,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   // ---------------------------------------------------------------------------
   // Load history: convert persisted messages → segments on thread change
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    if (!messages.length) {
-      agentDispatch({ type: "LOAD_HISTORY", segments: [] });
-      return;
-    }
-    const historySegments: import("@/lib/types/agentRun").TimelineSegment[] = [];
-    let segCounter = 0;
-    const nextId = () => `seg_hist_${++segCounter}`;
-
-    for (const msg of messages) {
-      if (msg.role === "user") {
-        const uploads = msg.artifacts?.map((a) => ({
-          id: a.id,
-          name: a.name || "attachment",
-          url: a.url,
-        }));
-        historySegments.push({
-          id: nextId(),
-          type: "user-message",
-          timestamp: 0,
-          content: msg.content,
-          uploads: uploads?.length ? uploads : undefined,
-        });
-      } else if (msg.role === "assistant") {
-        // Reconstruct tool activity from persisted metadata (before text)
-        const toolCalls = msg.metadata?.toolCalls;
-        if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-          historySegments.push({
-            id: nextId(),
-            type: "agent-activity",
-            timestamp: 0,
-            steps: toolCalls.map((tc: { toolCallId?: string; toolName: string; args?: Record<string, unknown>; status?: string; durationMs?: number; success?: boolean; error?: string }) => ({
-              toolCallId: tc.toolCallId || crypto.randomUUID(),
-              toolName: tc.toolName,
-              args: tc.args,
-              status: (tc.status === "error" ? "error" : "complete") as ActivityStep["status"],
-              result: {
-                success: tc.success ?? true,
-                error: tc.error,
-              },
-              durationMs: tc.durationMs,
-              startedAt: 0,
-            })),
-          });
-        }
-        historySegments.push({
-          id: nextId(),
-          type: "agent-message",
-          timestamp: 0,
-          messageId: msg.id,
-          content: msg.content || "",
-          isStreaming: false,
-        });
-        if (msg.artifacts?.length) {
-          for (const artifact of msg.artifacts) {
-            historySegments.push({
-              id: nextId(),
-              type: "artifact",
-              timestamp: 0,
-              artifact,
-            });
-          }
-        }
-      }
-    }
-    agentDispatch({ type: "LOAD_HISTORY", segments: historySegments });
-  }, [effectiveThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useChatHistorySync({ messages, effectiveThreadId, agentDispatch });
 
   // ---------------------------------------------------------------------------
   // Reactive thread title update from RunFinished event (SURFACE.md §6.2)
@@ -640,447 +213,71 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   }, [threadTitle, activeThreadId, setThreads]);
 
   // ---------------------------------------------------------------------------
-  // Handlers (before effects so keyboard shortcuts can reference them)
+  // Auto-TTS for voice-origin replies
   // ---------------------------------------------------------------------------
-
-  // ---------------------------------------------------------------------------
-  // Effects: Auto-TTS, keyboard shortcuts
-  // ---------------------------------------------------------------------------
-
-  // Auto-TTS only for assistant messages that answer a voice-origin turn.
-  // Opening voice mode by itself must not read old chat history or typed
-  // replies; manual speak controls still call `voiceChat.speak()` directly.
-  useEffect(() => {
-    if (!prefs.voice.enabled || isRunning) return;
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant" || !lastMsg.content) return;
-    if (!voiceReplyMessageIdsRef.current.has(lastMsg.id)) return;
-    if (lastSpokenIdRef.current === lastMsg.id) return;
-    if (pendingTTSRef.current === lastMsg.id) pendingTTSRef.current = null;
-    voiceReplyMessageIdsRef.current.delete(lastMsg.id);
-
-    lastSpokenIdRef.current = lastMsg.id;
-    setSpeakingMessageId(lastMsg.id);
-
-    const cleanContent = lastMsg.content
-      .replace(/<tool[^>]*>[\s\S]*?<\/tool>/g, "")
-      .replace(/```[\s\S]*?```/g, "code block")
-      .replace(/\{"tool"[\s\S]*?\}/g, "")
-      // Markdown → speakable plain text. Order matters: images/links before
-      // inline code so URLs in brackets don't get partially eaten.
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replace(/`([^`]+)`/g, "$1")
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/__([^_]+)__/g, "$1")
-      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1$2")
-      .replace(/(^|[^_])_([^_\n]+)_/g, "$1$2")
-      .replace(/~~([^~]+)~~/g, "$1")
-      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-      .replace(/^\s{0,3}>\s?/gm, "")
-      .replace(/^\s*[-*+]\s+/gm, "")
-      .replace(/^\s*\d+\.\s+/gm, "")
-      .trim();
-
-    if (cleanContent) {
-      voiceChat.speak(cleanContent).finally(() => {
-        setSpeakingMessageId(null);
-        voiceSession.markAgentRunFinished();
-      });
-    } else {
-      setSpeakingMessageId(null);
-      voiceSession.markAgentRunFinished();
-    }
-  }, [isRunning, messages, prefs.voice.enabled, voiceChat, voiceSession]);
+  useChatAutoTTS({
+    voiceEnabled: prefs.voice.enabled,
+    isRunning,
+    messages,
+    voiceChat,
+    voiceSession,
+    voiceReplyMessageIdsRef,
+    setSpeakingMessageId,
+  });
 
   // ---------------------------------------------------------------------------
   // Keyboard shortcuts (BEHAVIOR.md §5)
-  // Priority: Modal (100) > Floating panel (50) > Composer (20) > Nav (10) > Global (0)
   // ---------------------------------------------------------------------------
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      const inInput = isEditableElement(e.target);
+  useChatKeyboardShortcuts({
+    uploadTrayOpen,
+    setUploadTrayOpen,
+    voiceChat,
+    voicePrefs: prefs.voice,
+    inputValue,
+    setInputValue,
+    setVoiceModeOpen,
+    inputRef,
+    activeThreadId,
+    threads,
+    selectThread,
+    deleteThread,
+    resetFallbackThreadId,
+    setActiveThreadId,
+    setMessages,
+  });
 
-      // --- Priority 100: Escape (modals, overlays) ---
-      if (e.key === "Escape") {
-        if (uploadTrayOpen) { setUploadTrayOpen(false); return; }
-        if (voiceChat.isSpeaking) { voiceChat.stopSpeaking(); return; }
-        if (voiceChat.isListening) { voiceChat.stopListening(); return; }
-        // Composer escape: clear text first, then blur (§5.2)
-        if (inInput && inputRef.current) {
-          if (inputValue.trim()) {
-            setInputValue("");
-          } else {
-            inputRef.current.blur();
-          }
-          return;
-        }
-      }
-
-      // --- Priority 0: Global shortcuts ---
-
-      // Cmd+Shift+V — toggle voice mode
-      if (mod && e.shiftKey && e.key.toLowerCase() === "v") {
-        e.preventDefault();
-        setVoiceModeOpen((prev) => !prev);
-        return;
-      }
-
-      // --- Priority 10: Navigation shortcuts (§5.3) ---
-
-      // Cmd+N — new thread
-      if (mod && e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        resetFallbackThreadId();
-        setActiveThreadId(null);
-        setMessages([]);
-        return;
-      }
-
-      // Cmd+W — close current thread (with native confirm)
-      if (mod && e.key.toLowerCase() === "w") {
-        e.preventDefault();
-        if (activeThreadId) {
-          const thread = threads.find((t) => t.id === activeThreadId);
-          const title = thread?.title || "this thread";
-          if (window.confirm(`Delete "${title}"?`)) {
-            // Simulate a MouseEvent for the handler signature
-            deleteThread(activeThreadId);
-          }
-        }
-        return;
-      }
-
-      // Cmd+[ — previous thread, Cmd+] — next thread
-      if (mod && (e.key === "[" || e.key === "]")) {
-        e.preventDefault();
-        if (threads.length === 0) return;
-        const currentIdx = activeThreadId
-          ? threads.findIndex((t) => t.id === activeThreadId)
-          : -1;
-        let nextIdx: number;
-        if (e.key === "[") {
-          // Previous (older) — move down the list
-          nextIdx = currentIdx < 0 ? 0 : Math.min(currentIdx + 1, threads.length - 1);
-        } else {
-          // Next (newer) — move up the list
-          nextIdx = currentIdx <= 0 ? 0 : currentIdx - 1;
-        }
-        if (nextIdx >= 0 && nextIdx < threads.length) {
-          selectThread(threads[nextIdx].id);
-        }
-        return;
-      }
-
-      // --- Priority 10: Push-to-talk (Space when not in input) ---
-      if (
-        prefs.voice.enabled && prefs.voice.mode === "push-to-talk" &&
-        e.code === "Space" && !e.repeat && !inInput
-      ) {
-        e.preventDefault();
-        if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
-        if (!voiceChat.isListening) voiceChat.startListening();
-        return;
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (
-        prefs.voice.enabled && prefs.voice.mode === "push-to-talk" &&
-        e.code === "Space" && voiceChat.isListening
-      ) {
-        e.preventDefault();
-        voiceChat.stopListening();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, [
-    uploadTrayOpen, voiceChat, prefs.voice, setUploadTrayOpen,
-    inputValue, activeThreadId, threads,
-    selectThread, deleteThread, resetFallbackThreadId, setActiveThreadId, setMessages,
-  ]);
-
-  const onSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    const directSubmit = directSubmitRef.current;
-    directSubmitRef.current = null;
-    const origin: SubmitOrigin = directSubmit?.origin ?? "typed";
-    const isVoiceOrigin = origin === "voice-dictation" || origin === "voice-live";
-    const shouldSpeakReply = origin === "voice-live";
-    const text = (directSubmit?.text ?? inputValue).trim();
-    if (!text && pendingUploads.length === 0) return;
-    if (isRunning || isUploading || messagesLoading) return;
-
-    // Stop any ongoing speech
-    if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
-
-    // Resolve thread ID (create if needed)
-    let threadId = activeThreadId;
-    if (!threadId) {
-      threadId = fallbackThreadId;
-      const newThread: Thread = {
-        id: threadId,
-        title: text.slice(0, 50) + (text.length > 50 ? "..." : ""),
-        lastMessageAt: new Date().toISOString(),
-      };
-      setThreads((prev) => [newThread, ...prev]);
-      setActiveThreadId(threadId, { load: false });
-    }
-
-    // Build message content with upload refs
-    let messageContent = text;
-    const uploadIds = pendingUploads.map((u) => u.id);
-    if (pendingUploads.length > 0) {
-      const uploadRefs = pendingUploads.map((u) => `[Image: ${u.name}] (image_id: ${u.id})`).join("\n");
-      messageContent = uploadRefs + (text ? `\n\n${text}` : "");
-    }
-
-    // Create user message for persistence
-    const userMessageId = crypto.randomUUID();
-    const userMessage: Message = {
-      id: userMessageId,
-      role: "user",
-      content: messageContent,
-      artifacts: pendingUploads.map((u) => ({
-        id: u.id,
-        url: u.url,
-        name: u.name,
-        mimeType: u.mimeType,
-      })),
-    };
-
-    // Update local messages state
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
-
-    // Clear input + uploads
-    setInputValue("");
-    clearUploads();
-
-    // Persist user message to DB (include upload artifacts as metadata)
-    fetch("/api/threads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "message",
-        threadId,
-        id: userMessageId,
-        role: "user",
-        content: messageContent,
-        metadata: pendingUploads.length > 0
-          ? { uploads: pendingUploads.map((u) => ({ id: u.id, url: u.url, name: u.name, mimeType: u.mimeType })) }
-          : undefined,
-      }),
-    }).catch((err) => console.error("[ChatSurface] Failed to save user message:", err));
-
-    // TTS tracking. Live voice streams speech from SSE text deltas below, so
-    // don't also mark the completed assistant message for full-text readback.
-    const assistantId = crypto.randomUUID();
-
-    // Build API messages (using all messages in the conversation).
-    // Drop any with empty/whitespace-only content — earlier voice bugs
-    // could stamp blank user bubbles into the thread, and replaying them
-    // makes the model respond as if every new turn were a no-op.
-    const apiMessages = updatedMessages
-      .filter((m) => m.content && m.content.trim().length > 0)
-      .map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-    // Send via useAgentRun — this POSTs to /api/chat and consumes the SSE stream
-    const clientRunId = crypto.randomUUID();
-    if (isVoiceOrigin) {
-      voiceSession.markAgentRunStarted(clientRunId);
-    }
-    let liveSpeechQueued = false;
-    // Realtime transports own incremental audio. The app-gateway path queues
-    // phrase WAVs via voiceChat.queueSpeech.
-    const streamingReply = shouldSpeakReply ? voiceSession.beginStreamingReply() : null;
-    // Shorter phrases when streaming — we want the first phrase to ship as
-    // soon as a sentence boundary appears. The 180-char max was tuned for the
-    // per-phrase WAV path where round-trip cost dominated.
-    const liveConductor = shouldSpeakReply
-      ? new PhraseConductor({ maxChars: streamingReply ? 80 : 180 })
-      : null;
-    const pushPhrase = (text: string): boolean => {
-      if (streamingReply) {
-        streamingReply.speak(text);
-        return true;
-      }
-      return voiceChat.queueSpeech(text);
-    };
-    const queueLiveSpeech = (delta: string) => {
-      if (!liveConductor) return;
-      for (const candidate of liveConductor.pushTextDelta(delta)) {
-        liveSpeechQueued = pushPhrase(candidate.text) || liveSpeechQueued;
-      }
-    };
-    const flushLiveSpeech = () => {
-      if (!liveConductor) return;
-      for (const candidate of liveConductor.flush()) {
-        liveSpeechQueued = pushPhrase(candidate.text) || liveSpeechQueued;
-      }
-    };
-    // Only the chat-capable local engines round-trip through the per-request
-    // baseURL override in /api/chat. comfyui isn't an LLM and cloud routes
-    // ignore providerId entirely, so this guard is enough.
-    const chatProviderId =
-      prefs.providerId === "ollama" ||
-      prefs.providerId === "vllm" ||
-      prefs.providerId === "llamacpp" ||
-      prefs.providerId === "lm-studio"
-        ? prefs.providerId
-        : undefined;
-    const result = await agentRun.send(messageContent, {
-      messages: apiMessages,
-      threadId,
-      runId: clientRunId,
-      model: selectedModel,
-      providerId: chatProviderId,
-      uploadIds: uploadIds.length > 0 ? uploadIds : undefined,
-      systemPrompt: prefs.systemPrompt,
-      preset: prefs.localModelPreset,
-      voice: isVoiceOrigin
-        ? {
-            turnId: crypto.randomUUID(),
-            runId: clientRunId,
-            routeId: shouldSpeakReply ? dock?.routeId ?? "handsfree-chat" : "dictation",
-            mode: shouldSpeakReply ? dock?.mode ?? "chat" : "dictation",
-            surface: "chat",
-            source: shouldSpeakReply ? "live" : "dictation",
-            modality: "voice",
-          }
-        : undefined,
-      hooks: shouldSpeakReply ? { onTextDelta: queueLiveSpeech } : undefined,
-    });
-
-    // Persist assistant message on completion
-    if (result.ok && result.fullText) {
-      // Persist from the stream-local capture returned by useAgentRun. Reading
-      // reducer state here is stale because this async callback belongs to the
-      // render that started the run.
-      const runArtifacts: Artifact[] = result.artifacts;
-      const toolCallSummaries = summarizeToolSteps(result.toolCalls);
-
-      const assistantMessage: Message = {
-        id: assistantId,
-        role: "assistant",
-        content: result.fullText,
-        artifacts: runArtifacts.length > 0 ? runArtifacts : undefined,
-      };
-
-      // Update messages state with the completed assistant message
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      // Persist with tool call metadata for history reconstruction
-      const metadata = toolCallSummaries.length > 0 ? { toolCalls: toolCallSummaries } : undefined;
-      fetch("/api/threads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "message",
-          threadId: result.threadId,
-          id: assistantId,
-          role: "assistant",
-          content: result.fullText,
-          runId: result.runId,
-          metadata,
-        }),
-      }).catch((err) => console.error("[ChatSurface] Failed to save assistant message:", err));
-
-      // Thread title update is handled reactively via agentState.threadTitle
-      // (see useEffect below) — no setTimeout polling needed (SURFACE.md §6.2)
-      if (isVoiceOrigin && !shouldSpeakReply) {
-        voiceSession.markAgentRunFinished();
-      }
-    } else if (!result.ok && result.fullText) {
-      // Partial content — save what we have with error indicator
-      const assistantMessage: Message = {
-        id: assistantId,
-        role: "assistant",
-        content: result.fullText + "\n\n*[Response interrupted]*",
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      if (isVoiceOrigin && !shouldSpeakReply) {
-        voiceSession.markAgentRunFinished();
-      }
-    } else {
-      voiceReplyMessageIdsRef.current.delete(assistantId);
-      if (isVoiceOrigin && !shouldSpeakReply) {
-        voiceSession.markAgentRunFinished();
-      }
-    }
-
-    if (shouldSpeakReply) {
-      flushLiveSpeech();
-      setSpeakingMessageId(assistantId);
-      if (!liveSpeechQueued) {
-        // No phrases queued (streaming lane wasn't routable AND queueSpeech
-        // refused — or the reply produced no terminator-bound phrases). Fall
-        // back to a single readback. Skip if streamingReply is live, since
-        // the streaming lane is the only valid output then.
-        if (!streamingReply) {
-          const fallbackText = cleanResponseForSpeech(result.fullText, 360);
-          if (fallbackText) {
-            await voiceChat.speak(fallbackText);
-          }
-        }
-      }
-      if (streamingReply) {
-        await streamingReply.finish();
-      } else if (liveSpeechQueued) {
-        await voiceChat.waitForSpeechEnd();
-      }
-      setSpeakingMessageId(null);
-      voiceSession.markAgentRunFinished();
-    }
-
-    // Refocus input
-    queueComposerFocus(100);
-  }, [
-    inputValue, pendingUploads, isRunning, isUploading, messagesLoading, activeThreadId, fallbackThreadId,
-    messages, selectedModel, agentRun, voiceChat, voiceSession,
-    prefs.providerId, prefs.systemPrompt, prefs.localModelPreset, dock?.mode, dock?.routeId,
-    setMessages, setActiveThreadId, setThreads, clearUploads, queueComposerFocus,
-  ]);
-
-  // Wire voice auto-send
-  sendMessageRef.current = (text: string, origin: SubmitOrigin = "typed") => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    directSubmitRef.current = { text: trimmed, origin };
-    setInputValue(trimmed);
-    const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
-    void onSubmit(fakeEvent);
-  };
-
-  const handleStop = useCallback(() => {
-    agentRun.stop();
-  }, [agentRun]);
-
-  // Retry: re-send the last user message (BEHAVIOR.md §7.1)
-  // Uses sendMessageRef which is updated every render with latest onSubmit closure
-  const handleRetry = useCallback(() => {
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUserMsg) return;
-    sendMessageRef.current(lastUserMsg.content);
-  }, [messages]);
-
-  // Edit last message: populate composer with last user message text (§5.2)
-  const handleEditLastMessage = useCallback(() => {
-    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
-    if (!lastUserMsg) return;
-    setInputValue(lastUserMsg.content);
-    queueComposerFocus(0);
-  }, [messages, queueComposerFocus]);
+  // ---------------------------------------------------------------------------
+  // Submit pipeline (send + persistence + live voice reply + retry/edit/stop)
+  // ---------------------------------------------------------------------------
+  const { onSubmit, handleStop, handleRetry, handleEditLastMessage } = useChatSubmitController({
+    inputValue,
+    setInputValue,
+    pendingUploads,
+    clearUploads,
+    isRunning,
+    isUploading,
+    messagesLoading,
+    activeThreadId,
+    fallbackThreadId,
+    setActiveThreadId,
+    setThreads,
+    messages,
+    setMessages,
+    selectedModel,
+    providerId: prefs.providerId,
+    systemPrompt: prefs.systemPrompt,
+    localModelPreset: prefs.localModelPreset,
+    agentRun,
+    voiceSession,
+    voiceChat,
+    dockMode: dock?.mode,
+    dockRouteId: dock?.routeId,
+    directSubmitRef,
+    sendMessageRef,
+    voiceReplyMessageIdsRef,
+    queueComposerFocus,
+    setSpeakingMessageId,
+  });
 
   // Contribute chat-specific commands to the palette while mounted.
   useCommands([
@@ -1147,161 +344,48 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   const artifactCount = segments.filter((segment) => segment.type === "artifact").length;
   const messageCount = messages.length;
 
-  const hiddenFileInput = (
-    <input
-      ref={fileInputRef}
-      type="file"
-      accept="image/*"
-      multiple
-      hidden
-      onChange={(e) => {
-        const files = e.target.files;
-        if (files) {
-          for (const file of files) handleFileUpload(file);
-        }
-        e.target.value = "";
-      }}
-    />
-  );
-
-  const uploadTray = (
-    <UploadTray
-      isOpen={uploadTrayOpen}
-      onClose={() => setUploadTrayOpen(false)}
-      uploads={pendingUploads}
-      onRemove={(id) => setPendingUploads((prev) => prev.filter((u) => u.id !== id))}
-      onAddMore={() => fileInputRef.current?.click()}
-    />
-  );
-
-  const timeline = (
-    <ChatTimeline
-      segments={segments}
+  return (
+    <VoiceSessionProvider session={voiceSession}>
+    <ChatSurfaceLayout
+      chatSurface={chatSurface}
+      showContextRail={showContextRail}
+      chatTitle={chatTitle}
+      selectedModel={selectedModel}
+      toolCount={toolCount}
+      artifactCount={artifactCount}
+      messageCount={messageCount}
+      onDrop={handleDrop}
+      runState={runState}
       isStreaming={isStreaming}
-      onRetry={handleRetry}
-      onSpeak={(text) => {
-        if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
-        void voiceChat.speak(text);
-      }}
-      emptyState={
-        <div className="cs-empty">
-          <p className="cs-empty-primary">
-            What&apos;s on your mind?
-          </p>
-          {prefs.voice.enabled && (
-            <p className="cs-empty-hint">
-              {prefs.voice.mode === "push-to-talk" ? "Hold spacebar to speak" : "Click mic to talk"}
-            </p>
-          )}
-        </div>
-      }
-    />
-  );
-
-  const statusStrip = (
-    <StatusStrip
-      runState={runState}
-      onStop={handleStop}
       elapsedMs={elapsedMs}
-    />
-  );
-
-  const composer = (
-    <ChatComposer
-      runState={runState}
-      surface={chatSurface}
-      inputValue={inputValue}
-      onInputChange={setInputValue}
-      onSubmit={onSubmit}
+      activitySteps={activitySteps}
+      segments={segments}
       onStop={handleStop}
-      model={selectedModel}
+      onRetry={handleRetry}
+      fileInputRef={fileInputRef}
+      onFileUpload={handleFileUpload}
+      uploadTrayOpen={uploadTrayOpen}
+      setUploadTrayOpen={setUploadTrayOpen}
+      pendingUploads={pendingUploads}
+      setPendingUploads={setPendingUploads}
+      inputValue={inputValue}
+      setInputValue={setInputValue}
+      onSubmit={onSubmit}
+      inputRef={inputRef}
       voiceChat={voiceChat}
       voiceEnabled={prefs.voice.enabled}
       voiceMode={prefs.voice.mode}
-      onVoiceModeOpen={() => setVoiceModeOpen(true)}
+      voiceModeOpen={voiceModeOpen}
+      setVoiceModeOpen={setVoiceModeOpen}
       onMicClick={handleMicClick}
       onMicRelease={handleMicRelease}
-      pendingUploads={pendingUploads}
       onAttachClick={handleAttachClick}
       onRemoveUpload={handleRemoveUpload}
       onEditLastMessage={handleEditLastMessage}
-      fileInputRef={fileInputRef}
-      inputRef={inputRef}
+      effectiveThreadId={effectiveThreadId}
+      pendingInterrupt={pendingInterrupt}
+      setPendingInterrupt={setPendingInterrupt}
     />
-  );
-
-  // While voice mode is on, the composer text bar is replaced by an inline
-  // voice strip (orb + status + partial transcript + close). Chat timeline
-  // stays visible and interactive above it.
-  const composerOrVoice = voiceModeOpen ? (
-    <VoiceModeSheet
-      isOpen
-      onClose={() => setVoiceModeOpen(false)}
-      threadId={effectiveThreadId}
-    />
-  ) : composer;
-
-  const chatStack = (
-    <>
-      <SurfaceHeader
-        surface={chatSurface}
-        chatTitle={chatTitle}
-        model={selectedModel}
-        toolCount={toolCount}
-        artifactCount={artifactCount}
-        messageCount={messageCount}
-      />
-      {hiddenFileInput}
-      {uploadTray}
-      {timeline}
-      {statusStrip}
-      {composerOrVoice}
-    </>
-  );
-
-  return (
-    <VoiceSessionProvider session={voiceSession}>
-    <div
-      className={`cs-root cs-root--surface-${chatSurface} ${showContextRail ? "cs-root--context" : ""}`}
-      onDrop={handleDrop}
-      onDragOver={(e) => e.preventDefault()}
-    >
-      {/* Main chat column */}
-      <main aria-label="Chat" className={`cs-main cs-main--${chatSurface}`}>
-        {chatSurface === "radical" ? (
-          <div className="cs-tower-shell">
-            <TowerPanel
-              runState={runState}
-              elapsedMs={elapsedMs}
-              steps={activitySteps}
-              messageCount={messageCount}
-              toolCount={toolCount}
-              artifactCount={artifactCount}
-            />
-            <section className="cs-tower-log" aria-label="Thread log">
-              {chatStack}
-            </section>
-          </div>
-        ) : (
-          chatStack
-        )}
-      </main>
-
-      {showContextRail && <ContextRail />}
-
-      {/* Agent-GO Interrupt Dialog */}
-      <InterruptDialog
-        request={pendingInterrupt}
-        onApprove={() => {
-          console.log("[ChatSurface] Interrupt approved");
-          setPendingInterrupt(null);
-        }}
-        onReject={(reason) => {
-          console.log("[ChatSurface] Interrupt rejected:", reason);
-          setPendingInterrupt(null);
-        }}
-      />
-    </div>
     </VoiceSessionProvider>
   );
 }

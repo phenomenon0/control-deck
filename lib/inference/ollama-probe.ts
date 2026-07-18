@@ -4,11 +4,19 @@
  * Used by /api/local-models/status (rich probe, returns the installed list)
  * and by resolvers that need a yes/no answer on whether to fall through to
  * a local-first default (embedding auto-bind, future modalities).
+ *
+ * The base URL comes from the unified settings chain
+ * (`resolveProviderUrl("ollama")`: settings DB → env override →
+ * localhost default) instead of a module-load env read, so Settings >
+ * Hardware changes apply without a restart.
  */
 
-export const OLLAMA_BASE_URL = (
-  process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434"
-).replace(/\/v1$/, "");
+import { resolveProviderUrl } from "@/lib/hardware/settings";
+
+/** Ollama native API root (no /v1 suffix). */
+export function ollamaBaseUrl(): string {
+  return resolveProviderUrl("ollama");
+}
 
 export interface OllamaProbe {
   reachable: boolean;
@@ -17,7 +25,7 @@ export interface OllamaProbe {
 
 export async function probeOllama(timeoutMs = 2000): Promise<OllamaProbe> {
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+    const res = await fetch(`${ollamaBaseUrl()}/api/tags`, {
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -34,7 +42,7 @@ export async function probeOllama(timeoutMs = 2000): Promise<OllamaProbe> {
 
 export async function probeOllamaReachable(timeoutMs = 1500): Promise<boolean> {
   try {
-    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+    const res = await fetch(`${ollamaBaseUrl()}/api/tags`, {
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });

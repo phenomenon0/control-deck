@@ -7,6 +7,8 @@
  * semantic cache, etc.) without disturbing the sidecar flow.
  */
 
+import { resolveProviderUrl } from "@/lib/hardware/settings";
+
 import type { InferenceProviderConfig } from "../types";
 import type { EmbeddingArgs, EmbeddingResult } from "./types";
 
@@ -16,7 +18,6 @@ const COHERE_BASE = "https://api.cohere.com/v1";
 const JINA_BASE = "https://api.jina.ai/v1";
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const MISTRAL_BASE = "https://api.mistral.ai/v1";
-const OLLAMA_DEFAULT = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 
 export async function invokeEmbedding(
   providerId: string,
@@ -236,7 +237,7 @@ async function invokeOllama(
   config: InferenceProviderConfig,
   args: EmbeddingArgs,
 ): Promise<EmbeddingResult> {
-  const base = config.baseURL ?? OLLAMA_DEFAULT;
+  const base = config.baseURL ?? resolveProviderUrl("ollama");
   const model = args.model ?? config.model ?? "nomic-embed-text";
   const inputs = asArray(args.input);
   const vectors: number[][] = [];

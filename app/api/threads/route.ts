@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
-import { createProviderClient, getProviderConfig, getDefaultModel } from "@/lib/llm";
-import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
+import { resolveModelRoute, createClientForRoute } from "@/lib/engine/resolve";
 import {
   getThreads,
   getThread,
@@ -22,25 +21,17 @@ function coerceMetadata(value: unknown): MessageMetadata | undefined {
 }
 
 /**
- * Generate a concise chat title using the fast slot (falls back to primary)
+ * Generate a concise chat title using the resolved fast route (falls back
+ * to the primary chain inside the resolver).
  */
 async function generateTitle(userMessage: string): Promise<string> {
   try {
-    const slots = getProviderConfig();
-    // Inference-bindings overlay — the user-pinned text provider should
-    // drive title-gen too, otherwise the title-gen will quietly use a
-    // different model than what the user picked for their chat.
-    const textBinding = resolveTextProviderFromBinding();
-    const slot = slots.fast ?? textBinding ?? slots.primary;
-    const client = createProviderClient(slot);
-    // Hardcoded fallback aligned with T1_MAC tier (which ships qwen3:0.6b
-    // for fast jobs like title generation). qwen2.5:1.5b is older and not
-    // installed by the bundle path, so it would 404 silently.
-    const model =
-      slot.model ??
-      textBinding?.model ??
-      getDefaultModel(slots.fast ? "fast" : "primary") ??
-      "qwen3:0.6b";
+    // One router answers "which LLM?" — the user-pinned text binding /
+    // LLM_FAST_* env / settings-DB URLs all flow through here, so title-gen
+    // tracks whatever the chat surface is actually using.
+    const route = await resolveModelRoute({ slot: "text::fast" });
+    const client = createClientForRoute(route);
+    const model = route.model;
 
     const { text } = await generateText({
       model: client(model) as Parameters<typeof generateText>[0]["model"],

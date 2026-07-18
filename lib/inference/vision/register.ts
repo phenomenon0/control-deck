@@ -11,7 +11,7 @@
  *   VISION_PROVIDER  ollama | anthropic | openai | google | openrouter
  *                    (default: ollama — preserves the existing behaviour)
  *   VISION_MODEL     default model id for the bound provider
- *   OLLAMA_BASE_URL  existing — used when provider is ollama
+ *   Ollama base URL  resolved via resolveProviderUrl (settings chain) when provider is ollama
  *   ANTHROPIC_API_KEY / OPENAI_API_KEY / GOOGLE_API_KEY / OPENROUTER_API_KEY
  *                    — reused from the text slot
  */
@@ -37,7 +37,7 @@ const SEEDS: ProviderSeed[] = [
     name: "Ollama",
     description: "Local vision models (llama3.2-vision, llava, bakllava)",
     requiresApiKey: false,
-    defaultBaseURL: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
+    defaultBaseURL: resolveProviderUrl("ollama"),
     defaultModels: ["llama3.2-vision:11b", "llava:13b", "bakllava"],
   },
   {
@@ -119,7 +119,7 @@ export function registerVisionProviders(): void {
         model: process.env.VISION_MODEL ?? (providerEnv === "openai-compat" ? "qwen3.5-9b" : undefined),
         baseURL:
           providerEnv === "ollama"
-            ? process.env.OLLAMA_BASE_URL
+            ? resolveProviderUrl("ollama")
             : providerEnv === "openai-compat"
               ? `${resolveProviderUrl("llamacpp")}/v1`
               : undefined,

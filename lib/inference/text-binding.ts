@@ -1,30 +1,44 @@
 /**
- * Bridge: inference bindings (`text::primary` slot) → legacy ProviderConfig.
+ * Slot-binding storage reads for the model router.
  *
- * The codebase has two parallel "which LLM does this server talk to?" stores:
- *   - `lib/inference/runtime.ts` slot bindings — driven by the Modalities UI
- *     and `/api/inference/bindings`. STT/TTS already consume these.
- *   - `lib/llm/providers.ts#getProviderConfig` — env-var-driven, used by the
- *     chat route and threads title-gen.
+ * The inference control plane (`lib/inference/runtime.ts` slot bindings —
+ * driven by the Modalities UI and `/api/inference/bindings`, persisted to
+ * data/inference-bindings.json) is the "binding" tier of the model router.
  *
- * Until the chat route is refactored to read bindings natively, this helper
- * lets API routes overlay the binding on top of the legacy config so that
- * "bind text::primary to X" actually drives chat output to provider X.
- *
- * Returns null when no binding is set (caller should keep its fallback).
+ * Resolution itself lives in `lib/engine/resolve.ts` (`resolveModelRoute`).
+ * This module keeps only the storage-read API (`readSlotBinding`) plus a
+ * deprecated legacy-shape adapter for callers not yet migrated.
  */
 import { ensureBootstrap, getSlot } from "./bootstrap";
 import { applyPersistedBindings } from "./persistence";
+import type { Modality, SlotBinding } from "./types";
 import { PROVIDERS, type ProviderType, type ProviderConfig } from "@/lib/llm/providers";
 
-export function resolveTextProviderFromBinding(): ProviderConfig | null {
+/**
+ * Read the current binding for a (modality, slot) pair, or null when the
+ * slot is unbound.
+ *
+ * Re-reads persisted bindings from disk on every call so workers that
+ * bootstrapped before the most recent PUT still see the new binding.
+ * applyPersistedBindings() is idempotent (just `bindSlot` per entry)
+ * and runs in microseconds, so the safety overhead is negligible.
+ */
+export function readSlotBinding(modality: Modality, slotName = "primary"): SlotBinding | null {
   ensureBootstrap();
-  // Re-read persisted bindings from disk on every call so workers that
-  // bootstrapped before the most recent PUT still see the new binding.
-  // applyPersistedBindings() is idempotent (just `bindSlot` per entry)
-  // and runs in microseconds, so the safety overhead is negligible.
   applyPersistedBindings();
-  const binding = getSlot("text", "primary");
+  return getSlot(modality, slotName) ?? null;
+}
+
+/**
+ * @deprecated Use `resolveModelRoute({ slot: "text::primary" })` from
+ * `@/lib/engine/resolve` — it subsumes this overlay plus the env/default
+ * fallbacks every caller used to wire up by hand.
+ *
+ * Bridge: inference bindings (`text::primary` slot) → legacy ProviderConfig.
+ * Returns null when no binding is set (caller should keep its fallback).
+ */
+export function resolveTextProviderFromBinding(): ProviderConfig | null {
+  const binding = readSlotBinding("text", "primary");
   if (!binding) return null;
   const providerId = binding.providerId as ProviderType;
   const info = PROVIDERS[providerId];

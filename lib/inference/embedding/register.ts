@@ -15,8 +15,10 @@
  *   COHERE_API_KEY      required for cohere
  *   JINA_API_KEY        required for jina
  *   MISTRAL_API_KEY     required for mistral
- *   OPENAI_API_KEY / GOOGLE_API_KEY / OLLAMA_BASE_URL  reused from other slots
+ *   OPENAI_API_KEY / GOOGLE_API_KEY / the Ollama base URL (via resolveProviderUrl)  reused from other slots
  */
+
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 import { registerProvider, getProvider } from "../registry";
 import { bindSlot } from "../runtime";
@@ -85,7 +87,7 @@ const SEEDS: ProviderSeed[] = [
     name: "Ollama",
     description: "Local embeddings: nomic-embed-text, mxbai-embed-large, snowflake-arctic-embed",
     requiresApiKey: false,
-    defaultBaseURL: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
+    defaultBaseURL: resolveProviderUrl("ollama"),
     defaultModels: ["nomic-embed-text", "mxbai-embed-large", "snowflake-arctic-embed", "all-minilm"],
   },
 ];
@@ -125,7 +127,7 @@ export function registerEmbeddingProviders(): void {
       config: {
         providerId: providerEnv,
         model: process.env.EMBEDDING_MODEL,
-        baseURL: providerEnv === "ollama" ? process.env.OLLAMA_BASE_URL : undefined,
+        baseURL: providerEnv === "ollama" ? resolveProviderUrl("ollama") : undefined,
       },
     });
   }

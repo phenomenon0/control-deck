@@ -47,15 +47,13 @@ import {
   getThread,
   type MessageMetadata,
 } from "@/lib/agui/db";
-import { getDefaultModel, getProviderConfig } from "@/lib/llm";
-import { resolveProviderUrl } from "@/lib/hardware/settings";
-import { resolveTextProviderFromBinding } from "@/lib/inference/text-binding";
-import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 import { getSystemProfile } from "@/lib/system";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
 import { buildToolBridgeUrl, buildMcpToolsUrl } from "@/lib/tools/bridge-url";
 import { AUDIO_MODES, promptForAudioMode, type AudioMode } from "@/lib/audio/audio-modes";
+import { resolveModelRoute } from "@/lib/engine/resolve";
+import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
 // Agent runtime: agent-ts (apps/agent-ts) on :4244. pi-agent-core wrapped
 // in the AG-UI/SSE wire contract. URL resolution lives in
 // `lib/agentgo/launcher.ts` so launch + chat + approve/reject stay aligned.
@@ -177,10 +175,18 @@ interface AgentGOStartRunRequest {
   workspace_root?: string;
   mode?: string;
   max_steps?: number;
+  /**
+   * Pinned wire contract with agent-ts: the fully-resolved model route for
+   * this run. When present, agent-ts uses it verbatim (provider is
+   * informational; base_url + model + api_key drive its LLM client) and
+   * fails with structured errors instead of falling back to its own
+   * presets. Resolved once per request via lib/engine/resolve.
+   */
   llm?: {
-    base_url?: string;
-    model?: string;
-    api_key?: string;
+    provider: string;
+    model: string;
+    base_url: string;
+    api_key: string | null;
   };
   tool_bridge_url?: string;
   mcp_url?: string;
@@ -497,79 +503,32 @@ export async function POST(req: Request) {
     .filter((part): part is string => Boolean(part && part.trim()))
     .join("\n\n");
 
-  // Get provider config for LLM settings
+  // Model routing — one resolver answers "which LLM?" for the whole deck.
+  // Precedence: explicit request pick (composer providerId + DeckPrefs
+  // model) → slot binding (Modalities UI / /api/inference/bindings) →
+  // settings-DB provider URLs → LLM_* env → local Ollama default.
+  // See lib/engine/resolve.ts.
   const systemProfile = getSystemProfile();
-  const providerCfg = getProviderConfig();
-  // Inference-bindings overlay: when the user has explicitly bound
-  // `text::primary` via the Modalities panel (or PUT /api/inference/bindings),
-  // that intent should drive every chat request. Without this overlay the
-  // chat route silently ignores the slot bindings, so "swap LLM provider in
-  // settings" does nothing for the typed surface.
-  const textBinding = resolveTextProviderFromBinding();
-  if (textBinding) {
-    providerCfg.primary = textBinding;
-  }
   const hasImages = hasImageContent(chatMessages);
 
-  const clientSlot = hasImages && providerCfg.vision ? "vision" : "primary";
-  const baseConfig = providerCfg[clientSlot];
+  const route = await resolveModelRoute({
+    requested: model || providerId ? { provider: providerId, model } : null,
+    slot: hasImages ? "vision::primary" : "text::primary",
+  });
+  console.log(
+    `[Chat] route: source=${route.source} provider=${route.provider} model=${route.model} base=${route.baseUrl}`,
+  );
 
-  if (!baseConfig) {
-    return new Response(JSON.stringify({ error: `provider slot "${clientSlot}" is not configured` }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  // Per-request engine override: when the composer's RoutePicker sent a
-  // providerId, route this turn to that engine's resolved base URL. We clone
-  // the slot config first so the global cached ProviderSlots isn't touched —
-  // concurrent requests from other surfaces keep their own routing. Only
-  // applies to the local OpenAI-compatible engines; comfyui doesn't serve text.
-  const activeConfig = providerId
-    ? {
-        ...baseConfig,
-        // resolveProviderUrl strips trailing /v1; all four engines speak
-        // OpenAI-compat on /v1 below the host root.
-        baseURL: `${resolveProviderUrl(providerId)}/v1`,
-      }
-    : baseConfig;
-  if (providerId) {
-    console.log(`[Chat] providerId=${providerId} base_url=${activeConfig.baseURL}`);
-  }
-
-  // Model selection precedence — two storage layers meet here:
-  //   1. `model` from body  ← user pick in DeckPrefs (localStorage, client)
-  //   2. getDefaultModel(slot) ← env LLM_* / runtime override (provider
-  //      config store, server)
-  //   3. systemProfile recommendation ← hardware-probed fallback
-  //   4. hardcoded last-resort string
-  //
-  // The two stores are NOT synced intentionally. DeckPrefs.model is "what
-  // the user clicked in the UI"; getProviderConfig()/getDefaultModel() is
-  // "how this server knows to talk to a provider by default." The user
-  // always wins when set, because composer pill > inherited config.
-  // When prefs.model is empty (first run, or user cleared it), the server
-  // config supplies a sane default so chat still works.
-  //
-  // To change the system-wide default without clicking in the UI, set
-  // LLM_MODEL in env or call /api/backend to write runtimeOverride.
-  // Preset-driven local-first rung: only kicks in when no explicit pin and
-  // no env/runtime override exist. `defaultFor` returns the manifest id for
-  // the active modality at the active preset — matches what the Models pane
-  // recommends and pulls.
+  // The resolver always names a model; the rungs below are the old
+  // preset/systemProfile/hardcoded fallbacks, kept as a defensive net in
+  // case a future route level can legitimately return an empty model.
   const presetLocalModel =
     defaultFor(hasImages ? "vision" : "text", preset).id ?? undefined;
 
   const selectedModel =
-    model ??
-    // Binding's pinned model — fired when the user picked one in Modalities.
-    // Sits above getDefaultModel so a binding always wins over env defaults.
-    textBinding?.model ??
-    getDefaultModel(clientSlot) ??
-    (clientSlot !== "primary" ? getDefaultModel("primary") : undefined) ??
-    presetLocalModel ??
-    systemProfile.recommended.textModel ??
+    route.model ||
+    presetLocalModel ||
+    systemProfile.recommended.textModel ||
     (hasImages ? "llama3.2-vision:11b" : "llama3.2:3b");
 
   const thread = threadId ?? generateId();
@@ -632,9 +591,10 @@ export async function POST(req: Request) {
     mode: "BUILD",
     max_steps: parseInt(process.env.AGENT_MAX_STEPS ?? "25", 10),
     llm: {
-      base_url: activeConfig.baseURL,
+      provider: route.provider,
       model: selectedModel,
-      api_key: activeConfig.apiKey,
+      base_url: route.baseUrl,
+      api_key: route.apiKey ?? null,
     },
     tool_bridge_url: buildToolBridgeUrl(req),
     mcp_url: buildMcpToolsUrl(req),

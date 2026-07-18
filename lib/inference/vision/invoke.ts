@@ -14,8 +14,6 @@ import { acquire, release } from "@/lib/resource/arbiter";
 import type { InferenceProviderConfig } from "../types";
 import type { VisionArgs, VisionImage, VisionResult } from "./types";
 
-const OLLAMA_DEFAULT = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-
 // Conservative default — most vision models (llama3.2-vision:11b, qwen-vl-7b)
 // sit around 8 GB once loaded. Caller can override via args.estimateMb.
 const VISION_DEFAULT_ESTIMATE_MB = 8000;
@@ -47,7 +45,11 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 const ANTHROPIC_BASE = "https://api.anthropic.com/v1";
 const GOOGLE_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-const LLAMA_SWAP_DEFAULT = `${resolveProviderUrl("llamacpp")}/v1`;
+
+/** Local OpenAI-compatible root — resolved per call so Settings > Hardware edits apply without a restart. */
+function llamaSwapDefault(): string {
+  return `${resolveProviderUrl("llamacpp")}/v1`;
+}
 
 export async function invokeVision(
   providerId: string,
@@ -102,7 +104,7 @@ async function invokeOllama(
   config: InferenceProviderConfig,
   args: VisionArgs,
 ): Promise<VisionResult> {
-  const base = config.baseURL ?? OLLAMA_DEFAULT;
+  const base = config.baseURL ?? resolveProviderUrl("ollama");
   const model = args.model ?? config.model ?? "llama3.2-vision:11b";
   const base64 = await ensureBase64(args.image);
   const res = await fetch(`${base}/api/generate`, {
@@ -229,7 +231,7 @@ async function invokeOpenAiCompat(
   config: InferenceProviderConfig,
   args: VisionArgs,
 ): Promise<VisionResult> {
-  const base = config.baseURL ?? LLAMA_SWAP_DEFAULT;
+  const base = config.baseURL ?? llamaSwapDefault();
   const model = args.model ?? config.model ?? "qwen3.5-9b";
   const imageUrl = args.image.url ?? toDataUrl(args.image, await ensureBase64(args.image));
   const headers: Record<string, string> = { "Content-Type": "application/json" };

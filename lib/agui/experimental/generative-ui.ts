@@ -246,12 +246,12 @@ ${request.output ? `\nExpected output schema: ${JSON.stringify(request.output)}`
 
   try {
     // Dynamic import to avoid circular dependencies
-    const { createProviderClient, getProviderConfig, getDefaultModel } = await import("@/lib/llm");
+    const { resolveModelRoute, createClientForRoute } = await import("@/lib/engine/resolve");
     const { generateText } = await import("ai");
-    
-    const config = getProviderConfig().primary;
-    const client = createProviderClient(config);
-    const modelName = model ?? getDefaultModel("primary") ?? "qwen2.5:7b";
+
+    const route = await resolveModelRoute({ requested: model ? { model } : null });
+    const client = createClientForRoute(route);
+    const modelName = route.model;
     
     const result = await generateText({
       model: client(modelName) as Parameters<typeof generateText>[0]["model"],

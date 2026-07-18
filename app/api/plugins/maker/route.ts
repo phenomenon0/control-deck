@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { streamText, generateText } from "ai";
-import { createProviderClient, getProviderConfig, getDefaultModel } from "@/lib/llm/providers";
+import { resolveModelRoute, createClientForRoute } from "@/lib/engine/resolve";
 import { listTools } from "@/lib/plugins/registry";
 import { extractBundleFromText, parseBundle } from "@/lib/plugins/bundle";
 import type { PluginBundle, PluginTemplate } from "@/lib/plugins/types";
@@ -176,10 +176,10 @@ async function handleGenerate(body: { description: string; template?: PluginTemp
     userPrompt += `\n\nAdditional hints:\n${JSON.stringify(hints, null, 2)}`;
   }
   
-  // Get the model
-  const config = getProviderConfig().primary;
-  const client = createProviderClient(config);
-  const modelName = config.model || getDefaultModel("primary") || "llama3.2";
+  // Get the model via the deck's single model router
+  const route = await resolveModelRoute({ slot: "text::primary" });
+  const client = createClientForRoute(route);
+  const modelName = route.model;
   
   // Generate the bundle
   const result = await generateText({
@@ -207,8 +207,8 @@ async function handleGenerate(body: { description: string; template?: PluginTemp
   return NextResponse.json({
     bundle: extracted.bundle,
     warnings: extracted.warnings,
-    provider: config.provider,
-    model: config.model,
+    provider: route.provider,
+    model: route.model,
   });
 }
 
@@ -246,10 +246,10 @@ async function handleRefine(body: { bundle: PluginBundle | string; feedback: str
     );
   }
   
-  // Get the model
-  const config = getProviderConfig().primary;
-  const client = createProviderClient(config);
-  const modelName = config.model || getDefaultModel("primary") || "llama3.2";
+  // Get the model via the deck's single model router
+  const route = await resolveModelRoute({ slot: "text::primary" });
+  const client = createClientForRoute(route);
+  const modelName = route.model;
   
   // Generate refined bundle
   const result = await generateText({
@@ -277,8 +277,8 @@ async function handleRefine(body: { bundle: PluginBundle | string; feedback: str
   return NextResponse.json({
     bundle: extracted.bundle,
     warnings: extracted.warnings,
-    provider: config.provider,
-    model: config.model,
+    provider: route.provider,
+    model: route.model,
   });
 }
 

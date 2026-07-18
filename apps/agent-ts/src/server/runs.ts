@@ -1,16 +1,15 @@
 /**
- * Run manager — owns active runs and their AbortControllers. The actual
- * agent loop wiring (pi-agent-core) lands in Task #8 via `startAgentLoop`.
+ * Run manager — owns active runs and their AbortControllers.
  *
- * For Task #7 the manager just allocates run ids and exposes the cancel hook;
- * the loop runner is injected at construction so we can stub it during the
- * skeleton phase and swap in the real implementation later without touching
- * the HTTP layer.
+ * In-memory only by design: agent-ts holds in-flight state for live runs
+ * (pause/cancel/approve) and persists nothing. The deck (Next) is the one
+ * run ledger — it saves the SSE event stream into deck.db and its boot
+ * reconciliation marks runs orphaned by an agent-ts crash. Nothing here
+ * survives a process restart, and that is the point.
  */
 
 import { randomUUID } from "node:crypto";
 import type { StartRunRequestWire } from "../wire.js";
-import type { RunStore } from "./store.js";
 
 export interface RunHandle {
   runId: string;
@@ -29,10 +28,7 @@ export type LoopRunner = (
 export class RunManager {
   private readonly runs = new Map<string, RunHandle>();
 
-  constructor(
-    private readonly runner: LoopRunner,
-    private readonly store?: RunStore,
-  ) {}
+  constructor(private readonly runner: LoopRunner) {}
 
   start(req: StartRunRequestWire): { runId: string; threadId: string } {
     // Honour caller-allocated run id when present (canonical AG-UI runId
@@ -52,19 +48,6 @@ export class RunManager {
       status: "running",
     };
     this.runs.set(runId, handle);
-
-    if (this.store) {
-      try {
-        this.store.startRun({
-          runId,
-          threadId,
-          model: req.llm?.model,
-          startedAt,
-        });
-      } catch (err) {
-        console.error("[runs] startRun persistence failed:", err);
-      }
-    }
 
     queueMicrotask(() => {
       this.runner(handle, req, controller.signal).finally(() => {

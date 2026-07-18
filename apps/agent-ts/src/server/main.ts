@@ -14,7 +14,6 @@ import { EventBus } from "./event-bus.js";
 import { createHandler } from "./http.js";
 import { makeLoopRunner } from "./loop.js";
 import { RunManager } from "./runs.js";
-import { RunStore, defaultStorePath } from "./store.js";
 
 const PORT = parseInt(process.env.AGENTGO_PORT ?? process.env.AGENT_TS_PORT ?? "4244", 10);
 const HOST = process.env.AGENTGO_HOST ?? process.env.AGENT_TS_HOST ?? "127.0.0.1";
@@ -54,18 +53,12 @@ const LLM_BASE_URL =
 const LLM_MODEL =
   process.env.LLM_MODEL ?? process.env.LLAMACPP_MODEL ?? process.env.OLLAMA_MODEL ?? "";
 
-const STORE_DISABLED = process.env.AGENT_TS_STORE_DISABLED === "1";
-const store = STORE_DISABLED ? undefined : new RunStore(defaultStorePath());
-if (store) {
-  const reaped = store.reapInterruptedRuns();
-  if (reaped > 0) {
-    console.log(`[agent-ts] reaped ${reaped} run(s) interrupted by previous shutdown`);
-  }
-}
-
+// One-ledger canon: agent-ts keeps only in-memory in-flight state. Runs and
+// events are persisted by the deck (Next) from the SSE stream into deck.db;
+// its boot reconciliation owns interrupted runs. There is no local runs.db.
 const broker = new ApprovalBroker();
-const bus = new EventBus(store);
-const runs = new RunManager(makeLoopRunner({ bus, broker }), store);
+const bus = new EventBus();
+const runs = new RunManager(makeLoopRunner({ bus, broker }));
 
 const handler = createHandler({
   broker,
@@ -108,11 +101,6 @@ server.listen(PORT, HOST, () => {
 const shutdown = (sig: string) => {
   console.log(`[agent-ts] ${sig} received, shutting down`);
   server.close(() => {
-    try {
-      store?.close();
-    } catch {
-      /* best effort */
-    }
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 5000).unref();

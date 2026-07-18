@@ -71,10 +71,8 @@
         "@mariozechner/pi-agent-core": "^0.70.2",
         "@mariozechner/pi-ai": "^0.70.2",
         "@sinclair/typebox": "^0.34.0",
-        "better-sqlite3": "12.9.0",
       },
       "devDependencies": {
-        "@types/better-sqlite3": "^7.6.13",
         "@types/node": "^25.0.2",
         "tsx": "^4.21.0",
         "typescript": "^5.9.3",

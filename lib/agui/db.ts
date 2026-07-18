@@ -28,17 +28,45 @@ export function getDb(): Database.Database {
 }
 
 /**
- * Crash recovery: any approval still in `pending` an hour past its row's
+ * Crash recovery, runs once per cold DB connection.
+ *
+ * Runs: any run still in `running` at boot was orphaned — runs are created
+ * and ended only by this process's route handlers (createRun / finishRun /
+ * errorRun), so a fresh process cannot own a legitimately live row. This is
+ * the single-ledger complement to agent-ts holding no durable state: when
+ * agent-ts (or the deck itself) dies mid-run, the row converges to `error`
+ * here instead of haunting the ledger as `running` forever. An existing
+ * text preview is kept; the interrupted note only fills a NULL preview.
+ *
+ * Approvals: any approval still in `pending` an hour past its row's
  * creation must have outlived the gate that was waiting on it. Mark them
  * expired so the deck UI doesn't show ghosts left over from a previous
- * process. Runs once per cold DB connection.
+ * process.
  *
- * The bound is intentionally generous (3600s) — the per-call timeout in
- * `lib/approvals/gate.ts` is shorter, so a row this old definitely lost
- * its waiter. Anything younger is left alone in case a still-running gate
- * is mid-poll on it.
+ * The approval bound is intentionally generous (3600s) — the per-call
+ * timeout in `lib/approvals/gate.ts` is shorter, so a row this old
+ * definitely lost its waiter. Anything younger is left alone in case a
+ * still-running gate is mid-poll on it.
  */
 function reconcileOnBoot(db: Database.Database) {
+  try {
+    const orphaned = db
+      .prepare(
+        `UPDATE runs
+           SET status = 'error',
+               ended_at = ?,
+               preview = COALESCE(preview, ?)
+         WHERE status = 'running'`,
+      )
+      .run(new Date().toISOString(), "interrupted: process restarted mid-run");
+    if (orphaned.changes > 0) {
+      console.log(
+        `[agui-db] boot reconcile: marked ${orphaned.changes} interrupted run(s) as error`,
+      );
+    }
+  } catch (e) {
+    console.warn("[agui-db] boot run reconcile failed:", e);
+  }
   try {
     const cutoff = new Date(Date.now() - 3600 * 1000).toISOString();
     db.prepare(

@@ -21,7 +21,7 @@ import {
 import type { ActivityStep, AgentActivitySegment } from "@/lib/types/agentRun";
 import { formatDuration } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
-import { openCanvas } from "@/lib/canvas";
+import { openCanvas } from "@/lib/workspace";
 
 const TOOL_ICONS: Record<string, { icon: typeof Wrench; label: string }> = {
   generate_image: { icon: Image, label: "Image" },

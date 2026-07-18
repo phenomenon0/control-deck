@@ -21,6 +21,20 @@ export {
   unregisterPane,
   __resetBus,
 } from "./bus";
+export {
+  CANVAS_PANE_ID,
+  canvasBus,
+  openCanvas,
+  openPreviewInCanvas,
+  openArtifactInCanvas,
+  toggleCanvas,
+  closeCanvas,
+} from "./canvas";
+export type {
+  OpenCanvasRequest,
+  OpenPreviewRequest,
+  OpenArtifactRequest,
+} from "./canvas";
 
 /**
  * Expose the bus on globalThis.deckWorkspaceBus so developers +

@@ -19,7 +19,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Artifact } from "./ArtifactRenderer";
 import { STATUS_STYLES, formatDuration, type ToolStatus } from "@/lib/constants/status";
 import { truncate } from "@/lib/utils";
-import { openCanvas } from "@/lib/canvas";
+import { openCanvas } from "@/lib/workspace";
 
 import type { ToolCallData } from "@/lib/types/chat";
 

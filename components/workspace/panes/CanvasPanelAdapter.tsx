@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import CanvasPanel from "@/components/canvas/CanvasPanel";
-import { openArtifactInCanvas, openCanvas, openPreviewInCanvas } from "@/lib/canvas";
+import { openArtifactInCanvas, openCanvas, openPreviewInCanvas } from "@/lib/workspace";
 import { registerPane } from "@/lib/workspace";
 
 interface CanvasParams {
@@ -12,9 +12,9 @@ interface CanvasParams {
 
 /**
  * Dockview adapter for CanvasPanel. Bridges the workspace pane-bus
- * to the existing lib/canvas/bus.ts pub/sub — any pane can push
- * content into the canvas via workspace `call()`, without knowing
- * about the canvas internals.
+ * to the canvas topics on the workspace bus (lib/workspace/canvas.ts)
+ * — any pane can push content into the canvas via workspace `call()`,
+ * without knowing about the canvas internals.
  *
  * Capabilities (wired, not stubbed):
  *   load_code({code, language, title?, filename?, autoRun?})
@@ -23,10 +23,6 @@ interface CanvasParams {
  *       — open an HTML preview in the canvas
  *   load_artifact({id, url, name, mimeType})
  *       — open a server-side artifact (image, audio, model) in the canvas
- *
- * Topics: none yet. Canvas emits its own events through
- * window.dispatchEvent; we could surface them as workspace topics in
- * a follow-up if agents need reactive canvas state.
  */
 export function CanvasPanelAdapter(props: IDockviewPanelProps<CanvasParams>) {
   const instanceId = props.params?.instanceId ?? props.api.id;

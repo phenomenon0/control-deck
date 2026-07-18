@@ -9,7 +9,7 @@ import { useDeckSettings } from "@/components/settings/DeckSettingsProvider";
 import { DEFAULT_SYSTEM_PROMPT } from "@/lib/llm/systemPrompt";
 import { ThreadPromptSheet } from "@/components/chat/ThreadPromptSheet";
 import type { Artifact, ToolCallData } from "@/lib/types/chat";
-import { openArtifactInCanvas } from "@/lib/canvas";
+import { openArtifactInCanvas } from "@/lib/workspace";
 
 function formatModelLabel(model: string): string {
   if (!model) return "model pending";

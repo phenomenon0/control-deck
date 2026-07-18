@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
-import { canvasBus } from "@/lib/canvas/bus";
+import { canvasBus } from "@/lib/workspace";
 
 export type CanvasContentType =
   | "code"

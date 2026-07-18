@@ -219,6 +219,10 @@ const ALLOWLIST: Record<string, string> = {
   // Old voice-core kokoro/moonshine weights dir, superseded by s2s migration;
   // tasks/todo.md reference is an archived plan.
   "models/voice-engines": "superseded voice-core weights dir; archived-plan reference in tasks/todo.md",
+  // Deleted in Phase 3 (one ledger / bus collapse); tasks/first-grade-engine.md
+  // references are the plan threads that called for exactly these deletions.
+  "apps/agent-ts/src/server/store.ts": "deleted Phase 3 (agent-ts runs.db second ledger); historical plan references",
+  "lib/canvas/bus.ts": "deleted Phase 3 (canvas bus folded into workspace bus); historical plan references",
 };
 
 const DOC_PATH_ROOTS = [

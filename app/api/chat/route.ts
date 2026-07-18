@@ -10,453 +10,36 @@
  * error to the user instead of silently switching to a tool-less path.
  *
  * Returns a single SSE event stream; also republishes AG-UI events to local hub.
+ *
+ * This file is the thin orchestrator; the work lives in ./_lib:
+ *   validate.ts    — request-shape checks (fail fast, no side effects)
+ *   prompt.ts      — system-prompt assembly (skills + memory + workflow + voice)
+ *   model-route.ts — "which LLM?" resolution + fallback chain
+ *   agent-run.ts   — agent-ts /runs client + wire-request build
+ *   proxy.ts       — agent-ts event-stream consumption (background loop)
+ *   publish.ts     — agent event → AG-UI mapping, persistence + hub fan-out
+ *   stream.ts      — SSE response plumbing (heartbeat, abort, headers)
  */
 
-import { hub } from "@/lib/agui/hub";
-import { raiseWarning } from "@/lib/agui/warn";
-import {
-  encodeSSE,
-  encodeHeartbeat,
-  sseHeaders,
-  HEARTBEAT_MS,
-} from "@/lib/agui/sse";
-import {
-  createEvent,
-  generateId,
-  type RunStarted,
-  type TextMessageStart,
-  type TextMessageContent,
-  type TextMessageEnd,
-  type RunFinished,
-  type RunError,
-  type LLMResolved,
-  type ToolCallStart,
-  type ToolCallArgs,
-  type ToolCallResult,
-  type InterruptRequested,
-  type InterruptResolved,
-  type ArtifactCreated,
-  type AGUIEvent,
-} from "@/lib/agui/events";
-import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
+import { createEvent, generateId, type RunStarted, type TextMessageStart } from "@/lib/agui/events";
+import { jsonPayload } from "@/lib/agui/payload";
+import { createRun, createThread, finishRun, errorRun } from "@/lib/agui/db";
 import { augmentForModel } from "@/lib/llm/systemPrompt";
-import { renderMemoryForPrompt } from "@/lib/memory/prompt";
-import { renderSkillIndex } from "@/lib/skills/index-block";
-import { renderWorkflowReferenceBlock } from "@/lib/comfy/refs";
-import {
-  createRun,
-  createThread,
-  finishRun,
-  errorRun,
-  updateRunPreview,
-  saveEvent,
-  saveMessage,
-  getThread,
-  type MessageMetadata,
-} from "@/lib/agui/db";
-import { getSystemProfile } from "@/lib/system";
-import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
-import { retryingFetch, AgentGoUnavailableError } from "@/lib/agentgo/client";
+import { type LocalPreset } from "@/lib/inference/local-defaults";
 import { buildToolBridgeUrl, buildMcpToolsUrl } from "@/lib/tools/bridge-url";
-import { AUDIO_MODES, promptForAudioMode, type AudioMode } from "@/lib/audio/audio-modes";
-import { resolveModelRoute } from "@/lib/engine/resolve";
-import { defaultFor, type LocalPreset } from "@/lib/inference/local-defaults";
-// Agent runtime: agent-ts (apps/agent-ts) on :4244. pi-agent-core wrapped
-// in the AG-UI/SSE wire contract. URL resolution lives in
-// `lib/agentgo/launcher.ts` so launch + chat + approve/reject stay aligned.
-import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
-
-interface ChatRequestBody {
-  messages?: Array<{ role: string; content: unknown; metadata?: MessageMetadata }>;
-  model?: string;
-  /**
-   * Which local inference engine the user picked in the chat composer
-   * (Ollama / llama.cpp / vLLM / LM Studio). When set, the request runs
-   * against that engine's resolved base URL for this turn only — no global
-   * runtimeOverride mutation. Cloud / free routes ignore this field.
-   */
-  providerId?: "ollama" | "vllm" | "llamacpp" | "lm-studio";
-  threadId?: string;
-  runId?: string;
-  uploadIds?: string[];
-  /** User-editable system prompt. Augmented per-model in each route. */
-  systemPrompt?: string;
-  /**
-   * Local-first quality preset. Only used as a fallback when `model` is
-   * empty and env/runtime configs have nothing to offer either. Explicit
-   * pins always win.
-   */
-  preset?: LocalPreset;
-  /**
-   * Voice provenance metadata. Present when this turn was originated from
-   * the audio dock / conductor. Lets the run ledger and downstream tool
-   * policy distinguish a typed turn from a spoken one.
-   */
-  voice?: {
-    turnId: string;
-    runId?: string;
-    routeId: string;
-    mode: string;
-    surface: string;
-    source: string;
-    modality: "voice";
-  };
-}
-
-const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality"]);
-const VALID_AUDIO_MODES = new Set<AudioMode>(AUDIO_MODES);
-const VALID_CLIENT_MESSAGE_ROLES = new Set(["user", "assistant"]);
-const RUN_ID_PATTERN = /^[A-Za-z0-9_.\-:]{1,128}$/;
-
-type ClientMessage = { role: "user" | "assistant"; content: string; metadata?: MessageMetadata };
-
-function jsonError(message: string, status = 400): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-function normalizeClientMessages(input: ChatRequestBody["messages"]):
-  | { ok: true; messages: ClientMessage[] }
-  | { ok: false; response: Response } {
-  if (!Array.isArray(input) || input.length === 0) {
-    return {
-      ok: false,
-      response: jsonError("messages array is required and must not be empty"),
-    };
-  }
-
-  const messages: ClientMessage[] = [];
-  for (const [index, msg] of input.entries()) {
-    if (!msg || typeof msg !== "object") {
-      return { ok: false, response: jsonError(`messages[${index}] must be an object`) };
-    }
-    if (!VALID_CLIENT_MESSAGE_ROLES.has(msg.role)) {
-      return {
-        ok: false,
-        response: jsonError(`messages[${index}].role must be "user" or "assistant"`),
-      };
-    }
-    if (typeof msg.content !== "string") {
-      return { ok: false, response: jsonError(`messages[${index}].content must be a string`) };
-    }
-    messages.push({
-      role: msg.role as ClientMessage["role"],
-      content: msg.content,
-      metadata: msg.metadata,
-    });
-  }
-
-  return { ok: true, messages };
-}
-
-function coerceAudioMode(value: string | undefined): AudioMode | null {
-  if (!value) return null;
-  return VALID_AUDIO_MODES.has(value as AudioMode) ? value as AudioMode : null;
-}
-
-interface AgentGOMessage {
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-}
-
-interface AgentGOStartRunRequest {
-  messages: AgentGOMessage[];
-  thread_id: string;
-  /**
-   * Fully-assembled system prompt (memory + skill index + workflow ref +
-   * thread persona + voice mode, augmented per model family). Travels as a
-   * dedicated wire field — agent-ts installs it as the run's real system
-   * prompt (pi-agent-core initialState.systemPrompt). Canon: Next
-   * assembles, agent-ts obeys. Never injected as a role:"system" chat
-   * message; agent-ts (correctly) drops those from history.
-   */
-  system_prompt?: string;
-  /**
-   * Canonical AG-UI run id. agent-ts honours it so all events downstream
-   * of /runs share the same id Next created here. Replaces the legacy
-   * `setAgentRunId` reconciliation step removed in the cd47211 cleanup.
-   */
-  run_id?: string;
-  workspace_root?: string;
-  mode?: string;
-  max_steps?: number;
-  /**
-   * Pinned wire contract with agent-ts: the fully-resolved model route for
-   * this run. When present, agent-ts uses it verbatim (provider is
-   * informational; base_url + model + api_key drive its LLM client) and
-   * fails with structured errors instead of falling back to its own
-   * presets. Resolved once per request via lib/engine/resolve.
-   */
-  llm?: {
-    provider: string;
-    model: string;
-    base_url: string;
-    api_key: string | null;
-  };
-  tool_bridge_url?: string;
-  mcp_url?: string;
-}
-
-interface AgentGOEvent {
-  type: string;
-  threadId?: string;
-  runId?: string;
-  timestamp?: string;
-  messageId?: string;
-  role?: string;
-  delta?: string;
-  toolCallId?: string;
-  toolName?: string;
-  args?: { format: string; data: unknown };
-  result?: { format: string; data: unknown };
-  success?: boolean;
-  durationMs?: number;
-  error?: { message: string };
-  inputTokens?: number;
-  outputTokens?: number;
-  costUsd?: number;
-  // Interrupt events
-  approved?: boolean;
-  reason?: string;
-  data?: {
-    kind?: string;
-    approvalId?: string;
-    toolCallId?: string;
-    toolName?: string;
-    riskLevel?: string;
-    args?: unknown;
-    decision?: string;
-    reason?: string;
-  };
-  // Artifact events
-  artifactId?: string;
-  url?: string;
-  name?: string;
-  mimeType?: string;
-  [key: string]: unknown;
-}
-
-/**
- * Parse SSE data from Agent-GO event stream
- */
-function parseSSE(data: string): AgentGOEvent | null {
-  try {
-    return JSON.parse(data);
-  } catch {
-    console.warn("[Chat] Failed to parse SSE data:", data);
-    return null;
-  }
-}
-
-/**
- * Map Agent-GO event to AG-UI event and publish to local hub
- */
-function mapAndPublishEvent(
-  event: AgentGOEvent,
-  threadId: string,
-  runId: string,
-  messageId: string,
-  state: { sawFirstTextStart: boolean }
-): AGUIEvent | null {
-  let aguiEvent: AGUIEvent | null = null;
-
-  switch (event.type) {
-    case "RunStarted":
-      // Already emitted locally
-      break;
-
-    case "RunFinished":
-      aguiEvent = createEvent<RunFinished>("RunFinished", threadId, {
-        runId,
-        inputTokens: event.inputTokens,
-        outputTokens: event.outputTokens,
-        costUsd: event.costUsd,
-      });
-      break;
-
-    case "LLMResolved":
-      // Model-attribution event — the ledger keeps which provider/model
-      // actually served the run (agent-ts emits it right after RunStarted).
-      aguiEvent = createEvent<LLMResolved>("LLMResolved", threadId, {
-        runId,
-        provider: (event.provider as string) ?? "unknown",
-        modelId: (event.modelId as string) ?? "unknown",
-        label: event.label as string | undefined,
-        local: event.local as boolean | undefined,
-        resolveMs: event.resolveMs as number | undefined,
-      });
-      break;
-
-    case "RunError":
-      aguiEvent = createEvent<RunError>("RunError", threadId, {
-        runId,
-        error: event.error ?? { message: "Unknown error" },
-      });
-      break;
-
-    case "TextMessageStart":
-      // The deck pre-emits a TextMessageStart locally so the UI has a
-      // streaming segment ready before agent-ts connects. agent-ts then
-      // emits its own start for every model turn — drop the first one
-      // (duplicate of our local), but forward subsequent starts so the
-      // UI opens a new streaming segment after each tool-call round.
-      if (!state.sawFirstTextStart) {
-        state.sawFirstTextStart = true;
-        break;
-      }
-      aguiEvent = createEvent<TextMessageStart>("TextMessageStart", threadId, {
-        runId,
-        messageId: event.messageId ?? messageId,
-        role: "assistant",
-      });
-      break;
-
-    case "TextMessageContent":
-      aguiEvent = createEvent<TextMessageContent>("TextMessageContent", threadId, {
-        runId,
-        messageId: event.messageId ?? messageId,
-        delta: event.delta ?? "",
-      });
-      break;
-
-    case "TextMessageEnd":
-      aguiEvent = createEvent<TextMessageEnd>("TextMessageEnd", threadId, {
-        runId,
-        messageId: event.messageId ?? messageId,
-      });
-      break;
-
-    case "ToolCallStart":
-      aguiEvent = createEvent<ToolCallStart>("ToolCallStart", threadId, {
-        runId,
-        toolCallId: event.toolCallId ?? generateId(),
-        toolName: event.toolName ?? "unknown",
-      });
-      break;
-
-    case "ToolCallArgs": {
-      // Preserve payload format if already DeckPayload
-      let argsPayload: DeckPayload | undefined;
-      if (event.args && isDeckPayload(event.args)) {
-        argsPayload = event.args;
-      } else if (event.args?.data !== undefined) {
-        argsPayload = jsonPayload(event.args.data);
-      } else if (event.args !== undefined) {
-        argsPayload = jsonPayload(event.args);
-      }
-      
-      aguiEvent = createEvent<ToolCallArgs>("ToolCallArgs", threadId, {
-        runId,
-        toolCallId: event.toolCallId ?? generateId(),
-        delta: "",
-        args: argsPayload,
-      });
-      break;
-    }
-
-    case "ToolCallResult": {
-      // Preserve GLYPH encoding if executor provided it as DeckPayload
-      let resultPayload: DeckPayload;
-      if (event.result && isDeckPayload(event.result)) {
-        // Already a DeckPayload (GLYPH or JSON), use as-is
-        resultPayload = event.result;
-      } else if (event.result?.data !== undefined) {
-        // Legacy format: { format: string, data: unknown }
-        resultPayload = jsonPayload(event.result.data);
-      } else if (event.result !== undefined) {
-        // Raw value, wrap in JSON payload
-        resultPayload = jsonPayload(event.result);
-      } else {
-        resultPayload = jsonPayload({});
-      }
-      
-      aguiEvent = createEvent<ToolCallResult>("ToolCallResult", threadId, {
-        runId,
-        toolCallId: event.toolCallId ?? generateId(),
-        result: resultPayload,
-        success: event.success,
-        durationMs: event.durationMs,
-      });
-      break;
-    }
-
-    case "InterruptRequested":
-      // Publish interrupt request to hub for UI to handle
-      console.log("[Chat] InterruptRequested:", event.data?.toolName ?? event.toolName, event.data?.args ?? event.args);
-      aguiEvent = createEvent<InterruptRequested>("InterruptRequested", threadId, {
-        runId,
-        toolCallId: event.data?.toolCallId ?? event.toolCallId ?? generateId(),
-        toolName: event.data?.toolName ?? event.toolName ?? "unknown",
-        args: event.data?.args !== undefined
-          ? jsonPayload(event.data.args)
-          : event.args
-            ? jsonPayload(event.args.data ?? event.args)
-            : undefined,
-      });
-      break;
-
-    case "InterruptResolved":
-      console.log("[Chat] InterruptResolved:", event);
-      aguiEvent = createEvent<InterruptResolved>("InterruptResolved", threadId, {
-        runId,
-        toolCallId: event.data?.toolCallId ?? event.toolCallId,
-        approved: event.data?.decision ? event.data.decision === "approved" : event.approved ?? false,
-        reason: event.data?.reason ?? event.reason,
-      });
-      break;
-
-    case "ArtifactCreated": {
-      console.log("[Chat] ArtifactCreated:", event.name, event.mimeType, event.url);
-      const artifactId = event.artifactId ?? generateId();
-      aguiEvent = createEvent<ArtifactCreated>("ArtifactCreated", threadId, {
-        runId,
-        toolCallId: event.toolCallId,
-        artifactId,
-        url: event.url ?? "",
-        name: event.name ?? "artifact",
-        mimeType: event.mimeType ?? "application/octet-stream",
-      });
-      // Artifact rows are inserted upstream (lib/tools/executor.ts via
-      // createArtifact, apps/agent-ts loop.ts via the bridge response)
-      // already keyed to the canonical AG-UI runId. The legacy
-      // relinkArtifactRun() reconciliation is no longer needed.
-      break;
-    }
-
-    default:
-      // Log unknown event types
-      console.log("[Chat] Unknown event type:", event.type);
-  }
-
-  if (aguiEvent) {
-    saveEvent(aguiEvent);
-    hub.publish(threadId, aguiEvent);
-  }
-  return aguiEvent;
-}
-
-/**
- * Check if images are present in messages
- */
-function hasImageContent(messages: Array<{ role: string; content: unknown }>): boolean {
-  for (const msg of messages) {
-    if (Array.isArray(msg.content)) {
-      for (const part of msg.content) {
-        if (part.type === "image_url" || part.type === "image") {
-          return true;
-        }
-      }
-    }
-    if (typeof msg.content === "string") {
-      if (msg.content.includes("[Image:") || msg.content.includes("image_id:")) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
+import {
+  type ChatRequestBody,
+  jsonError,
+  normalizeClientMessages,
+  RUN_ID_PATTERN,
+  VALID_PRESETS,
+} from "./_lib/validate";
+import { assembleSystemPrompt } from "./_lib/prompt";
+import { resolveChatModel } from "./_lib/model-route";
+import { buildAgentMessages, buildStartRunRequest } from "./_lib/agent-run";
+import { proxyAgentRun } from "./_lib/proxy";
+import { persistAndPublish } from "./_lib/publish";
+import { ChatSSEStream, createSSEResponse } from "./_lib/stream";
 
 export async function POST(req: Request) {
   // Parse and validate request body
@@ -473,7 +56,6 @@ export async function POST(req: Request) {
     providerId,
     threadId,
     runId: clientRunId,
-    uploadIds,
     systemPrompt: clientPrompt,
     preset: presetRaw,
     voice,
@@ -488,12 +70,6 @@ export async function POST(req: Request) {
     return jsonError("runId must be 1-128 chars using letters, numbers, _, ., -, or :");
   }
 
-  if (voice) {
-    console.log(
-      `[Chat] voice turn ${voice.turnId} mode=${voice.mode} route=${voice.routeId} source=${voice.source} surface=${voice.surface}`,
-    );
-  }
-
   const preset: LocalPreset =
     presetRaw && VALID_PRESETS.has(presetRaw) ? presetRaw : "balanced";
 
@@ -504,52 +80,19 @@ export async function POST(req: Request) {
   // per-thread overrides impossible.
   if (threadId) createThread(threadId);
 
-  // Thread-scoped override: if the thread has a system_prompt set, use
-  // that instead of whatever the client sent. Lets users keep per-thread
-  // personas ("this thread is for code") without mutating global prefs.
-  const thread0 = threadId ? getThread(threadId) : undefined;
-  const baseSystemPrompt = thread0?.system_prompt ?? clientPrompt ?? "";
-  const voiceMode = voice?.modality === "voice" ? coerceAudioMode(voice.mode) : null;
-  const voicePrompt = voiceMode ? promptForAudioMode(voiceMode) : null;
-  // Memory snapshot is prepended so it lands at the prompt prefix — KV-cache
-  // hits across turns as long as the curated files are stable. Returns ""
-  // when memory is disabled in settings or both files are empty.
-  const memoryBlock = renderMemoryForPrompt();
-  // Skill index = progressive disclosure; the agent calls skill_view for
-  // any id it actually needs. Returns "" when no skills or disabled.
-  const skillIndex = renderSkillIndex();
-  const workflowReferenceBlock = renderWorkflowReferenceBlock(chatMessages);
-  const systemPrompt = [skillIndex, memoryBlock, workflowReferenceBlock, baseSystemPrompt.trim(), voicePrompt]
-    .filter((part): part is string => Boolean(part && part.trim()))
-    .join("\n\n");
-
-  // Model routing — one resolver answers "which LLM?" for the whole deck.
-  // Precedence: explicit request pick (composer providerId + DeckPrefs
-  // model) → slot binding (Modalities UI / /api/inference/bindings) →
-  // settings-DB provider URLs → LLM_* env → local Ollama default.
-  // See lib/engine/resolve.ts.
-  const systemProfile = getSystemProfile();
-  const hasImages = hasImageContent(chatMessages);
-
-  const route = await resolveModelRoute({
-    requested: model || providerId ? { provider: providerId, model } : null,
-    slot: hasImages ? "vision::primary" : "text::primary",
+  const systemPrompt = assembleSystemPrompt({
+    threadId,
+    clientPrompt,
+    voice,
+    messages: chatMessages,
   });
-  console.log(
-    `[Chat] route: source=${route.source} provider=${route.provider} model=${route.model} base=${route.baseUrl}`,
-  );
 
-  // The resolver always names a model; the rungs below are the old
-  // preset/systemProfile/hardcoded fallbacks, kept as a defensive net in
-  // case a future route level can legitimately return an empty model.
-  const presetLocalModel =
-    defaultFor(hasImages ? "vision" : "text", preset).id ?? undefined;
-
-  const selectedModel =
-    route.model ||
-    presetLocalModel ||
-    systemProfile.recommended.textModel ||
-    (hasImages ? "llama3.2-vision:11b" : "llama3.2:3b");
+  const { route, selectedModel } = await resolveChatModel({
+    model,
+    providerId,
+    preset,
+    messages: chatMessages,
+  });
 
   const thread = threadId ?? generateId();
   // Honour a client-supplied runId so the voice surface can target a
@@ -559,8 +102,6 @@ export async function POST(req: Request) {
   const runId = requestedRunId ?? generateId();
   const messageId = generateId();
 
-  console.log(`[Chat] Starting run via agent-ts: thread=${thread}, model=${selectedModel}`);
-
   // Emit local RunStarted (for immediate UI feedback)
   const lastMessage = chatMessages[chatMessages.length - 1]?.content;
   const runStarted = createEvent<RunStarted>("RunStarted", thread, {
@@ -569,8 +110,7 @@ export async function POST(req: Request) {
     input: lastMessage ? jsonPayload(lastMessage) : undefined,
   });
   createRun(runId, thread, selectedModel);
-  saveEvent(runStarted);
-  hub.publish(thread, runStarted);
+  persistAndPublish(runStarted);
 
   // Emit TextMessageStart locally
   const msgStart = createEvent<TextMessageStart>("TextMessageStart", thread, {
@@ -578,21 +118,9 @@ export async function POST(req: Request) {
     messageId,
     role: "assistant",
   });
-  saveEvent(msgStart);
-  hub.publish(thread, msgStart);
+  persistAndPublish(msgStart);
 
-  // Prepare agent-ts request — strip fake patterns from assistant messages
-  // to prevent the LLM from learning to fake tool calls (SURFACE.md §4.3)
-  const agentMessagesRaw: AgentGOMessage[] = chatMessages
-    .map(m => {
-      const rawContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      const content = m.role === "assistant" ? stripForLLMHistory(rawContent) : rawContent;
-      return {
-        role: m.role as AgentGOMessage["role"],
-        content: content || "[Previous response contained only generated content]",
-      };
-    })
-    .filter(m => m.content.trim().length > 0);
+  const agentMessages = buildAgentMessages(chatMessages);
 
   // The assembled system prompt travels as the dedicated `system_prompt`
   // wire field — agent-ts installs it as the run's actual system prompt.
@@ -602,259 +130,38 @@ export async function POST(req: Request) {
   // from history, which used to silently discard this entire prompt.
   const assembledSystemPrompt = augmentForModel(systemPrompt ?? "", selectedModel).trim();
 
-  const agentRequest: AgentGOStartRunRequest = {
-    messages: agentMessagesRaw,
-    thread_id: thread,
-    system_prompt: assembledSystemPrompt || undefined,
-    run_id: runId,
-    workspace_root: process.env.WORKSPACE_ROOT ?? undefined,
-    mode: "BUILD",
-    max_steps: parseInt(process.env.AGENT_MAX_STEPS ?? "25", 10),
-    llm: {
-      provider: route.provider,
-      model: selectedModel,
-      base_url: route.baseUrl,
-      api_key: route.apiKey ?? null,
-    },
-    tool_bridge_url: buildToolBridgeUrl(req),
-    mcp_url: buildMcpToolsUrl(req),
-  };
-
-  // Create SSE streaming response
-  const encoder = new TextEncoder();
-  const stream = new TransformStream();
-  const writer = stream.writable.getWriter();
-
-  let isAborted = false;
-  req.signal?.addEventListener("abort", () => {
-    isAborted = true;
+  const agentRequest = buildStartRunRequest({
+    messages: agentMessages,
+    threadId: thread,
+    runId,
+    assembledSystemPrompt,
+    route,
+    selectedModel,
+    toolBridgeUrl: buildToolBridgeUrl(req),
+    mcpUrl: buildMcpToolsUrl(req),
   });
 
-  /** Write one AG-UI event to the response stream, framed by the keystone. */
-  const safeWriteSSE = async (event: AGUIEvent): Promise<boolean> => {
-    if (isAborted) return false;
-    try {
-      await writer.write(encoder.encode(encodeSSE(event)));
-      return true;
-    } catch (err) {
-      console.error("[Chat] Stream write failed:", err);
-      isAborted = true;
-      return false;
-    }
-  };
+  const stream = new ChatSSEStream(req.signal);
 
-  // Heartbeat keeps the socket alive through long tool calls that emit no
-  // events (proxies cull idle connections). Comment frames — every consumer
-  // (line scanner, EventSource, SSEParser) ignores them.
-  const heartbeat = setInterval(() => {
-    if (isAborted) return;
-    writer.write(encoder.encode(encodeHeartbeat())).catch(() => {
-      /* stream already closing; the finally below clears this interval */
-    });
-  }, HEARTBEAT_MS);
-
-  // Background task to proxy Agent-GO events as SSE
-  (async () => {
-    let agentRunId: string | null = null;
-    let fullText = "";
-    // Track per-stream state used by mapAndPublishEvent — currently
-    // tells us whether to suppress the first TextMessageStart from
-    // agent-ts (the deck pre-emitted one locally) vs forwarding the
-    // ones that begin each model turn after a tool-call round.
-    const eventState = { sawFirstTextStart: false };
-
-    try {
-      // Write initial locally-emitted events to the SSE stream
-      await safeWriteSSE(runStarted);
-      await safeWriteSSE(msgStart);
-
-      // Start run on agent-ts. retryingFetch handles network errors + 5xx
-      // with exponential backoff so a brief runtime hiccup doesn't break
-      // the chat turn; 4xx still fails fast.
-      const startResponse = await retryingFetch(`${AGENTGO_URL}/runs`, {
-        method: "POST",
-        headers: withAgentTsAuth({ "Content-Type": "application/json" }),
-        body: JSON.stringify(agentRequest),
-        signal: req.signal,
-      });
-
-      if (!startResponse.ok) {
-        const errorText = await startResponse.text();
-        throw new Error(`agent-ts returned ${startResponse.status}: ${errorText}`);
-      }
-
-      const startData = await startResponse.json();
-      agentRunId = startData.run_id;
-      console.log(`[Chat] agent-ts run started: ${agentRunId}`);
-      // Canonical-runId invariant: agent-ts must echo back the run_id we
-      // sent in agentRequest. A divergence here means an agent-ts build
-      // ignored req.run_id and allocated its own — the legacy reconcile
-      // path is gone, so this would silently break artifact/run linkage.
-      if (agentRunId && agentRunId !== runId) {
-        raiseWarning({
-          source: "chat.run-id",
-          message: `agent-ts run id divergence: deck=${runId} agent=${agentRunId} — artifact/run linkage may break`,
-          threadId,
-          runId,
-          data: { agentRunId },
-        });
-      }
-
-      // Stream events from agent-ts. Retry the initial connect; mid-stream
-      // reconnect would need server seq coordination, so we accept that a
-      // dropped SSE connection ends the run.
-      const eventsResponse = await retryingFetch(
-        `${AGENTGO_URL}/runs/${agentRunId}/events`,
-        {
-          headers: withAgentTsAuth({ Accept: "text/event-stream" }),
-          signal: req.signal,
-        }
-      );
-
-      if (!eventsResponse.ok) {
-        throw new Error(`agent-ts events returned ${eventsResponse.status}`);
-      }
-
-      const reader = eventsResponse.body?.getReader();
-      if (!reader) {
-        throw new Error("No response body from agent-ts");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let upstreamErrorMessage: string | null = null;
-
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6).trim();
-            if (!data || data === "[DONE]") continue;
-
-            const event = parseSSE(data);
-            if (!event) continue;
-
-            // Track text for run preview
-            if (event.type === "TextMessageContent" && event.delta) {
-              fullText += event.delta;
-            }
-
-            // Map to AGUI event, save to DB, publish to hub (for other consumers)
-            const aguiEvent = mapAndPublishEvent(event, thread, runId, messageId, eventState);
-
-            // Write the AGUI event to the SSE response stream
-            if (aguiEvent) {
-              if (!await safeWriteSSE(aguiEvent)) break outer;
-            }
-
-            // Check for run completion. RunError must NOT fall through to
-            // the post-loop finishRun path — that would overwrite the
-            // error status with 'finished'.
-            if (event.type === "RunFinished") {
-              break outer;
-            }
-            if (event.type === "RunError") {
-              upstreamErrorMessage = event.error?.message ?? "agent error";
-              break outer;
-            }
-          } else if (line.startsWith("event: done")) {
-            // Agent-GO signals completion
-            break outer;
-          }
-        }
-      }
-
-      reader.releaseLock();
-
-      // Update run preview
-      if (fullText) {
-        updateRunPreview(runId, fullText.slice(0, 200));
-      }
-
-      if (upstreamErrorMessage !== null) {
-        // Agent-ts surfaced its own RunError (most commonly "aborted" after
-        // a /cancel). The event itself was already forwarded to the SSE
-        // stream and hub above; here we just persist the run row state.
-        errorRun(runId, upstreamErrorMessage);
-      } else {
-        // Emit and stream TextMessageEnd
-        const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", thread, {
-          runId,
-          messageId,
-        });
-        saveEvent(msgEnd);
-        hub.publish(thread, msgEnd);
-        await safeWriteSSE(msgEnd);
-
-        // Emit and stream RunFinished — include LLM-generated title (SURFACE.md §6.2)
-        const threadRow = getThread(thread);
-        const runFinished = createEvent<RunFinished>("RunFinished", thread, {
-          runId,
-          threadTitle: threadRow?.title || undefined,
-        });
-        finishRun(runId, 0, 0, 0);
-        saveEvent(runFinished);
-        hub.publish(thread, runFinished);
-        await safeWriteSSE(runFinished);
-      }
-
-    } catch (error) {
-      if (isAborted) {
-        console.log("[Chat] Request aborted during agent-ts proxy");
-        // Mark the run row aborted so the SQLite ledger doesn't leave it
-        // as 'running' forever when the user closes the tab or interrupts
-        // before /cancel can round-trip. Idempotent with the cancel route.
-        try {
-          errorRun(runId, "aborted");
-        } catch (dbErr) {
-          console.warn("[Chat] errorRun(aborted) failed:", dbErr);
-        }
-      } else {
-        const unavailable = error instanceof AgentGoUnavailableError;
-        const errMsg = unavailable
-          ? `agent-ts at ${AGENTGO_URL} is unreachable (tried ${error.attempts}×). Start it with ./start-full-stack.sh or set AGENT_TS_URL.`
-          : error instanceof Error
-            ? error.message
-            : "Unknown error";
-        console.error("[Chat] agent-ts proxy error:", error);
-
-        const runError = createEvent<RunError>("RunError", thread, {
-          runId,
-          error: { message: errMsg, code: unavailable ? "AGENT_TS_UNAVAILABLE" : undefined },
-        });
-        errorRun(runId, errMsg);
-        saveEvent(runError);
-        hub.publish(thread, runError);
-        await safeWriteSSE(runError);
-      }
-    } finally {
-      clearInterval(heartbeat);
-      await writer.close().catch((err) => console.warn("[Chat] writer.close failed:", err));
-    }
-  })();
-
-  // Return SSE streaming response
-  return new Response(stream.readable, {
-    headers: {
-      ...sseHeaders(),
-      "X-Thread-Id": thread,
-      "X-Run-Id": runId,
-      "X-Message-Id": messageId,
-      "Access-Control-Expose-Headers": "X-Thread-Id, X-Run-Id, X-Message-Id",
-    },
+  // Background proxy — kicked, not awaited: the Response below is returned
+  // immediately and the loop writes into it until the run terminates.
+  void proxyAgentRun({
+    agentRequest,
+    signal: req.signal,
+    threadId: thread,
+    runId,
+    messageId,
+    prelude: { runStarted, msgStart },
+    stream,
   });
+
+  return createSSEResponse(stream, { threadId: thread, runId, messageId });
 }
 
 /**
  * Direct tool execution endpoint (for manual triggers)
  * PUT /api/chat - Execute a tool directly without LLM
- * 
+ *
  * This remains unchanged - uses local executor
  */
 export async function PUT(req: Request) {

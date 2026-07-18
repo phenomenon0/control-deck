@@ -339,37 +339,28 @@ registerTool(
         required: true,
       } as ConfigField,
     },
-    outputDescription: "Weather data with temp, conditions, humidity, wind",
+    outputDescription: "Current-weather search results for the requested location",
     rateLimit: 20,
   },
   async (input) => {
     const { location } = input as { location: string };
 
     try {
-      // Use the existing weather widget API
-      const response = await fetch(`${DECK_BASE_URL}/api/widgets/weather?location=${encodeURIComponent(location)}`);
-      
+      const response = await fetch(
+        `${DECK_BASE_URL}/api/search?q=${encodeURIComponent(`weather ${location}`)}&max=3`,
+      );
       if (!response.ok) {
-        // Fallback to web search
-        const searchResp = await fetch(`${DECK_BASE_URL}/api/search?q=${encodeURIComponent(`weather ${location}`)}&max=3`);
-        if (!searchResp.ok) {
-          throw new Error("Weather fetch failed");
-        }
-        const searchData = await searchResp.json();
-        return {
-          success: true,
-          data: {
-            location,
-            source: "search",
-            results: searchData.results,
-          },
-        };
+        throw new Error(`Weather search failed: ${response.status}`);
       }
 
       const data = await response.json();
       return {
         success: true,
-        data,
+        data: {
+          location,
+          source: "search",
+          results: data.results ?? [],
+        },
       };
     } catch (error) {
       return {

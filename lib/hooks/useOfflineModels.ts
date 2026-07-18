@@ -16,6 +16,7 @@ export function useOfflineModels(): Result {
   const [bySource, setBySource] = useState<Record<DiskSource, number>>({
     "ollama-manifest": 0,
     gguf: 0,
+    "model-file": 0,
     "huggingface-cache": 0,
     "lm-studio-cache": 0,
   });

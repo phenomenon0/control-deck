@@ -7,6 +7,7 @@
  * Sources scanned (in order):
  *   - `~/.ollama/models/manifests/**` — one JSON per model-version
  *   - GGUF directories (env-configurable; sane defaults below)
+ *   - configured model roots (GGUF, safetensors, ONNX, PyTorch checkpoints)
  *   - HuggingFace Hub cache `~/.cache/huggingface/hub/models--*`
  *   - LM Studio caches `~/.lmstudio/models`, `~/.cache/lm-studio/models`
  *
@@ -20,6 +21,7 @@ import path from "node:path";
 export type DiskSource =
   | "ollama-manifest"
   | "gguf"
+  | "model-file"
   | "huggingface-cache"
   | "lm-studio-cache";
 
@@ -37,6 +39,14 @@ export interface OfflineModel {
 }
 
 const MAX_RESULTS_PER_SOURCE = 200;
+const MODEL_FILE_EXTENSIONS = new Set([
+  ".safetensors",
+  ".onnx",
+  ".bin",
+  ".pt",
+  ".pth",
+  ".ckpt",
+]);
 
 function expand(p: string): string {
   if (!p) return p;
@@ -64,32 +74,51 @@ function safeReadDir(p: string): fs.Dirent[] {
 /* ─── Ollama manifests ─── */
 
 function scanOllamaManifests(): OfflineModel[] {
-  const root = path.join(os.homedir(), ".ollama", "models", "manifests");
-  if (!fs.existsSync(root)) return [];
   const out: OfflineModel[] = [];
-  // Structure: manifests/<registry>/<namespace>/<model>/<tag>
-  walkDepth(root, 4, (abs, stat) => {
-    if (!stat.isFile()) return;
-    if (out.length >= MAX_RESULTS_PER_SOURCE) return;
-    // name = "<model>:<tag>" relative to registry/namespace
-    const rel = path.relative(root, abs);
-    const parts = rel.split(path.sep);
-    if (parts.length < 4) return;
-    const [, , model, tag] = parts; // registry / namespace / model / tag
-    out.push({
-      source: "ollama-manifest",
-      name: `${model}:${tag}`,
-      path: abs,
-      sizeBytes: stat.size,
-      modifiedAt: stat.mtime.toISOString(),
+  const roots = new Set<string>([
+    path.join(os.homedir(), ".ollama", "models", "manifests"),
+  ]);
+  for (const configured of configuredModelRoots()) {
+    for (const candidate of ollamaManifestCandidates(configured)) {
+      if (fs.existsSync(candidate)) roots.add(candidate);
+    }
+  }
+
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    // Structure: manifests/<registry>/<namespace>/<model>/<tag>
+    walkDepth(root, 4, (abs, stat) => {
+      if (!stat.isFile()) return;
+      if (out.length >= MAX_RESULTS_PER_SOURCE) return;
+      // name = "<model>:<tag>" relative to registry/namespace
+      const rel = path.relative(root, abs);
+      const parts = rel.split(path.sep);
+      if (parts.length < 4) return;
+      const [, , model, tag] = parts; // registry / namespace / model / tag
+      out.push({
+        source: "ollama-manifest",
+        name: `${model}:${tag}`,
+        path: abs,
+        sizeBytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+      });
     });
-  });
+  }
   return out;
+}
+
+function ollamaManifestCandidates(root: string): string[] {
+  const expanded = expand(root);
+  if (path.basename(expanded) === "manifests") return [expanded];
+  return [
+    path.join(expanded, "manifests"),
+    path.join(expanded, "models", "manifests"),
+  ];
 }
 
 /* ─── GGUF walk ─── */
 
-function ggufRoots(): string[] {
+function configuredModelRoots(): string[] {
   const envExtra = process.env.DECK_GGUF_DIRS
     ? process.env.DECK_GGUF_DIRS.split(",").map((s) => s.trim()).filter(Boolean)
     : [];
@@ -101,26 +130,56 @@ function ggufRoots(): string[] {
   } catch {
     /* settings unavailable (test env) */
   }
+  return [...new Set([...envExtra, ...settingsExtra].map(expand))];
+}
+
+function builtInGgufRoots(): string[] {
   return [
     path.join(os.homedir(), ".local", "share", "models"),
     path.join(os.homedir(), "Models"),
     path.join(os.homedir(), "llama.cpp", "models"),
     path.join(os.homedir(), "Documents", "INIT", "models"),
-    ...envExtra,
-    ...settingsExtra,
   ].map(expand);
 }
 
 function scanGguf(): OfflineModel[] {
   const out: OfflineModel[] = [];
-  for (const root of ggufRoots()) {
+  for (const root of builtInGgufRoots()) {
     if (!fs.existsSync(root)) continue;
     walkDepth(root, 4, (abs, stat) => {
       if (!stat.isFile()) return;
       if (!abs.toLowerCase().endsWith(".gguf")) return;
+      if (/^ggml-vocab-/i.test(path.basename(abs))) return;
       if (out.length >= MAX_RESULTS_PER_SOURCE) return;
       out.push({
         source: "gguf",
+        name: path.basename(abs),
+        path: abs,
+        sizeBytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+      });
+    });
+  }
+  return out;
+}
+
+function scanConfiguredModelFiles(): OfflineModel[] {
+  const out: OfflineModel[] = [];
+  const sourceCount: Record<"gguf" | "model-file", number> = {
+    gguf: 0,
+    "model-file": 0,
+  };
+  for (const root of configuredModelRoots()) {
+    if (!fs.existsSync(root)) continue;
+    walkDepth(root, 4, (abs, stat) => {
+      if (!stat.isFile()) return;
+      const ext = path.extname(abs).toLowerCase();
+      const source = ext === ".gguf" ? "gguf" : MODEL_FILE_EXTENSIONS.has(ext) ? "model-file" : null;
+      if (!source || sourceCount[source] >= MAX_RESULTS_PER_SOURCE) return;
+      if (source === "gguf" && /^ggml-vocab-/i.test(path.basename(abs))) return;
+      sourceCount[source] += 1;
+      out.push({
+        source,
         name: path.basename(abs),
         path: abs,
         sizeBytes: stat.size,
@@ -222,18 +281,34 @@ export interface OfflineScanResult {
 }
 
 export function scanOffline(): OfflineScanResult {
-  const models = [
+  const discovered = [
     ...scanOllamaManifests(),
     ...scanGguf(),
+    ...scanConfiguredModelFiles(),
     ...scanHuggingFace(),
     ...scanLmStudio(),
   ];
+  // A configured root may overlap one of the built-ins through a symlink.
+  // De-duplicate by canonical path so the library shows one physical asset.
+  const seen = new Set<string>();
+  const models = discovered.filter((model) => {
+    let key = model.path;
+    try {
+      key = fs.realpathSync(model.path);
+    } catch {
+      /* retain original path when the target races away */
+    }
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   // Sort by mtime DESC — newest first is the useful default.
   models.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
 
   const bySource: Record<DiskSource, number> = {
     "ollama-manifest": 0,
     gguf: 0,
+    "model-file": 0,
     "huggingface-cache": 0,
     "lm-studio-cache": 0,
   };

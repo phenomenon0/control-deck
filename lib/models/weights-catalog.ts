@@ -3,7 +3,7 @@
  * source of truth mapping every preset to the files it needs and every
  * file to a verified, non-gated download source.
  *
- * Sources are HuggingFace `resolve/main` URLs (integrity comes free via
+ * Sources are HuggingFace `resolve/<commit>` URLs (immutable revision plus
  * the LFS etag sha256) or direct URLs with a pinned `sha256`. A file with
  * `url: null` has no verified source yet — the installer lists it as
  * "manual" instead of guessing.
@@ -31,7 +31,9 @@ export interface WeightFile {
   notes?: string;
 }
 
-const COMFY_DIR = process.env.COMFY_DIR ?? path.join(os.homedir(), "ai", "ComfyUI");
+function comfyDir(): string {
+  return process.env.COMFY_DIR ?? path.join(os.homedir(), "ai", "ComfyUI");
+}
 
 const KIND_DIR: Record<WeightKind, string> = {
   checkpoint: "checkpoints",
@@ -42,7 +44,7 @@ const KIND_DIR: Record<WeightKind, string> = {
 };
 
 export function weightAbsolutePath(file: WeightFile): string {
-  return path.join(COMFY_DIR, "models", KIND_DIR[file.kind], file.filename);
+  return path.join(comfyDir(), "models", KIND_DIR[file.kind], file.filename);
 }
 
 const GB = 1024 * 1024 * 1024;
@@ -54,42 +56,42 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "sdxl-turbo-ckpt",
     filename: "sd_xl_turbo_1.0_fp16.safetensors",
     kind: "checkpoint",
-    url: "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
+    url: "https://huggingface.co/stabilityai/sdxl-turbo/resolve/71153311d3dbb46851df1931d3ca6e939de83304/sd_xl_turbo_1.0_fp16.safetensors",
     approxBytes: 6938081905,
   },
   {
     key: "sdxl-base-ckpt",
     filename: "sd_xl_base_1.0.safetensors",
     kind: "checkpoint",
-    url: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors",
+    url: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors",
     approxBytes: 6938078334,
   },
   {
     key: "flux-clip-l",
     filename: "FLUX/clip_l.safetensors",
     kind: "text_encoder",
-    url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+    url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/clip_l.safetensors",
     approxBytes: 246144152,
   },
   {
     key: "flux-t5xxl-fp16",
     filename: "FLUX/t5xxl_fp16.safetensors",
     kind: "text_encoder",
-    url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+    url: "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/t5xxl_fp16.safetensors",
     approxBytes: 9787841024,
   },
   {
     key: "flux1-dev-q8-gguf",
     filename: "FLUX/flux1-dev-Q8_0.gguf",
     kind: "unet",
-    url: "https://huggingface.co/city96/FLUX.1-dev-gguf/resolve/main/flux1-dev-Q8_0.gguf",
+    url: "https://huggingface.co/city96/FLUX.1-dev-gguf/resolve/3c60ac659f4b1f2ab3ca8bd4488272069b36a148/flux1-dev-Q8_0.gguf",
     approxBytes: 12708281504,
   },
   {
     key: "flux-vae",
     filename: "FLUX/diffusion_pytorch_model.safetensors",
     kind: "vae",
-    url: "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+    url: "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/22e393d707f2d13e736b1a461c958644258cd9d9/split_files/vae/ae.safetensors",
     approxBytes: 335304388,
     notes: "FLUX.1 AE — BFL's FLUX.1-schnell repo went gated; Comfy-Org's Lumina 2 repackage carries the byte-identical AE",
   },
@@ -97,7 +99,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "flux-nunchaku-int4",
     filename: "NUNCHAKU/svdq-int4_r32-flux.1-dev.safetensors",
     kind: "unet",
-    url: "https://huggingface.co/nunchaku-ai/nunchaku-flux.1-dev/resolve/main/svdq-int4_r32-flux.1-dev.safetensors",
+    url: "https://huggingface.co/nunchaku-ai/nunchaku-flux.1-dev/resolve/1a3d3f78b545e33a0897da2101150292ebbd158a/svdq-int4_r32-flux.1-dev.safetensors",
     approxBytes: 6768309832,
     notes: "Nunchaku SVDQuant int4 (org renamed nunchaku-tech → nunchaku-ai)",
   },
@@ -105,7 +107,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "qwen-edit-unet",
     filename: "qwen-image-edit-2511-Q4_K_M.gguf",
     kind: "unet",
-    url: "https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF/resolve/main/qwen-image-edit-2511-Q4_K_M.gguf",
+    url: "https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF/resolve/0d33d9692b4b26212297240d87b0d4719aa4fd06/qwen-image-edit-2511-Q4_K_M.gguf",
     approxBytes: 13244758624,
     notes: "Qwen-Image-Edit 2511 Q4_K_M (unsloth is the canonical 2511 quant source)",
   },
@@ -113,21 +115,21 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "qwen-edit-clip",
     filename: "qwen_2.5_vl_7b_fp8_scaled.safetensors",
     kind: "text_encoder",
-    url: "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+    url: "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/46839d338df81ce625d5fae27d7e370314c0fbc9/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
     approxBytes: 9384670680,
   },
   {
     key: "qwen-image-vae",
     filename: "qwen_image_vae.safetensors",
     kind: "vae",
-    url: "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+    url: "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/46839d338df81ce625d5fae27d7e370314c0fbc9/split_files/vae/qwen_image_vae.safetensors",
     approxBytes: 253806246,
   },
   {
     key: "flux2-klein-q8-gguf",
     filename: "flux-2-klein-4b-Q8_0.gguf",
     kind: "unet",
-    url: "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q8_0.gguf",
+    url: "https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/resolve/0084d1df98e2e2137fe776d55170bc4792ec1d66/flux-2-klein-4b-Q8_0.gguf",
     approxBytes: 4300644928,
     notes: "FLUX.2 klein 4B Q8_0",
   },
@@ -135,7 +137,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "qwen3-4b-te",
     filename: "qwen_3_4b.safetensors",
     kind: "text_encoder",
-    url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
+    url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/d24c4cf2a0cd98a42f23467e27e3d76ee9438b8e/split_files/text_encoders/qwen_3_4b.safetensors",
     approxBytes: 8044982048,
     notes: "Qwen3-4B text encoder (shared by z-image + flux2-klein workflows)",
   },
@@ -143,7 +145,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "z-image-turbo-unet",
     filename: "z_image_turbo_bf16.safetensors",
     kind: "unet",
-    url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+    url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/d24c4cf2a0cd98a42f23467e27e3d76ee9438b8e/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
     approxBytes: 12309866400,
     notes: "Tongyi Z-Image Turbo bf16",
   },
@@ -151,7 +153,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "flux2-vae",
     filename: "flux2-vae.safetensors",
     kind: "vae",
-    url: "https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors",
+    url: "https://huggingface.co/Comfy-Org/flux2-dev/resolve/03d6521e6f6a47396b3f951cbea50f7e6c2f482e/split_files/vae/flux2-vae.safetensors",
     approxBytes: 336213556,
     notes: "FLUX.2 VAE",
   },
@@ -159,7 +161,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "flux-ae",
     filename: "ae.safetensors",
     kind: "vae",
-    url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors",
+    url: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/d24c4cf2a0cd98a42f23467e27e3d76ee9438b8e/split_files/vae/ae.safetensors",
     approxBytes: 335304388,
     notes: "FLUX AE for z-image (byte-identical to the FLUX/ copy; different dest path)",
   },
@@ -175,14 +177,14 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "ultrasharp-x4",
     filename: "4x-UltraSharp.pth",
     kind: "upscale",
-    url: "https://huggingface.co/Kim2091/UltraSharp/resolve/main/4x-UltraSharp.pth",
+    url: "https://huggingface.co/Kim2091/UltraSharp/resolve/920fe218c211f831b43cb30327f203e2b59f5dab/4x-UltraSharp.pth",
     approxBytes: 66961958,
   },
   {
     key: "stable-audio-ckpt",
     filename: "stable-audio-open-1.0.safetensors",
     kind: "checkpoint",
-    url: "https://huggingface.co/Comfy-Org/stable-audio-open-1.0_repackaged/resolve/main/stable-audio-open-1.0.safetensors",
+    url: "https://huggingface.co/Comfy-Org/stable-audio-open-1.0_repackaged/resolve/a12a5d8f364768d908d417610a9e7f6ab8a6b5ac/stable-audio-open-1.0.safetensors",
     approxBytes: 4853889016,
     notes: "Stable Audio Open 1.0 — stabilityai repo went gated; Comfy-Org repackage bundles the T5",
   },
@@ -206,7 +208,7 @@ export const WEIGHT_FILES: WeightFile[] = [
     key: "hunyuan3d-ckpt",
     filename: "hunyuan_3d_v2.1.safetensors",
     kind: "checkpoint",
-    url: "https://huggingface.co/Comfy-Org/hunyuan3D_2.1_repackaged/resolve/main/hunyuan_3d_v2.1.safetensors",
+    url: "https://huggingface.co/Comfy-Org/hunyuan3D_2.1_repackaged/resolve/a3f4f48376a5463e775f409ea5e775aeb6f51298/hunyuan_3d_v2.1.safetensors",
     approxBytes: 7365943290,
     notes: "Hunyuan3D 2.1 (Comfy-Org repackage)",
   },

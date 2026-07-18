@@ -10,6 +10,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import * as fs from "node:fs/promises";
+import { z } from "zod";
 import {
   PRESET_WEIGHTS,
   WEIGHT_FILES,
@@ -19,6 +20,7 @@ import {
 import { enqueueDownloads, listJobs, cancelJob } from "@/lib/models/downloader";
 import { canFit, estimateVramMb } from "@/lib/hardware/vram";
 import { refreshSnapshot } from "@/lib/resource/ledger";
+import { denyIfCrossOrigin } from "@/lib/security/originGuard";
 
 export const runtime = "nodejs";
 
@@ -28,6 +30,9 @@ export async function GET() {
       const abs = weightAbsolutePath(f);
       const st = await fs.stat(abs).catch(() => null);
       const part = await fs.stat(`${abs}.part`).catch(() => null);
+      const isFile = st?.isFile() ?? false;
+      const expectedBytes = f.url ? (f.approxBytes ?? null) : null;
+      const corrupt = isFile && expectedBytes != null && st!.size !== expectedBytes;
       return {
         key: f.key,
         filename: f.filename,
@@ -35,7 +40,8 @@ export async function GET() {
         approxBytes: f.approxBytes ?? null,
         hasSource: !!f.url,
         notes: f.notes,
-        onDisk: !!st?.isFile(),
+        onDisk: isFile && !corrupt,
+        corrupt,
         bytesOnDisk: st?.size ?? null,
         partialBytes: part?.size ?? null,
       };
@@ -89,22 +95,50 @@ export async function GET() {
   return NextResponse.json({ files, presets, jobs: listJobs(), gpu: { freeMb, totalMb } });
 }
 
+const DownloadRequestSchema = z.object({
+  preset: z.string().trim().min(1).optional(),
+  files: z.array(z.string().trim().min(1)).min(1).max(WEIGHT_FILES.length).optional(),
+}).strict().refine(
+  (value) => Number(value.preset !== undefined) + Number(value.files !== undefined) === 1,
+  { message: "provide exactly one of preset or files" },
+);
+
 export async function POST(req: NextRequest) {
-  let body: { preset?: string; files?: string[] };
+  const denied = denyIfCrossOrigin(req);
+  if (denied) return denied;
+
+  let input: unknown;
   try {
-    body = (await req.json()) as { preset?: string; files?: string[] };
+    input = await req.json();
   } catch {
     return NextResponse.json({ error: "body must be { preset } or { files: [] }" }, { status: 400 });
   }
-  const keys = body.files ?? (body.preset ? PRESET_WEIGHTS[body.preset] : undefined);
-  if (!keys || keys.length === 0) {
-    return NextResponse.json({ error: `unknown preset or empty file list` }, { status: 400 });
+  const parsed = DownloadRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "body must contain exactly one valid preset or bounded file list" }, { status: 400 });
+  }
+
+  const knownKeys = new Set(WEIGHT_FILES.map((file) => file.key));
+  let keys: string[];
+  if (parsed.data.preset !== undefined) {
+    const presetKeys = PRESET_WEIGHTS[parsed.data.preset];
+    if (!presetKeys) {
+      return NextResponse.json({ error: "unknown preset" }, { status: 400 });
+    }
+    keys = presetKeys;
+  } else {
+    keys = Array.from(new Set(parsed.data.files!));
+    if (keys.some((key) => !knownKeys.has(key))) {
+      return NextResponse.json({ error: "file list contains an unknown catalog key" }, { status: 400 });
+    }
   }
   const result = await enqueueDownloads(keys);
   return NextResponse.json(result);
 }
 
 export async function DELETE(req: NextRequest) {
+  const denied = denyIfCrossOrigin(req);
+  if (denied) return denied;
   const id = req.nextUrl.searchParams.get("job");
   if (!id) return NextResponse.json({ error: "?job=<id> required" }, { status: 400 });
   const ok = cancelJob(id);

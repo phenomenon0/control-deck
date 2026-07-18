@@ -4,7 +4,7 @@
  * /v2/models — UNIFIED MODEL MANAGER ("Lanes + budget" hybrid).
  *
  * The deck runs many model TYPES (LLM, vision, image, TTS, STT, embed, rerank,
- * 3D…) across different backends (Ollama, ComfyUI, voice sidecar, cloud) that
+ * 3D…) across different backends (Ollama, ComfyUI, realtime s2s, cloud) that
  * all share one 24 GB VRAM budget. Control is UNEVEN — only Ollama has real
  * load+unload; ComfyUI lazy-loads with free-all only; voice is lazy with no
  * evict. The UI is honest about that: it never shows a control a backend can't
@@ -19,7 +19,7 @@
  *      slices (size_vram from /api/ollama/ps) + a lumped "other" slice
  *      (system total minus Ollama-attributed) + free. The shared constraint.
  *   3. LIBRARY (Lanes | Library toggle) — full inventory across backends
- *      (/api/hardware/providers, voice engines, cloud providers) with group-by,
+ *      (/api/hardware/providers, /api/hardware/offline, realtime voice, cloud providers) with group-by,
  *      size, state and honest per-backend actions (load = Ollama only,
  *      pull = Ollama, assign-to-lane, free-all = ComfyUI).
  *
@@ -30,7 +30,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { STUDIO_ENGINES } from "@/lib/voice/providers";
+import { parseOllamaPullLine } from "@/lib/models/ollama-pull";
 import "./models-v2.css";
 
 const GIB = 1073741824;
@@ -54,6 +54,8 @@ interface HwCaps { load: boolean; unload: boolean; loadReason?: string; unloadRe
 interface HwProvider { id: string; label: string; origin?: string; url?: string; capabilities: HwCaps; health: { online: boolean; url?: string; latencyMs?: number }; installed: HwModel[]; loaded: HwModel[] }
 interface ComfyStatus { comfyui: "online" | "offline"; vram?: { free: number; total: number; used: number; freePercent: number } }
 interface VoiceRt { route?: { stt?: { providerId: string; model: string } | null; tts?: { providerId: string; model: string; engine?: string | null } | null }; transport?: { sidecar?: string }; omni?: { ready?: boolean; generationReady?: boolean } }
+type OfflineSource = "ollama-manifest" | "gguf" | "model-file" | "huggingface-cache" | "lm-studio-cache";
+interface OfflineModel { source: OfflineSource; name: string; path: string; sizeBytes: number; modifiedAt: string }
 
 /* a picker candidate — a (provider, model) the lane can be re-routed to */
 interface Candidate { providerId: string; model: string | null; backend: string; cloud: boolean; sizeBytes?: number }
@@ -93,13 +95,13 @@ interface ServedRow { name: string; providerId: string; model: string }
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "model";
 
 /* ── lanes — the routing spine ───────────────────────────────────────────── */
-interface LaneDef { modality: ModalityId; label: string; sub?: string; icon: string; localBackend?: "comfyui" | "voice-core" }
+interface LaneDef { modality: ModalityId; label: string; sub?: string; icon: string; localBackend?: "comfyui" | "s2s" }
 const LANES: LaneDef[] = [
   { modality: "text", label: "Chat", sub: "text", icon: "chat" },
   { modality: "vision", label: "Vision", icon: "eye" },
   { modality: "image-gen", label: "Image", icon: "image", localBackend: "comfyui" },
-  { modality: "tts", label: "Voice · TTS", icon: "speaker", localBackend: "voice-core" },
-  { modality: "stt", label: "Voice · STT", icon: "mic", localBackend: "voice-core" },
+  { modality: "tts", label: "Voice · TTS", icon: "speaker", localBackend: "s2s" },
+  { modality: "stt", label: "Voice · STT", icon: "mic", localBackend: "s2s" },
   { modality: "embedding", label: "Embed", icon: "vector" },
   { modality: "3d-gen", label: "3D", icon: "cube", localBackend: "comfyui" },
   { modality: "rerank", label: "Rerank", icon: "sort" },
@@ -177,6 +179,7 @@ export default function ModelsV2Page() {
   const [providers, setProviders] = useState<Record<string, ProviderInfo[]>>({});
   const [hw, setHw] = useState<HwProvider[]>([]);
   const [hwError, setHwError] = useState(false);
+  const [offline, setOffline] = useState<OfflineModel[]>([]);
   const [comfy, setComfy] = useState<ComfyStatus | null>(null);
   const [voice, setVoice] = useState<VoiceRt | null>(null);
 
@@ -249,6 +252,13 @@ export default function ModelsV2Page() {
       setHw(d.providers ?? []);   // honest: empty rig renders empty, never fabricated rows
       setHwError(false);
     } catch { setHwError(true); }
+    try {
+      const r = await fetch("/api/hardware/offline", { cache: "no-store" });
+      if (r.ok) {
+        const d = (await r.json()) as { models?: OfflineModel[] };
+        setOffline(d.models ?? []);
+      }
+    } catch { /* retain the last disk inventory */ }
   }, []);
 
   useEffect(() => {
@@ -277,7 +287,6 @@ export default function ModelsV2Page() {
     // known local providers not always in the modality lists
     m.set("openai-compat", m.get("openai-compat") ?? "llama.cpp (OpenAI-compat)");
     m.set("qwen-omni-local", m.get("qwen-omni-local") ?? "Qwen-Omni (local)");
-    m.set("voice-core", m.get("voice-core") ?? "voice-core");
     return m;
   }, [providers]);
 
@@ -394,15 +403,21 @@ export default function ModelsV2Page() {
       const res = await fetch("/api/ollama/tags", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: clean }) });
       if (!res.ok || !res.body) throw new Error(`pull ${res.status}`);
       const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+      const applyLine = (line: string) => {
+        const update = parseOllamaPullLine(line);
+        if (!update) return;
+        if (update.total && update.completed) {
+          setPulling({ name: clean, pct: Math.round((update.completed / update.total) * 100) });
+        }
+      };
       for (;;) {
         const { done, value } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
         const lines = buf.split("\n"); buf = lines.pop() ?? "";
-        for (const ln of lines) {
-          if (!ln.trim()) continue;
-          try { const j = JSON.parse(ln) as { total?: number; completed?: number; error?: string }; if (j.error) throw new Error(j.error); if (j.total && j.completed) setPulling({ name: clean, pct: Math.round((j.completed / j.total) * 100) }); } catch { /* heartbeat / partial */ }
-        }
+        for (const line of lines) applyLine(line);
       }
+      buf += dec.decode();
+      applyLine(buf);
       pushToast("ok", `${clean} pulled`);
       await loadInventory();
     } catch (e) { pushToast("err", `pull failed — ${e instanceof Error ? e.message : "error"}`); }
@@ -432,8 +447,7 @@ export default function ModelsV2Page() {
 
   /* ---- re-route a lane (PUT bindings) ---- */
   const reroute = useCallback(async (modality: ModalityId, cand: Candidate, slotName = "primary") => {
-    const extras = cand.providerId === "voice-core" && cand.model ? { engine: cand.model } : undefined;
-    const body: Binding = { modality, slotName, providerId: cand.providerId, config: { providerId: cand.providerId, ...(cand.model ? { model: cand.model } : {}), ...(extras ? { extras } : {}) } };
+    const body: Binding = { modality, slotName, providerId: cand.providerId, config: { providerId: cand.providerId, ...(cand.model ? { model: cand.model } : {}) } };
     // optimistic
     setBindings((b) => ({ ...b, [`${modality}::${slotName}`]: body }));
     try {
@@ -458,20 +472,9 @@ export default function ModelsV2Page() {
       } else if (p.requiresApiKey) {
         out.push({ providerId: p.id, model: p.defaultModels[0] ?? null, backend: p.name, cloud: true });
       } else {
-        // local provider without a hardware installed-list (openai-compat, qwen-omni-local, voice-core, custom)
+        // local provider without a hardware installed-list (openai-compat, qwen-omni-local, custom)
         if (p.defaultModels.length) { for (const m of p.defaultModels.slice(0, 4)) out.push({ providerId: p.id, model: m, backend: p.name, cloud: false }); }
-        else if (p.id === "voice-core") { /* handled below via voice engines */ }
         // custom/empty → skip
-      }
-    }
-    // voice-core engines for tts/stt
-    if (modality === "tts" || modality === "stt") {
-      for (const e of STUDIO_ENGINES) {
-        if (e.providerId !== "voice-core") continue;
-        if (!e.modalities.includes(modality)) continue;
-        if (!e.implemented) continue;
-        if (out.some((c) => c.providerId === "voice-core" && c.model === e.id)) continue;
-        out.push({ providerId: "voice-core", model: e.id, backend: "voice-core", cloud: false });
       }
     }
     // always include the currently-bound choice
@@ -495,7 +498,7 @@ export default function ModelsV2Page() {
         return { backend: "Ollama", model, state: "cold", action: "warm", ollamaModel: model };
       }
       if (pid === "qwen-omni-local") return { backend: "Qwen-Omni", model, state: omniReady ? "warm" : "cold", action: "none", note: omniReady ? "resident · sidecar-managed" : "installed" };
-      if (pid === "voice-core") return { backend: "voice-core", model, state: voiceReachable ? "lazy" : "offline", action: "none", note: voiceReachable ? "loads on first use · no evict" : "sidecar unreachable" };
+      if (pid === "voice-core") return { backend: "Retired voice-core", model, state: "offline", action: "none", note: "obsolete binding — re-route this lane" };
       if (SERVER_INF.has(pid)) {
         const online = hwById.get(HW_OF_INF[pid] ?? "llamacpp")?.health.online ?? (pid === "openai-compat");
         return { backend: label, model, state: online ? "live" : "cold", action: "none", note: online ? "server process · one model" : "server offline" };
@@ -509,7 +512,11 @@ export default function ModelsV2Page() {
         ? { backend: "ComfyUI", model: "workflow-driven", state: "lazy", action: "freeall", note: "loads on run · free-all only" }
         : { backend: "ComfyUI", model: "—", state: "offline", action: "start", note: "ComfyUI offline" };
     }
-    if (lane.localBackend === "voice-core") return { backend: "voice-core", model: "—", state: "lazy", action: "none", note: "loads on first use" };
+    if (lane.localBackend === "s2s") {
+      return voiceReachable
+        ? { backend: "Realtime S2S", model: "pool-managed", state: "live", action: "none", note: "speech-to-speech pool" }
+        : { backend: "Realtime S2S", model: "—", state: "offline", action: "none", note: "realtime pool unreachable" };
+    }
     return { backend: "—", model: "unassigned", state: "unassigned", action: "none", note: "no route bound" };
   }, [bindings, ps, providerLabel, omniReady, voiceReachable, hwById, comfyOnline]);
 
@@ -622,6 +629,7 @@ export default function ModelsV2Page() {
         ) : (
           <Library
             hw={hw}
+            offline={offline}
             hwError={hwError}
             onRetryInventory={() => void loadInventory()}
             providers={providers}
@@ -932,8 +940,29 @@ function ollamaModality(family?: string, name?: string): ModalityId {
   return "text";
 }
 
-function Library({ hw, hwError, onRetryInventory, providers, ps, comfyOnline, voiceReachable, freeGiB, pending, pulling, onLoad, onUnload, onFree, onPull, onAssign, served, providerUrls, origin, onServe, onUnserve }: {
-  hw: HwProvider[]; hwError: boolean; onRetryInventory: () => void; providers: Record<string, ProviderInfo[]>; ps: PsModel[]; comfyOnline: boolean; voiceReachable: boolean;
+function offlineModality(model: OfflineModel): ModalityId {
+  const hint = `${model.name} ${model.path}`.toLowerCase();
+  if (model.source === "gguf" || model.source === "ollama-manifest") {
+    return ollamaModality(undefined, hint);
+  }
+  if (/whisper|parakeet|moonshine|(^|[/_.-])stt([/_.-]|$)/.test(hint)) return "stt";
+  if (/tts|speech|voice/.test(hint)) return "tts";
+  if (/comfyui|checkpoints|diffusion_models|[/]unet[/]|[/]vae[/]|[/]loras[/]/.test(hint)) {
+    return comfyModality(hint);
+  }
+  return "text";
+}
+
+const OFFLINE_BACKEND: Record<OfflineSource, string> = {
+  "ollama-manifest": "Disk · Ollama",
+  gguf: "Disk · GGUF",
+  "model-file": "Disk · weights",
+  "huggingface-cache": "HF cache",
+  "lm-studio-cache": "LM Studio cache",
+};
+
+function Library({ hw, offline, hwError, onRetryInventory, providers, ps, comfyOnline, voiceReachable, freeGiB, pending, pulling, onLoad, onUnload, onFree, onPull, onAssign, served, providerUrls, origin, onServe, onUnserve }: {
+  hw: HwProvider[]; offline: OfflineModel[]; hwError: boolean; onRetryInventory: () => void; providers: Record<string, ProviderInfo[]>; ps: PsModel[]; comfyOnline: boolean; voiceReachable: boolean;
   freeGiB: number; pending: Record<string, "load" | "unload">; pulling: Pulling | null;
   onLoad: (name: string) => void; onUnload: (name: string) => void; onFree: () => void; onPull: (name: string) => void;
   onAssign: (m: ModalityId, c: Candidate) => void;
@@ -975,14 +1004,35 @@ function Library({ hw, hwError, onRetryInventory, providers, ps, comfyOnline, vo
         });
       }
     }
-    // voice-core engines (local)
-    for (const e of STUDIO_ENGINES) {
-      if (e.providerId !== "voice-core" || !e.implemented) continue;
-      const modality = (e.modalities[0] ?? "tts") as ModalityId;
+    // Filesystem inventory is intentionally separate from provider inventory:
+    // these weights exist on disk but are not necessarily attached to a live
+    // runner. Keep them visible and honest (cold, no fake load action).
+    const providerModelNames = new Set(out.map((item) => item.name.toLowerCase()));
+    for (const model of offline) {
+      if (providerModelNames.has(model.name.toLowerCase())) continue;
+      const modality = offlineModality(model);
       out.push({
-        key: `voice-core/${e.id}`, name: e.id, backendId: "voice-core", backendLabel: "voice-core", modality, modalityLabel: MODALITY_LABEL[modality],
-        cloud: false, caps: { load: false, unload: false, loadReason: "voice sidecar loads on first use" }, state: voiceReachable ? "lazy" : "offline",
-        note: "loads on first use", assignable: true, assign: { modality, providerId: "voice-core", model: e.id, extras: { engine: e.id } },
+        key: `disk/${model.path}`,
+        name: model.name,
+        backendId: `disk-${model.source}`,
+        backendLabel: OFFLINE_BACKEND[model.source],
+        modality,
+        modalityLabel: MODALITY_LABEL[modality],
+        sizeBytes: model.sizeBytes || undefined,
+        cloud: false,
+        caps: { load: false, unload: false, loadReason: "disk-only; attach it to a compatible runner to load" },
+        state: "cold",
+        note: model.path,
+        assignable: false,
+      });
+    }
+    // Realtime s2s is a pool-managed transport, not an assignable inference
+    // binding. Show both lanes without fabricating retired voice-core engines.
+    for (const modality of ["stt", "tts"] as const) {
+      out.push({
+        key: `s2s/${modality}`, name: `s2s-realtime-${modality}`, backendId: "s2s", backendLabel: "Realtime S2S", modality, modalityLabel: MODALITY_LABEL[modality],
+        cloud: false, caps: { load: false, unload: false, loadReason: "managed by the realtime voice pool" }, state: voiceReachable ? "live" : "offline",
+        note: voiceReachable ? "pool-managed" : "realtime pool unreachable", assignable: false,
       });
     }
     // cloud providers (dedupe across modalities)
@@ -1000,7 +1050,7 @@ function Library({ hw, hwError, onRetryInventory, providers, ps, comfyOnline, vo
       }
     }
     return out;
-  }, [hw, providers, ps, comfyOnline, voiceReachable]);
+  }, [hw, offline, providers, ps, comfyOnline, voiceReachable]);
 
   /* base-names already installed locally — used to dedupe search suggestions */
   const installedBase = useMemo(() => {

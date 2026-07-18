@@ -40,6 +40,17 @@ export interface LLMOverrideWire {
   api_key?: string;
 }
 
+/**
+ * Complete LLM config resolved by the deck (Next). All four keys are part of
+ * the pinned contract; `api_key` is null when the endpoint needs no auth.
+ */
+export interface LLMConfigWire {
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key: string | null;
+}
+
 export interface StartRunRequestWire {
   query?: string;
   messages?: ChatMessageWire[];
@@ -65,7 +76,16 @@ export interface StartRunRequestWire {
   workspace_root?: string;
   mode?: AgentMode | string;
   max_steps?: number;
-  llm?: LLMOverrideWire;
+  /**
+   * Fully-resolved LLM config from the deck (Next). Canon: Next resolves,
+   * agent-ts obeys — when present this is used VERBATIM (base_url + model +
+   * api_key straight onto the pi model config); the only local judgement is
+   * an availability probe of `base_url + /models`, and a failure there fails
+   * the run with a structured error instead of silently snapping to another
+   * served model. When absent, the preset/env + snap stack remains as the
+   * standalone-dev fallback (`resolveLLM` in server/llm.ts).
+   */
+  llm?: LLMConfigWire;
   tool_bridge_url?: string;
   /**
    * Absolute URL of the deck's /api/mcp/tools endpoint. When set, the loop

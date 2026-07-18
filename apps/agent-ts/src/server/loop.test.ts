@@ -420,9 +420,9 @@ test("system_prompt round-trip: Agent is constructed with the exact deck prompt"
       messages: [{ role: "user", content: "hi" }],
       system_prompt: sentPrompt,
       workspace_root: workspace,
-      // Unroutable local endpoint: resolveLLM's /models probe fails fast
-      // (ECONNREFUSED) and the stubbed agent never calls the LLM.
-      llm: { base_url: "http://127.0.0.1:1/v1", model: "test-model" },
+      // No `llm` field: the legacy standalone path tolerates an unanswered
+      // /models probe (default endpoint is unroutable in tests), and the
+      // stubbed agent never calls the LLM.
     },
     handle.controller.signal,
   );
@@ -530,4 +530,224 @@ test("wire history: system role messages are not replayed as chat messages", () 
   );
   assert.equal(out.length, 1);
   assert.equal(out[0].role, "user");
+});
+
+/* ------------------------------------------------------------------------ */
+/* Deck-resolved `llm` config: verbatim use + availability check only        */
+/* ------------------------------------------------------------------------ */
+
+interface MockModelsServer {
+  baseUrl: string;
+  hits: number;
+  lastAuth: string | undefined;
+  stop: () => Promise<void>;
+}
+
+/** OpenAI-compatible /models endpoint serving exactly the given ids. */
+async function startMockModels(models: string[]): Promise<MockModelsServer> {
+  const { createServer } = await import("node:http");
+  const state: MockModelsServer = {
+    baseUrl: "",
+    hits: 0,
+    lastAuth: undefined,
+    stop: () => Promise.resolve(),
+  };
+  const server = createServer((req, res) => {
+    if (req.url?.endsWith("/models")) {
+      state.hits += 1;
+      state.lastAuth = req.headers.authorization;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: models.map((id) => ({ id })) }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const addr = server.address();
+  if (!addr || typeof addr === "string") {
+    throw new Error("mock server failed to bind");
+  }
+  state.baseUrl = `http://127.0.0.1:${addr.port}/v1`;
+  state.stop = () =>
+    new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  return state;
+}
+
+function captureRunner(bus: EventBus, broker: ApprovalBroker, captured: AgentOptions[]) {
+  return loop.makeLoopRunner({
+    bus,
+    broker,
+    createAgent: (options: AgentOptions) => {
+      captured.push(options);
+      return {
+        subscribe: () => () => {},
+        continue: () => Promise.resolve(),
+      };
+    },
+  });
+}
+
+test("llm config: deck-resolved config lands verbatim on the pi model (no presets)", async () => {
+  const bus = new EventBus();
+  const broker = new ApprovalBroker();
+  const captured: AgentOptions[] = [];
+  const runner = captureRunner(bus, broker, captured);
+
+  const mock = await startMockModels(["qwen3:8b"]);
+  try {
+    const handle = fakeHandle();
+    const events: AGUIEvent[] = [];
+    bus.subscribe(handle.runId, 0, (ev) => events.push(ev), () => {});
+
+    // "ollama" exists in the legacy preset table with a DIFFERENT default
+    // base_url — if presets were consulted, baseUrl would be rewritten to
+    // localhost:11434. Asserting the custom base proves they weren't.
+    await runner(
+      handle,
+      {
+        messages: [{ role: "user", content: "hi" }],
+        llm: { provider: "ollama", model: "qwen3:8b", base_url: mock.baseUrl, api_key: null },
+      },
+      handle.controller.signal,
+    );
+
+    assert.equal(captured.length, 1, "exactly one Agent should be constructed");
+    const model = captured[0].initialState?.model;
+    assert.equal(model?.id, "qwen3:8b");
+    assert.equal(model?.name, "qwen3:8b");
+    assert.equal(model?.baseUrl, mock.baseUrl, "base_url used verbatim — no preset rewrite");
+    assert.equal(model?.provider, "ollama", "provider label round-trips");
+    assert.equal(model?.api, "openai-completions");
+    // api_key: null + localhost → dummy key so pi-ai's client doesn't throw.
+    assert.equal(captured[0].getApiKey?.("ollama" as never), "local-no-auth");
+    assert.equal(mock.hits, 1, "exactly one availability probe");
+    assert.equal(mock.lastAuth, undefined, "no auth header without an api_key");
+    const resolved = events.find((e) => e.type === "LLMResolved");
+    assert.equal(resolved?.modelId, "qwen3:8b");
+    assert.equal(bus.getStatus(handle.runId), "completed");
+
+    // An explicit api_key flows verbatim into both the probe and the agent.
+    const handle2 = fakeHandle();
+    await runner(
+      handle2,
+      {
+        messages: [{ role: "user", content: "hi" }],
+        llm: { provider: "ollama", model: "qwen3:8b", base_url: mock.baseUrl, api_key: "sk-test" },
+      },
+      handle2.controller.signal,
+    );
+    assert.equal(captured.length, 2);
+    assert.equal(captured[1].getApiKey?.("ollama" as never), "sk-test");
+    assert.equal(mock.lastAuth, "Bearer sk-test", "probe authenticates with the deck key");
+    assert.equal(bus.getStatus(handle2.runId), "completed");
+  } finally {
+    await mock.stop();
+  }
+});
+
+test("llm config: unreachable endpoint fails the run with a structured error (no snap)", async () => {
+  const bus = new EventBus();
+  const broker = new ApprovalBroker();
+  const captured: AgentOptions[] = [];
+  const runner = captureRunner(bus, broker, captured);
+
+  const handle = fakeHandle();
+  const events: AGUIEvent[] = [];
+  bus.subscribe(handle.runId, 0, (ev) => events.push(ev), () => {});
+
+  await runner(
+    handle,
+    {
+      messages: [{ role: "user", content: "hi" }],
+      // Port 1 refuses connections → the availability probe can't reach it.
+      llm: {
+        provider: "ollama",
+        model: "qwen3:8b",
+        base_url: "http://127.0.0.1:1/v1",
+        api_key: null,
+      },
+    },
+    handle.controller.signal,
+  );
+
+  assert.equal(captured.length, 0, "agent must not be constructed when availability fails");
+  assert.equal(bus.getStatus(handle.runId), "failed");
+  const runError = events.find((e) => e.type === "RunError");
+  assert.ok(runError, "RunError must be emitted");
+  const payload = runError.error as {
+    code?: string;
+    model?: string;
+    base_url?: string;
+    served?: string[];
+  };
+  assert.equal(payload.code, "llm_unavailable");
+  assert.equal(payload.model, "qwen3:8b", "error carries the requested id — no snap");
+  assert.equal(payload.base_url, "http://127.0.0.1:1/v1");
+  assert.ok(
+    events.every((e) => e.type !== "LLMResolved"),
+    "no resolution event when the endpoint is down",
+  );
+});
+
+test("llm config: unserved model id fails the run — no silent snap to a served id", async () => {
+  const bus = new EventBus();
+  const broker = new ApprovalBroker();
+  const captured: AgentOptions[] = [];
+  const runner = captureRunner(bus, broker, captured);
+
+  const mock = await startMockModels(["some-other-model"]);
+  try {
+    const handle = fakeHandle();
+    const events: AGUIEvent[] = [];
+    bus.subscribe(handle.runId, 0, (ev) => events.push(ev), () => {});
+
+    await runner(
+      handle,
+      {
+        messages: [{ role: "user", content: "hi" }],
+        llm: { provider: "ollama", model: "qwen3:8b", base_url: mock.baseUrl, api_key: null },
+      },
+      handle.controller.signal,
+    );
+
+    assert.equal(captured.length, 0, "agent must not be constructed when the model isn't served");
+    assert.equal(bus.getStatus(handle.runId), "failed");
+    const runError = events.find((e) => e.type === "RunError");
+    assert.ok(runError, "RunError must be emitted");
+    const payload = runError.error as { code?: string; model?: string; served?: string[] };
+    assert.equal(payload.code, "llm_model_unserved");
+    assert.equal(payload.model, "qwen3:8b", "error reports the requested id, not a snapped one");
+    assert.deepEqual(payload.served, ["some-other-model"]);
+  } finally {
+    await mock.stop();
+  }
+});
+
+test("llm absent: legacy preset/env path still resolves and completes", async () => {
+  const bus = new EventBus();
+  const broker = new ApprovalBroker();
+  const captured: AgentOptions[] = [];
+  const runner = captureRunner(bus, broker, captured);
+
+  // No `llm` field → standalone-dev path. The default endpoint is
+  // unroutable in tests; legacy resolution tolerates an unanswered probe
+  // and runs anyway (that tolerance is exactly what the deck path removed).
+  const handle = fakeHandle();
+  await runner(
+    handle,
+    { messages: [{ role: "user", content: "hi" }] },
+    handle.controller.signal,
+  );
+
+  assert.equal(captured.length, 1, "legacy path still constructs the agent");
+  const model = captured[0].initialState?.model;
+  assert.equal(model?.api, "openai-completions");
+  assert.ok(
+    typeof model?.baseUrl === "string" && model.baseUrl.endsWith("/v1"),
+    "legacy env/default endpoint shape preserved",
+  );
+  assert.equal(bus.getStatus(handle.runId), "completed");
 });

@@ -9,7 +9,7 @@
  */
 
 import type { Model, Provider } from "@mariozechner/pi-ai";
-import type { LLMOverrideWire } from "../wire.js";
+import type { LLMConfigWire, LLMOverrideWire } from "../wire.js";
 
 export interface ResolvedLLM {
   model: Model<"openai-completions">;
@@ -178,6 +178,131 @@ export async function resolveLLM(override: LLMOverrideWire | undefined): Promise
       modelId = served[0];
     }
   }
+
+  const model: Model<"openai-completions"> = {
+    id: modelId,
+    name: modelId,
+    api: "openai-completions",
+    provider,
+    baseUrl,
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 32_000,
+    maxTokens: 4096,
+  };
+
+  return { model, apiKey, baseUrl, modelId };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Deck-resolved configs (`llm` field on the run request)                    */
+/* ------------------------------------------------------------------------ */
+
+export type LLMResolutionErrorCode = "llm_unavailable" | "llm_model_unserved";
+
+/**
+ * Structured failure for the deck-config path. `code` is machine-readable so
+ * the deck can distinguish "endpoint down" from "model not served"; both are
+ * surfaced on the run's RunError event.
+ */
+export class LLMResolutionError extends Error {
+  readonly baseUrl: string;
+  readonly modelId: string;
+  readonly served?: string[];
+
+  constructor(
+    readonly code: LLMResolutionErrorCode,
+    message: string,
+    baseUrl: string,
+    modelId: string,
+    served?: string[],
+  ) {
+    super(message);
+    this.name = "LLMResolutionError";
+    this.baseUrl = baseUrl;
+    this.modelId = modelId;
+    this.served = served;
+  }
+}
+
+type DeckProbe = { kind: "ok"; models: string[] } | { kind: "unreachable"; detail: string };
+
+const DECK_PROBE_TIMEOUT_MS = 1500;
+
+/**
+ * Availability probe for deck-supplied configs. Unlike `fetchServedModels`
+ * this is uncached and distinguishes "endpoint unreachable" from "endpoint
+ * answering" — the deck path fails hard on the former instead of treating it
+ * as an empty catalog.
+ */
+async function probeDeckModels(baseUrl: string, apiKey?: string): Promise<DeckProbe> {
+  const url = `${baseUrl.replace(/\/$/, "")}/models`;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), DECK_PROBE_TIMEOUT_MS);
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+      cache: "no-store",
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) {
+      return { kind: "unreachable", detail: `GET ${url} returned HTTP ${res.status}` };
+    }
+    const data = (await res.json()) as { data?: Array<{ id?: string }> };
+    const ids = (data?.data ?? [])
+      .map((row) => row?.id)
+      .filter((id): id is string => typeof id === "string");
+    return { kind: "ok", models: ids };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { kind: "unreachable", detail: `GET ${url} failed: ${msg}` };
+  }
+}
+
+/**
+ * Resolve a complete, deck-supplied llm config (Next already picked the
+ * endpoint + model). Verbatim means verbatim: no preset lookup, no env
+ * re-derivation, no snap-to-served. The only local judgement is availability
+ * — probe `base_url + /models` and throw `LLMResolutionError` when the
+ * endpoint is unreachable or doesn't serve the requested id.
+ */
+export async function resolveDeckLLM(config: LLMConfigWire): Promise<ResolvedLLM> {
+  const baseUrl = config.base_url.replace(/\/$/, "");
+  const modelId = config.model;
+  let apiKey = config.api_key ?? undefined;
+
+  const probe = await probeDeckModels(baseUrl, apiKey);
+  if (probe.kind === "unreachable") {
+    throw new LLMResolutionError(
+      "llm_unavailable",
+      `deck-supplied llm endpoint is unavailable: ${probe.detail}`,
+      baseUrl,
+      modelId,
+    );
+  }
+  if (!probe.models.includes(modelId)) {
+    throw new LLMResolutionError(
+      "llm_model_unserved",
+      `deck-supplied model '${modelId}' is not served by ${baseUrl} ` +
+        `(served: ${probe.models.join(", ") || "none"})`,
+      baseUrl,
+      modelId,
+      probe.models,
+    );
+  }
+
+  // `provider` is an attribution label only — the API is always
+  // openai-completions. Tolerate its absence (transitional callers that
+  // predate the pinned contract) with the generic label.
+  const provider = (config.provider as string | undefined) || "openai";
+
+  // Local LLM endpoints don't need a key, but pi-ai's openai-completions
+  // client throws when it's empty — same dummy-key mechanics as the legacy
+  // path. Deliberately NO env key lookup: the deck's config is the whole
+  // truth here.
+  const isLocalHost = /^https?:\/\/(localhost|127\.0\.0\.1|\[?::1\]?)(:\d+)?\b/i.test(baseUrl);
+  if (!apiKey && isLocalHost) apiKey = "local-no-auth";
 
   const model: Model<"openai-completions"> = {
     id: modelId,

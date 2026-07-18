@@ -165,6 +165,34 @@ async function handleStartRun(deps: HttpDeps, req: IncomingMessage, res: ServerR
     writeJson(res, 400, { error: "either 'query' or 'messages' is required" });
     return;
   }
+  // `llm` is the deck-resolved complete config: Next resolves, agent-ts
+  // obeys. Shape-check it here so a malformed config fails fast with a 400
+  // instead of dying mid-run. base_url + model are the load-bearing fields;
+  // provider/api_key tolerate absence (provider defaults to a generic label,
+  // api_key defaults to none).
+  if (body.llm !== undefined) {
+    const raw = body.llm as unknown;
+    const llm =
+      raw !== null && typeof raw === "object" ? (raw as Record<string, unknown>) : undefined;
+    const provider = llm?.provider;
+    const apiKey = llm?.api_key;
+    const valid =
+      !!llm &&
+      typeof llm.base_url === "string" &&
+      llm.base_url.trim().length > 0 &&
+      typeof llm.model === "string" &&
+      llm.model.trim().length > 0 &&
+      (provider === undefined || (typeof provider === "string" && provider.trim().length > 0)) &&
+      (apiKey === undefined || apiKey === null || typeof apiKey === "string");
+    if (!valid) {
+      writeJson(res, 400, {
+        error:
+          "'llm' must be an object with non-empty 'base_url' and 'model' strings " +
+          "('provider' string, 'api_key' string|null)",
+      });
+      return;
+    }
+  }
   const { runId } = deps.runs.start(body);
   const resp: StartRunResponseWire = { run_id: runId };
   writeJson(res, 201, resp);

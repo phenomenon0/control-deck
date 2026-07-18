@@ -16,7 +16,7 @@ import type { EventBus } from "./event-bus.js";
 import type { LoopRunner, RunHandle } from "./runs.js";
 import type { AGUIEvent, AGUIEventType, ChatMessageWire } from "../wire.js";
 import { nowRFC3339 } from "../wire.js";
-import { resolveLLM } from "./llm.js";
+import { LLMResolutionError, resolveDeckLLM, resolveLLM, type ResolvedLLM } from "./llm.js";
 import { WorkspaceJail } from "../tools/jail.js";
 import { nativeTools } from "../tools/native.js";
 import { bridgeTools, derivePreflightUrl } from "../tools/bridge.js";
@@ -114,7 +114,32 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
     };
 
     const resolveStartedAt = Date.now();
-    const llm = await resolveLLM(req.llm);
+    let llm: ResolvedLLM;
+    try {
+      // Canon: Next resolves, agent-ts obeys. A deck-supplied `llm` is a
+      // complete config — used verbatim with only an availability check, no
+      // preset lookup, no env re-derivation, no snap-to-served. When absent,
+      // the preset/env + snap stack remains as the standalone-dev fallback.
+      llm = req.llm ? await resolveDeckLLM(req.llm) : await resolveLLM(undefined);
+    } catch (err) {
+      // Resolution failed before the agent was constructed — fail the run
+      // with a structured error instead of snapping to another model.
+      const error: Record<string, unknown> = {
+        message: err instanceof Error ? err.message : String(err),
+      };
+      if (err instanceof LLMResolutionError) {
+        error.code = err.code;
+        error.base_url = err.baseUrl;
+        error.model = err.modelId;
+        if (err.served) error.served = err.served;
+      } else {
+        error.code = "llm_resolution_failed";
+      }
+      emit("RunError", { error });
+      deps.bus.setStatus(handle.runId, "failed");
+      deps.bus.close(handle.runId);
+      return;
+    }
     const resolveMs = Date.now() - resolveStartedAt;
 
     emit("RunStarted", {

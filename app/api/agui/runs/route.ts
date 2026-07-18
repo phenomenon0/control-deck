@@ -1,6 +1,7 @@
 import { getRuns, getEvents, getArtifacts, getTotalCost, clearRuns } from "@/lib/agui/db";
 import {
   costOverTime,
+  engineLatency,
   errorRateOverTime,
   latencyByTool,
   toolUsage,
@@ -29,6 +30,12 @@ export async function GET(req: Request) {
         return NextResponse.json({ window: windowParam, series: toolUsage(windowParam) });
       case "errors":
         return NextResponse.json({ window: windowParam, series: errorRateOverTime(windowParam) });
+      case "engine": {
+        // Engine latency gates (TTFT / tool round-trip / resolveMs) over the
+        // last N runs — a count window, not the time `window` param above.
+        const limit = parseInt(url.searchParams.get("limit") ?? "200", 10);
+        return NextResponse.json(engineLatency(limit));
+      }
       default:
         return NextResponse.json({ error: `unknown aggregate: ${aggregate}` }, { status: 400 });
     }

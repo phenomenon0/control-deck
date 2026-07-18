@@ -11,6 +11,10 @@
  *   · /api/inference/system-profile — rig capacities (CPU model/cores, RAM total,
  *                                    disk free/total, backend, mode) + installed
  *                                    Ollama models.
+ *   · /api/agui/runs?aggregate=engine — engine latency gates (TTFT, tool
+ *                                    round-trip, model resolve) from the run
+ *                                    ledger, polled every 10s by
+ *                                    EngineLatencyCard.
  *
  * Honest gaps: neither endpoint samples GPU power draw, live CPU load %, or live
  * RAM-used, so those render as an explicit "not sampled" state rather than faked
@@ -21,6 +25,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ResourcePane } from "@/components/panes/ResourcePane";
+import { EngineLatencyCard } from "./EngineLatencyCard";
 import "./hardware-v2.css";
 
 /* ── types (mirror the two endpoint payloads) ─────────────────────────────── */
@@ -527,6 +532,10 @@ export default function HardwarePage() {
             </div>
           </div>
         </section>
+
+        {/* C4: engine latency gates — TTFT / tool round-trip / model resolve
+            from the run ledger. EngineLatencyCard self-polls 10s. */}
+        <EngineLatencyCard />
 
         {/* C5: VRAM arbiter — reservations, eviction log, per-process VRAM.
             ResourcePane self-feeds from /api/resource/ledger + /api/resource/events. */}

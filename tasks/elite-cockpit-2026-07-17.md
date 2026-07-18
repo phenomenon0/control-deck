@@ -214,3 +214,32 @@ Follow-ups for the record:
 - providers.ts shim importers remaining on the legacy sync API: `app/api/backend/route.ts`, `app/api/newsroom/rewrite/route.ts`, `app/api/tools/glyph-eval/route.ts`, `lib/inference/catalog.ts`, `lib/inference/text/register.ts`, `lib/llm/index.ts` — migrate to `lib/engine` in a later pass, then drop the shim.
 - Resolver judgment calls (documented in commit c681d10): settings-chain URL everywhere incl. default; binding > env uniformly (title-gen used to invert); ultimate fallback model qwen3:0.6b; legacy runtimeOverride sits in the binding tier.
 - Next: Phase 3 — one ledger, one wire (agent-ts drops runs.db; one AGUI codec; one SSE framer/parser; merge thread stores; one client run controller; split db.ts last).
+
+## Execution log 3 — Phase 3 (one ledger, one wire), 2026-07-18
+
+Five parallel agents + parent integration + db-split agent. Gate green at HEAD
+(`37e5537`), 1001 bun tests + 44 agent-ts tests.
+
+| Commit | Thread | What landed |
+|---|---|---|
+| `178e634` | **T7 wire** | `lib/agui/sse.ts` — the one SSE framer+codec (parent-pinned); agui/stream rewritten (+round-trip test), chat SSE proxy, workspace/commands, resource/events, code/stream, onboarding/run migrated; non-AG-UI SSE users documented; LLMResolved now mapped into the ledger |
+| `f81a03d` | **T7 codec + T3 cancel** | all 3 client decoders collapse onto SSEParser; `useRunController` — one runId/active/cancel owner for chat+voice, exactly one cancel POST per run; useThreadStream/useRunsData off EventSource. 16 new tests |
+| `e922dad` | **T3 FIXED** | agent-ts `runs.db` + store.ts deleted — in-memory only, no replay across restart by design; deck `reconcileOnBoot` fails dead-process runs; AGUI conformance test proves every emitted event satisfies the deck union. 44/44 |
+| `9d163e6` | **T16 FIXED** | SQLite is the one thread store; localStorage mirror purged on mount; `/api/threads` survives (+rename), `/api/agui/threads` deleted; renames now persist. 13 route tests |
+| `eb4ba20` | **T7 buses** | canvas bus → workspace bus topics (`lib/workspace/canvas.ts`); `lib/canvas/` deleted; command-relay kept as the server command bridge. 4 buses → 2 |
+| `37e5537` | **T5 FIXED** | db.ts (1,416 lines) split into `db/` domain stores over one shared connection; barrel keeps all 81 exports; byte-exact, zero behavior change |
+
+Follow-ups for the record:
+- `payload.property.test.ts` flaked once (fast-check "Unterminated string"
+  GLYPH counterexample) — seen twice now; latent codec edge case, next bug hunt.
+- agent-ts emits InterruptRequested with an untyped `data` bag — align to the
+  canonical shape or extend the type (client currently handles both).
+- 4 non-AG-UI SSE users kept payload frames (workspace/commands, resource/
+  events, code/stream, onboarding/run) — decide canonical deck event types or
+  bless them as-is.
+- providers.ts shim importers (6 files) still on the legacy sync API.
+- Next: Phase 4 — the elite bar (CI gate, god-file decomposition: chat/route.ts
+  + ChatSurface.tsx, surface testing, latency dashboard, T9/T18/T19).
+
+T-score: **FIXED** T1,T2,T3,T4,T5,T6,T7,T8(mostly),T10,T11,T13,T14,T16,T17,T20.
+OPEN: T9, T12 (standing hygiene), T15, T18, T19, T21, T22.

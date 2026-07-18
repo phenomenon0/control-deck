@@ -6,6 +6,8 @@
 import { execSync } from "child_process";
 import os from "os";
 
+import { resolveProviderUrl } from "@/lib/hardware/settings";
+
 export type DeckMode = "lite" | "power";
 export type InferenceBackend = "metal" | "cuda" | "rocm" | "cpu";
 
@@ -292,10 +294,10 @@ export function detectSystem(): SystemProfile {
 export async function getInstalledOllamaModels(): Promise<
   Array<{ name: string; sizeBytes: number; family?: string; quantization?: string }>
 > {
-  const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434")
-    .replace(/\/v1$/, "");
+  // resolveProviderUrl already strips a trailing /v1 and slash.
+  const ollamaUrl = resolveProviderUrl("ollama");
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, {
+    const res = await fetch(`${ollamaUrl}/api/tags`, {
       cache: "no-store",
       signal: AbortSignal.timeout(4000),
     });

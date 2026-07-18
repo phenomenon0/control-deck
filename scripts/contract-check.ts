@@ -14,6 +14,10 @@
  *      is a registered provider in lib/inference (checked via live import).
  *   4. Doc-reference lint — backticked repo-relative paths in docs/** and
  *      tasks/*.md exist on disk (allowlist below for known-historical refs).
+ *   5. OLLAMA_BASE_URL single-resolver rule — app/ and lib/ must not read the
+ *      env var directly; all provider base-URL resolution goes through
+ *      resolveProviderUrl() in lib/hardware/settings.ts so the Settings UI
+ *      override actually takes effect.
  */
 
 import * as fs from "node:fs";
@@ -209,6 +213,12 @@ const ALLOWLIST: Record<string, string> = {
   // never committed. Remaining mentions in tasks/*.md (electron-alternatives,
   // elite-cockpit, first-grade-engine, pake-fit) are plan/evaluation records.
   "apps/model-tray": "deleted untracked Tauri skeleton; historical plan/eval references in tasks/*.md",
+  // Deleted in Phase 2 (dead routing weight); remaining mentions in
+  // tasks/first-grade-engine.md are the kill-plan record itself.
+  "lib/llm/freeTier.ts": "deleted Phase 2 dead routing weight; historical plan references in tasks/*.md",
+  // Old voice-core kokoro/moonshine weights dir, superseded by s2s migration;
+  // tasks/todo.md reference is an archived plan.
+  "models/voice-engines": "superseded voice-core weights dir; archived-plan reference in tasks/todo.md",
 };
 
 const DOC_PATH_ROOTS = [
@@ -278,6 +288,51 @@ function checkDocRefs(): void {
   }
 }
 
+// ── Check 5: OLLAMA_BASE_URL single-resolver rule ────────────────────────────
+
+/**
+ * OLLAMA_BASE_URL may only be read inside the settings resolver
+ * (lib/hardware/settings.ts). Every other module must call
+ * resolveProviderUrl("ollama") so the Settings > Hardware override actually
+ * takes effect. Key = repo-relative path; value = why it is allowed to
+ * mention the env var. Keep this list short — production code has no
+ * business here.
+ */
+const OLLAMA_ENV_ALLOWLIST: Record<string, string> = {
+  "lib/hardware/settings.ts": "the resolver itself — the only module allowed to read OLLAMA_BASE_URL",
+  "lib/hardware/settings.test.ts": "unit tests asserting the resolver's env + settings layers",
+  "lib/onboarding/runOnboarding.test.ts": "test drives the resolver's env layer (dead-port probes)",
+  "lib/onboarding/z-runOnboarding-missing-recipe.test.ts": "test drives the resolver's env layer (dead-port probes)",
+};
+
+function checkOllamaBaseUrlSprawl(): void {
+  console.log("\n[5] OLLAMA_BASE_URL single-resolver rule (app/, lib/ → lib/hardware/settings.ts)");
+
+  const files = [path.join(ROOT, "app"), path.join(ROOT, "lib")].flatMap((dir) =>
+    walkFiles(dir, [".ts", ".tsx"]),
+  );
+  const violations: string[] = [];
+  for (const file of files) {
+    const rel = path.relative(ROOT, file);
+    if (OLLAMA_ENV_ALLOWLIST[rel]) continue;
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (line.includes("OLLAMA_BASE_URL")) violations.push(`${rel}:${i + 1}`);
+    });
+  }
+
+  if (violations.length === 0) {
+    ok(
+      `scanned ${files.length} files, no direct OLLAMA_BASE_URL reads`,
+      `${Object.keys(OLLAMA_ENV_ALLOWLIST).length} allowlisted (resolver + resolver tests)`,
+    );
+  } else {
+    for (const v of violations) {
+      bad(v, 'reads OLLAMA_BASE_URL directly — use resolveProviderUrl("ollama") from lib/hardware/settings.ts');
+    }
+  }
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -286,6 +341,7 @@ async function main(): Promise<void> {
   checkPorts();
   await checkInferenceBindings();
   checkDocRefs();
+  checkOllamaBaseUrlSprawl();
 
   console.log("");
   if (failures > 0) {

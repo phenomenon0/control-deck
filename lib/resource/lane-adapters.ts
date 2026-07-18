@@ -19,8 +19,8 @@ const LLAMA_SWAP_URL = (): string =>
 const COMFYUI_URL = (): string =>
   process.env.COMFYUI_BASE_URL ?? resolveProviderUrl("comfyui");
 
-const OLLAMA_URL = (): string =>
-  process.env.OLLAMA_BASE_URL ?? resolveProviderUrl("ollama");
+// The resolver layers Settings → env → default; don't short-circuit it here.
+const OLLAMA_URL = (): string => resolveProviderUrl("ollama");
 
 const QWEN_OMNI_URL = (): string =>
   process.env.QWEN_OMNI_URL ?? "http://127.0.0.1:4247";

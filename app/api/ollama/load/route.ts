@@ -12,10 +12,9 @@
 import { NextResponse } from "next/server";
 import { acquire, release } from "@/lib/resource/arbiter";
 import { estimateVramMb } from "@/lib/hardware/vram";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 export const runtime = "nodejs";
-
-const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434").replace("/v1", "");
 
 interface TagModel {
   name?: string;
@@ -36,7 +35,7 @@ export async function POST(req: Request) {
   // reserve a conservative default so the arbiter isn't blind.
   let estimateMb = 8_192;
   try {
-    const tags = await fetch(`${OLLAMA_URL}/api/tags`, { cache: "no-store", signal: AbortSignal.timeout(3_000) });
+    const tags = await fetch(`${resolveProviderUrl("ollama")}/api/tags`, { cache: "no-store", signal: AbortSignal.timeout(3_000) });
     if (tags.ok) {
       const data = (await tags.json()) as { models?: TagModel[] };
       const tag = (data.models ?? []).find((m) => m.name === model);
@@ -63,7 +62,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const res = await fetch(`${resolveProviderUrl("ollama")}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, prompt: "", keep_alive: "5m", stream: false }),
@@ -77,7 +76,7 @@ export async function POST(req: Request) {
     // Measure, don't estimate: read the real footprint back from /api/ps.
     let measuredVramMb: number | undefined;
     try {
-      const ps = await fetch(`${OLLAMA_URL}/api/ps`, { cache: "no-store", signal: AbortSignal.timeout(3_000) });
+      const ps = await fetch(`${resolveProviderUrl("ollama")}/api/ps`, { cache: "no-store", signal: AbortSignal.timeout(3_000) });
       if (ps.ok) {
         const data = (await ps.json()) as { models?: Array<{ name?: string; size_vram?: number }> };
         const row = (data.models ?? []).find((m) => m.name === model);

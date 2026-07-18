@@ -4,6 +4,7 @@ import { promisify } from "util";
 import { collectMacGpu } from "@/lib/hardware/mac-gpu";
 import { collectAmdGpu } from "@/lib/hardware/amd-gpu";
 import { s2sUrl } from "@/lib/voice/s2s-url";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 const execAsync = promisify(exec);
 
@@ -199,7 +200,7 @@ async function checkTerminalService(url: string): Promise<ServiceStatus> {
 }
 
 export async function GET() {
-  const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434").replace("/v1", "");
+  const OLLAMA_URL = resolveProviderUrl("ollama");
   const COMFY_URL = process.env.COMFY_URL ?? process.env.COMFYUI_BASE_URL ?? "http://127.0.0.1:8188";
   const VOICE_URL = s2sUrl().replace(/\/+$/, "");
   const VECTORDB_URL = process.env.VECTORDB_URL ?? "http://localhost:4242";

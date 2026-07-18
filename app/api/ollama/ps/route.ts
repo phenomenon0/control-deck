@@ -8,8 +8,7 @@
  */
 
 import { NextResponse } from "next/server";
-
-const OLLAMA_URL = process.env.OLLAMA_BASE_URL?.replace("/v1", "") ?? "http://localhost:11434";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 export interface LoadedOllamaModel {
   name: string;
@@ -30,7 +29,7 @@ export interface LoadedOllamaModel {
 
 export async function GET() {
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/ps`, { cache: "no-store" });
+    const res = await fetch(`${resolveProviderUrl("ollama")}/api/ps`, { cache: "no-store" });
     if (!res.ok) throw new Error(`Ollama returned ${res.status}`);
     const data = (await res.json()) as { models: LoadedOllamaModel[] };
     return NextResponse.json({ models: data.models ?? [] });
@@ -55,7 +54,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "name required" }, { status: 400 });
   }
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const res = await fetch(`${resolveProviderUrl("ollama")}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: body.name, prompt: "", keep_alive: 0, stream: false }),

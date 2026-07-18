@@ -6,6 +6,7 @@
  */
 
 import { s2sUrl } from "@/lib/voice/s2s-url";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 const PROBE_TIMEOUT_MS = 1200;
 
@@ -39,9 +40,7 @@ const SERVICES: ServiceSpec[] = [
   {
     key: "ollama",
     name: "Ollama",
-    url: process.env.OLLAMA_URL
-      ? `${process.env.OLLAMA_URL.replace(/\/$/, "")}/api/tags`
-      : "http://127.0.0.1:11434/api/tags",
+    url: `${resolveProviderUrl("ollama")}/api/tags`,
     required: true,
     hint: "Install Ollama from https://ollama.com and run `ollama serve`.",
   },

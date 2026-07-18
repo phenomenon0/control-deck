@@ -23,6 +23,7 @@ import {
 import { jsonPayload } from "@/lib/agui/payload";
 import { createArtifact, saveEvent } from "@/lib/agui/db";
 import { artifactFilePath, artifactRunDir, artifactUrl, safeArtifactFilename } from "@/lib/storage/paths";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 const COMFY_URL = process.env.COMFY_URL ?? process.env.COMFYUI_BASE_URL ?? "http://127.0.0.1:8188";
 const COMFY_OUTPUT_DIR = process.env.COMFY_OUTPUT_DIR ?? path.join(os.homedir(), "ai", "ComfyUI", "output");
@@ -149,12 +150,10 @@ export async function ensureVRAM(preset: string): Promise<string | null> {
 }
 
 /**
- * Ollama base URL (no /v1, no trailing slash). Mirrors app/api/ollama/ps.
+ * Ollama base URL via the settings resolver (no /v1, no trailing slash).
  */
 function ollamaBase(): string {
-  return (process.env.OLLAMA_BASE_URL ?? "http://localhost:11434")
-    .replace(/\/v1$/, "")
-    .replace(/\/$/, "");
+  return resolveProviderUrl("ollama");
 }
 
 /** First resident Ollama model name, or undefined if none / unreachable. */

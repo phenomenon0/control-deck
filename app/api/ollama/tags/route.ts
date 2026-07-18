@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-
-const OLLAMA_URL = (process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL ?? "http://localhost:11434").replace("/v1", "");
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 export interface OllamaModel {
   name: string;
@@ -24,7 +23,7 @@ export interface OllamaTagsResponse {
 
 export async function GET() {
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, {
+    const res = await fetch(`${resolveProviderUrl("ollama")}/api/tags`, {
       cache: "no-store",
     });
 
@@ -58,7 +57,7 @@ export async function POST(req: Request) {
 
   let ollamaRes: Response;
   try {
-    ollamaRes = await fetch(`${OLLAMA_URL}/api/pull`, {
+    ollamaRes = await fetch(`${resolveProviderUrl("ollama")}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, stream: true }),
@@ -96,7 +95,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/delete`, {
+    const res = await fetch(`${resolveProviderUrl("ollama")}/api/delete`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),

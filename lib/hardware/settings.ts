@@ -9,7 +9,13 @@
  * Resolution order for `resolveProviderUrl(id)`:
  *   1. settings.hardware.providerUrls[id]   (if non-empty)
  *   2. envOverride[id] (OLLAMA_BASE_URL etc) (if present)
- *   3. hardcoded localhost default
+ *   3. secondary env var, where one exists (OLLAMA_URL for ollama,
+ *      LLAMA_SWAP_BASE_URL for llamacpp)
+ *   4. hardcoded localhost default
+ *
+ * Every consumer of a provider base URL should go through this resolver —
+ * reading OLLAMA_BASE_URL directly bypasses the Settings UI layer and is
+ * enforced against by scripts/contract-check.ts.
  */
 
 import type { SettingsProviderId } from "@/lib/settings/schema";
@@ -30,15 +36,17 @@ const DEFAULTS: Record<SettingsProviderId, string> = {
   comfyui: "http://localhost:8188",
 };
 
-function readHardwareSection():
-  | {
-      enabledProviders?: SettingsProviderId[];
-      providerUrls?: Partial<Record<SettingsProviderId, string>>;
-      vramReserveMb?: number;
-      ggufSearchRoots?: string[];
-    }
-  | null {
-  // Lazy-resolve so tests that don't have a DB don't blow up.
+interface HardwareSection {
+  enabledProviders?: SettingsProviderId[];
+  providerUrls?: Partial<Record<SettingsProviderId, string>>;
+  vramReserveMb?: number;
+  ggufSearchRoots?: string[];
+}
+
+function readHardwareSection(): HardwareSection | null {
+  // Lazy-resolve so tests that don't have a DB don't blow up. Under `bun test`
+  // this always lands in the catch: lib/agui/db needs better-sqlite3, which
+  // Bun can't load — the settings layer then degrades to env + defaults.
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { resolveSection } = require("@/lib/settings/resolve") as typeof import("@/lib/settings/resolve");
@@ -48,8 +56,20 @@ function readHardwareSection():
   }
 }
 
+// Active section reader. Production always uses readHardwareSection; tests
+// swap it via __test below because the DB-backed reader is unreachable under
+// Bun (see above).
+let activeReader: () => HardwareSection | null = readHardwareSection;
+
+/** Test seam — mirrors the `__test` exports in lane-adapters/orchestrator. */
+export const __test = {
+  setHardwareSectionReader(reader: (() => HardwareSection | null) | null): void {
+    activeReader = reader ?? readHardwareSection;
+  },
+};
+
 export function resolveProviderUrl(id: SettingsProviderId): string {
-  const settings = readHardwareSection();
+  const settings = activeReader();
   const override = settings?.providerUrls?.[id];
   if (override && override.trim()) return normalise(override.trim());
 
@@ -64,17 +84,25 @@ export function resolveProviderUrl(id: SettingsProviderId): string {
   const envRaw = process.env[ENV_VAR[id]];
   if (envRaw && envRaw.trim()) return normalise(envRaw.trim());
 
+  // Ollama has a second historical env var — OLLAMA_URL — honoured by older
+  // call sites alongside OLLAMA_BASE_URL. Keep it as a fallback so migrating
+  // those call sites here doesn't silently drop a working override.
+  if (id === "ollama") {
+    const altRaw = process.env.OLLAMA_URL;
+    if (altRaw && altRaw.trim()) return normalise(altRaw.trim());
+  }
+
   return DEFAULTS[id];
 }
 
 export function isProviderEnabled(id: SettingsProviderId): boolean {
-  const settings = readHardwareSection();
+  const settings = activeReader();
   if (!settings?.enabledProviders) return true;
   return settings.enabledProviders.includes(id);
 }
 
 export function resolveVramReserveMb(): number {
-  const settings = readHardwareSection();
+  const settings = activeReader();
   const fromSettings = settings?.vramReserveMb;
   if (typeof fromSettings === "number" && fromSettings >= 0) return fromSettings;
 
@@ -87,7 +115,7 @@ export function resolveVramReserveMb(): number {
 }
 
 export function resolveGgufSearchRoots(): string[] {
-  const settings = readHardwareSection();
+  const settings = activeReader();
   return settings?.ggufSearchRoots ?? [];
 }
 

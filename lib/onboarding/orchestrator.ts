@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 import { detectSystem } from "@/lib/system/detect";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 import {
   HARDWARE_TIERS,
   getTier,
@@ -35,7 +36,9 @@ function defaultStateDir(): string {
 const STATE_DIR = defaultStateDir();
 const DONE_FLAG = join(STATE_DIR, "onboarding.done");
 
-const OLLAMA_URL = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
+// Resolved per call (not once at import) so a URL change in Settings takes
+// effect on the next probe without an app restart.
+const ollamaUrl = (): string => resolveProviderUrl("ollama");
 
 export type StepStatus = "running" | "done" | "skipped" | "failed";
 
@@ -763,7 +766,7 @@ async function binaryOnPath(bin: string): Promise<boolean> {
 
 async function probeOllamaService(): Promise<boolean> {
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, {
+    const r = await fetch(`${ollamaUrl()}/api/tags`, {
       method: "GET",
       signal: AbortSignal.timeout(1500),
     });
@@ -776,7 +779,7 @@ async function probeOllamaService(): Promise<boolean> {
 /** Returns the running ollama's version string, or null if unreachable. */
 async function probeOllamaVersion(): Promise<string | null> {
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/version`, {
+    const r = await fetch(`${ollamaUrl()}/api/version`, {
       signal: AbortSignal.timeout(1500),
     });
     if (!r.ok) return null;
@@ -789,7 +792,7 @@ async function probeOllamaVersion(): Promise<string | null> {
 
 async function probeLlmModel(modelId: string): Promise<boolean> {
   try {
-    const r = await fetch(`${OLLAMA_URL}/api/tags`, {
+    const r = await fetch(`${ollamaUrl()}/api/tags`, {
       signal: AbortSignal.timeout(2000),
     });
     if (!r.ok) return false;
@@ -926,7 +929,7 @@ async function* pullOllamaModel(
 ): AsyncGenerator<OllamaProgressEvent, void, undefined> {
   let resp: Response;
   try {
-    resp = await fetch(`${OLLAMA_URL}/api/pull`, {
+    resp = await fetch(`${ollamaUrl()}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: modelId, stream: true }),
@@ -1029,7 +1032,7 @@ async function smokeTestLlm(
     : AbortSignal.timeout(cfg.timeout_ms);
   try {
     const start = Date.now();
-    const r = await fetch(`${OLLAMA_URL}/api/generate`, {
+    const r = await fetch(`${ollamaUrl()}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

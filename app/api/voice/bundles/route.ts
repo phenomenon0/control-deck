@@ -33,14 +33,9 @@ import {
   QWEN_OMNI_PROVIDER_ID,
 } from "@/lib/inference/omni/local";
 import { s2sLabUrl, s2sUrl } from "@/lib/voice/s2s-url";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 
 export const runtime = "nodejs";
-
-const OLLAMA_URL = (
-  process.env.OLLAMA_BASE_URL ??
-  process.env.OLLAMA_URL ??
-  "http://localhost:11434"
-).replace("/v1", "");
 
 interface OllamaTagsResponse {
   models?: Array<{ name?: string; model?: string }>;
@@ -250,7 +245,7 @@ async function pullOllama(modelId: string, emit: EmitFn, abort: AbortSignal): Pr
   emit({ source: "ollama", model: modelId, status: "queued" });
   let res: Response;
   try {
-    res = await fetch(`${OLLAMA_URL}/api/pull`, {
+    res = await fetch(`${resolveProviderUrl("ollama")}/api/pull`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: modelId, stream: true }),
@@ -366,7 +361,7 @@ async function pipeNdjson(
 
 async function fetchOllamaModels(): Promise<Set<string>> {
   try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, {
+    const res = await fetch(`${resolveProviderUrl("ollama")}/api/tags`, {
       cache: "no-store",
       signal: AbortSignal.timeout(1500),
     });

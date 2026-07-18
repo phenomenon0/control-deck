@@ -85,6 +85,7 @@ import { getImageModelAvailability } from "./comfyModels";
 import { loadWorkflow } from "./workflows";
 import { applyWorkflowParams, getComfyWorkflow, listComfyWorkflows } from "@/lib/comfy/workflows";
 import { getUpload, createArtifact, getArtifact, saveEvent } from "@/lib/agui/db";
+import { resolveProviderUrl } from "@/lib/hardware/settings";
 import { generateGlyphSvg, generateGlyphSheet, type GlyphStyle } from "./glyph";
 import { createEvent, type ArtifactCreated } from "@/lib/agui/events";
 import { hub } from "@/lib/agui/hub";
@@ -1081,7 +1082,7 @@ async function executeAnalyzeImage(
   const providerId = bound?.providerId ?? "ollama";
   const config = bound?.config ?? {
     providerId: "ollama",
-    baseURL: process.env.OLLAMA_BASE_URL ?? process.env.OLLAMA_URL,
+    baseURL: resolveProviderUrl("ollama"),
     model: process.env.VISION_MODEL,
   };
   const question = args.question ?? "Describe this image in detail.";

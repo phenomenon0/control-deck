@@ -7,25 +7,37 @@
 .rt-prose { min-width: 0; }
 .av2 .a .rt-prose > :first-child { margin-top: 0; }
 
-/* headings — Atlas serif display identity, with a light size scale. */
+/* D-020 reading register: Literata titles, Plex shelf labels. */
 .av2 .a .rt-prose h1,
 .av2 .a .rt-prose h2,
-.av2 .a .rt-prose h3,
-.av2 .a .rt-prose h4,
-.av2 .a .rt-prose h5,
-.av2 .a .rt-prose h6 {
-  font-family: var(--font-display, var(--font-ui));
+.av2 .a .rt-prose h3 {
+  font-family: var(--font-reading);
   font-weight: 600;
   color: var(--ink-strong);
   line-height: 1.3;
-  margin: var(--space-3, 12px) 0 0;
+  margin: var(--space-4, 16px) 0 var(--space-2, 8px);
 }
-.av2 .a .rt-prose h1 { font-size: 18px; }
-.av2 .a .rt-prose h2 { font-size: 16.5px; }
-.av2 .a .rt-prose h3,
+.av2 .a .rt-prose h1,
+.av2 .a .rt-prose h2 { font-size: 22px; }
+.av2 .a .rt-prose h3 { font-size: 18px; }
 .av2 .a .rt-prose h4,
 .av2 .a .rt-prose h5,
-.av2 .a .rt-prose h6 { font-size: 15.5px; }
+.av2 .a .rt-prose h6 {
+  margin: var(--space-4, 16px) 0 var(--space-2, 8px);
+  color: var(--ink-faint); font: 600 11px/1.35 var(--font-ui);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+
+.av2 .a .rt-prose a {
+  border-bottom: 0; color: var(--accent-text); text-decoration: underline;
+  text-decoration-color: rgba(var(--acc-rgb), .58); text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.av2 .a .rt-prose a:hover { text-decoration-color: var(--accent-text); }
+.av2 .a .rt-prose blockquote { border-left-color: var(--accent); }
+.av2 .a .rt-prose :is(ul, ol) { padding-left: 1.6em; }
+.av2 .a .rt-prose :is(ul, ol) li::marker { color: var(--ink-faint); }
+.av2 .a .rt-prose ol li::marker { font-family: var(--font-data); font-size: .82em; }
 
 /* tables — GFM tables render as a real <table>; scroll horizontally when wide. */
 .av2 .a .rt-prose table {
@@ -35,28 +47,28 @@
   max-width: 100%;
   overflow-x: auto;
   margin: var(--space-3, 12px) 0;
-  font-size: 14px;
+  border: 0; font-family: var(--font-ui); font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 .av2 .a .rt-prose th,
 .av2 .a .rt-prose td {
-  border: 1px solid var(--line-subtle);
-  padding: 0.4em 0.7em;
+  border: 0; border-bottom: 1px solid var(--line-subtle);
+  padding: 7px 10px;
   text-align: left;
   vertical-align: top;
 }
 .av2 .a .rt-prose th {
-  font-weight: 600;
-  color: var(--ink-strong);
-  background: rgba(var(--fg-rgb), var(--alpha-wash, 0.07));
+  color: var(--ink-faint); background: transparent;
+  font: 600 11px/1.35 var(--font-ui); letter-spacing: .07em; text-transform: uppercase;
 }
 .av2 .a .rt-prose td { color: var(--ink-soft); }
 
 /* horizontal rule + images */
 .av2 .a .rt-prose hr {
-  border: 0;
-  border-top: 1px solid var(--line-subtle);
-  margin: var(--space-4, 16px) 0;
+  height: 20px; overflow: visible; border: 0; margin: var(--space-4, 16px) 0;
+  color: var(--ink-faint); text-align: center;
 }
+.av2 .a .rt-prose hr::after { content: "· · ·"; font: 11px/20px var(--font-data); letter-spacing: .28em; }
 .av2 .a .rt-prose img {
   display: block;
   max-width: 100%;

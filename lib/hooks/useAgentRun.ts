@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useRef } from "react";
+import { useReducer, useCallback, useRef, useState } from "react";
 import type { LocalPreset } from "@/lib/inference/local-defaults";
 import type { Artifact } from "@/lib/types/chat";
 import type {
@@ -589,6 +589,11 @@ export interface SendResult {
  */
 export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
   const [state, dispatch] = useReducer(agentRunReducer, INITIAL_AGENT_RUN_STATE);
+  // The reducer intentionally returns to `idle` as soon as Stop is pressed so
+  // the timeline can finalize immediately. Keep a separate transport lock
+  // until the aborted fetch actually settles; otherwise a second send can slip
+  // into the small window where isRunningRef still rejects it.
+  const [requestActive, setRequestActive] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const isRunningRef = useRef(false);
   const currentRunIdRef = useRef<string | null>(null);
@@ -633,6 +638,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       }
 
       isRunningRef.current = true;
+      setRequestActive(true);
       const requestedRunId = opts.runId ?? opts.voice?.runId ?? crypto.randomUUID();
       currentRunIdRef.current = requestedRunId;
 
@@ -827,6 +833,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         abortRef.current = null;
         isRunningRef.current = false;
         currentRunIdRef.current = null;
+        setRequestActive(false);
       }
     },
     []
@@ -848,7 +855,8 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
     dispatch({ type: "STOP" });
   }, []);
 
-  const isRunning = state.runState.phase !== "idle" && state.runState.phase !== "error";
+  const reducerBusy = state.runState.phase !== "idle" && state.runState.phase !== "error";
+  const isRunning = requestActive || reducerBusy;
 
   return { state, dispatch, send, stop, isRunning };
 }

@@ -24,6 +24,8 @@ export interface ThreadManagerState {
   activeThreadId: string | null;
   /** Messages for the active thread */
   messages: Message[];
+  /** True while persisted messages for the selected thread are hydrating */
+  messagesLoading: boolean;
   /** Effective thread ID (active or fallback for unsaved new thread) */
   effectiveThreadId: string;
   /** Fallback ID for unsaved new threads */
@@ -33,7 +35,7 @@ export interface ThreadManagerState {
 }
 
 export interface ThreadManagerActions {
-  setActiveThreadId: (id: string | null) => void;
+  setActiveThreadId: (id: string | null, options?: { load?: boolean }) => void;
   createThread: (title?: string) => string;
   selectThread: (id: string) => void;
   deleteThread: (id: string) => void;

@@ -670,6 +670,7 @@ export function clearRuns(): void {
 export interface ThreadRow {
   id: string;
   title: string | null;
+  preview?: string | null;
   /** Thread-scoped system prompt override; null means "use the global one." */
   system_prompt: string | null;
   created_at: string;
@@ -712,7 +713,19 @@ export function updateThreadSystemPrompt(id: string, prompt: string | null): voi
 export function getThreads(limit: number = 50): ThreadRow[] {
   const db = getDb();
   return db
-    .prepare(`SELECT * FROM threads ORDER BY updated_at DESC LIMIT ?`)
+    .prepare(`
+      SELECT threads.*,
+        (
+          SELECT substr(messages.content, 1, 180)
+          FROM messages
+          WHERE messages.thread_id = threads.id
+          ORDER BY messages.created_at DESC
+          LIMIT 1
+        ) AS preview
+      FROM threads
+      ORDER BY threads.updated_at DESC
+      LIMIT ?
+    `)
     .all(limit) as ThreadRow[];
 }
 

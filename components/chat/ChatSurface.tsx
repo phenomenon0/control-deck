@@ -317,7 +317,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   // Threads
   // ---------------------------------------------------------------------------
   const {
-    threads, activeThreadId, messages, setMessages,
+    threads, activeThreadId, messages, messagesLoading, setMessages,
     effectiveThreadId, fallbackThreadId,
     setActiveThreadId, selectThread, deleteThread,
     setThreads, resetFallbackThreadId,
@@ -328,7 +328,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   // ---------------------------------------------------------------------------
   const {
     pendingUploads, setPendingUploads, uploadTrayOpen, setUploadTrayOpen,
-    handleFileUpload, handleDrop, fileInputRef, clearUploads,
+    handleFileUpload, handleDrop, fileInputRef, clearUploads, isUploading,
   } = useFileUploads({ activeThreadId, fallbackThreadId, setActiveThreadId, setThreads });
 
   // ---------------------------------------------------------------------------
@@ -810,7 +810,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
     const shouldSpeakReply = origin === "voice-live";
     const text = (directSubmit?.text ?? inputValue).trim();
     if (!text && pendingUploads.length === 0) return;
-    if (isRunning) return;
+    if (isRunning || isUploading || messagesLoading) return;
 
     // Stop any ongoing speech
     if (voiceChat.isSpeaking) voiceChat.stopSpeaking();
@@ -829,7 +829,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
         setStoredThreads(updated);
         return updated;
       });
-      setActiveThreadId(threadId);
+      setActiveThreadId(threadId, { load: false });
     }
 
     // Build message content with upload refs
@@ -1044,7 +1044,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
     // Refocus input
     queueComposerFocus(100);
   }, [
-    inputValue, pendingUploads, isRunning, activeThreadId, fallbackThreadId,
+    inputValue, pendingUploads, isRunning, isUploading, messagesLoading, activeThreadId, fallbackThreadId,
     messages, selectedModel, agentRun, voiceChat, voiceSession,
     prefs.providerId, prefs.systemPrompt, prefs.localModelPreset, dock?.mode, dock?.routeId,
     setMessages, setActiveThreadId, setThreads, clearUploads, queueComposerFocus,

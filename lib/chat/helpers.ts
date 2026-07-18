@@ -5,6 +5,7 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  createdAt?: string;
   artifacts?: Artifact[];
   /** Persisted metadata — tool call summaries, upload refs, etc. */
   metadata?: Record<string, unknown>;
@@ -14,6 +15,7 @@ export interface Thread {
   id: string;
   title: string;
   lastMessageAt: string;
+  preview?: string;
 }
 
 // localStorage keys

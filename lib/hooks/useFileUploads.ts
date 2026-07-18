@@ -8,9 +8,11 @@ import type { PendingUpload } from "@/lib/types/chat";
 interface UseFileUploadsOptions {
   activeThreadId: string | null;
   fallbackThreadId: string;
-  setActiveThreadId: (id: string | null) => void;
+  setActiveThreadId: (id: string | null, options?: { load?: boolean }) => void;
   setThreads: React.Dispatch<React.SetStateAction<Thread[]>>;
 }
+
+const EMPTY_UPLOADS: PendingUpload[] = [];
 
 export function useFileUploads({
   activeThreadId,
@@ -18,77 +20,151 @@ export function useFileUploads({
   setActiveThreadId,
   setThreads,
 }: UseFileUploadsOptions) {
-  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const [pendingByThread, setPendingByThread] = useState<Record<string, PendingUpload[]>>({});
   const [uploadTrayOpen, setUploadTrayOpen] = useState(false);
+  const [uploadsInFlight, setUploadsInFlight] = useState(0);
   const [uploadsById, setUploadsById] = useState<
     Map<string, { url: string; name: string; mimeType: string }>
   >(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const ownerThreadId = activeThreadId ?? fallbackThreadId;
+  const ownerThreadIdRef = useRef(ownerThreadId);
+  ownerThreadIdRef.current = ownerThreadId;
+  const creationPromisesRef = useRef(new Map<string, Promise<void>>());
+
+  const pendingUploads = pendingByThread[ownerThreadId] ?? EMPTY_UPLOADS;
+
+  // Preserve the familiar React state-setter API while applying every update
+  // to the currently visible thread's attachment bucket only.
+  const setPendingUploads = useCallback<React.Dispatch<React.SetStateAction<PendingUpload[]>>>((action) => {
+    setPendingByThread((previous) => {
+      const owner = ownerThreadIdRef.current;
+      const current = previous[owner] ?? EMPTY_UPLOADS;
+      const nextUploads = typeof action === "function" ? action(current) : action;
+      if (nextUploads === current) return previous;
+      if (nextUploads.length === 0) {
+        if (!(owner in previous)) return previous;
+        const next = { ...previous };
+        delete next[owner];
+        return next;
+      }
+      return { ...previous, [owner]: nextUploads };
+    });
+  }, []);
 
   const handleFileUpload = useCallback(
     async (file: File) => {
       if (!file.type.startsWith("image/")) return;
 
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = (reader.result as string).split(",")[1];
+      // Capture ownership before FileReader or network work begins. A delayed
+      // image must never migrate into whichever thread happens to be active
+      // when it finishes.
+      const threadId = activeThreadId ?? fallbackThreadId;
+      const needsThreadCreation = activeThreadId === null;
+      let creationPromise: Promise<void> | null = null;
 
-        let threadId = activeThreadId;
-        if (!threadId) {
-          threadId = fallbackThreadId;
+      if (needsThreadCreation) {
+        creationPromise = creationPromisesRef.current.get(threadId) ?? null;
+        if (!creationPromise) {
           const newThread: Thread = {
             id: threadId,
             title: "New conversation",
             lastMessageAt: new Date().toISOString(),
+            preview: file.name,
           };
           setThreads((prev) => {
+            if (prev.some((thread) => thread.id === threadId)) return prev;
             const updated = [newThread, ...prev];
             setStoredThreads(updated);
             return updated;
           });
-          setActiveThreadId(threadId);
-        }
 
-        try {
-          const res = await fetch("/api/upload", {
+          const request = fetch("/api/threads", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              threadId,
-              data: base64,
-              mimeType: file.type,
-              filename: file.name,
-            }),
+            body: JSON.stringify({ action: "create", id: threadId }),
+          }).then((response) => {
+            if (!response.ok) throw new Error(`Thread create returned ${response.status}`);
           });
-
-          if (res.ok) {
-            const data = await res.json();
-            const upload: PendingUpload = {
-              id: data.id,
-              name: file.name,
-              url: data.url,
-              mimeType: file.type,
-            };
-            setPendingUploads((prev) => [...prev, upload]);
-            setUploadsById((prev) => {
-              const next = new Map(prev);
-              next.set(data.id, {
-                url: data.url,
-                name: file.name,
-                mimeType: file.type,
-              });
-              return next;
-            });
-            // Auto-open tray when file is added
-            setUploadTrayOpen(true);
-          } else {
-            console.error("[ChatPane] Upload response not ok:", res.status);
-          }
-        } catch (err) {
-          console.error("[ChatPane] Upload failed:", err);
+          let trackedRequest: Promise<void>;
+          trackedRequest = request.catch((error) => {
+            if (creationPromisesRef.current.get(threadId) === trackedRequest) {
+              creationPromisesRef.current.delete(threadId);
+            }
+            throw error;
+          });
+          creationPromise = trackedRequest;
+          creationPromisesRef.current.set(threadId, creationPromise);
         }
-      };
-      reader.readAsDataURL(file);
+      }
+
+      setUploadsInFlight((count) => count + 1);
+      try {
+        const dataUrlPromise = new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(reader.error ?? new Error("Failed to read image"));
+          reader.readAsDataURL(file);
+        });
+
+        const [dataUrl] = await Promise.all([
+          dataUrlPromise,
+          creationPromise ?? Promise.resolve(),
+        ]);
+        const separator = dataUrl.indexOf(",");
+        if (separator < 0) throw new Error("Image reader returned invalid data");
+        const base64 = dataUrl.slice(separator + 1);
+
+        // Activate a freshly created draft only if the user is still looking
+        // at that owner. A late upload completion must not yank navigation.
+        if (needsThreadCreation && ownerThreadIdRef.current === threadId) {
+          setActiveThreadId(threadId, { load: false });
+        }
+
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId,
+            data: base64,
+            mimeType: file.type,
+            filename: file.name,
+          }),
+        });
+
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          throw new Error(`Upload returned ${res.status}${detail ? `: ${detail.slice(0, 180)}` : ""}`);
+        }
+
+        const data = await res.json();
+        const upload: PendingUpload = {
+          id: data.id,
+          name: file.name,
+          url: data.url,
+          mimeType: file.type,
+        };
+        setPendingByThread((previous) => ({
+          ...previous,
+          [threadId]: [...(previous[threadId] ?? EMPTY_UPLOADS), upload],
+        }));
+        setUploadsById((prev) => {
+          const next = new Map(prev);
+          next.set(data.id, {
+            url: data.url,
+            name: file.name,
+            mimeType: file.type,
+          });
+          return next;
+        });
+        if (ownerThreadIdRef.current === threadId) {
+          setUploadTrayOpen(true);
+        }
+      } catch (err) {
+        console.error("[ChatPane] Upload failed:", err);
+      } finally {
+        setUploadsInFlight((count) => Math.max(0, count - 1));
+      }
     },
     [activeThreadId, fallbackThreadId, setActiveThreadId, setThreads]
   );
@@ -127,10 +203,10 @@ export function useFileUploads({
     }
   };
 
-  const clearUploads = () => {
+  const clearUploads = useCallback(() => {
     setPendingUploads([]);
     setUploadTrayOpen(false);
-  };
+  }, [setPendingUploads]);
 
   return {
     pendingUploads,
@@ -142,5 +218,6 @@ export function useFileUploads({
     handleDrop,
     fileInputRef,
     clearUploads,
+    isUploading: uploadsInFlight > 0,
   };
 }

@@ -7,16 +7,45 @@ function avail(id: string, name: string, configured = true, reachable: boolean |
 }
 
 describe("resolveVoiceRoute", () => {
-  test("offline preset has no app-gateway providers", () => {
+  test("offline preset resolves the local omni provider for both modalities", () => {
     const r = resolveVoiceRoute({
       preset: "offline",
-      sttProviders: [avail("groq", "Groq", true)],
-      ttsProviders: [avail("cartesia", "Cartesia", true)],
+      sttProviders: [avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, true)],
+      ttsProviders: [avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, true)],
+    });
+    expect(r.stt?.providerId).toBe("qwen-omni-local");
+    expect(r.stt?.model).toBe("Qwen/Qwen2.5-Omni-7B-AWQ");
+    expect(r.tts?.providerId).toBe("qwen-omni-local");
+    expect(r.tts?.model).toBe("Qwen/Qwen2.5-Omni-7B-AWQ");
+    expect(r.fallbacksApplied).toEqual([]);
+  });
+
+  test("offline preset never resolves a cloud provider, even when healthy", () => {
+    const r = resolveVoiceRoute({
+      preset: "offline",
+      sttProviders: [avail("groq", "Groq", true, true), avail("deepgram", "Deepgram", true, true)],
+      ttsProviders: [avail("cartesia", "Cartesia", true, true)],
     });
     expect(r.stt).toBeNull();
     expect(r.tts).toBeNull();
     expect(r.transport.mode).toBe("app-gateway");
     expect(r.rationale.toLowerCase()).toContain("no providers");
+  });
+
+  test("offline preset skips an unavailable local provider instead of falling back to cloud", () => {
+    const r = resolveVoiceRoute({
+      preset: "offline",
+      sttProviders: [
+        avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", true, false),
+        avail("groq", "Groq", true, true),
+      ],
+      ttsProviders: [
+        avail("qwen-omni-local", "Qwen2.5 Omni AWQ (local)", false),
+        avail("cartesia", "Cartesia", true, true),
+      ],
+    });
+    expect(r.stt).toBeNull();
+    expect(r.tts).toBeNull();
   });
 
   test("fast preset prefers low-latency cloud providers", () => {

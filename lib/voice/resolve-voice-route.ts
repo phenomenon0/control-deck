@@ -85,9 +85,19 @@ export interface ResolvedRoute {
   rationale: string;
 }
 
+/**
+ * The only genuinely-local voice provider registered today
+ * (lib/inference/omni/register.ts — local weights, no API key, native
+ * stt+tts modalities). Offline resolves to it or to nothing; it must
+ * never fall back to a cloud provider. Kept as a string literal (and
+ * mirrored in MODEL_DEFAULTS below) because this module is imported by
+ * client components and cannot pull in the node-only omni/local module.
+ */
+const LOCAL_VOICE_PROVIDER_ID = "qwen-omni-local";
+
 /** Preference order per preset. Earlier entries win if available. */
 const STT_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
-  offline: [],
+  offline: [LOCAL_VOICE_PROVIDER_ID],
   local: ["groq", "deepgram"],
   fast: ["groq", "deepgram", "assemblyai"],
   quality: ["assemblyai", "deepgram", "openai"],
@@ -95,7 +105,7 @@ const STT_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
 };
 
 const TTS_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
-  offline: [],
+  offline: [LOCAL_VOICE_PROVIDER_ID],
   local: ["cartesia", "deepgram"],
   fast: ["cartesia", "deepgram"],
   quality: ["elevenlabs", "google", "cartesia"],
@@ -103,6 +113,8 @@ const TTS_PREFERENCE: Record<VoiceRoutePreset, string[]> = {
 };
 
 const MODEL_DEFAULTS: Record<string, string | null> = {
+  // Mirrors QWEN_OMNI_MODEL_ID in lib/inference/omni/local.ts.
+  [LOCAL_VOICE_PROVIDER_ID]: "Qwen/Qwen2.5-Omni-7B-AWQ",
   groq: "whisper-large-v3-turbo",
   deepgram: "nova-3",
   assemblyai: "universal-3-pro",

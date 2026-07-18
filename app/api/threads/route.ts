@@ -117,7 +117,7 @@ export async function GET(req: Request) {
   return NextResponse.json({ threads });
 }
 
-// POST /api/threads - Create thread or save message
+// POST /api/threads - Thread CRUD: create | message | update | rename | generate-title
 export async function POST(req: Request) {
   let body: Record<string, unknown>;
   try {
@@ -212,6 +212,23 @@ export async function POST(req: Request) {
       );
     }
     updateMessage(id, content);
+    return NextResponse.json({ ok: true });
+  }
+
+  // Rename a thread (absorbs the retired /api/agui/threads PATCH — this route
+  // is the single owner of thread CRUD).
+  if (body.action === "rename") {
+    const { id, title } = body;
+    if (typeof id !== "string" || typeof title !== "string" || !title.trim()) {
+      return NextResponse.json(
+        { error: "id and non-empty title strings required" },
+        { status: 400 }
+      );
+    }
+    if (!getThread(id)) {
+      return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+    }
+    updateThreadTitle(id, title.trim());
     return NextResponse.json({ ok: true });
   }
 

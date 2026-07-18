@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Thread } from "@/lib/chat/helpers";
-import { setStoredThreads } from "@/lib/chat/helpers";
 import type { PendingUpload } from "@/lib/types/chat";
 
 interface UseFileUploadsOptions {
@@ -74,9 +73,7 @@ export function useFileUploads({
           };
           setThreads((prev) => {
             if (prev.some((thread) => thread.id === threadId)) return prev;
-            const updated = [newThread, ...prev];
-            setStoredThreads(updated);
-            return updated;
+            return [newThread, ...prev];
           });
 
           const request = fetch("/api/threads", {

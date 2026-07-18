@@ -4,8 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   type Thread,
   type Message,
-  getStoredThreads,
-  setStoredThreads,
+  purgeLegacyThreadCache,
   setStoredActiveThread,
   groupThreadsByDate,
 } from "@/lib/chat/helpers";
@@ -38,16 +37,12 @@ export function useThreads() {
   const messageRequestTokenRef = useRef(0);
   const initialSelectionPendingRef = useRef(true);
 
-  // Init — always start with a fresh new chat
+  // Init — the SQLite catalogue (/api/threads) is the only thread source.
   useEffect(() => {
     setStoredActiveThread(null);
+    purgeLegacyThreadCache();
 
     let cancelled = false;
-    // Hydrate the local cache asynchronously, then let the API response replace
-    // it with the source of truth. This avoids a synchronous effect cascade.
-    queueMicrotask(() => {
-      if (!cancelled) setThreads(getStoredThreads());
-    });
     fetch("/api/threads")
       .then((r) => {
         if (!r.ok) throw new Error(`Thread list returned ${r.status}`);
@@ -57,7 +52,6 @@ export function useThreads() {
         if (cancelled || !Array.isArray(data.threads)) return;
         const apiThreads = data.threads.map(normalizeThread);
         setThreads(apiThreads);
-        setStoredThreads(apiThreads);
         if (initialSelectionPendingRef.current && apiThreads[0]) {
           initialSelectionPendingRef.current = false;
           setMessagesLoading(true);
@@ -166,11 +160,7 @@ export function useThreads() {
       title: title || "New conversation",
       lastMessageAt: new Date().toISOString(),
     };
-    setThreads((prev) => {
-      const updated = [newThread, ...prev];
-      setStoredThreads(updated);
-      return updated;
-    });
+    setThreads((prev) => [newThread, ...prev]);
     skipMessageLoadRef.current = id;
     messageRequestTokenRef.current += 1;
     setActiveThreadIdState(id);
@@ -196,11 +186,7 @@ export function useThreads() {
   };
 
   const deleteThread = (id: string) => {
-    setThreads((prev) => {
-      const updated = prev.filter((t) => t.id !== id);
-      setStoredThreads(updated);
-      return updated;
-    });
+    setThreads((prev) => prev.filter((t) => t.id !== id));
     if (activeThreadId === id) {
       messageRequestTokenRef.current += 1;
       setActiveThreadIdState(null);
@@ -213,13 +199,18 @@ export function useThreads() {
   };
 
   const updateThreadTitle = (id: string, title: string) => {
-    setThreads((prev) => {
-      const updated = prev.map((t) =>
-        t.id === id ? { ...t, title } : t
-      );
-      setStoredThreads(updated);
-      return updated;
-    });
+    setThreads((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title } : t))
+    );
+    // SQLite is the record — a rename that never leaves the client is lost on
+    // the next load, so persist it like every other thread mutation.
+    fetch("/api/threads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rename", id, title }),
+    }).catch((err) =>
+      console.error("[useThreads] Failed to rename thread:", err)
+    );
   };
 
   const resetFallbackThreadId = () => {

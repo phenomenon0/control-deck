@@ -2,11 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   ACTIVE_THREAD_KEY,
   getStoredActiveThread,
-  getStoredThreads,
   groupThreadsByDate,
+  purgeLegacyThreadCache,
   setStoredActiveThread,
-  setStoredThreads,
-  THREADS_KEY,
   type Thread,
 } from "./helpers";
 
@@ -45,27 +43,11 @@ afterEach(() => {
   delete g.localStorage;
 });
 
-// ── thread storage ───────────────────────────────────────────────
+// ── active-thread UI pref + legacy purge ─────────────────────────
+// Thread records live in SQLite behind /api/threads; localStorage only keeps
+// the last-open thread id. The pre-merge `deck:threads` mirror is purged.
 
-describe("thread storage round-trip", () => {
-  test("getStoredThreads returns [] when empty", () => {
-    expect(getStoredThreads()).toEqual([]);
-  });
-
-  test("setStoredThreads then getStoredThreads round-trips", () => {
-    const threads: Thread[] = [
-      { id: "a", title: "Alpha", lastMessageAt: new Date().toISOString() },
-      { id: "b", title: "Beta", lastMessageAt: new Date().toISOString() },
-    ];
-    setStoredThreads(threads);
-    expect(getStoredThreads()).toEqual(threads);
-  });
-
-  test("corrupt localStorage entry returns [] (no throw)", () => {
-    (globalThis as unknown as GlobalScope).localStorage!.setItem(THREADS_KEY, "{not json}");
-    expect(getStoredThreads()).toEqual([]);
-  });
-
+describe("active thread preference", () => {
   test("active thread set/get", () => {
     setStoredActiveThread("thread-123");
     expect(getStoredActiveThread()).toBe("thread-123");
@@ -76,6 +58,21 @@ describe("thread storage round-trip", () => {
     setStoredActiveThread(null);
     expect(getStoredActiveThread()).toBeNull();
     expect((globalThis as unknown as GlobalScope).localStorage!.getItem(ACTIVE_THREAD_KEY)).toBeNull();
+  });
+});
+
+describe("purgeLegacyThreadCache", () => {
+  test("removes the legacy thread mirror, leaves other keys alone", () => {
+    const ls = (globalThis as unknown as GlobalScope).localStorage!;
+    ls.setItem("deck:threads", JSON.stringify([{ id: "old" }]));
+    ls.setItem(ACTIVE_THREAD_KEY, "thread-1");
+    purgeLegacyThreadCache();
+    expect(ls.getItem("deck:threads")).toBeNull();
+    expect(ls.getItem(ACTIVE_THREAD_KEY)).toBe("thread-1");
+  });
+
+  test("is a no-op when the key was never written", () => {
+    expect(() => purgeLegacyThreadCache()).not.toThrow();
   });
 });
 

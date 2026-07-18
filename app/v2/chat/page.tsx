@@ -6,10 +6,10 @@ import { useThreads } from "@/lib/hooks/useThreads";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
 import { useFileUploads } from "@/lib/hooks/useFileUploads";
 import { useVoiceChat } from "@/lib/hooks/useVoiceChat";
+import { SSEParser } from "@/lib/agui/sse";
 import { useShortcut } from "@/lib/hooks/useShortcuts";
 import {
   groupThreadsByDate,
-  setStoredThreads,
   type Thread,
   type Message,
 } from "@/lib/chat/helpers";
@@ -595,19 +595,32 @@ export default function ChatV2Page() {
   // here — everything else already arrives via useAgentRun, so no duplication.
   useEffect(() => {
     if (!agentRun.isRunning || !activeThreadId) return;
-    const es = new EventSource(`/api/agui/stream?threadId=${encodeURIComponent(activeThreadId)}`);
-    es.onmessage = (e: MessageEvent) => {
+    const ctrl = new AbortController();
+    const parser = new SSEParser();
+    void (async () => {
       try {
-        const evt = JSON.parse(e.data as string) as { type?: string; description?: string };
-        if (evt.type === "StepStarted" && typeof evt.description === "string") {
-          const line = evt.description;
-          setSwapSteps((prev) => (prev.includes(line) ? prev : [...prev, line]));
+        const res = await fetch(`/api/agui/stream?threadId=${encodeURIComponent(activeThreadId)}`, {
+          signal: ctrl.signal,
+          cache: "no-store",
+        });
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const evt of parser.feed(decoder.decode(value, { stream: true }))) {
+            if (evt.type === "StepStarted" && typeof evt.description === "string") {
+              const line = evt.description;
+              setSwapSteps((prev) => (prev.includes(line) ? prev : [...prev, line]));
+            }
+          }
         }
       } catch {
-        /* ignore malformed frames */
+        /* aborted on cleanup or stream ended — nothing to do */
       }
-    };
-    return () => es.close();
+    })();
+    return () => ctrl.abort();
   }, [agentRun.isRunning, activeThreadId]);
 
   // Follow the stream only while the reader is already near the bottom. Long
@@ -652,15 +665,13 @@ export default function ChatV2Page() {
   const touchThread = useCallback((threadId: string, preview: string) => {
     const now = new Date().toISOString();
     const cleanPreview = preview.replace(/\s+/g, " ").trim().slice(0, 180);
-    setThreads((current) => {
-      const updated = current
+    setThreads((current) =>
+      current
         .map((thread) => thread.id === threadId
           ? { ...thread, lastMessageAt: now, preview: cleanPreview || thread.preview }
           : thread)
-        .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
-      setStoredThreads(updated);
-      return updated;
-    });
+        .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt))
+    );
   }, [setThreads]);
 
   const threadGroups = useMemo(() => {
@@ -958,11 +969,7 @@ export default function ChatV2Page() {
           lastMessageAt: new Date().toISOString(),
           preview: titleText,
         };
-        setThreads((prev) => {
-          const updated = [newT, ...prev];
-          setStoredThreads(updated);
-          return updated;
-        });
+        setThreads((prev) => [newT, ...prev]);
         activeThreadIdRef.current = threadId;
         setActiveThreadId(threadId, { load: false });
       } else if (appendUser && activeThread?.title === "New conversation") {

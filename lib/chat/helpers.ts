@@ -18,21 +18,23 @@ export interface Thread {
   preview?: string;
 }
 
-// localStorage keys
-export const THREADS_KEY = "deck:threads";
+// Thread records and messages live in SQLite (deck.db) behind /api/threads —
+// localStorage is NOT a thread store. The only chat key allowed here is
+// pure-UI convenience state: the last-open thread id.
 export const ACTIVE_THREAD_KEY = "deck:activeThread";
 
-export function getStoredThreads(): Thread[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(THREADS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
+// Pre-merge builds mirrored the thread catalogue into localStorage under this
+// key. It is orphaned now; useThreads purges it once on mount.
+const LEGACY_THREADS_KEY = "deck:threads";
 
-export function setStoredThreads(threads: Thread[]) {
-  localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
+/** Drop the legacy localStorage thread-catalogue mirror. Idempotent. */
+export function purgeLegacyThreadCache() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(LEGACY_THREADS_KEY);
+  } catch {
+    /* private mode — nothing to purge */
+  }
 }
 
 export function getStoredActiveThread(): string | null {

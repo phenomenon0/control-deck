@@ -8,9 +8,29 @@
 
 export type AgentMode = "PLAN" | "BUILD" | "AUTO";
 
+/**
+ * OpenAI-style tool call attached to an assistant turn. Lets the caller
+ * replay prior tool exchanges so multi-turn context doesn't degrade —
+ * without it the loop had to drop every tool call from history.
+ */
+export interface ChatMessageWireToolCall {
+  id: string;
+  name: string;
+  /** Arguments as a JSON string or an already-parsed object. */
+  arguments?: unknown;
+}
+
 export interface ChatMessageWire {
   role: string;
   content: string;
+  /** Assistant role only: tool calls the model issued in that turn. */
+  tool_calls?: ChatMessageWireToolCall[];
+  /** tool / tool-result roles: id of the assistant tool call this answers. */
+  tool_call_id?: string;
+  /** tool / tool-result roles: originating tool name. */
+  name?: string;
+  /** tool / tool-result roles: true when the result is an error. */
+  is_error?: boolean;
 }
 
 export interface LLMOverrideWire {
@@ -24,6 +44,16 @@ export interface StartRunRequestWire {
   query?: string;
   messages?: ChatMessageWire[];
   thread_id?: string;
+  /**
+   * Fully-assembled system prompt from the deck (memory, skill index,
+   * workflow reference, thread persona, voice-mode prompt). Canon: Next
+   * assembles, agent-ts obeys — when present this REPLACES the local
+   * SYSTEM_PROMPT + bootstrap-file stack wholesale and is installed as the
+   * run's real system prompt (pi-agent-core initialState.systemPrompt).
+   * When absent, the bootstrap stack remains as the standalone-dev
+   * fallback.
+   */
+  system_prompt?: string;
   /**
    * Caller-allocated AG-UI run id. When set, agent-ts uses this id for the
    * RunHandle and emits all events under it — that makes the deck-side

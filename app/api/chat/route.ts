@@ -32,7 +32,7 @@ import {
   type AGUIEvent,
 } from "@/lib/agui/events";
 import { jsonPayload, isDeckPayload, type DeckPayload } from "@/lib/agui/payload";
-import { prepareForModel } from "@/lib/llm/systemPrompt";
+import { augmentForModel } from "@/lib/llm/systemPrompt";
 import { renderMemoryForPrompt } from "@/lib/memory/prompt";
 import { renderSkillIndex } from "@/lib/skills/index-block";
 import { renderWorkflowReferenceBlock } from "@/lib/comfy/refs";
@@ -159,6 +159,15 @@ interface AgentGOMessage {
 interface AgentGOStartRunRequest {
   messages: AgentGOMessage[];
   thread_id: string;
+  /**
+   * Fully-assembled system prompt (memory + skill index + workflow ref +
+   * thread persona + voice mode, augmented per model family). Travels as a
+   * dedicated wire field — agent-ts installs it as the run's real system
+   * prompt (pi-agent-core initialState.systemPrompt). Canon: Next
+   * assembles, agent-ts obeys. Never injected as a role:"system" chat
+   * message; agent-ts (correctly) drops those from history.
+   */
+  system_prompt?: string;
   /**
    * Canonical AG-UI run id. agent-ts honours it so all events downstream
    * of /runs share the same id Next created here. Replaces the legacy
@@ -606,20 +615,18 @@ export async function POST(req: Request) {
     })
     .filter(m => m.content.trim().length > 0);
 
-  // Prepend the user's system prompt (augmented for the target model)
-  // so Agent-GO forwards it to the LLM as the first message. Agent-GO's
-  // own baked-in prompt still runs — these two stack.
-  //
-  // Agent-GO itself talks OpenAI-compatible downstream, so we pass the
-  // messages with role:"system". If the user eventually configures
-  // Agent-GO to talk directly to Claude/Gemini, that's an Agent-GO side
-  // concern — we hand it the prepared messages and let it adapt.
-  const prepared = prepareForModel(agentMessagesRaw, systemPrompt ?? "", selectedModel);
-  const agentMessages: AgentGOMessage[] = prepared.messages as AgentGOMessage[];
+  // The assembled system prompt travels as the dedicated `system_prompt`
+  // wire field — agent-ts installs it as the run's actual system prompt.
+  // Per-model family nudges (language anchor, reasoning focus) are part of
+  // assembly, so they still apply here. We deliberately do NOT prepend a
+  // role:"system" chat message: agent-ts drops non-user/assistant roles
+  // from history, which used to silently discard this entire prompt.
+  const assembledSystemPrompt = augmentForModel(systemPrompt ?? "", selectedModel).trim();
 
   const agentRequest: AgentGOStartRunRequest = {
-    messages: agentMessages,
+    messages: agentMessagesRaw,
     thread_id: thread,
+    system_prompt: assembledSystemPrompt || undefined,
     run_id: runId,
     workspace_root: process.env.WORKSPACE_ROOT ?? undefined,
     mode: "BUILD",

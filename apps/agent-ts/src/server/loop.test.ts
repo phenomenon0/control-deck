@@ -1,25 +1,33 @@
 /**
- * Smoke tests for the loop's beforeToolCall integration.
+ * Smoke tests for the loop's beforeToolCall integration, system-prompt
+ * plumbing (deck-assembled `system_prompt` vs bootstrap fallback), and
+ * wire → pi-agent-core message conversion (tool-history replay).
  *
  * Drives the approval and pause flows directly without a real LLM by
  * constructing the hook in isolation and feeding it a fake
- * `BeforeToolCallContext`.
+ * `BeforeToolCallContext`. The system-prompt round-trip test drives the
+ * full runner with an injected Agent factory stub.
  *
  * Run with: `tsx --test src/server/loop.test.ts`
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { ApprovalBroker } from "./broker.js";
 import { EventBus } from "./event-bus.js";
 import type { RunHandle } from "./runs.js";
-import type { AGUIEvent } from "../wire.js";
+import type { AGUIEvent, ChatMessageWire } from "../wire.js";
+import { WorkspaceJail } from "../tools/jail.js";
 
 // Re-export the internals we want to test by importing the module surface.
 // makeBeforeToolCall + waitWhilePaused are private to loop.ts; we exercise
 // them indirectly via the same patterns the loop uses.
-import { Agent, type BeforeToolCallContext } from "@mariozechner/pi-agent-core";
+import { Agent, type AgentOptions, type BeforeToolCallContext } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage, Message, ToolResultMessage } from "@mariozechner/pi-ai";
 
 void Agent; // keep import to fail fast if pi-agent-core API drifts
 
@@ -42,6 +50,15 @@ interface InternalLoop {
       bus: EventBus,
       signal?: AbortSignal,
     ) => Promise<"running" | "aborted">;
+    resolveSystemPrompt: (
+      deckPrompt: string | undefined,
+      jail: WorkspaceJail,
+    ) => Promise<string>;
+    wireToPiMessages: (
+      wire: ChatMessageWire[] | undefined,
+      legacyQuery: string | undefined,
+      model: { api: string; provider: string; id: string },
+    ) => Message[];
   };
 }
 
@@ -369,4 +386,148 @@ test("pause gate: aborts when signal fires", async () => {
 
   const outcome = await hooks.waitWhilePaused(handle, bus, ctrl.signal);
   assert.equal(outcome, "aborted");
+});
+
+test("system_prompt round-trip: Agent is constructed with the exact deck prompt", async () => {
+  // The plan's required eval case: a run request carrying `system_prompt`
+  // must land verbatim on pi-agent-core's initialState.systemPrompt —
+  // canon is "Next assembles, agent-ts obeys". A SOUL.md marker in the
+  // workspace proves the bootstrap stack is NOT appended on top (that
+  // would double-inject memory the deck already assembled).
+  const bus = new EventBus();
+  const broker = new ApprovalBroker();
+  const captured: AgentOptions[] = [];
+  const runner = loop.makeLoopRunner({
+    bus,
+    broker,
+    createAgent: (options: AgentOptions) => {
+      captured.push(options);
+      return {
+        subscribe: () => () => {},
+        continue: () => Promise.resolve(),
+      };
+    },
+  });
+
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "agent-ts-loop-"));
+  await fs.writeFile(path.join(workspace, "SOUL.md"), "BOOTSTRAP-MARKER must not appear");
+
+  const sentPrompt = "DECK-ASSEMBLED :: memory + skill index + persona + voice";
+  const handle = fakeHandle();
+  await runner(
+    handle,
+    {
+      messages: [{ role: "user", content: "hi" }],
+      system_prompt: sentPrompt,
+      workspace_root: workspace,
+      // Unroutable local endpoint: resolveLLM's /models probe fails fast
+      // (ECONNREFUSED) and the stubbed agent never calls the LLM.
+      llm: { base_url: "http://127.0.0.1:1/v1", model: "test-model" },
+    },
+    handle.controller.signal,
+  );
+
+  assert.equal(captured.length, 1, "exactly one Agent should be constructed");
+  assert.equal(
+    captured[0].initialState?.systemPrompt,
+    sentPrompt,
+    "system prompt must round-trip verbatim — no trimming, no bootstrap append",
+  );
+  assert.equal(bus.getStatus(handle.runId), "completed");
+});
+
+test("absent system_prompt: bootstrap stack remains the standalone-dev fallback", async () => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "agent-ts-loop-"));
+  await fs.writeFile(path.join(workspace, "SOUL.md"), "You are TEST-PERSONA.");
+  const jail = new WorkspaceJail(workspace);
+
+  const prompt = await hooks.resolveSystemPrompt(undefined, jail);
+  assert.ok(prompt.includes("TEST-PERSONA"), "bootstrap files still load when deck is absent");
+  assert.ok(
+    prompt.includes("Control Deck cockpit"),
+    "local SYSTEM_PROMPT anchors the fallback stack",
+  );
+
+  // Whitespace-only counts as absent — fall back rather than installing
+  // an empty prompt.
+  const blank = await hooks.resolveSystemPrompt("   \n  ", jail);
+  assert.ok(blank.includes("TEST-PERSONA"));
+
+  // Present → verbatim, bootstrap untouched.
+  const sent = "exact prompt\nwith newlines  and  spacing ";
+  assert.equal(await hooks.resolveSystemPrompt(sent, jail), sent);
+});
+
+test("wire history replays assistant tool calls and tool results (T17)", () => {
+  const model = { api: "openai-completions", provider: "openai", id: "m" };
+  const wire: ChatMessageWire[] = [
+    { role: "user", content: "what's on disk?" },
+    {
+      role: "assistant",
+      content: "Let me check.",
+      tool_calls: [{ id: "call-1", name: "bash", arguments: "{\"command\":\"ls\"}" }],
+    },
+    { role: "tool", tool_call_id: "call-1", name: "bash", content: "file.txt" },
+    { role: "assistant", content: "There is file.txt" },
+    {
+      role: "tool-result",
+      tool_call_id: "call-2",
+      name: "read_file",
+      content: "boom",
+      is_error: true,
+    },
+  ];
+  const out = hooks.wireToPiMessages(wire, undefined, model);
+
+  // Nothing dropped: 5 wire messages in → 5 pi messages out.
+  assert.equal(out.length, wire.length);
+  assert.equal(out[0].role, "user");
+
+  const toolCalling = out[1] as AssistantMessage;
+  assert.equal(toolCalling.role, "assistant");
+  assert.deepEqual(
+    toolCalling.content.map((c) => c.type),
+    ["text", "toolCall"],
+    "assistant turn carries both its text and its tool call",
+  );
+  const call = toolCalling.content[1];
+  assert.equal(call.type, "toolCall");
+  if (call.type === "toolCall") {
+    assert.equal(call.id, "call-1");
+    assert.equal(call.name, "bash");
+    assert.deepEqual(call.arguments, { command: "ls" }, "JSON-string args are parsed");
+  }
+  assert.equal(toolCalling.stopReason, "toolUse");
+
+  const result = out[2] as ToolResultMessage;
+  assert.equal(result.role, "toolResult");
+  assert.equal(result.toolCallId, "call-1");
+  assert.equal(result.toolName, "bash");
+  assert.equal(result.isError, false);
+  assert.deepEqual(result.content, [{ type: "text", text: "file.txt" }]);
+
+  const plain = out[3] as AssistantMessage;
+  assert.equal(plain.stopReason, "stop");
+
+  // "tool-result" alias + error flag survive the conversion.
+  const errResult = out[4] as ToolResultMessage;
+  assert.equal(errResult.role, "toolResult");
+  assert.equal(errResult.toolCallId, "call-2");
+  assert.equal(errResult.isError, true);
+});
+
+test("wire history: system role messages are not replayed as chat messages", () => {
+  // The system prompt now travels via req.system_prompt; a stray
+  // role:"system" entry in history must not become a user/assistant turn.
+  const model = { api: "openai-completions", provider: "openai", id: "m" };
+  const out = hooks.wireToPiMessages(
+    [
+      { role: "system", content: "legacy injected prompt" },
+      { role: "user", content: "hi" },
+    ],
+    undefined,
+    model,
+  );
+  assert.equal(out.length, 1);
+  assert.equal(out[0].role, "user");
 });

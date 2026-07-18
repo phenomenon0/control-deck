@@ -1,6 +1,5 @@
 /**
- * System-prompt plumbing shared across the three chat routes
- * (Agent-GO, free-tier, simple/Ollama).
+ * System-prompt plumbing for the chat route.
  *
  * Two responsibilities:
  *   1. A vetted default prompt that anchors language + brevity + tool use
@@ -9,6 +8,15 @@
  *   2. Model-family augmentation that invisibly layers provider-specific
  *      fixes on top of the user's base prompt. Multilingual models get
  *      an explicit English anchor; reasoning models get a focus nudge.
+ *
+ * The assembled prompt leaves the deck as the `system_prompt` field of the
+ * agent-ts run request — agent-ts installs it as the run's real system
+ * prompt (pi-agent-core initialState.systemPrompt), which also places it
+ * correctly per provider (separate field for Claude/Gemini, system role
+ * for OpenAI-compatible). The old `prepareForModel`/`withSystemPrompt`
+ * inject-as-a-chat-message hack is gone: agent-ts never forwarded those
+ * role:"system" messages to the model, so the entire assembled prompt was
+ * silently dropped.
  *
  * Keep additions here minimal and load-bearing. This file is a
  * centralised place for prompt-tuning knowledge that used to be
@@ -78,111 +86,4 @@ export function augmentForModel(basePrompt: string, modelId: string): string {
   if (trimmed) parts.push(trimmed);
 
   return parts.join("\n\n");
-}
-
-/**
- * Prepend or merge a system message into a messages array.
- *   - If the array is empty or starts with a non-system role: prepend
- *     a new `{role:"system"}` entry.
- *   - If it already starts with a system message (unusual — probably
- *     means the client or tool-bridge already inserted one): merge by
- *     concatenation, preserving both instructions.
- *   - Empty/whitespace-only system content is a no-op.
- */
-export function withSystemPrompt<M extends { role: string; content: string }>(
-  messages: ReadonlyArray<M>,
-  systemContent: string,
-): M[] {
-  const trimmed = (systemContent || "").trim();
-  if (!trimmed) return [...messages];
-
-  if (messages[0]?.role === "system") {
-    const merged = { ...messages[0], content: `${trimmed}\n\n${messages[0].content}` };
-    return [merged, ...messages.slice(1)] as M[];
-  }
-
-  const head = { role: "system", content: trimmed } as M;
-  return [head, ...messages] as M[];
-}
-
-/**
- * Shape of a request after system-prompt preparation. Split into the
- * provider-agnostic `messages` array (what goes into the body) and an
- * optional `system` string (what goes into a separate API field for
- * providers that prefer it — Anthropic Claude, Google Gemini).
- */
-export interface PreparedMessages<M extends { role: string; content: string }> {
-  /** Non-null when the provider wants the system prompt as a separate field. */
-  system: string | null;
-  /**
-   * Messages to send in the request body. Includes a `role:"system"`
-   * entry for OpenAI-compatible providers; omits it for providers that
-   * consume `system` separately; inlines it into the first user message
-   * for providers that don't accept system prompts at all (o1/o3).
-   */
-  messages: M[];
-}
-
-/** Providers that consume `system` as a separate API field, not a message role. */
-function wantsSeparateSystemField(modelId: string): boolean {
-  const id = modelId.toLowerCase();
-  if (id.startsWith("anthropic/") || id.includes("claude")) return true;
-  if (id.startsWith("google/") || id.includes("gemini")) return true;
-  return false;
-}
-
-/** Providers that don't accept system prompts at all (OpenAI reasoning models). */
-function noSystemPromptSupport(modelId: string): boolean {
-  const id = modelId.toLowerCase();
-  // Catches openai/o1, openai/o1-mini, openai/o3, openai/o3-mini, openai/o4
-  return /(^|\/)o[134](\b|-)/.test(id);
-}
-
-/**
- * Final assembly step. Handles three provider classes:
- *   1. OpenAI-compatible (default) — prepend `role:"system"` message.
- *   2. Separate system field (Claude, Gemini) — return system string,
- *      messages unmodified.
- *   3. No-system-prompt (OpenAI o1/o3) — inline the content into the
- *      first user message as "Instructions: ...\n\n{original}".
- *
- * Callers pass the raw base prompt; augmentForModel is invoked inside
- * so family-aware nudges are applied automatically.
- */
-export function prepareForModel<M extends { role: string; content: string }>(
-  messages: ReadonlyArray<M>,
-  baseSystemPrompt: string,
-  modelId: string,
-): PreparedMessages<M> {
-  const augmented = augmentForModel(baseSystemPrompt || "", modelId).trim();
-  if (!augmented) {
-    return { system: null, messages: [...messages] };
-  }
-
-  if (wantsSeparateSystemField(modelId)) {
-    return { system: augmented, messages: [...messages] };
-  }
-
-  if (noSystemPromptSupport(modelId)) {
-    // Relocate system content into the first user message. Preserves any
-    // prior role:"system" entries (they get concatenated into the
-    // preamble too — rare but robust).
-    const cloned = [...messages] as M[];
-    const firstUserIdx = cloned.findIndex((m) => m.role === "user");
-    if (firstUserIdx === -1) {
-      // No user message yet — synthesize one carrying the instructions.
-      cloned.unshift({ role: "user", content: `Instructions:\n${augmented}` } as M);
-      return { system: null, messages: cloned };
-    }
-    const target = cloned[firstUserIdx];
-    cloned[firstUserIdx] = {
-      ...target,
-      content: `Instructions:\n${augmented}\n\n${target.content}`,
-    } as M;
-    return { system: null, messages: cloned };
-  }
-
-  // OpenAI-compatible (Ollama, OpenRouter, NVIDIA NIM, OpenAI chat
-  // completions, most everything else) — use the role:"system" shape.
-  return { system: null, messages: withSystemPrompt(messages, augmented) };
 }

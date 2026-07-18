@@ -9,8 +9,8 @@
  * Errors emit RunError. Aborts emit RunError with message="aborted".
  */
 
-import { Agent, type AgentEvent, type BeforeToolCallContext } from "@mariozechner/pi-agent-core";
-import { streamSimple, type AssistantMessageEvent, type Message } from "@mariozechner/pi-ai";
+import { Agent, type AgentEvent, type AgentOptions, type BeforeToolCallContext } from "@mariozechner/pi-agent-core";
+import { streamSimple, type AssistantMessage, type AssistantMessageEvent, type Message } from "@mariozechner/pi-ai";
 import type { ApprovalBroker, RiskLevel } from "./broker.js";
 import type { EventBus } from "./event-bus.js";
 import type { LoopRunner, RunHandle } from "./runs.js";
@@ -28,6 +28,12 @@ import { domainSkillsTools } from "../context/domain-skills.js";
 export interface LoopDeps {
   bus: EventBus;
   broker: ApprovalBroker;
+  /**
+   * Test seam: override Agent construction. Production builds pi-agent-core's
+   * Agent directly; tests inject a capture stub to assert on the exact
+   * initialState (system prompt, message history) without a live LLM.
+   */
+  createAgent?: (options: AgentOptions) => Pick<Agent, "subscribe" | "continue">;
 }
 
 /**
@@ -74,6 +80,24 @@ const SYSTEM_PROMPT =
     "At run start, workspace context files may be appended below: SOUL.md, USER.md, MEMORY.md, AGENTS.md, and TOOLS.md.",
     "Treat that appended workspace context as the active operating contract for identity, user preferences, memory, agent behavior, and tool routing.",
   ].join("\n");
+
+/**
+ * Canon: Next assembles, agent-ts obeys. A deck-supplied prompt replaces
+ * the local stack wholesale — the deck's assembly already carries memory,
+ * skill index, workflow reference, persona, and voice-mode text, so
+ * appending the bootstrap files here would double-inject them. The local
+ * SYSTEM_PROMPT + bootstrap stack remains the fallback for standalone dev
+ * (no deck in front). The deck prompt is installed verbatim — no trimming
+ * or re-wording — so what Next assembled is what the model sees.
+ */
+async function resolveSystemPrompt(
+  deckPrompt: string | undefined,
+  jail: WorkspaceJail,
+): Promise<string> {
+  if (deckPrompt && deckPrompt.trim()) return deckPrompt;
+  const bootstrap = await readBootstrap(jail);
+  return bootstrap.prefix ? `${SYSTEM_PROMPT}\n\n${bootstrap.prefix}` : SYSTEM_PROMPT;
+}
 
 export function makeLoopRunner(deps: LoopDeps): LoopRunner {
   return async (handle, req, signal) => {
@@ -142,10 +166,7 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
       ...mcpToolsList,
     ];
 
-    const bootstrap = await readBootstrap(jail);
-    const systemPrompt = bootstrap.prefix
-      ? `${SYSTEM_PROMPT}\n\n${bootstrap.prefix}`
-      : SYSTEM_PROMPT;
+    const systemPrompt = await resolveSystemPrompt(req.system_prompt, jail);
 
     const bridgeToolNames = new Set(bridgeToolsList.map((t) => t.name));
     const preflightUrl = req.tool_bridge_url
@@ -160,7 +181,8 @@ export function makeLoopRunner(deps: LoopDeps): LoopRunner {
       bridgeToolNames,
     });
 
-    const agent = new Agent({
+    const createAgent = deps.createAgent ?? ((options: AgentOptions) => new Agent(options));
+    const agent = createAgent({
       initialState: {
         systemPrompt,
         model: llm.model,
@@ -517,7 +539,65 @@ function extractDelta(ev: AssistantMessageEvent): string | null {
 export const __testHooks = {
   makeBeforeToolCall,
   waitWhilePaused,
+  resolveSystemPrompt,
+  wireToPiMessages,
 };
+
+function zeroUsage(): AssistantMessage["usage"] {
+  return {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+}
+
+/** Tool-call arguments arrive as a JSON string or a parsed object. */
+function parseToolArguments(raw: unknown): Record<string, unknown> {
+  if (raw == null) return {};
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      // not JSON — wrap below
+    }
+    return { input: raw };
+  }
+  return {};
+}
+
+function wireAssistantToPi(
+  m: ChatMessageWire,
+  model: { api: string; provider: string; id: string },
+): AssistantMessage {
+  const content: AssistantMessage["content"] = [];
+  if (m.content) content.push({ type: "text", text: m.content });
+  for (const call of m.tool_calls ?? []) {
+    content.push({
+      type: "toolCall",
+      id: call.id,
+      name: call.name,
+      arguments: parseToolArguments(call.arguments),
+    });
+  }
+  // Preserve the previous shape for plain assistant turns (always a text
+  // block, even when the content string was empty).
+  if (content.length === 0) content.push({ type: "text", text: "" });
+  return {
+    role: "assistant",
+    content,
+    api: model.api as never,
+    provider: model.provider as never,
+    model: model.id,
+    usage: zeroUsage(),
+    stopReason: m.tool_calls?.length ? "toolUse" : "stop",
+    timestamp: Date.now(),
+  };
+}
 
 function wireToPiMessages(
   wire: ChatMessageWire[] | undefined,
@@ -534,25 +614,22 @@ function wireToPiMessages(
         timestamp: Date.now(),
       });
     } else if (m.role === "assistant") {
+      out.push(wireAssistantToPi(m, model));
+    } else if (m.role === "tool" || m.role === "tool-result" || m.role === "toolResult") {
+      // Replay prior tool results so multi-turn exchanges aren't silently
+      // dropped (T17). pi-agent-core pairs these with the assistant
+      // toolCall content emitted above.
       out.push({
-        role: "assistant",
+        role: "toolResult",
+        toolCallId: m.tool_call_id ?? "",
+        toolName: m.name ?? "tool",
         content: [{ type: "text", text: m.content }],
-        api: model.api as never,
-        provider: model.provider as never,
-        model: model.id,
-        usage: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 0,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-        stopReason: "stop",
+        isError: m.is_error ?? false,
         timestamp: Date.now(),
       });
     }
-    // system / tool messages are skipped; pi-agent-core uses initialState.systemPrompt
+    // system messages are skipped: the deck's assembled prompt travels in
+    // req.system_prompt and lands on initialState.systemPrompt instead.
   }
   return out;
 }

@@ -6,11 +6,11 @@
  * the pinned provider 429's, the user sees it. Policy: predictable
  * cost/quality > auto-degrade.
  *
- * Each dispatcher takes a unified input shape (prepared by
- * `prepareForModel` in systemPrompt.ts — so the Claude separate-system
- * field, OpenAI-compat role:"system" message, and o1/o3 inlined
- * Instructions: variants are all handled before we get here) and
- * returns a Response suitable for streaming.
+ * Each dispatcher takes a unified input shape (system placement already
+ * decided by the caller — the Claude separate-system field, OpenAI-compat
+ * role:"system" message, and o1/o3 inlined Instructions: variants are all
+ * handled before we get here) and returns a Response suitable for
+ * streaming.
  *
  * v1 ships OpenAI + Anthropic. Google's content-shape is different
  * enough to deserve its own effort; the id is in the type union so
@@ -87,7 +87,7 @@ export function findProvider(id: string): CloudProvider | undefined {
 
 export interface DispatchArgs {
   model: string;
-  /** Prepared messages — system already placed per `prepareForModel`. */
+  /** Prepared messages — system placement already decided by the caller. */
   messages: Array<{ role: string; content: string }>;
   /** Provider-separate system field (Claude). Null for others. */
   system: string | null;

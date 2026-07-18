@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { __test as arbiterTest, acquire, release, reportOom, listReservations } from "./arbiter";
-import { __test as ledgerTest } from "./ledger";
+import { __test as ledgerTest, subscribe } from "./ledger";
 import type { GpuMemory } from "./ledger";
+import type { ResourceEvent } from "./types";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
 
 const TOTAL = 24576;
 
@@ -273,5 +278,215 @@ describe("arbiter.reportOom", () => {
     const lanes = listReservations().map((r) => r.lane);
     expect(lanes).toContain("chat");
     expect(lanes).not.toContain("image");
+  });
+});
+
+describe("arbiter — failed unload must not desync the ledger", () => {
+  // Site: acquire() hard-evict fallback (no evictable reservations). The
+  // arbiter fires the underlying unloaders for memory held without a ticket;
+  // a failure there means nothing is draining, so the verdict must carry the
+  // real reason instead of swallowing it.
+  test("hard acquire with no evictable reservations denies with the unload error", async () => {
+    setFree(3000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: false, via: "test", error: "comfyui refused" }));
+    const events: ResourceEvent[] = [];
+    const unsub = subscribe((e) => events.push(e));
+
+    const r = await acquire({ lane: "image", estimateMb: 12_000, reason: "test", evicts: "hard" });
+
+    expect(r.status).toBe("denied");
+    expect(r.reason).toContain("comfyui refused");
+    expect(listReservations()).toHaveLength(0);
+    const denied = events.find((e) => e.kind === "acquire-denied");
+    expect(denied).toBeDefined();
+    expect(denied && denied.kind === "acquire-denied" && denied.reason).toContain("comfyui refused");
+    unsub();
+  });
+
+  test("hard acquire with a successful untracked unload still grants once the ledger frees", async () => {
+    setFree(3000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: true, via: "test" }));
+    let calls = 0;
+    ledgerTest.setMemoryOverride(async () => {
+      calls += 1;
+      // Entry refresh still sees 3000; after the unload the VRAM is back.
+      const free = calls <= 1 ? 3000 : 15_000;
+      return { totalMb: TOTAL, usedMb: TOTAL - free, freeMb: free, source: "nvidia-smi" };
+    });
+
+    const r = await acquire({ lane: "image", estimateMb: 12_000, reason: "test", evicts: "hard" });
+
+    expect(r.status).toBe("granted");
+    expect(listReservations()).toHaveLength(1);
+  });
+
+  // Site: reportOom(). The reservations are still flushed (the workload is
+  // dead), but a failed force-unload leaves the weights possibly resident and
+  // untracked — that must surface on the bus, not vanish.
+  test("reportOom marks evict-failed per dropped ticket when the force-unload fails", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: true, via: "test" }));
+    const a = await acquire({ lane: "image", estimateMb: 5000, reason: "a", evicts: "none" });
+    const b = await acquire({ lane: "image", estimateMb: 4000, reason: "b", evicts: "none" });
+    expect(a.status).toBe("granted");
+    expect(b.status).toBe("granted");
+
+    arbiterTest.setUnloadOverride(async () => ({ ok: false, via: "test", error: "comfyui down" }));
+    const events: ResourceEvent[] = [];
+    const unsub = subscribe((e) => events.push(e));
+    await reportOom("image", "cuda OOM");
+    unsub();
+
+    expect(listReservations().filter((r) => r.lane === "image")).toHaveLength(0);
+    const failedTickets = events.flatMap((e) => (e.kind === "evict-failed" ? [e.ticket] : []));
+    expect(failedTickets.sort()).toEqual([a.ticket!, b.ticket!].sort());
+  });
+
+  // Site: maybeRestore() dropping the downgrade reservation. If the smaller
+  // model's unload fails, both the restore entry and the downgrade
+  // reservation must survive — re-acquiring the original on top of a
+  // still-resident downgrade would stack two models on one lane.
+  test("maybeRestore keeps the downgrade and restore entry when the downgrade unload fails", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: true, via: "test" }));
+    const chat = await acquire({
+      lane: "chat",
+      estimateMb: 16_000,
+      reason: "qwen3.5-35b",
+      modelId: "qwen3.5-35b",
+      swapTo: { modelId: "qwen3.5-9b", estimateMb: 6000 },
+      evicts: "none",
+      restoreOnIdle: true,
+    });
+    expect(chat.status).toBe("granted");
+
+    setFree(4000);
+    let evicted = false;
+    ledgerTest.setMemoryOverride(async () => {
+      if (!evicted) {
+        evicted = true;
+        return { totalMb: TOTAL, usedMb: TOTAL - 4000, freeMb: 4000, source: "nvidia-smi" };
+      }
+      return { totalMb: TOTAL, usedMb: TOTAL - 20_000, freeMb: 20_000, source: "nvidia-smi" };
+    });
+    const heavy = await acquire({ lane: "3d", estimateMb: 11_000, reason: "hunyuan", evicts: "hard" });
+    expect(heavy.status).toBe("granted");
+    expect(arbiterTest.restoreQueue).toHaveLength(1);
+
+    // The unloader wedges; releasing the heavy lane attempts the restore.
+    arbiterTest.setUnloadOverride(async () => ({ ok: false, via: "test", error: "llama-swap down" }));
+    const events: ResourceEvent[] = [];
+    const unsub = subscribe((e) => events.push(e));
+    release(heavy.ticket!);
+    await sleep(20);
+    unsub();
+
+    // Restore entry survived and the downgrade is still tracked.
+    expect(arbiterTest.restoreQueue).toHaveLength(1);
+    const chatReservations = listReservations().filter((r) => r.lane === "chat");
+    expect(chatReservations).toHaveLength(1);
+    expect(chatReservations[0].modelId).toBe("qwen3.5-9b");
+    // No silent stacking: the original was NOT re-acquired.
+    expect(listReservations().some((r) => r.modelId === "qwen3.5-35b")).toBe(false);
+    expect(events.some((e) => e.kind === "evict-failed" && e.error.includes("llama-swap down"))).toBe(true);
+  });
+
+  test("maybeRestore completes the swap-back once the downgrade unload succeeds", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: true, via: "test" }));
+    const chat = await acquire({
+      lane: "chat",
+      estimateMb: 16_000,
+      reason: "qwen3.5-35b",
+      modelId: "qwen3.5-35b",
+      swapTo: { modelId: "qwen3.5-9b", estimateMb: 6000 },
+      evicts: "none",
+      restoreOnIdle: true,
+    });
+    expect(chat.status).toBe("granted");
+
+    setFree(4000);
+    let evicted = false;
+    ledgerTest.setMemoryOverride(async () => {
+      if (!evicted) {
+        evicted = true;
+        return { totalMb: TOTAL, usedMb: TOTAL - 4000, freeMb: 4000, source: "nvidia-smi" };
+      }
+      return { totalMb: TOTAL, usedMb: TOTAL - 20_000, freeMb: 20_000, source: "nvidia-smi" };
+    });
+    const heavy = await acquire({ lane: "3d", estimateMb: 11_000, reason: "hunyuan", evicts: "hard" });
+    expect(heavy.status).toBe("granted");
+    expect(arbiterTest.restoreQueue).toHaveLength(1);
+
+    release(heavy.ticket!);
+    await sleep(20);
+
+    expect(arbiterTest.restoreQueue).toHaveLength(0);
+    const chatReservations = listReservations().filter((r) => r.lane === "chat");
+    expect(chatReservations).toHaveLength(1);
+    expect(chatReservations[0].modelId).toBe("qwen3.5-35b");
+  });
+
+  // Site: TTL sweep. The sweep can't await the unload, but the promise result
+  // must still be handled — a failed unload leaves the model resident and
+  // untracked, which has to be marked on the bus.
+  test("TTL sweep marks a failed unload instead of swallowing it", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: true, via: "test" }));
+    const r = await acquire({
+      lane: "image",
+      estimateMb: 5000,
+      reason: "tmp",
+      evicts: "none",
+      ttlMs: 1,
+      restoreOnIdle: false,
+    });
+    expect(r.status).toBe("granted");
+    await sleep(5);
+
+    arbiterTest.setUnloadOverride(async () => ({ ok: false, via: "test", error: "comfyui wedged" }));
+    const events: ResourceEvent[] = [];
+    const unsub = subscribe((e) => events.push(e));
+    arbiterTest.sweepTtl();
+    await sleep(20);
+    unsub();
+
+    expect(listReservations()).toHaveLength(0);
+    expect(events.some((e) => e.kind === "release" && e.ticket === r.ticket)).toBe(true);
+    const failed = events.filter((e) => e.kind === "evict-failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0].kind === "evict-failed" && failed[0].ticket).toBe(r.ticket!);
+  });
+
+  test("TTL sweep emits nothing extra when the unload succeeds", async () => {
+    setFree(20_000);
+    setReserve(2048);
+    arbiterTest.setUnloadOverride(async () => ({ ok: true, via: "test" }));
+    const r = await acquire({
+      lane: "image",
+      estimateMb: 5000,
+      reason: "tmp",
+      evicts: "none",
+      ttlMs: 1,
+      restoreOnIdle: false,
+    });
+    expect(r.status).toBe("granted");
+    await sleep(5);
+
+    const events: ResourceEvent[] = [];
+    const unsub = subscribe((e) => events.push(e));
+    arbiterTest.sweepTtl();
+    await sleep(20);
+    unsub();
+
+    expect(listReservations()).toHaveLength(0);
+    expect(events.some((e) => e.kind === "release" && e.ticket === r.ticket)).toBe(true);
+    expect(events.some((e) => e.kind === "evict-failed")).toBe(false);
   });
 });

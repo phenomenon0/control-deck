@@ -223,7 +223,21 @@ export async function acquire(req: AcquireRequest): Promise<AcquireResult> {
   if (toEvict.length === 0 && freeMb < req.estimateMb + reserveMb) {
     // Nothing we can evict, but caller asked for hard — still try the underlying
     // unloaders (e.g. ComfyUI workflow held memory without a ticket).
-    await doUnload(req.lane, req.modelId).catch(() => null);
+    const unloaded = await doUnload(req.lane, req.modelId);
+    if (!unloaded.ok) {
+      // Nothing is draining — deny on the spot with the real reason instead of
+      // waiting out the evict timeout for VRAM that isn't coming.
+      const why = `no evictable reservations and unload of ${req.lane} failed: ${unloaded.error ?? "unknown"}`;
+      emit({
+        kind: "acquire-denied",
+        at: Date.now(),
+        lane: req.lane,
+        estimateMb: req.estimateMb,
+        reason: why,
+        freeMb,
+      });
+      return { status: "denied", freeAfterMb: freeMb - req.estimateMb, reserveMb, reason: why };
+    }
   }
 
   for (const victim of toEvict) {
@@ -299,14 +313,29 @@ export function touch(ticket: string): boolean {
 export async function reportOom(lane: LaneId, error: string): Promise<void> {
   emit({ kind: "oom", at: Date.now(), lane, error });
   // Drop every reservation on this lane to flush whatever leaked.
+  const dropped: Reservation[] = [];
   for (const [ticket, r] of reservations) {
     if (r.lane === lane) {
       reservations.delete(ticket);
+      dropped.push(r);
       emit({ kind: "release", at: Date.now(), ticket, lane, heldMs: Date.now() - r.acquiredAt });
     }
   }
   // Force-unload the lane just in case the failing process didn't free its weights.
-  await doUnload(lane).catch(() => null);
+  const unloaded = await doUnload(lane);
+  if (!unloaded.ok) {
+    // The weights may still be resident with nothing tracking them — mark the
+    // failure on the bus instead of pretending the lane was flushed.
+    for (const r of dropped) {
+      emit({
+        kind: "evict-failed",
+        at: Date.now(),
+        ticket: r.ticket,
+        lane,
+        error: unloaded.error ?? "unknown",
+      });
+    }
+  }
   await refreshSnapshot();
   pumpQueue();
 }
@@ -565,9 +594,23 @@ async function maybeRestore(): Promise<void> {
   if (next.replacesTicket) {
     const downgrade = reservations.get(next.replacesTicket);
     if (downgrade) {
-      reservations.delete(next.replacesTicket);
       // Tell the lane to unload the smaller model so the original can lazy-load.
-      await doUnload(downgrade.lane, downgrade.modelId).catch(() => null);
+      // Only forget the downgrade once the lane actually let go of it — if the
+      // unload failed, the smaller model is still resident and re-acquiring the
+      // original would stack both on the same lane.
+      const unloaded = await doUnload(downgrade.lane, downgrade.modelId);
+      if (!unloaded.ok) {
+        restoreQueue.unshift(next);
+        emit({
+          kind: "evict-failed",
+          at: Date.now(),
+          ticket: next.replacesTicket,
+          lane: downgrade.lane,
+          error: unloaded.error ?? "unknown",
+        });
+        return;
+      }
+      reservations.delete(next.replacesTicket);
       await refreshSnapshot();
       emit({
         kind: "release",
@@ -604,7 +647,31 @@ function sweepTtl(): void {
     }
   }
   for (const r of idleEvictions) {
-    void doUnload(r.lane, r.modelId).catch(() => null);
+    // Still fire-and-forget (the sweep can't await), but don't swallow the
+    // outcome: if the lane refuses to unload, the model stays resident while
+    // the ledger shows nothing held — mark it so the desync shows on the bus.
+    void doUnload(r.lane, r.modelId).then(
+      (res) => {
+        if (!res.ok) {
+          emit({
+            kind: "evict-failed",
+            at: Date.now(),
+            ticket: r.ticket,
+            lane: r.lane,
+            error: res.error ?? "unknown",
+          });
+        }
+      },
+      (err) => {
+        emit({
+          kind: "evict-failed",
+          at: Date.now(),
+          ticket: r.ticket,
+          lane: r.lane,
+          error: err instanceof Error ? err.message : "unload threw",
+        });
+      },
+    );
   }
   void maybeRestore();
 }
@@ -626,6 +693,7 @@ export const __test = {
   setUnloadOverride(fn: ((lane: LaneId, modelId?: string) => Promise<{ ok: boolean; via?: string; error?: string }>) | null) {
     getState().unloadOverride = fn;
   },
+  sweepTtl,
   get reservations() { return getState().reservations; },
   get restoreQueue() { return getState().restoreQueue; },
   get queue() { return getState().queue; },

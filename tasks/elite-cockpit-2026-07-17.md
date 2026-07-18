@@ -243,3 +243,38 @@ Follow-ups for the record:
 
 T-score: **FIXED** T1,T2,T3,T4,T5,T6,T7,T8(mostly),T10,T11,T13,T14,T16,T17,T20.
 OPEN: T9, T12 (standing hygiene), T15, T18, T19, T21, T22.
+
+## Execution log 4 — Phase 4 (the elite bar), 2026-07-18
+
+Six parallel agents + parent integration. Gate green at HEAD (`6e5c6be`),
+1128 bun tests + 44 agent-ts tests + contract suite + hermetic evals.
+
+| Commit | Thread | What landed |
+|---|---|---|
+| `663ccb0` | **T21 FIXED** | GH Actions verify on push/PR (+ doctor --ci), pre-push hook (enabled), eval-gate ≥ 10/11 baseline, mcp-tool-eval --mode hermetic (27 offline checks) |
+| `233cf4b` | god-file 1/2 | chat/route.ts 917→225 over `_lib/` gateway modules; console.logs disposed; 68 tests |
+| `4bec7a2` | **T15 FIXED** | fake-agent-ts fixture, 5 route-contract invariants, 27-cell middleware auth matrix, happy-dom+RTL component infra |
+| `0bb63bf` | god-file 2/2 | ChatSurface 1307→391, 10 focused extractions, props API unchanged |
+| `bc20e32` | numbers | TTFT/tool-round-trip/resolveMs from ledger → `?aggregate=engine` + ENGINE LATENCY card on /v2/system (live: TTFT p50 1.6s/p95 26.3s) |
+| `6e5c6be` | **T18+T19 FIXED** | dist ghost removed (tsx sanctioned); pyenvs/vllm dropped; local voice preset honest (qwen-omni first); GLYPH __proto__ prototype-pollution fixed + -0 semantics pinned |
+
+T-score: **19 of 22 FIXED** (T1-T8, T10, T11, T13-T21 — T9 skills consolidation,
+T12 tree hygiene as a standing practice, T22 component-rendering coverage
+remain).
+
+Backlog for the final wave:
+- **T9**: consolidate skills — `lib/skills` becomes UI/index over filesystem
+  SKILL.md files (agent-ts context/skills is canon).
+- T17 replay feed: tool RESULTS never persist — path (b) event-source from the
+  events table (getEvents(runId) holds full ToolCallResult payloads).
+- Route quirks pinned by contract tests (agent-30): upstream RunFinished yields
+  two RunFinished events + post-loop TextMessageEnd; on upstream RunError the
+  pre-emitted TextMessageStart never closes (dangling segment).
+- Auto-TTS readback inert: `voiceReplyMessageIdsRef` never populated
+  (ChatSurface refactor evidence).
+- providers.ts shim: 6 importers still on the legacy sync API, then drop shim.
+- InterruptRequested `data` bag untyped (agent-ts vs gate.ts) — extend the type
+  or align emitters.
+- `.venv-vllm/` ~10 GB orphaned host state — manual rm -rf (owner decision).
+- 4 non-AG-UI SSE users kept payload frames — bless or canonize.
+- First real CI run may surface host-bound tests (electron/scripts dirs).

@@ -1,6 +1,10 @@
 import { useReducer, useCallback, useRef, useState } from "react";
 import type { LocalPreset } from "@/lib/inference/local-defaults";
 import type { Artifact } from "@/lib/types/chat";
+import { SSEParser } from "@/lib/agui/sse";
+import type { AGUIEvent } from "@/lib/agui/events";
+import type { DeckPayload } from "@/lib/agui/payload";
+import { useRunController, type RunController } from "@/lib/hooks/useRunController";
 import type {
   AgentRunState,
   RunAction,
@@ -85,22 +89,24 @@ function updateToolStep(
   );
 }
 
-function extractToolArgs(event: any): Record<string, unknown> | undefined {
+function extractToolArgs(event: { args?: DeckPayload }): Record<string, unknown> | undefined {
   const raw = event.args?.kind === "json" ? event.args.data : event.args;
   return raw && typeof raw === "object" ? raw as Record<string, unknown> : undefined;
 }
 
-function extractToolResult(event: any): ActivityStep["result"] {
+function extractToolResult(event: { success?: boolean; result?: unknown }): ActivityStep["result"] {
   const success = event.success ?? true;
+  const result = event.result as DeckPayload | Record<string, unknown> | undefined;
   let resultData: Record<string, unknown> | undefined;
-  if (event.result?.kind === "json") {
-    resultData = event.result.data as Record<string, unknown>;
-  } else if (event.result?.kind === "glyph") {
-    resultData = { _glyph: event.result.glyph, _approxBytes: event.result.approxBytes };
-  } else if (event.result?.kind === "text") {
-    resultData = { message: event.result.text };
-  } else if (event.result && typeof event.result === "object") {
-    resultData = event.result;
+  if (result && typeof result === "object" && "kind" in result && result.kind === "json") {
+    resultData = (result as { data: unknown }).data as Record<string, unknown>;
+  } else if (result && typeof result === "object" && "kind" in result && result.kind === "glyph") {
+    const glyph = result as { glyph: string; approxBytes?: number };
+    resultData = { _glyph: glyph.glyph, _approxBytes: glyph.approxBytes };
+  } else if (result && typeof result === "object" && "kind" in result && result.kind === "text") {
+    resultData = { message: (result as { text: string }).text };
+  } else if (result && typeof result === "object") {
+    resultData = result as Record<string, unknown>;
   }
 
   return {
@@ -424,9 +430,30 @@ export function agentRunReducer(
   }
 }
 
-function dispatchSSEEvent(
+/**
+ * Agent-GO extended reasoning events ride the same SSE stream but are not
+ * part of the AG-UI union in `lib/agui/events` — normalizeEvent passes them
+ * through untouched, so fold them alongside the canonical events.
+ */
+type ReasoningStreamEvent =
+  | { type: "ReasoningStart" }
+  | { type: "ReasoningMessageContent"; content?: string; delta?: string }
+  | { type: "ReasoningContent"; content?: string; delta?: string }
+  | { type: "ReasoningEnd" };
+
+/** Every event the /api/chat stream can deliver after SSEParser normalization. */
+export type AgentStreamEvent = AGUIEvent | ReasoningStreamEvent;
+
+/**
+ * The single event → reducer fold. Every AG-UI event parsed off the stream
+ * passes through here exactly once; events that are not timeline-bound
+ * (Interrupt*, Step*, CostIncurred, LLMResolved, WarningRaised, unknown
+ * types) are deliberately no-ops — interrupt routing happens in `send`.
+ * Exported so tests can drive the reducer with SSEParser-fed events.
+ */
+export function dispatchAGUIEvent(
   dispatch: React.Dispatch<RunAction>,
-  event: any,
+  event: AgentStreamEvent,
 ): void {
   switch (event.type) {
     case "RunStarted":
@@ -515,6 +542,9 @@ function dispatchSSEEvent(
         error: event.error?.message ?? "Unknown error",
       });
       break;
+
+    default:
+      break;
   }
 }
 
@@ -530,6 +560,13 @@ export interface UseAgentRunOptions {
   onInterrupt?: (request: InterruptRequest) => void;
   /** Called when an interrupt is resolved */
   onInterruptResolved?: () => void;
+  /**
+   * Shared run controller (from `useRunController`). When provided, this hook
+   * registers its runs there and `stop()` routes through `controller.cancel()`
+   * — one cancel POST per run even when voice interrupts the same run.
+   * Defaults to a private controller.
+   */
+  controller?: RunController;
 }
 
 export interface UseAgentRunReturn {
@@ -585,7 +622,10 @@ export interface SendResult {
  * Unified hook for agent run state management.
  *
  * Consumes the SSE event stream from POST /api/chat directly,
- * replacing the dual useSendMessage + useSSE pattern.
+ * replacing the dual useSendMessage + useSSE pattern. Decoding goes through
+ * the one shared codec (`SSEParser` from lib/agui/sse.ts) and one fold
+ * (`dispatchAGUIEvent`); run-id ownership and cancellation live in the
+ * shared `RunController`.
  */
 export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
   const [state, dispatch] = useReducer(agentRunReducer, INITIAL_AGENT_RUN_STATE);
@@ -596,7 +636,9 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
   const [requestActive, setRequestActive] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const isRunningRef = useRef(false);
-  const currentRunIdRef = useRef<string | null>(null);
+  const internalController = useRunController();
+  const runControllerRef = useRef(options?.controller ?? internalController);
+  runControllerRef.current = options?.controller ?? internalController;
 
   // Stable refs for callbacks
   const onInterruptRef = useRef(options?.onInterrupt);
@@ -640,7 +682,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       isRunningRef.current = true;
       setRequestActive(true);
       const requestedRunId = opts.runId ?? opts.voice?.runId ?? crypto.randomUUID();
-      currentRunIdRef.current = requestedRunId;
+      runControllerRef.current.begin(requestedRunId, "chat");
 
       // Dispatch user message to the timeline
       dispatch({ type: "SUBMIT", content });
@@ -656,11 +698,23 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       const toolCalls = new Map<string, ActivityStep>();
       const artifacts: Artifact[] = [];
 
-      // Keep a synchronous copy of streamed tool/artifact state for persistence.
-      // React reducer state updates land in later renders, so reading
-      // agentRun.state after await send() can miss the final stream events.
-      const captureEvent = (event: any) => {
+      // Single fold for every parsed stream event. The reducer path can't be
+      // read back from this async closure — React state updates land in later
+      // renders — so the SendResult side-channel (fullText, toolCalls,
+      // artifacts) accumulates here alongside the reducer dispatch, replacing
+      // the old parallel captureEvent decoder.
+      const handleStreamEvent = (event: AgentStreamEvent) => {
         switch (event.type) {
+          case "TextMessageContent":
+            // Track full text for message persistence
+            if (event.delta) {
+              fullText += event.delta;
+              opts.hooks?.onTextDelta?.(event.delta);
+            }
+            break;
+          case "RunError":
+            runErrored = true;
+            break;
           case "ToolCallStart":
             if (event.toolCallId) {
               toolCalls.set(event.toolCallId, {
@@ -679,7 +733,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             toolCalls.set(event.toolCallId, {
               ...(existing ?? {
                 toolCallId: event.toolCallId,
-                toolName: event.toolName ?? "unknown",
+                toolName: (event as { toolName?: string }).toolName ?? "unknown",
                 status: "running" as const,
                 startedAt: Date.now(),
               }),
@@ -697,7 +751,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
             toolCalls.set(event.toolCallId, {
               ...(existing ?? {
                 toolCallId: event.toolCallId,
-                toolName: event.toolName ?? "unknown",
+                toolName: (event as { toolName?: string }).toolName ?? "unknown",
                 status: "running" as const,
                 startedAt: Date.now(),
               }),
@@ -720,7 +774,22 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
               });
             }
             break;
+          case "InterruptRequested":
+            // Interrupt events route via callbacks, not the reducer.
+            onInterruptRef.current?.({
+              runId: event.runId ?? "",
+              toolCallId: event.toolCallId ?? "",
+              toolName: event.toolName ?? "unknown",
+              args: event.args?.kind === "json" ? event.args.data : event.args,
+            });
+            return;
+          case "InterruptResolved":
+            onInterruptResolvedRef.current?.();
+            return;
+          default:
+            break;
         }
+        dispatchAGUIEvent(dispatch, event);
       };
 
       try {
@@ -744,7 +813,7 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         // Extract IDs from response headers
         threadId = res.headers.get("X-Thread-Id") ?? opts.threadId;
         runId = res.headers.get("X-Run-Id") ?? requestedRunId;
-        currentRunIdRef.current = runId;
+        runControllerRef.current.begin(runId, "chat");
         messageId = res.headers.get("X-Message-Id");
 
         if (!res.ok) {
@@ -756,52 +825,23 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
         if (!reader) throw new Error("No response body");
 
         const decoder = new TextDecoder();
-        let buffer = "";
+        const parser = new SSEParser();
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (!data || data === "[DONE]") continue;
-
-            try {
-              const event = JSON.parse(data);
-
-              // Track full text for message persistence
-              if (event.type === "TextMessageContent" && event.delta) {
-                fullText += event.delta;
-                opts.hooks?.onTextDelta?.(event.delta);
-              }
-              if (event.type === "RunError") {
-                runErrored = true;
-              }
-              captureEvent(event);
-
-              // Handle interrupt events via callbacks (not reducer state)
-              if (event.type === "InterruptRequested") {
-                onInterruptRef.current?.({
-                  runId: event.runId ?? "",
-                  toolCallId: event.toolCallId ?? "",
-                  toolName: event.toolName ?? "unknown",
-                  args: event.args?.kind === "json" ? event.args.data : event.args,
-                });
-              } else if (event.type === "InterruptResolved") {
-                onInterruptResolvedRef.current?.();
-              } else {
-                // Dispatch all other events to the state machine
-                dispatchSSEEvent(dispatch, event);
-              }
-            } catch (err) {
-              console.warn("[useAgentRun] Malformed SSE line:", line, err);
-            }
+          for (const event of parser.feed(decoder.decode(value, { stream: true }))) {
+            handleStreamEvent(event);
           }
+        }
+        // Flush the multibyte decoder and any trailing frame without a
+        // blank-line terminator before wrapping up.
+        for (const event of parser.feed(decoder.decode())) {
+          handleStreamEvent(event);
+        }
+        for (const event of parser.flush()) {
+          handleStreamEvent(event);
         }
 
         return {
@@ -832,7 +872,9 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
       } finally {
         abortRef.current = null;
         isRunningRef.current = false;
-        currentRunIdRef.current = null;
+        // Only clears when this run is still the active one — a voice-side
+        // interrupt may already have cancelled it via the shared controller.
+        runControllerRef.current.finish(runId ?? undefined);
         setRequestActive(false);
       }
     },
@@ -840,18 +882,11 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
   );
 
   const stop = useCallback(() => {
-    const runId = currentRunIdRef.current;
-    if (runId) {
-      void fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
-        method: "POST",
-        keepalive: true,
-      }).catch(() => {
-        /* best-effort: local abort still stops the UI stream */
-      });
-    }
+    // The controller owns the cancel POST and dedupes it client-wide; the
+    // local abort still stops the UI stream immediately.
+    runControllerRef.current.cancel();
     abortRef.current?.abort();
     abortRef.current = null;
-    currentRunIdRef.current = null;
     dispatch({ type: "STOP" });
   }, []);
 

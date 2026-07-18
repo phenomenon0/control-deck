@@ -21,6 +21,19 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import { useVoiceChat, type UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
 import { useDeckSettings, type VoicePrefs } from "@/components/settings/DeckSettingsProvider";
+import { SSEParser } from "@/lib/agui/sse";
+import {
+  isArtifactCreated,
+  isInterruptRequested,
+  isInterruptResolved,
+  isRunError,
+  isRunFinished,
+  isRunStarted,
+  isToolCallResult,
+  isToolCallStart,
+  type AGUIEvent,
+} from "@/lib/agui/events";
+import { useRunController, type RunController } from "@/lib/hooks/useRunController";
 import {
   initialContext,
   reduceVoiceSession,
@@ -193,12 +206,22 @@ interface UseVoiceSessionOptions {
   enabled?: boolean;
   onTranscriptFinal?: (text: string) => void;
   preset?: VoiceRoutePreset;
+  /**
+   * Shared run controller (from `useRunController`). When provided,
+   * `interrupt()` routes the server-side cancel through it — one cancel POST
+   * per run even when chat's `stop()` races the voice interrupt. Defaults to
+   * a private controller.
+   */
+  controller?: RunController;
 }
 
 const TRANSCRIBING_WATCHDOG_MS = 12_000;
 // Thinking has no audio yet — if it's still ours after this long, the LLM/TTS
 // path likely failed silently. Bail to idle so the orb doesn't freeze.
 const THINKING_WATCHDOG_MS = 20_000;
+// Reconnect delay for the /api/agui/stream subscription (mirrors EventSource's
+// built-in retry now that the stream is consumed via fetch + SSEParser).
+const AGUI_STREAM_RETRY_MS = 2_000;
 
 export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSessionApi {
   const { enabled = true, onTranscriptFinal, preset: initialPreset } = options;
@@ -489,10 +512,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     artifacts: [],
   });
   const speechHandleRef = useRef<SpeechHandle | null>(null);
-  // Latest runId of the in-flight turn — captured via ref so interrupt()
-  // stays a stable callback while still able to fire a server-side cancel.
-  const activeRunIdRef = useRef<string | null>(null);
-  const activeRunSourceRef = useRef<"chat-surface" | "sse" | null>(null);
+  // Active run id + cancellation are owned by the shared RunController
+  // (lib/hooks/useRunController.ts) — chat's useAgentRun and this hook cancel
+  // through the same ledger, so a run gets exactly one cancel POST.
+  const internalRunController = useRunController();
+  const runController = options.controller ?? internalRunController;
   const pendingApprovalRef = useRef<VoiceApprovalChallenge | null>(null);
   // True while ChatSurface's agentRun is streaming a reply. Bridges the
   // inter-phrase gap in the per-phrase TTS lane: `voiceChat.isSpeaking`
@@ -663,105 +687,158 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     void agentOutputRef.current?.setOutputDevice(outputDeviceId);
   }, [outputDeviceId]);
 
-  const attachThread = useCallback((threadId: string) => {
-    if (typeof window === "undefined" || !threadId) return () => {};
-
-    const eventSource = new EventSource(`/api/agui/stream?threadId=${threadId}`);
-    eventSource.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data);
-        if (event.type === "RunStarted") {
-          if (typeof event.runId === "string") {
-            if (activeRunIdRef.current !== event.runId) {
-              activeRunSourceRef.current = "sse";
-            }
-            activeRunIdRef.current = event.runId;
-            replyInFlightRef.current = true;
-          }
+  /**
+   * Single fold for every AG-UI event arriving on the thread stream. The
+   * decode is shared with chat (SSEParser + normalizeEvent upstream, the
+   * lib/agui/events guards here); only the reactions are voice-specific:
+   * tool state for the Newsroom surface, approval challenges, run tracking
+   * for interrupt().
+   */
+  const handleAguiStreamEvent = useCallback(
+    (event: AGUIEvent) => {
+      if (isRunStarted(event)) {
+        if (typeof event.runId === "string") {
+          runController.begin(event.runId, "sse");
+          replyInFlightRef.current = true;
         }
-        if (
-          (event.type === "RunFinished" || event.type === "RunError") &&
-          typeof event.runId === "string" &&
-          event.runId === activeRunIdRef.current
-        ) {
-          if (activeRunSourceRef.current === "sse") {
-            activeRunIdRef.current = null;
-            activeRunSourceRef.current = null;
-            replyInFlightRef.current = false;
-          }
-        }
-        if (event.type === "ToolCallStart") {
-          setTools((prev) => ({
-            ...prev,
-            isRunning: true,
-            currentToolName: event.toolName,
-          }));
-        }
-        if (event.type === "ToolCallResult") {
-          setTools((prev) => ({ ...prev, isRunning: false, currentToolName: null }));
-        }
-        if (event.type === "ArtifactCreated") {
-          const artifact: Artifact = {
-            id: event.artifactId,
-            url: event.url,
-            name: event.name,
-            mimeType: event.mimeType,
-          };
-          setTools((prev) => ({ ...prev, artifacts: [...prev.artifacts, artifact] }));
-        }
-        if (event.type === "InterruptRequested") {
-          // Both lib/approvals/gate.ts and apps/agent-ts/loop.ts shape this
-          // payload differently. Pull approval-specific fields from either.
-          const data =
-            (event.data && typeof event.data === "object" ? event.data : null) ?? null;
-          const argsData =
-            event.args && typeof event.args === "object"
-              ? (event.args as { data?: unknown; format?: string }).data ?? event.args
-              : null;
-          const payload = (data ?? argsData) as Record<string, unknown> | null;
-          const kind = payload && typeof payload.kind === "string" ? payload.kind : null;
-          if (kind === "approval" || kind === null) {
-            const approvalId =
-              (payload && typeof payload.approvalId === "string" && payload.approvalId) ||
-              event.toolCallId ||
-              `appr-${Date.now()}`;
-            const toolName =
-              (payload && typeof payload.toolName === "string" && payload.toolName) ||
-              event.toolName ||
-              "tool";
-            const risk =
-              payload && typeof payload.riskLevel === "string"
-                ? (payload.riskLevel as VoiceApprovalChallenge["risk"])
-                : "medium";
-            const requiredPhrase = `confirm ${toolName.replace(/[^a-z0-9]+/gi, " ").trim()}`;
-            const challenge: VoiceApprovalChallenge = {
-              approvalId,
-              toolName,
-              risk,
-              summary: `${toolName} needs your approval before it runs.`,
-              requiredPhrase,
-              expiresAt: Date.now() + 60_000,
-            };
-            realtimeClientRef.current?.setInterruptEnabled(false);
-            setPendingApproval(challenge);
-            dispatchCtx({ type: "APPROVAL_CHALLENGE" });
-          }
-        }
-        if (event.type === "InterruptResolved") {
-          realtimeClientRef.current?.setInterruptEnabled(true);
-          setPendingApproval(null);
-        }
-      } catch (err) {
-        console.warn("[useVoiceSession] Failed to parse SSE event:", err);
+        return;
       }
-    };
-    eventSource.onerror = () => {
-      // EventSource auto-reconnects; nothing to do here.
-    };
-    return () => {
-      eventSource.close();
-    };
-  }, []);
+      if (isRunFinished(event) || isRunError(event)) {
+        // The stream may only finish runs it announced; chat-owned runs are
+        // finished by markAgentRunFinished.
+        if (
+          typeof event.runId === "string" &&
+          runController.finish(event.runId, { onlySource: "sse" })
+        ) {
+          replyInFlightRef.current = false;
+        }
+        return;
+      }
+      if (isToolCallStart(event)) {
+        setTools((prev) => ({
+          ...prev,
+          isRunning: true,
+          currentToolName: event.toolName,
+        }));
+        return;
+      }
+      if (isToolCallResult(event)) {
+        setTools((prev) => ({ ...prev, isRunning: false, currentToolName: null }));
+        return;
+      }
+      if (isArtifactCreated(event)) {
+        const artifact: Artifact = {
+          id: event.artifactId,
+          url: event.url,
+          name: event.name,
+          mimeType: event.mimeType,
+        };
+        setTools((prev) => ({ ...prev, artifacts: [...prev.artifacts, artifact] }));
+        return;
+      }
+      if (isInterruptRequested(event)) {
+        // Both lib/approvals/gate.ts and apps/agent-ts/loop.ts shape this
+        // payload differently from the canonical InterruptRequested: the
+        // approval fields ride in a free-form `data` bag that the AGUIEvent
+        // type doesn't declare (normalizeEvent lets it through untouched).
+        // Pull approval-specific fields from either `data` or a
+        // DeckPayload-wrapped `args`, then fall back to the top-level
+        // toolCallId/toolName the canonical emitters use.
+        const data = (event as unknown as { data?: unknown }).data;
+        const dataObj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+        const argsData =
+          event.args && typeof event.args === "object"
+            ? ((event.args as { data?: unknown }).data ?? event.args)
+            : null;
+        const payload = (dataObj ?? argsData) as Record<string, unknown> | null;
+        const kind = payload && typeof payload.kind === "string" ? payload.kind : null;
+        if (kind === "approval" || kind === null) {
+          const approvalId =
+            (payload && typeof payload.approvalId === "string" && payload.approvalId) ||
+            event.toolCallId ||
+            `appr-${Date.now()}`;
+          const toolName =
+            (payload && typeof payload.toolName === "string" && payload.toolName) ||
+            event.toolName ||
+            "tool";
+          const risk =
+            payload && typeof payload.riskLevel === "string"
+              ? (payload.riskLevel as VoiceApprovalChallenge["risk"])
+              : "medium";
+          const requiredPhrase = `confirm ${toolName.replace(/[^a-z0-9]+/gi, " ").trim()}`;
+          const challenge: VoiceApprovalChallenge = {
+            approvalId,
+            toolName,
+            risk,
+            summary: `${toolName} needs your approval before it runs.`,
+            requiredPhrase,
+            expiresAt: Date.now() + 60_000,
+          };
+          realtimeClientRef.current?.setInterruptEnabled(false);
+          setPendingApproval(challenge);
+          dispatchCtx({ type: "APPROVAL_CHALLENGE" });
+        }
+        return;
+      }
+      if (isInterruptResolved(event)) {
+        realtimeClientRef.current?.setInterruptEnabled(true);
+        setPendingApproval(null);
+      }
+    },
+    [runController],
+  );
+
+  const attachThread = useCallback(
+    (threadId: string) => {
+      if (typeof window === "undefined" || !threadId) return () => {};
+
+      // fetch + SSEParser (not EventSource) so the thread stream goes through
+      // the one shared codec. Reconnect mirrors EventSource's auto-retry with
+      // a fixed-delay re-connect loop.
+      let closed = false;
+      let retryTimer: number | null = null;
+      let abort: AbortController | null = null;
+
+      const connect = async () => {
+        const ctrl = new AbortController();
+        abort = ctrl;
+        const parser = new SSEParser();
+        try {
+          const res = await fetch(
+            `/api/agui/stream?threadId=${encodeURIComponent(threadId)}`,
+            { signal: ctrl.signal, cache: "no-store" },
+          );
+          if (!res.ok || !res.body) throw new Error(`agui stream HTTP ${res.status}`);
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            for (const event of parser.feed(decoder.decode(value, { stream: true }))) {
+              handleAguiStreamEvent(event);
+            }
+          }
+          for (const event of parser.feed(decoder.decode())) {
+            handleAguiStreamEvent(event);
+          }
+          for (const event of parser.flush()) {
+            handleAguiStreamEvent(event);
+          }
+        } catch {
+          // Aborted during teardown or a transient failure — retry unless closed.
+        }
+        if (!closed) retryTimer = window.setTimeout(connect, AGUI_STREAM_RETRY_MS);
+      };
+
+      void connect();
+      return () => {
+        closed = true;
+        if (retryTimer !== null) window.clearTimeout(retryTimer);
+        abort?.abort();
+      };
+    },
+    [handleAguiStreamEvent],
+  );
 
 
   // ------- Lifecycle controls -------
@@ -782,15 +859,15 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
   }, [createAgentOutput]);
 
   const markAgentRunStarted = useCallback((runId?: string) => {
-    if (runId) activeRunIdRef.current = runId;
-    activeRunSourceRef.current = "chat-surface";
+    // No id of our own: retag the current run as chat-surface-owned so the
+    // agui stream can't finish it out from under the chat turn.
+    runController.begin(runId ?? null, "chat-surface");
     replyInFlightRef.current = true;
     dispatchCtx({ type: "RUN_STARTED" });
-  }, []);
+  }, [runController]);
 
   const markAgentRunFinished = useCallback(() => {
-    activeRunIdRef.current = null;
-    activeRunSourceRef.current = null;
+    runController.finish();
     replyInFlightRef.current = false;
     const state = stateRef.current;
     if (state === "thinking" || state === "speaking") {
@@ -798,7 +875,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     } else if (state === "submitting") {
       dispatchCtx({ type: "RESET" });
     }
-  }, []);
+  }, [runController]);
 
   const beginStreamingReply = useCallback((): StreamingReplyHandle | null => {
     return null;
@@ -900,7 +977,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     async (decision: "approved" | "rejected", reason?: string) => {
       const challenge = pendingApprovalRef.current;
       if (!challenge) return;
-      const runId = activeRunIdRef.current;
+      const runId = runController.peekRunId();
       // Clear local state + FSM eagerly so the UI snaps even if the network
       // call is slow.
       setPendingApproval(null);
@@ -924,7 +1001,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         console.warn("[useVoiceSession] confirmApproval network error:", err);
       }
     },
-    [],
+    [runController],
   );
 
   const interrupt = useCallback(async () => {
@@ -942,21 +1019,11 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       voiceChat.stopSpeaking();
       voiceChat.clearQueue();
     }
-    // Tell the server to actually stop the run. Fire-and-forget — the
-    // local fetch is already aborted; this just keeps agent-ts from
-    // continuing to step after the deck disconnected.
-    const runId = activeRunIdRef.current;
-    activeRunSourceRef.current = null;
-    if (runId) {
-      activeRunIdRef.current = null;
-      void fetch(`/api/chat/runs/${encodeURIComponent(runId)}/cancel`, {
-        method: "POST",
-        keepalive: true,
-      }).catch(() => {
-        /* best-effort */
-      });
-    }
-  }, [voiceChat]);
+    // Tell the server to actually stop the run. The controller owns the
+    // cancel POST and dedupes it client-wide, so a chat-side stop() racing
+    // this interrupt still produces exactly one request per run.
+    runController.cancel();
+  }, [voiceChat, runController]);
 
   // Wire the forward-ref so `startListening`'s speaking-state barge-in gate
   // can reach `interrupt` even though it's declared later in this hook.
@@ -985,7 +1052,10 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       setRealtimeAudioLevel(0);
     }
     replyInFlightRef.current = false;
-    activeRunSourceRef.current = null;
+    // Clear run ownership without posting a cancel — reset tears the session
+    // down but is not an interrupt. (The old code only cleared the source
+    // ref, leaking a stale run id that a later interrupt would cancel.)
+    runController.finish();
     speechHandleRef.current?.interrupt("reset");
     speechHandleRef.current = null;
     dispatchCtx({ type: "RESET" });
@@ -993,7 +1063,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
     voiceChat.clearError();
     setTools({ isRunning: false, currentToolName: null, artifacts: [] });
     setPendingApproval(null);
-  }, [disarmContinuous, voiceChat]);
+  }, [disarmContinuous, voiceChat, runController]);
 
   // Mirror pendingApproval into a ref so confirmApproval stays a stable callback.
   useEffect(() => {

@@ -12,6 +12,8 @@ import { useEffect, useReducer, useState } from "react";
 import { agentRunReducer } from "@/lib/hooks/useAgentRun";
 import { INITIAL_AGENT_RUN_STATE } from "@/lib/types/agentRun";
 import type { AgentRunState } from "@/lib/types/agentRun";
+import { SSEParser } from "@/lib/agui/sse";
+import type { AGUIEvent } from "@/lib/agui/events";
 
 export interface UseThreadStreamResult {
   state: AgentRunState;
@@ -27,99 +29,81 @@ export function useThreadStream(threadId: string | null): UseThreadStreamResult 
   useEffect(() => {
     if (!threadId) return;
 
-    let es: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let cancelled = false;
+    // fetch + SSEParser (not EventSource) so the stream goes through the one
+    // shared codec; reconnect mirrors EventSource's auto-retry.
+    let closed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let abort: AbortController | null = null;
 
-    const connect = () => {
-      if (cancelled) return;
-      es?.close();
-      es = new EventSource(
-        `/api/agui/stream?threadId=${encodeURIComponent(threadId)}`,
-      );
-
-      es.onopen = () => {
-        if (!cancelled) setIsConnected(true);
-      };
-
-      es.onmessage = (e: MessageEvent) => {
-        let evt: Record<string, unknown>;
-        try {
-          evt = JSON.parse(e.data as string) as Record<string, unknown>;
-        } catch {
-          return;
-        }
-        switch (evt.type) {
-          case "RunStarted":
-            dispatch({
-              type: "RUN_STARTED",
-              runId: evt.runId as string,
-              thinking: evt.thinking as boolean | undefined,
-              model: evt.model as string | undefined,
-            });
-            break;
-          case "RunFinished":
-            dispatch({
-              type: "RUN_FINISHED",
-              runId: evt.runId as string,
-              threadTitle: evt.threadTitle as string | undefined,
-            });
-            break;
-          case "RunError":
-            dispatch({
-              type: "RUN_ERROR",
-              runId: evt.runId as string,
-              error:
-                (evt.error as { message: string } | undefined)?.message ??
-                "Unknown error",
-            });
-            break;
-          case "TextMessageStart":
-            dispatch({ type: "TEXT_START", messageId: evt.messageId as string });
-            break;
-          case "TextMessageContent":
-            dispatch({ type: "TEXT_DELTA", delta: evt.delta as string });
-            break;
-          case "TextMessageEnd":
-            dispatch({ type: "TEXT_END" });
-            break;
-          case "ToolCallStart":
-            dispatch({
-              type: "TOOL_START",
-              toolCallId: evt.toolCallId as string,
-              toolName: evt.toolName as string,
-            });
-            break;
-          case "ToolCallResult":
-            dispatch({
-              type: "TOOL_RESULT",
-              toolCallId: evt.toolCallId as string,
-              result: { success: (evt.success as boolean | undefined) ?? true },
-              durationMs: evt.durationMs as number | undefined,
-            });
-            break;
-          case "Connected":
-          default:
-            break;
-        }
-      };
-
-      es.onerror = () => {
-        if (cancelled) return;
-        setIsConnected(false);
-        es?.close();
-        es = null;
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
-      };
+    const handle = (evt: AGUIEvent) => {
+      switch (evt.type) {
+        case "RunStarted":
+          dispatch({ type: "RUN_STARTED", runId: evt.runId, thinking: evt.thinking, model: evt.model });
+          break;
+        case "RunFinished":
+          dispatch({ type: "RUN_FINISHED", runId: evt.runId, threadTitle: evt.threadTitle });
+          break;
+        case "RunError":
+          dispatch({ type: "RUN_ERROR", runId: evt.runId, error: evt.error?.message ?? "Unknown error" });
+          break;
+        case "TextMessageStart":
+          dispatch({ type: "TEXT_START", messageId: evt.messageId });
+          break;
+        case "TextMessageContent":
+          dispatch({ type: "TEXT_DELTA", delta: evt.delta });
+          break;
+        case "TextMessageEnd":
+          dispatch({ type: "TEXT_END" });
+          break;
+        case "ToolCallStart":
+          dispatch({ type: "TOOL_START", toolCallId: evt.toolCallId, toolName: evt.toolName });
+          break;
+        case "ToolCallResult":
+          dispatch({
+            type: "TOOL_RESULT",
+            toolCallId: evt.toolCallId,
+            result: { success: evt.success ?? true },
+            durationMs: evt.durationMs,
+          });
+          break;
+        default:
+          break;
+      }
     };
 
-    connect();
+    const connect = async () => {
+      const ctrl = new AbortController();
+      abort = ctrl;
+      const parser = new SSEParser();
+      try {
+        const res = await fetch(`/api/agui/stream?threadId=${encodeURIComponent(threadId)}`, {
+          signal: ctrl.signal,
+          cache: "no-store",
+        });
+        if (!res.ok || !res.body) throw new Error(`agui stream HTTP ${res.status}`);
+        if (!closed) setIsConnected(true);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const evt of parser.feed(decoder.decode(value, { stream: true }))) handle(evt);
+        }
+        for (const evt of parser.flush()) handle(evt);
+      } catch {
+        // Aborted during teardown or a transient failure — retry unless closed.
+      }
+      if (closed) return;
+      setIsConnected(false);
+      retryTimer = setTimeout(connect, RECONNECT_DELAY_MS);
+    };
+
+    void connect();
 
     return () => {
-      cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      es?.close();
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      abort?.abort();
       setIsConnected(false);
     };
   }, [threadId]);

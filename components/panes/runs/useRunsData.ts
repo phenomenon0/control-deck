@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SSEParser } from "@/lib/agui/sse";
 import type { GlyphItem, Run, RunEvent, ToolCall, TodayCost } from "./types";
 
 interface UseRunsDataResult {
@@ -117,17 +118,33 @@ export function useRunsData(viewMode: string): UseRunsDataResult {
 
   useEffect(() => {
     refetch();
-    const es = new EventSource("/api/agui/stream");
-    es.onmessage = (e) => {
-      const evt = JSON.parse(e.data);
-      if (evt.type === "RunStarted" || evt.type === "RunFinished" || evt.type === "RunError") {
-        refetch();
+    // fetch + SSEParser (not EventSource) so the stream goes through the one
+    // shared codec.
+    const ctrl = new AbortController();
+    const parser = new SSEParser();
+    void (async () => {
+      try {
+        const res = await fetch("/api/agui/stream", { signal: ctrl.signal, cache: "no-store" });
+        if (!res.ok || !res.body) return;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const evt of parser.feed(decoder.decode(value, { stream: true }))) {
+            if (evt.type === "RunStarted" || evt.type === "RunFinished" || evt.type === "RunError") {
+              refetch();
+            }
+            if (selectedRun && evt.runId === selectedRun) {
+              fetchRunEvents(selectedRun);
+            }
+          }
+        }
+      } catch {
+        /* aborted on cleanup or stream ended — nothing to do */
       }
-      if (selectedRun && evt.runId === selectedRun) {
-        fetchRunEvents(selectedRun);
-      }
-    };
-    return () => es.close();
+    })();
+    return () => ctrl.abort();
   }, [selectedRun, refetch, fetchRunEvents]);
 
   useEffect(() => {

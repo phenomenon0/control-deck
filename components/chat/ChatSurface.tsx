@@ -28,6 +28,7 @@ import {
 } from "@/lib/voice/VoiceSessionContext";
 import { useChatInspectorUpdate } from "@/lib/hooks/useChatInspector";
 import { useAgentRun } from "@/lib/hooks/useAgentRun";
+import { useRunController } from "@/lib/hooks/useRunController";
 import type { InterruptRequest } from "@/lib/hooks/useAgentRun";
 import { ChatTimeline } from "@/components/chat/ChatTimeline";
 import { StatusStrip } from "@/components/chat/StatusStrip";
@@ -37,7 +38,7 @@ import { ContextRail } from "@/components/chat/ContextRail";
 import { VoiceModeSheet } from "@/components/voice/VoiceModeSheet";
 import { useOptionalAudioDock } from "@/components/audio/AudioDockProvider";
 import { InterruptDialog } from "@/components/chat/InterruptDialog";
-import { setStoredThreads, type Thread, type Message } from "@/lib/chat/helpers";
+import { type Thread, type Message } from "@/lib/chat/helpers";
 import { useCanvas } from "@/lib/hooks/useCanvas";
 import { isEditableElement, shouldMoveFocusTo } from "@/lib/dom/editable";
 import { useCommands } from "@/lib/hooks/useCommands";
@@ -372,8 +373,14 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
 
   // ---------------------------------------------------------------------------
   // Agent Run — unified SSE consumer (replaces useSendMessage + useSSE)
+  //
+  // One run controller owns the active run id and cancellation for both the
+  // chat run (useAgentRun) and the voice session below, so stop() and
+  // voice interrupt() can never double-POST a run cancel.
   // ---------------------------------------------------------------------------
+  const runController = useRunController();
   const agentRun = useAgentRun({
+    controller: runController,
     onInterrupt: useCallback((req: InterruptRequest) => {
       setPendingInterrupt(req);
     }, []),
@@ -421,6 +428,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   const ownSession = useVoiceSession({
     enabled: !sharedVoiceSession,
     onTranscriptFinal: submitVoiceFinal,
+    controller: runController,
   });
   const voiceSession = sharedVoiceSession ?? ownSession;
   const voiceChat = voiceSession.voiceChat;
@@ -624,13 +632,11 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   const threadTitle = agentState.threadTitle;
   useEffect(() => {
     if (!threadTitle || !activeThreadId) return;
-    setThreads((prev) => {
-      const updated = prev.map((t) =>
+    setThreads((prev) =>
+      prev.map((t) =>
         t.id === activeThreadId ? { ...t, title: threadTitle } : t
-      );
-      setStoredThreads(updated);
-      return updated;
-    });
+      )
+    );
   }, [threadTitle, activeThreadId, setThreads]);
 
   // ---------------------------------------------------------------------------
@@ -824,11 +830,7 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
         title: text.slice(0, 50) + (text.length > 50 ? "..." : ""),
         lastMessageAt: new Date().toISOString(),
       };
-      setThreads((prev) => {
-        const updated = [newThread, ...prev];
-        setStoredThreads(updated);
-        return updated;
-      });
+      setThreads((prev) => [newThread, ...prev]);
       setActiveThreadId(threadId, { load: false });
     }
 

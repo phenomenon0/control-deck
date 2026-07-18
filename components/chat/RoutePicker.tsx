@@ -85,7 +85,7 @@ export function RoutePicker() {
   }, [open, refetch]);
 
   const pick = (providerId: ProviderId, modelName: string) => {
-    updatePrefs({ providerId, model: modelName, localModel: modelName });
+    updatePrefs({ providerId, model: modelName });
   };
 
   const launchLlamacpp = async () => {

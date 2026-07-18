@@ -17,11 +17,10 @@ const P: Record<string, string> = {
 const Chev = <span className="chev ic"><svg viewBox="0 0 24 24" style={{ width: 15, height: 15 }} dangerouslySetInnerHTML={{ __html: P["chevron-down"] }} /></span>;
 
 /* Honest marker: this toggle is part of the flow's feel but isn't persisted to
-   deck.prefs on finish (only model / provider / route / theme / motion are). */
+   deck.prefs on finish (only model / provider / theme / motion are). */
 const Pv = <span className="pv" title="UI preview — not saved to deck.prefs">preview</span>;
 
 type Provider = "ollama" | "vllm" | "llamacpp" | "lm-studio";
-type Route = "local" | "free" | "cloud";
 type Theme = "dark" | "light" | "hacker";
 
 const MODELS = ["qwen3-30b-a3b", "llama3.3-70b", "gpt-oss-20b", "gemma3-27b"];
@@ -34,7 +33,7 @@ const PROVIDERS: { v: Provider; label: string }[] = [
 
 const STEPS = [
   { key: "identity", label: "identity", head: "Who's at the deck?", sub: "How the deck greets you while you set things up. Models and appearance come next — those are the picks that get saved." },
-  { key: "engine", label: "engine", head: "Pick your engine", sub: "Where inference runs by default. Local keeps everything on the 4090; you can flip to free-tier or cloud per thread." },
+  { key: "engine", label: "engine", head: "Pick your engine", sub: "Where inference runs. Everything stays on a local engine on this machine; you can switch engines per thread from the composer." },
   { key: "preferences", label: "preferences", head: "Set the feel", sub: "The last few knobs — theme and motion. These write straight into the deck's preferences." },
 ] as const;
 
@@ -70,7 +69,6 @@ export default function OnboardingV2Page() {
 
   const [provider, setProvider] = useState<Provider>("ollama");
   const [model, setModel] = useState(MODELS[0]);
-  const [route, setRoute] = useState<Route>("local");
   const [streamTokens, setStreamTokens] = useState(true);
 
   const [theme, setTheme] = useState<Theme>("light");
@@ -81,16 +79,10 @@ export default function OnboardingV2Page() {
 
   const next = () => {
     if (last) {
-      // Write only the keys that map to real DeckPrefs. `localModel` mirrors the
-      // pick so local route remembers it, and `showOnlineModels` must be true for
-      // a free/cloud route to survive DeckSettingsProvider's load-time
-      // enforceOnlineModelVisibility() (which otherwise reverts to local).
+      // Write only the keys that map to real DeckPrefs.
       patchPrefs({
         model,
-        localModel: model,
         providerId: provider,
-        routeMode: route,
-        showOnlineModels: route !== "local",
         theme,
         reduceMotion,
       });
@@ -116,7 +108,7 @@ export default function OnboardingV2Page() {
               <span className="check ic"><svg viewBox="0 0 24 24" style={{ width: 22, height: 22 }} dangerouslySetInnerHTML={{ __html: P.check }} /></span>
               <h3>You&apos;re set up, {name.split(" ")[0]}.</h3>
               <p>The deck is ready. Your picks are saved to preferences and applied on the next thread.</p>
-              <span className="codewell"><code>{model} · {provider} · route {route} · theme {theme}</code></span>
+              <span className="codewell"><code>{model} · {provider} · theme {theme}</code></span>
               <div className="foot" style={{ justifyContent: "center" }}>
                 <a href="/v2/dashboard" className="btn btn--primary">open_the_deck</a>
                 <button type="button" className="btn btn--ghost" onClick={() => { setDone(false); setStep(0); }}>run_again</button>
@@ -184,10 +176,6 @@ export default function OnboardingV2Page() {
                       </div>
                     </div>
                     <div className="rowgroup">
-                      <div className="srow">
-                        <span className="st"><b>Route mode</b><small>where a thread runs unless you override it</small></span>
-                        <Seg<Route> value={route} onChange={setRoute} options={[{ v: "local", label: "local" }, { v: "free", label: "free" }, { v: "cloud", label: "cloud" }]} />
-                      </div>
                       <div className="srow">
                         <span className="st"><b>Stream tokens{Pv}</b><small>SSE the response as it generates</small></span>
                         <label className="ctl"><input type="checkbox" checked={streamTokens} onChange={(e) => setStreamTokens(e.target.checked)} /><span className="ctl__track" /></label>

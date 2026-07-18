@@ -17,8 +17,6 @@ export type TTSEngine = "kokoro-82m" | "chatterbox" | "sherpa-onnx-tts";
 export type VoiceMode = "push-to-talk" | "vad" | "toggle";
 export type RailTab = "inspector" | "timeline" | "artifacts" | "system";
 export type ChatSurface = "safe" | "brave" | "radical";
-export type RouteMode = "local" | "free" | "cloud";
-export type CloudProviderId = "anthropic" | "openai" | "google";
 export type ThemeName = "dark" | "light" | "hacker";
 export const THEMES: readonly ThemeName[] = ["dark", "light", "hacker"] as const;
 
@@ -46,19 +44,11 @@ export interface VoicePrefs {
 
 export interface DeckPrefs {
   /**
-   * The model id for the currently-active routeMode. Switching mode
-   * swaps this with the remembered id for the new mode, so each mode
-   * keeps its own pick.
+   * Active chat model id. Written by the RoutePicker / Models pane and
+   * threaded by ChatSurface into /api/chat on every turn. Empty string
+   * resolves at runtime to the first installed model on the active engine.
    */
   model: string;
-  /**
-   * Which routing path the chat surface uses. "local" = Ollama
-   * (+ Agent-GO / simple fallback). "free" = free-tier roulette
-   * (OpenRouter + NVIDIA). Replaces the old boolean freeMode.
-   */
-  routeMode: RouteMode;
-  /** Remembered Ollama pick. Populated when routeMode flips away from "local". */
-  localModel: string;
   /**
    * Which local inference engine (Ollama / llama.cpp / vLLM / LM Studio / etc.)
    * the user last picked. Resolved against the live hardware-provider registry —
@@ -67,17 +57,6 @@ export interface DeckPrefs {
    * preferred engine comes back.
    */
   providerId?: ProviderId;
-  /** Remembered free-tier pick. Populated when routeMode flips away from "free". */
-  remoteModel: string;
-  /** Active cloud provider id; only meaningful when routeMode === "cloud". */
-  cloudProvider: CloudProviderId;
-  /** Pinned cloud model id for the active cloud provider. */
-  cloudModel: string;
-  /**
-   * Free/cloud routes and online provider catalogs are opt-in. When false,
-   * the app keeps model selection local-first and hides remote choices.
-   */
-  showOnlineModels: boolean;
   /**
    * User-editable system prompt, prepended to every chat turn (server-
    * side, after family-aware augmentation in lib/llm/systemPrompt.ts).
@@ -106,11 +85,6 @@ interface DeckSettingsContextValue {
   setPrefs: React.Dispatch<React.SetStateAction<DeckPrefs>>;
   updatePrefs: (partial: Partial<DeckPrefs>) => void;
   updateVoicePrefs: (partial: Partial<VoicePrefs>) => void;
-  /**
-   * Toggle between local (Ollama) and free (free-tier roulette) routes
-   * while preserving each mode's remembered model choice.
-   */
-  switchRouteMode: (target: RouteMode) => void;
   settingsOpen: boolean;
   setSettingsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   // Right rail
@@ -142,12 +116,6 @@ const DEFAULT_PREFS: DeckPrefs = {
   // default was baked in historically and was the source of 404s
   // ever since qwen3 replaced it.
   model: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
-  routeMode: "local",
-  localModel: process.env.NEXT_PUBLIC_DEFAULT_MODEL || "",
-  remoteModel: "",
-  cloudProvider: "anthropic",
-  cloudModel: "claude-sonnet-4-6",
-  showOnlineModels: false,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reduceMotion: false,
   chatContextRail: false,
@@ -201,24 +169,36 @@ const STALE_MODEL_DEFAULTS: ReadonlySet<string> = new Set([
   "qwen2:latest",
 ]);
 
-function enforceOnlineModelVisibility(prefs: DeckPrefs): DeckPrefs {
-  if (prefs.showOnlineModels || prefs.routeMode === "local") return prefs;
-  const remoteModel = prefs.routeMode === "free" ? prefs.model : prefs.remoteModel;
-  return {
-    ...prefs,
-    routeMode: "local",
-    remoteModel,
-    model: prefs.localModel,
-  };
+/**
+ * Keys persisted by the removed local/free/cloud routing experiment
+ * (free-tier roulette + cloud pins never reached the send path).
+ * Destructured out of stored prefs on load so the next save wipes them.
+ */
+interface LegacyRoutingPrefs {
+  theme?: string;
+  freeMode?: boolean;
+  routeMode?: string;
+  localModel?: string;
+  remoteModel?: string;
+  cloudProvider?: string;
+  cloudModel?: string;
+  showOnlineModels?: boolean;
 }
 
 function migratePrefs(): DeckPrefs {
-  // Accept the old shape (with `freeMode: boolean`) so we don't wipe
-  // settings for anyone upgrading. `freeMode` is mapped to `routeMode`
-  // and the active model is carried into the corresponding slot.
-  const newPrefs = safeParse<(DeckPrefs & { theme?: string; freeMode?: boolean })>(localStorage.getItem(PREFS_KEY));
+  const newPrefs = safeParse<DeckPrefs & LegacyRoutingPrefs>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
-    const { theme: _legacyTheme, freeMode: legacyFreeMode, ...rest } = newPrefs;
+    const {
+      theme: _legacyTheme,
+      freeMode: _freeMode,
+      routeMode: _routeMode,
+      localModel: _localModel,
+      remoteModel: _remoteModel,
+      cloudProvider: _cloudProvider,
+      cloudModel: _cloudModel,
+      showOnlineModels: _showOnlineModels,
+      ...rest
+    } = newPrefs;
     const migratedSurface =
       (newPrefs.chatSurface as string) === "dossier"
         ? "brave"
@@ -230,28 +210,10 @@ function migratePrefs(): DeckPrefs {
       typeof rest.model === "string" && STALE_MODEL_DEFAULTS.has(rest.model)
         ? ""
         : (rest.model ?? "");
-    // If a stored routeMode already exists, respect it. Otherwise derive
-    // from the legacy freeMode boolean.
-    const routeMode: RouteMode =
-      rest.routeMode === "local" || rest.routeMode === "free" || rest.routeMode === "cloud"
-        ? rest.routeMode
-        : legacyFreeMode
-          ? "free"
-          : "local";
-    // Carry the active model into the mode-specific slot. This means a
-    // first-migration user who had freeMode=true with an Ollama model
-    // pinned will see that id as their remembered remote pref, which is
-    // harmless — the free router will ignore an unknown id and roulette
-    // will proceed.
-    const localModel = rest.localModel ?? (routeMode === "local" ? migratedModel : "");
-    const remoteModel = rest.remoteModel ?? (routeMode === "free" ? migratedModel : "");
-    const migrated: DeckPrefs = {
+    return {
       ...DEFAULT_PREFS,
       ...rest,
       model: migratedModel,
-      routeMode,
-      localModel,
-      remoteModel,
       chatSurface: migratedSurface as ChatSurface,
       voice: {
         ...DEFAULT_VOICE_PREFS,
@@ -260,7 +222,6 @@ function migratePrefs(): DeckPrefs {
         silenceThreshold: coerceSilenceThreshold(newPrefs.voice?.silenceThreshold),
       },
     };
-    return enforceOnlineModelVisibility(migrated);
   }
 
   // Migrate from old keys
@@ -290,7 +251,7 @@ function migratePrefs(): DeckPrefs {
   localStorage.removeItem(OLD_VOICE_KEY);
   if (oldTheme) localStorage.removeItem(OLD_THEME_KEY);
 
-  return enforceOnlineModelVisibility(migrated);
+  return migrated;
 }
 
 function applyRootPrefs(reduceMotion: boolean, theme: ThemeName) {
@@ -340,27 +301,11 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
   // Note: mod+. (sidebar) is handled in Sidebar.tsx
 
   const updatePrefs = useCallback((partial: Partial<DeckPrefs>) => {
-    setPrefs((p) => enforceOnlineModelVisibility({ ...p, ...partial }));
+    setPrefs((p) => ({ ...p, ...partial }));
   }, []);
 
   const updateVoicePrefs = useCallback((partial: Partial<VoicePrefs>) => {
     setPrefs((p) => ({ ...p, voice: { ...p.voice, ...partial } }));
-  }, []);
-
-  const switchRouteMode = useCallback((target: RouteMode) => {
-    setPrefs((p) => {
-      if (p.routeMode === target) return p;
-      if (target !== "local" && !p.showOnlineModels) return p;
-      // Stash current active model under the OLD mode, then restore the
-      // target mode's remembered model as the active one. Cloud doesn't
-      // participate in the `model` slot (it has cloudProvider+cloudModel)
-      // so toggling to/from cloud preserves local/remote untouched.
-      const localModel = p.routeMode === "local" ? p.model : p.localModel;
-      const remoteModel = p.routeMode === "free" ? p.model : p.remoteModel;
-      const nextModel =
-        target === "local" ? localModel : target === "free" ? remoteModel : p.model;
-      return { ...p, routeMode: target, localModel, remoteModel, model: nextModel };
-    });
   }, []);
 
   const value = useMemo<DeckSettingsContextValue>(
@@ -369,7 +314,6 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
       setPrefs,
       updatePrefs,
       updateVoicePrefs,
-      switchRouteMode,
       settingsOpen,
       setSettingsOpen,
       railOpen,
@@ -379,7 +323,7 @@ export function DeckSettingsProvider({ children }: { children: React.ReactNode }
       sidebarOpen,
       setSidebarOpen,
     }),
-    [prefs, updatePrefs, updateVoicePrefs, switchRouteMode, settingsOpen, railOpen, railTab, sidebarOpen]
+    [prefs, updatePrefs, updateVoicePrefs, settingsOpen, railOpen, railTab, sidebarOpen]
   );
 
   return (

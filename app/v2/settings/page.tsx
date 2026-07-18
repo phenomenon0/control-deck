@@ -61,7 +61,6 @@ interface RealPrefs {
   providerId: Provider;
   preset: Preset;
   reduceMotion: boolean;
-  showOnlineModels: boolean;
   chatContextRail: boolean;
   chatSurface: Surface;
   v2FontSerif: Serif;
@@ -76,7 +75,6 @@ const DEFAULTS: RealPrefs = {
   providerId: "ollama",
   preset: "balanced",
   reduceMotion: false,
-  showOnlineModels: false,
   chatContextRail: false,
   chatSurface: "safe",
   v2FontSerif: "literata",
@@ -102,7 +100,6 @@ function readPrefs(): Partial<RealPrefs> {
     if (isProvider(p.providerId)) out.providerId = p.providerId;
     if (isPreset(p.localModelPreset)) out.preset = p.localModelPreset;
     if (typeof p.reduceMotion === "boolean") out.reduceMotion = p.reduceMotion;
-    if (typeof p.showOnlineModels === "boolean") out.showOnlineModels = p.showOnlineModels;
     if (typeof p.chatContextRail === "boolean") out.chatContextRail = p.chatContextRail;
     if (isSurface(p.chatSurface)) out.chatSurface = p.chatSurface;
     if (isSerif(p.v2FontSerif)) out.v2FontSerif = p.v2FontSerif;
@@ -459,7 +456,6 @@ export default function SettingsV2Page() {
                         </div>
                       </span>
                     </div>
-                    <SwitchRow title="Show online models" desc="surface free-tier + cloud catalogs in pickers" checked={prefs.showOnlineModels} onChange={(v) => set("showOnlineModels", v)} />
                   </div>
                 </div>
 

@@ -36,8 +36,7 @@
  *   stats            { p50_ms, p95_ms, calls_last_30d, last_measured, last_error }
  *
  * The JSON files are stored one-model-per-line to keep diffs tractable;
- * lib/llm/freeTier.ts reads them at runtime and the /api/catalog route
- * serves them to the UI.
+ * the /api/catalog route reads them at runtime and serves them to the UI.
  */
 import fs from "fs";
 import os from "os";

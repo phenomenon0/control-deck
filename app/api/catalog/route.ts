@@ -4,8 +4,7 @@
  * Returns entries from data/{nvidia,openrouter,hf}-catalog.json with
  * metadata the CLI uses (family, base_model, curated notes, modality,
  * context, pricing, stats). Useful for in-app catalog UIs that want the
- * full record, not the narrower FreeTierModel shape served by
- * /api/free-tier/status.
+ * full record.
  *
  * Query params:
  *   provider  = nvidia | openrouter | hf         (default: all)

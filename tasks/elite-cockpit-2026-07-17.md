@@ -160,3 +160,41 @@ process and the UI shows truth on restart.
 3. Dirty tree: who lands the split commits (agent with commit approval, or owner)?
 4. Next execution target after Phase 0: T1 (recommended — the brain is severed)
    or T14 cleanup first?
+
+---
+
+## Execution log — 2026-07-17 (autonomous run, owner-approved)
+
+Phase 0 + Phase 1 executed same-day by agent swarm. Tree clean, `bun run verify`
+exit 0 at HEAD (`afd911f`).
+
+**Phase 0** (7 commits, `c0979e2` → `25c8c40`): dirty tree split into
+test-isolation / verify-gate / models-installer / command-palette / chat-surface /
+plugins-fix / docs commits. `apps/model-tray/` (5.4 GB) deleted. Dead-subtree
+edits reverted; `DiskTab.tsx` hunk reapplied (type-required by the installer
+commit) then deleted with T14.
+
+**Phase 1** (5 commits, `25c8c40` → `afd911f`):
+
+| Commit | Thread | What landed |
+|---|---|---|
+| `1233c19` | T4 tail | agent-ts default port 4244 |
+| `bb398ba` | **T1 + T17 FIXED** | `system_prompt` wire field → `initialState.systemPrompt` verbatim; bootstrap = standalone-dev fallback; injection hack removed from `lib/llm/systemPrompt.ts`; `wireToPiMessages` replays tool calls/results; 4 new loop tests incl. prompt round-trip. agent-ts 33/33. |
+| `175bc1a` | **T11 FIXED** | all four fire-and-forget `doUnload` sites check outcomes; honest deny/evict-failed events; 7 new arbiter tests |
+| `d38cf76` | **T20 FIXED** | offline preset resolves `qwen-omni-local` only — never cloud |
+| `afd911f` | **T14 FIXED** | 108 files / 19,134 lines of dead UI deleted; `NotesPaneAdapter.test.ts` spared; `apps/model-tray` doc refs allowlisted |
+
+T-score after this run: **FIXED** T1, T4, T8(mostly), T10, T11, T13, T14, T17, T20 ·
+**OPEN** T2, T3, T5, T6, T7, T9, T12 (tree hygiene is now clean; thread stays as
+the standing risk), T15, T16, T18, T19, T21, T22.
+
+Notes for the next run:
+- T1 follow-up: deck only sends `user`/`assistant` client messages today —
+  DB-persisted tool calls need mapping in `chat/route.ts` to feed the new
+  replay path (wire-ready, not yet fed).
+- T20 adjacent: the `local` voice preset is also cloud-only despite its
+  "privacy-preserving" description — candidate for the same honest treatment.
+- T11 residuals (restore-liveness gap, ticket-less OOM wedge visibility) noted
+  in the arbiter commit; not VRAM-tracking desyncs.
+- Next phase per plan: Phase 2 — one router (`lib/engine/resolve.ts`, kill
+  `freeTier.ts`, 33 `OLLAMA_BASE_URL` sites → resolver).

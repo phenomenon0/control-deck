@@ -75,8 +75,8 @@ async function runOneE2E(wav: string, runIndex: number): Promise<RunRecord> {
   return new Promise((resolveResult) => {
     const env = { ...process.env, HARNESS_WAV: wav };
     const child = spawn(
-      "npx",
-      ["playwright", "test", "--config", "tests/voice-harness/e2e/playwright.config.ts"],
+      "bun",
+      ["x", "playwright", "test", "--config", "tests/voice-harness/e2e/playwright.config.ts"],
       { env, stdio: "inherit" },
     );
     child.on("exit", (code) => {

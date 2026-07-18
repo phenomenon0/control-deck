@@ -2,10 +2,10 @@
  * Agent-GO Client
  * 
  * HTTP/SSE client for the Agent-GO server.
- * Connects to localhost:4243 by default.
+ * Connects to localhost:4244 by default.
  */
 
-const AGENTGO_URL = process.env.AGENTGO_URL || "http://localhost:4243";
+const AGENTGO_URL = process.env.AGENTGO_URL || "http://localhost:4244";
 
 /**
  * Retry configuration for Agent-GO fetches.

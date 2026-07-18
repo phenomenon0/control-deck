@@ -208,7 +208,7 @@ export function StudioTab() {
     [store],
   );
 
-  function useInPipeline(asset: VoiceAssetSummary) {
+  function assignAssetToPipeline(asset: VoiceAssetSummary) {
     if (!voiceField) {
       setUseError(
         `Active pipeline engine "${activeTts}" has no voice slot — switch to Kokoro, Qwen3 or Pocket in the Pipeline tab to assign a saved voice.`,
@@ -375,7 +375,7 @@ export function StudioTab() {
                   <button
                     type="button"
                     className={`btn btn--sm${active ? "" : " btn--primary"}`}
-                    onClick={() => useInPipeline(asset)}
+                    onClick={() => assignAssetToPipeline(asset)}
                     disabled={active}
                   >
                     {active ? "assigned" : "use_in_pipeline"}

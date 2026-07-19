@@ -216,6 +216,12 @@ const ALLOWLIST: Record<string, string> = {
   // Deleted in Phase 2 (dead routing weight); remaining mentions in
   // tasks/first-grade-engine.md are the kill-plan record itself.
   "lib/llm/freeTier.ts": "deleted Phase 2 dead routing weight; historical plan references in tasks/*.md",
+  // Archived to the reference/agui-experimental branch in the 2026-07-19
+  // compression pass; execution log 5 records the archival itself.
+  "lib/agui/experimental": "archived to reference/agui-experimental branch; execution-log record in tasks/*.md",
+  // Dead legacy prompt builder deleted in the same pass (live path is
+  // app/api/chat/_lib/prompt.ts); log 5 records the deletion.
+  "lib/prompts/system.ts": "deleted dead legacy prompt builder; execution-log record in tasks/*.md",
   // Old voice-core kokoro/moonshine weights dir, superseded by s2s migration;
   // tasks/todo.md reference is an archived plan.
   "models/voice-engines": "superseded voice-core weights dir; archived-plan reference in tasks/todo.md",

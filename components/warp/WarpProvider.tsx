@@ -81,9 +81,11 @@ export function WarpProvider({ children }: { children: ReactNode }) {
     root.dataset.warmth = tweaks.warmth;
     root.dataset.type = tweaks.type;
     root.dataset.accent = tweaks.accent;
-    root.dataset.theme = tweaks.theme;
-    root.classList.toggle("dark", tweaks.theme === "dark");
-    root.classList.toggle("light", tweaks.theme === "light");
+    // dataset.theme is owned by DeckSettingsProvider (deck.prefs) — writing it
+    // here clobbered non-warp themes (e.g. hacker) whenever this provider
+    // mounted. tweaks.theme stays in the store (no UI sets it) but never
+    // touches the root; the .dark/.light classes it drove are no-ops in the
+    // dark-only globals.css.
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(tweaks));
     } catch {

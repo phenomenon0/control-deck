@@ -175,7 +175,6 @@ const STALE_MODEL_DEFAULTS: ReadonlySet<string> = new Set([
  * Destructured out of stored prefs on load so the next save wipes them.
  */
 interface LegacyRoutingPrefs {
-  theme?: string;
   freeMode?: boolean;
   routeMode?: string;
   localModel?: string;
@@ -188,8 +187,12 @@ interface LegacyRoutingPrefs {
 function migratePrefs(): DeckPrefs {
   const newPrefs = safeParse<DeckPrefs & LegacyRoutingPrefs>(localStorage.getItem(PREFS_KEY));
   if (newPrefs) {
+    // NOTE: `theme` is NOT stripped here. It looked like part of the removed
+    // routing experiment but it's the live shared field the v2 settings page
+    // writes (Atlas themes) and layout.tsx's anti-FOUC script reads. Stripping
+    // it made every DeckSettingsProvider mount reset the root to the default
+    // theme AND persist the blob back without the user's choice.
     const {
-      theme: _legacyTheme,
       freeMode: _freeMode,
       routeMode: _routeMode,
       localModel: _localModel,

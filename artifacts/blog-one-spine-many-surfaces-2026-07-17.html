@@ -1,0 +1,82 @@
+<!doctype html><html><head><meta charset="utf-8"><title>One Spine, Many Surfaces</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background:#0A0A0B; color:#EDEDEF; font:16px/1.65 -apple-system,"Inter",system-ui,sans-serif;
+         max-width:740px; margin:48px auto; padding:0 24px; }
+  h1 { font-size:1.9rem; line-height:1.25; color:#D4A574; }
+  h2 { font-size:1.25rem; margin-top:2.2em; border-bottom:1px solid rgba(255,255,255,.08); padding-bottom:.3em; }
+  em { color:#8B8B8E; } strong { color:#D4A574; }
+  code { background:#1A1A1E; padding:.15em .4em; border-radius:6px; font-size:.9em; }
+  ul { padding-left:1.4em; } li { margin:.35em 0; }
+</style></head><body><h1>One Spine, Many Surfaces: A Week&#39;s Debt Paid in a Day</h1>
+<p><em>2026-07-17 — Control Deck engineering log</em></p>
+<p>Control Deck is a local-first AI cockpit: one shell over chat, voice, terminal,
+browser, native desktop control, and a fleet of local models. The design docs
+were never the problem. The problem was that every surface had quietly forked
+the engine instead of riding it — five competing model routers, two run
+ledgers, four event buses, and a prompt pipeline that assembled memory, skills,
+and persona on every request and then <strong>silently threw them away</strong> before the
+model ever saw them.</p>
+<p>This week we stopped adding features and paid down the debt. An eight-agent
+exploration swarm mapped the whole repo; builder agents did the work; a new
+verification gate refereed every change. The scoreboard:</p>
+<ul>
+<li><strong>13 commits</strong>, tree clean, <code>bun run verify</code> green at HEAD</li>
+<li><strong>928 + 33 tests passing</strong> (was: 48 failures + 20 errors hidden in a red suite)</li>
+<li><strong>19,134 lines of verified-dead UI deleted</strong> (108 files)</li>
+<li><strong>5.4 GB</strong> of abandoned Tauri build output reclaimed</li>
+<li><strong>9 of 22 trouble threads closed</strong></li>
+</ul>
+<h2>Phase 0 — You Can&#39;t Fix What You Can&#39;t Check</h2>
+<p>The most important finding wasn&#39;t a bug — it was that the question &quot;did I break
+something?&quot; had no answer. The test suite was red from cross-file mock leaks
+(<code>mock.module()</code> registrations are process-global and un-revertable on bun;
+converting to <code>spyOn</code> + restore fixed 48 phantom failures), the vendored
+llama.cpp checkout was being swept into test runs, and the agent runtime&#39;s 29
+tests were undiscoverable from the repo root.</p>
+<p>So the first deliverable was a gate: one <code>bun run verify</code> — stack-drift doctor,
+cross-file contract checks, typecheck, lint, scoped tests, agent runtime tests.
+Plus two new instruments: <code>contract-check.ts</code>, which fails if the 50 bridge
+tools drift from their executor/schemas/manifest, if any file disagrees about
+the agent&#39;s port, if model bindings reference dead providers, or if docs cite
+paths that no longer exist — and <code>dead-components.ts</code>, an import-graph
+reachability reporter that made the 19k lines of dead UI a checklist instead of
+an accusation.</p>
+<p>Then the tree itself: seven logical commits, the 5.4 GB <code>model-tray</code> skeleton
+deleted, and a dirty working tree that had been mixing four workstreams finally
+landed clean.</p>
+<h2>Phase 1 — Reconnecting the Brain</h2>
+<p>The headline bug deserved its own commit message: <strong>the deck&#39;s headline
+features were inert scaffolding.</strong> Memory, skills, per-thread persona, voice
+prompts — all assembled with care, sent as a <code>system</code> message, and dropped by a
+function that only converted <code>user</code> and <code>assistant</code> roles. The fix is the
+canon&#39;s one sentence: <em>Next assembles, agent-ts obeys.</em> A <code>system_prompt</code> wire
+field now carries the assembled prompt straight into the runtime&#39;s
+<code>initialState.systemPrompt</code>, the injection hack is deleted, and multi-turn tool
+history replays instead of vanishing. A round-trip test asserts the model sees
+the deck&#39;s prompt byte-for-byte.</p>
+<p>Same wave, three more threads closed: the VRAM arbiter&#39;s four fire-and-forget
+unload sites now check outcomes instead of desyncing the ledger from the GPU;
+the &quot;offline&quot; voice preset now honestly resolves to the local Qwen-Omni engine
+(never silently to cloud); and the 19k lines of dead UI left the tree.</p>
+<h2>Looking Forward</h2>
+<p>The threads that remain are the structural ones, and they&#39;re sequenced:</p>
+<ul>
+<li><strong>Phase 2 — One Router.</strong> One <code>resolveModelRoute()</code> with explicit precedence
+(request pick → slot binding → settings → env → default), one env vocabulary,
+and the 33 hardcoded <code>OLLAMA_BASE_URL</code> reads collapsed into a single
+resolver. Done-when: adding a new local engine touches one file.</li>
+<li><strong>Phase 3 — One Ledger, One Wire.</strong> <code>deck.db</code> becomes the only run record;
+one typed AG-UI event codec consumed by chat, voice, and the runtime; one
+SSE framer instead of seven; the dual thread stores merged. Done-when: kill
+-9 either process and the UI shows truth on restart.</li>
+<li><strong>Phase 4 — The Elite Bar.</strong> The gate runs in CI with eval floors; the three
+god-files (<code>chat/route.ts</code> at 922 lines, <code>ChatSurface.tsx</code> at 1,305,
+<code>db.ts</code> at 1,388) decompose; and time-to-first-token, tool round-trip, voice
+loop latency, and model-swap time trend on a dashboard per commit.</li>
+</ul>
+<p>The method mattered as much as the fixes: swarm to map, gate to referee, small
+agents on disjoint file sets, commits per workstream. Every &quot;done&quot; below a
+green <code>verify</code> is negotiable; everything above it is true.</p>
+<p>One spine, many surfaces. The spine is connected now — next we make it singular.</p>
+</body></html>

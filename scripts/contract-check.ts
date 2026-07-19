@@ -152,6 +152,13 @@ async function checkInferenceBindings(): Promise<void> {
   info(`registry holds ${registered.size} providers`);
 
   const bindingsFile = "data/inference-bindings.json";
+  // Host-local state (gitignored data/*): absent on CI runners and fresh
+  // installs. The contract is "bindings, when present, point at registered
+  // providers" — absence is a valid state, not a violation.
+  if (!fs.existsSync(path.join(ROOT, bindingsFile))) {
+    info("no bindings file on this host (fresh install / CI) — nothing to validate");
+    return;
+  }
   const parsed = JSON.parse(read(bindingsFile)) as {
     bindings?: Record<string, { providerId?: string; config?: { providerId?: string } }>;
   };

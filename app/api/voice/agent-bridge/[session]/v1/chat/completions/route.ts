@@ -4,6 +4,7 @@ import { generateId } from "@/lib/agui/events";
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 import { resolveSessionThread } from "@/lib/voice/agent-bridge/session-store";
 import { transcodeAguiToOpenAI } from "@/lib/voice/agent-bridge/openai-sse";
+import { jsonError } from "@/lib/http/json";
 
 interface ChatCompletionMessageParam {
   role?: string;
@@ -17,10 +18,6 @@ interface ChatCompletionCreateParams {
 }
 
 type ChatRole = "user" | "assistant";
-
-function jsonError(message: string, status = 400): Response {
-  return Response.json({ error: message }, { status });
-}
 
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;

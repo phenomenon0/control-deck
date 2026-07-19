@@ -9,6 +9,9 @@
 import { AUDIO_MODES, type AudioMode } from "@/lib/audio/audio-modes";
 import type { LocalPreset } from "@/lib/inference/local-defaults";
 import type { MessageMetadata } from "@/lib/agui/db";
+import { jsonError } from "@/lib/http/json";
+
+export { jsonError };
 
 export interface ChatRequestBody {
   messages?: Array<{ role: string; content: unknown; metadata?: MessageMetadata }>;
@@ -57,13 +60,6 @@ export const VALID_PRESETS = new Set<LocalPreset>(["quick", "balanced", "quality
 const VALID_AUDIO_MODES = new Set<AudioMode>(AUDIO_MODES);
 const VALID_CLIENT_MESSAGE_ROLES = new Set(["user", "assistant"]);
 export const RUN_ID_PATTERN = /^[A-Za-z0-9_.\-:]{1,128}$/;
-
-export function jsonError(message: string, status = 400): Response {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 export function normalizeClientMessages(input: ChatRequestBody["messages"]):
   | { ok: true; messages: ClientMessage[] }

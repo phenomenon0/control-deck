@@ -1,8 +1,5 @@
 import { bindSessionThread, getSessionThreads } from "@/lib/voice/agent-bridge/session-store";
-
-function jsonError(message: string, status = 400): Response {
-  return Response.json({ error: message }, { status });
-}
+import { jsonError } from "@/lib/http/json";
 
 export async function GET() {
   return Response.json(getSessionThreads());

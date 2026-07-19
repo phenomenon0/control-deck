@@ -226,6 +226,10 @@ const ALLOWLIST: Record<string, string> = {
   // Deleted in Phase 3/4; execution-log and stack.md notes record the deletions.
   "lib/canvas": "deleted Phase 3 (folded into lib/workspace/canvas.ts); historical records",
   "pyenvs/vllm": "dropped Phase 4 (no launcher consumed it); stack.md orphan note + plan records",
+  // Deleted in the polish wave (shim importers migrated to lib/engine);
+  // plan-doc references are the T2 thread record.
+  "lib/llm/providers.ts": "deleted polish wave (shim retired to lib/engine); historical plan references",
+  "lib/llm/index.ts": "deleted polish wave (sole importer repointed); historical plan references",
 };
 
 const DOC_PATH_ROOTS = [

@@ -1,15 +1,31 @@
+/**
+ * Legacy sync provider API tests — ported byte-for-byte from the deleted
+ * lib/llm/providers.test.ts when the deprecation shim was removed.
+ *
+ * The pinned semantics are unchanged, only the import sources moved:
+ *   - legacy sync API (env-only parsing, runtimeOverride, cached slots)
+ *       → lib/engine/resolve.ts ("Legacy sync API" section)
+ *   - PROVIDERS catalog invariants (requiresApiKey, getProviderInfo)
+ *       → lib/engine/provider-catalog.ts
+ *
+ * Unlike resolve.test.ts this suite needs no module mocks: the legacy API
+ * reads env vars only, same as it did behind the shim.
+ */
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   clearProviderConfigCache,
   getDefaultModel,
   getProviderConfig,
-  getProviderInfo,
   getProviderType,
   getRuntimeProvider,
+  setRuntimeProvider,
+} from "./resolve";
+import {
+  getProviderInfo,
   PROVIDERS,
   requiresApiKey,
-  setRuntimeProvider,
-} from "./providers";
+} from "./provider-catalog";
 
 // Save/restore env vars that influence provider detection.
 

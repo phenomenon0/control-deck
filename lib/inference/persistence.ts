@@ -8,7 +8,7 @@
  *   1. persisted file (user's UI-set choice)
  *   2. env vars (per-modality register.ts reads TTS_PROVIDER etc.)
  *   3. no binding (modality unavailable unless a caller provides its own
- *      config, as with text which uses lib/llm/providers.ts directly)
+ *      config, as with text which uses lib/engine/provider-catalog.ts)
  *
  * The persistence is intentionally simple — a single JSON blob, no DB,
  * no migrations. Failure to read or write is non-fatal; the runtime

@@ -6,7 +6,7 @@
  * registry for "all providers that serve modality X" without knowing the
  * concrete adapters.
  *
- * Shape mirrors lib/llm/providers.ts:PROVIDERS but modality-aware, so one
+ * Shape mirrors lib/engine/provider-catalog.ts PROVIDERS but modality-aware, so one
  * provider (e.g. OpenAI) can appear under multiple modality views without
  * being duplicated in storage.
  */

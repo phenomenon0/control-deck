@@ -9,14 +9,15 @@
 import { NextResponse } from "next/server";
 import {
   getProviderConfig,
+  setRuntimeProvider,
+} from "@/lib/engine/resolve";
+import {
   checkProviderHealth,
   listProviderModels,
-  setRuntimeProvider,
   PROVIDERS,
   type ProviderType,
-  type ProviderSlots,
   type ProviderConfig,
-} from "@/lib/llm";
+} from "@/lib/engine/provider-catalog";
 
 export interface ProviderInfoResponse {
   provider: ProviderType;

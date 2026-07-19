@@ -1,10 +1,11 @@
 /**
- * Register the 11 existing text-LLM providers from lib/llm/providers.ts into
- * the unified inference registry.
+ * Register the 11 existing text-LLM providers from lib/engine/provider-catalog.ts
+ * into the unified inference registry.
  *
  * Delegation, not duplication: health checks and model listings call through
- * to `checkProviderHealth` / `listProviderModels` in lib/llm/providers.ts so
- * any fix or new provider there flows here automatically.
+ * to `checkProviderHealth` / `listProviderModels` in
+ * lib/engine/provider-catalog.ts so any fix or new provider there flows here
+ * automatically.
  *
  * Note: providers like OpenAI, Anthropic, Google, and Ollama technically
  * serve multiple modalities (vision, embedding, tts, stt). We register them
@@ -18,7 +19,7 @@ import {
   type ProviderType,
   checkProviderHealth,
   listProviderModels,
-} from "@/lib/llm/providers";
+} from "@/lib/engine/provider-catalog";
 import { registerProvider } from "../registry";
 import type { InferenceProvider, InferenceProviderConfig, Modality } from "../types";
 

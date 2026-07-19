@@ -6,8 +6,8 @@
  * routing half ("which provider/model should this request use?") lives in
  * `lib/engine/resolve.ts` — new code should start there.
  *
- * Moved verbatim from lib/llm/providers.ts; that file is now a deprecation
- * shim re-exporting from here.
+ * Moved verbatim from lib/llm/providers.ts; that file (and its shim) was
+ * deleted once every importer landed here.
  */
 
 import { createOpenAI } from "@ai-sdk/openai";

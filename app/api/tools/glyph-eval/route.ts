@@ -7,8 +7,8 @@
 
 import { NextResponse } from "next/server";
 import { encodeGlyphSmart, glyphInstruction } from "@/lib/codec";
-import { resolveProviderUrl } from "@/lib/hardware/settings";
-import { getDefaultModel, getProviderConfig, listProviderModels } from "@/lib/llm/providers";
+import { resolveModelRoute } from "@/lib/engine/resolve";
+import { listProviderModels, type ProviderType } from "@/lib/engine/provider-catalog";
 
 const TEST_SEARCH_RESULTS = {
   results: [
@@ -76,11 +76,19 @@ const EVAL_QUESTIONS: EvalQuestion[] = [
 ];
 
 export async function POST() {
-  const providerConfig = getProviderConfig().primary;
-  const configuredBase = process.env.LLM_BASE_URL ?? providerConfig?.baseURL ?? `${resolveProviderUrl("llamacpp")}/v1`;
+  // Route through the model router (binding → settings → env → default); the
+  // explicit LLM_BASE_URL / LLM_MODEL / DEFAULT_MODEL env overrides still win,
+  // matching the harness's historical env-first behavior.
+  const route = await resolveModelRoute();
+  const configuredBase = process.env.LLM_BASE_URL ?? route.baseUrl;
   const LLM_BASE_URL = configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase.replace(/\/$/, "")}/v1`;
-  const configuredModel = process.env.LLM_MODEL ?? process.env.DEFAULT_MODEL ?? getDefaultModel("primary");
-  const availableModels = providerConfig ? await listProviderModels(providerConfig) : [];
+  const configuredModel = process.env.LLM_MODEL ?? process.env.DEFAULT_MODEL ?? route.model;
+  const availableModels = await listProviderModels({
+    provider: route.provider as ProviderType,
+    apiKey: route.apiKey,
+    baseURL: route.baseUrl,
+    model: route.model,
+  });
   let model = configuredModel;
 
   if (!model || (availableModels.length > 0 && !availableModels.includes(model))) {

@@ -20,7 +20,7 @@
 
 import { NextResponse } from "next/server";
 import { streamText, type LanguageModel } from "ai";
-import { getModel } from "@/lib/llm/providers";
+import { createClientForRoute, resolveModelRoute } from "@/lib/engine/resolve";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,13 +91,12 @@ export async function POST(req: Request) {
 
   let model;
   try {
-    // Prefer the "fast" slot for sub-second rewrites; fall back to primary if
-    // the fast slot isn't configured.
-    try {
-      model = getModel("fast");
-    } catch {
-      model = getModel("primary");
-    }
+    // Route the "fast" slot through the model router; it falls through to the
+    // primary chain (binding → settings → env → default) when fast isn't
+    // configured, which subsumes the old getModel("fast") → getModel("primary")
+    // try/catch fallback.
+    const route = await resolveModelRoute({ slot: "text::fast" });
+    model = createClientForRoute(route)(route.model);
   } catch (err) {
     return NextResponse.json(
       { error: `no LLM provider configured: ${err instanceof Error ? err.message : String(err)}` },

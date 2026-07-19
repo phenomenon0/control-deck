@@ -12,7 +12,7 @@
 import { ensureBootstrap, getSlot } from "./bootstrap";
 import { applyPersistedBindings } from "./persistence";
 import type { Modality, SlotBinding } from "./types";
-import { PROVIDERS, type ProviderType, type ProviderConfig } from "@/lib/llm/providers";
+import { PROVIDERS, type ProviderType, type ProviderConfig } from "@/lib/engine/provider-catalog";
 
 /**
  * Read the current binding for a (modality, slot) pair, or null when the

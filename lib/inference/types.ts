@@ -8,7 +8,7 @@
  *
  * Slots per modality let the user pick a primary + optional alternates
  * ("fast", "quality", etc.) — same pattern as the text-LLM slots in
- * lib/llm/providers.ts, generalised.
+ * lib/engine/provider-catalog.ts, generalised.
  */
 
 /** All modalities the deck can route. Add here + register a provider adapter. */

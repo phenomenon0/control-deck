@@ -22,7 +22,7 @@ import type { InferenceProviderConfig, Modality } from "./types";
 import {
   listProviderModels,
   type ProviderType,
-} from "@/lib/llm/providers";
+} from "@/lib/engine/provider-catalog";
 
 /** Map each modality to the HF Hub pipeline_tag(s) that describe it. */
 const HF_PIPELINE_TAGS: Partial<Record<Modality, string[]>> = {
@@ -86,9 +86,9 @@ function writeCache(key: string, data: CatalogEntry[]): void {
 }
 
 /**
- * Query the provider's own /models endpoint via the legacy helper in
- * lib/llm/providers.ts. Cached per (provider, baseURL). Authoritative for
- * what the user's key can actually call right now.
+ * Query the provider's own /models endpoint via the shared helper in
+ * lib/engine/provider-catalog.ts. Cached per (provider, baseURL).
+ * Authoritative for what the user's key can actually call right now.
  */
 export async function getProviderNativeCatalog(
   config: InferenceProviderConfig,

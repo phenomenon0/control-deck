@@ -2,7 +2,7 @@
  * Slot bindings — which provider is currently answering each (modality, slot).
  *
  * Mutable at runtime so the Settings UI can swap providers without a
- * restart; same intent as `setRuntimeProvider` in lib/llm/providers.ts:265.
+ * restart; same intent as `setRuntimeProvider` in lib/engine/resolve.ts.
  * Bindings are in-memory only; persistence is the caller's concern
  * (typically localStorage for UI prefs, env vars for server-side bootstrap).
  */

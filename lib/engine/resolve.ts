@@ -135,10 +135,9 @@ function parseSlot(slot: string): { modality: Modality | null; slotName: string 
 
 /**
  * Read a slot binding from the inference control plane. Lazy require breaks
- * the module cycle (bootstrap → text/register → lib/llm/providers shim →
- * this module) and mirrors the lazy-settings idiom in
- * lib/hardware/settings.ts. Failure (e.g. registry unavailable) degrades to
- * "no binding" rather than breaking chat.
+ * the module cycle (bootstrap → text/register → this module) and mirrors
+ * the lazy-settings idiom in lib/hardware/settings.ts. Failure (e.g.
+ * registry unavailable) degrades to "no binding" rather than breaking chat.
  */
 function readSlotBindingLazy(modality: Modality, slotName: string): SlotBinding | null {
   try {
@@ -287,13 +286,12 @@ export function createClientForRoute(route: ModelRoute) {
   });
 }
 
-// ── Legacy sync API (verbatim from lib/llm/providers.ts) ───────────
+// ── Legacy sync API (originally from lib/llm/providers.ts) ─────────
 //
 // These functions keep their EXACT old semantics — env-only parsing,
 // in-memory runtimeOverride for primary, cached slots — because existing
-// consumers (app/api/backend, app/api/newsroom/rewrite,
-// app/api/tools/glyph-eval, lib/llm/providers.test.ts) pin that behavior.
-// New code should use resolveModelRoute() above instead.
+// consumers (app/api/backend) and lib/engine/legacy-api.test.ts pin that
+// behavior. New code should use resolveModelRoute() above instead.
 
 let cachedSlots: ProviderSlots | null = null;
 

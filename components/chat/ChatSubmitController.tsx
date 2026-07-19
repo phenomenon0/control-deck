@@ -27,6 +27,16 @@ import type { ActivityStep } from "@/lib/types/agentRun";
 export type VoiceSubmitOrigin = "voice-dictation" | "voice-live";
 export type SubmitOrigin = "typed" | VoiceSubmitOrigin;
 
+/**
+ * Full-text auto-TTS readback (ChatAutoTTS) is for voice-origin turns that do
+ * NOT own the live streaming lane — today that is exactly "voice-dictation".
+ * Live voice replies stream phrase audio from SSE deltas inside onSubmit, and
+ * typed turns stay silent, so neither may register for readback (double-speak).
+ */
+export function shouldRegisterVoiceReply(origin: SubmitOrigin): boolean {
+  return origin === "voice-dictation";
+}
+
 /** Truncate string values in tool args to keep metadata compact.
  *  `code` is exempt — the inline code block in chat needs the full source on
  *  reload, otherwise old execute_code rows render as a 200-char stub. */
@@ -82,7 +92,6 @@ interface UseChatSubmitControllerOptions {
   sendMessageRef: { current: (text: string, origin?: SubmitOrigin) => void };
   voiceReplyMessageIdsRef: { current: Set<string> };
   queueComposerFocus: (delay?: number) => void;
-  setSpeakingMessageId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 interface ChatSubmitController {
@@ -119,7 +128,6 @@ export function useChatSubmitController({
   sendMessageRef,
   voiceReplyMessageIdsRef,
   queueComposerFocus,
-  setSpeakingMessageId,
 }: UseChatSubmitControllerOptions): ChatSubmitController {
   const onSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,9 +202,14 @@ export function useChatSubmitController({
       }),
     }).catch((err) => console.error("[ChatSurface] Failed to save user message:", err));
 
-    // TTS tracking. Live voice streams speech from SSE text deltas below, so
-    // don't also mark the completed assistant message for full-text readback.
+    // TTS tracking. Voice-origin turns answered without the live streaming
+    // lane (voice-dictation) get full-text readback: register the assistant id
+    // so the auto-TTS effect speaks it once the run settles. Live voice
+    // streams speech from SSE text deltas below, so don't also mark it.
     const assistantId = crypto.randomUUID();
+    if (shouldRegisterVoiceReply(origin)) {
+      voiceReplyMessageIdsRef.current.add(assistantId);
+    }
 
     // Build API messages (using all messages in the conversation).
     // Drop any with empty/whitespace-only content — earlier voice bugs
@@ -327,6 +340,8 @@ export function useChatSubmitController({
         voiceSession.markAgentRunFinished();
       }
     } else {
+      // Total failure — no assistant message will ever carry this id, so drop
+      // the readback registration instead of leaking it in the set.
       voiceReplyMessageIdsRef.current.delete(assistantId);
       if (isVoiceOrigin && !shouldSpeakReply) {
         voiceSession.markAgentRunFinished();
@@ -335,7 +350,6 @@ export function useChatSubmitController({
 
     if (shouldSpeakReply) {
       flushLiveSpeech();
-      setSpeakingMessageId(assistantId);
       if (!liveSpeechQueued) {
         // No phrases queued (streaming lane wasn't routable AND queueSpeech
         // refused — or the reply produced no terminator-bound phrases). Fall
@@ -353,7 +367,6 @@ export function useChatSubmitController({
       } else if (liveSpeechQueued) {
         await voiceChat.waitForSpeechEnd();
       }
-      setSpeakingMessageId(null);
       voiceSession.markAgentRunFinished();
     }
 

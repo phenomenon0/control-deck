@@ -85,7 +85,6 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
   // ---------------------------------------------------------------------------
   const [inputValue, setInputValue] = useState("");
   const [voiceModeOpen, setVoiceModeOpen] = useState(false);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [pendingInterrupt, setPendingInterrupt] = useState<InterruptRequest | null>(null);
   const selectedModel = prefs.model;
 
@@ -222,7 +221,6 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
     voiceChat,
     voiceSession,
     voiceReplyMessageIdsRef,
-    setSpeakingMessageId,
   });
 
   // ---------------------------------------------------------------------------
@@ -276,7 +274,6 @@ export default function ChatSurface({ voiceSubmitOrigin = "voice-dictation" }: C
     sendMessageRef,
     voiceReplyMessageIdsRef,
     queueComposerFocus,
-    setSpeakingMessageId,
   });
 
   // Contribute chat-specific commands to the palette while mounted.

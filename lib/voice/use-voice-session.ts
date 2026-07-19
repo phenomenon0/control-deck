@@ -737,34 +737,30 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
         return;
       }
       if (isInterruptRequested(event)) {
-        // Both lib/approvals/gate.ts and apps/agent-ts/loop.ts shape this
-        // payload differently from the canonical InterruptRequested: the
-        // approval fields ride in a free-form `data` bag that the AGUIEvent
-        // type doesn't declare (normalizeEvent lets it through untouched).
-        // Pull approval-specific fields from either `data` or a
-        // DeckPayload-wrapped `args`, then fall back to the top-level
-        // toolCallId/toolName the canonical emitters use.
-        const data = (event as unknown as { data?: unknown }).data;
-        const dataObj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+        // Canonical emitters carry the approval envelope in the typed
+        // `data` field (InterruptApprovalData). DeckPayload-wrapped `args`
+        // and top-level fields remain as defensive fallbacks.
+        const data = event.data;
         const argsData =
           event.args && typeof event.args === "object"
-            ? ((event.args as { data?: unknown }).data ?? event.args)
+            ? (((event.args as { data?: unknown }).data ?? event.args) as Record<string, unknown> | null)
             : null;
-        const payload = (dataObj ?? argsData) as Record<string, unknown> | null;
-        const kind = payload && typeof payload.kind === "string" ? payload.kind : null;
-        if (kind === "approval" || kind === null) {
+        const argsApproval =
+          argsData && argsData.kind === "approval" ? argsData : null;
+        if (data?.kind === "approval" || argsApproval || (!data && !argsApproval)) {
           const approvalId =
-            (payload && typeof payload.approvalId === "string" && payload.approvalId) ||
-            event.toolCallId ||
+            data?.approvalId ??
+            (argsApproval?.approvalId as string | undefined) ??
+            event.toolCallId ??
             `appr-${Date.now()}`;
           const toolName =
-            (payload && typeof payload.toolName === "string" && payload.toolName) ||
-            event.toolName ||
+            data?.toolName ??
+            (argsApproval?.toolName as string | undefined) ??
+            event.toolName ??
             "tool";
-          const risk =
-            payload && typeof payload.riskLevel === "string"
-              ? (payload.riskLevel as VoiceApprovalChallenge["risk"])
-              : "medium";
+          const riskRaw =
+            data?.riskLevel ?? (argsApproval?.riskLevel as string | undefined);
+          const risk = (riskRaw ?? "medium") as VoiceApprovalChallenge["risk"];
           const requiredPhrase = `confirm ${toolName.replace(/[^a-z0-9]+/gi, " ").trim()}`;
           const challenge: VoiceApprovalChallenge = {
             approvalId,

@@ -5,15 +5,43 @@
  *
  * Extracted from ChatSurface.tsx (Phase 4 decomposition, SURFACE.md §5.1).
  * Auto-TTS only fires for assistant messages that answer a voice-origin turn
- * (tracked via voiceReplyMessageIdsRef). Opening voice mode by itself must
- * not read old chat history or typed replies; manual speak controls still
- * call `voiceChat.speak()` directly.
+ * (tracked via voiceReplyMessageIdsRef, registered in ChatSubmitController —
+ * see shouldRegisterVoiceReply). Opening voice mode by itself must not read
+ * old chat history or typed replies; manual speak controls still call
+ * `voiceChat.speak()` directly.
  */
 
 import { useEffect, useRef } from "react";
 import type { Message } from "@/lib/chat/helpers";
 import type { VoiceSessionApi } from "@/lib/voice/use-voice-session";
 import type { UseVoiceChatReturn } from "@/lib/hooks/useVoiceChat";
+
+export interface AutoSpeakGateInput {
+  voiceEnabled: boolean;
+  isRunning: boolean;
+  lastMessage: Pick<Message, "id" | "role" | "content"> | undefined;
+  registeredIds: ReadonlySet<string>;
+  lastSpokenId: string | null;
+}
+
+/**
+ * Gate for full-text readback. Pure so the contract stays pinned under test:
+ * speak only a completed assistant message whose id was registered for
+ * readback by the submit controller, once, after the run has settled.
+ */
+export function shouldAutoSpeakReply({
+  voiceEnabled,
+  isRunning,
+  lastMessage,
+  registeredIds,
+  lastSpokenId,
+}: AutoSpeakGateInput): boolean {
+  if (!voiceEnabled || isRunning) return false;
+  if (!lastMessage || lastMessage.role !== "assistant" || !lastMessage.content) return false;
+  if (!registeredIds.has(lastMessage.id)) return false;
+  if (lastSpokenId === lastMessage.id) return false;
+  return true;
+}
 
 interface UseChatAutoTTSOptions {
   voiceEnabled: boolean;
@@ -22,7 +50,6 @@ interface UseChatAutoTTSOptions {
   voiceChat: UseVoiceChatReturn;
   voiceSession: VoiceSessionApi;
   voiceReplyMessageIdsRef: { current: Set<string> };
-  setSpeakingMessageId: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
 export function useChatAutoTTS({
@@ -32,22 +59,25 @@ export function useChatAutoTTS({
   voiceChat,
   voiceSession,
   voiceReplyMessageIdsRef,
-  setSpeakingMessageId,
 }: UseChatAutoTTSOptions): void {
   const lastSpokenIdRef = useRef<string | null>(null);
-  const pendingTTSRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!voiceEnabled || isRunning) return;
     const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant" || !lastMsg.content) return;
-    if (!voiceReplyMessageIdsRef.current.has(lastMsg.id)) return;
-    if (lastSpokenIdRef.current === lastMsg.id) return;
-    if (pendingTTSRef.current === lastMsg.id) pendingTTSRef.current = null;
+    if (
+      !lastMsg ||
+      !shouldAutoSpeakReply({
+        voiceEnabled,
+        isRunning,
+        lastMessage: lastMsg,
+        registeredIds: voiceReplyMessageIdsRef.current,
+        lastSpokenId: lastSpokenIdRef.current,
+      })
+    ) {
+      return;
+    }
     voiceReplyMessageIdsRef.current.delete(lastMsg.id);
-
     lastSpokenIdRef.current = lastMsg.id;
-    setSpeakingMessageId(lastMsg.id);
 
     const cleanContent = lastMsg.content
       .replace(/<tool[^>]*>[\s\S]*?<\/tool>/g, "")
@@ -71,11 +101,9 @@ export function useChatAutoTTS({
 
     if (cleanContent) {
       voiceChat.speak(cleanContent).finally(() => {
-        setSpeakingMessageId(null);
         voiceSession.markAgentRunFinished();
       });
     } else {
-      setSpeakingMessageId(null);
       voiceSession.markAgentRunFinished();
     }
   }, [isRunning, messages, voiceEnabled, voiceChat, voiceSession]);

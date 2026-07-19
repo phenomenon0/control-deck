@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import "./settings-v2.css";
+import { readDeckPrefs, writeDeckPrefs } from "@/lib/prefs/deckPrefs";
 
 /* Atlas Visual 2 — Settings. Content-only surface: the 64px app rail is the
    shell's job; the left SECTION list here is surface sub-nav. Ported from
@@ -92,7 +93,7 @@ const isSurface = (v: unknown): v is Surface => v === "safe" || v === "brave" ||
 
 function readPrefs(): Partial<RealPrefs> {
   try {
-    const p = JSON.parse(localStorage.getItem("deck.prefs") || "{}");
+    const p = readDeckPrefs<Record<string, unknown>>();
     const out: Partial<RealPrefs> = {};
     if (isTheme(p.theme)) out.theme = p.theme;
     if (typeof p.model === "string" && p.model) out.model = p.model;
@@ -116,16 +117,8 @@ function readPrefs(): Partial<RealPrefs> {
  *  V2AppearanceHost re-apply theme + typography to .v2-host immediately (it
  *  also drives the anti-FOUC + cross-tab `storage` path on next load). */
 function patchPrefs(partial: Partial<RealPrefs>) {
-  try {
-    const p = JSON.parse(localStorage.getItem("deck.prefs") || "{}");
-    const { preset, ...rest } = partial;
-    Object.assign(p, rest);
-    if (preset) p.localModelPreset = preset;
-    localStorage.setItem("deck.prefs", JSON.stringify(p));
-    window.dispatchEvent(new Event("deck.prefs"));
-  } catch {
-    /* private-mode / disabled storage — controls stay live in-memory */
-  }
+  const { preset, ...rest } = partial;
+  writeDeckPrefs(preset ? { ...rest, localModelPreset: preset } : rest);
 }
 
 /* ── small control primitives ───────────────────────────────────────────────── */

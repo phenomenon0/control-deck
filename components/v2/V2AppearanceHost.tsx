@@ -19,6 +19,7 @@
    ============================================================================= */
 
 import { useEffect, useState } from "react";
+import { readDeckPrefs, subscribeDeckPrefs } from "@/lib/prefs/deckPrefs";
 
 type V2Prefs = {
   theme?: string;
@@ -39,22 +40,13 @@ const SANS: Record<string, string> = {
   inter: '"Inter", "IBM Plex Sans", system-ui, sans-serif',
 };
 
-function readPrefs(): V2Prefs {
-  try {
-    return JSON.parse(localStorage.getItem("deck.prefs") || "{}") as V2Prefs;
-  } catch {
-    return {};
-  }
-}
-
 export default function V2AppearanceHost({ children }: { children: React.ReactNode }) {
   const [prefs, setPrefs] = useState<V2Prefs>({});
 
   useEffect(() => {
-    const apply = () => setPrefs(readPrefs());
+    const apply = () => setPrefs(readDeckPrefs<V2Prefs>());
     apply();
-    window.addEventListener("storage", apply);
-    window.addEventListener("deck.prefs", apply);
+    const unsubscribe = subscribeDeckPrefs(apply);
 
     // Server mirror (/api/prefs): localStorage is per browser partition, so
     // the Electron shell would otherwise open in factory Atlas instead of
@@ -92,8 +84,7 @@ export default function V2AppearanceHost({ children }: { children: React.ReactNo
     }
 
     return () => {
-      window.removeEventListener("storage", apply);
-      window.removeEventListener("deck.prefs", apply);
+      unsubscribe();
       window.removeEventListener("deck.prefs", push);
       if (pushTimer) clearTimeout(pushTimer);
     };

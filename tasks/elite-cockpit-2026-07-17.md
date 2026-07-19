@@ -278,3 +278,43 @@ Backlog for the final wave:
 - `.venv-vllm/` ~10 GB orphaned host state — manual rm -rf (owner decision).
 - 4 non-AG-UI SSE users kept payload frames — bless or canonize.
 - First real CI run may surface host-bound tests (electron/scripts dirs).
+
+## Execution log 5 — final wave landed + compression pass, 2026-07-19
+
+Review of the 07-17/18 waves found one regression: `6f7ddb1` deleted the
+lib/llm barrel but missed its 8th importer (`lib/prompts/system.ts`) — HEAD
+failed tsc, contradicting log 4's "gate green at HEAD". Fixed, then the dead
+prompt path was deleted outright (its only caller was an unreferenced script).
+
+**Part A** (7 commits, `9f52202` → `c5dae97`): the uncommitted final wave landed
+as thematic commits — T9 skills (settings enabled-overlay, scan parity),
+T17 replay feed wired + one-terminal-event guarantee, typed InterruptRequested
+envelope, auto-TTS readback, the 4 non-AG-UI SSE routes blessed as named
+contracts, T22 dom coverage.
+
+**Part B — compression** (`cb0bdb9` → `c95d4ff`, ~4.3k lines removed):
+- `lib/agui/experimental/` (2,930) archived to `reference/agui-experimental`.
+- Zero-importer sweep (1,167): dead prompt builder, 5 orphaned hooks
+  (incl. `useModels` — see below), batchSweep, settings/hooks,
+  audio-agui-events, ollama-utils, open-in-browser, plugins barrel.
+- Dedup: one `jsonError` (lib/http/json.ts), one deck.prefs accessor
+  (lib/prefs/deckPrefs.ts, +unit and mount tests).
+- **fix(theme) `22cdff1`, found via live Playwright verification**: migratePrefs
+  stripped `theme` as a legacy routing key, so every DeckSettingsProvider mount
+  reset root data-theme to default AND persisted the blob back without the
+  user's choice; WarpProvider's vestigial theme write clobbered on top.
+  DeckSettingsProvider is now the sole root data-theme owner.
+- Audit items rejected on inspection (not true margin): id-helper unification
+  (7 sites, distinct persisted formats), parseOllamaPullLine adoption
+  (handleLine needs digest/heartbeat handling), useModels adoption (names-only
+  + /api/backend-first — no call site wants those semantics; hook deleted
+  instead), usePolledResource (2 cohesive hooks left), ChatMessage base type
+  (3 local shapes clearer than a shared base).
+
+Deferred with intent: god-file decomposition (v2/chat/page 2040,
+tools/executor 2188, onboarding/orchestrator 1258), v2/chat transcript memo,
+buildToolReplayBlocks N+1 batch, 1-importer barrel inlining.
+
+Verification pattern that paid off: Playwright (repo dep, chromium installed)
+against the dev server — no Chrome CDP attach needed; note /v2/workspace holds
+SSE open so `networkidle` never fires (use domcontentloaded + waits).

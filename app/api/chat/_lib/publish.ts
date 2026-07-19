@@ -83,6 +83,24 @@ export interface EventMapState {
 }
 
 /**
+ * Coerce an upstream args/result field — DeckPayload passthrough, legacy
+ * `{format, data}` envelope, or a raw value — into a DeckPayload.
+ */
+function coercePayloadField(value: unknown): DeckPayload | undefined {
+  if (value && isDeckPayload(value)) {
+    return value;
+  }
+  const env = value as { format: string; data: unknown } | undefined;
+  if (env?.data !== undefined) {
+    return jsonPayload(env.data);
+  }
+  if (value !== undefined) {
+    return jsonPayload(value);
+  }
+  return undefined;
+}
+
+/**
  * Parse SSE data from an agent-ts event stream. Malformed frames are
  * skipped — never crash the stream consumer on upstream drift.
  */
@@ -168,56 +186,42 @@ export function mapAgentEvent(
         messageId: event.messageId ?? messageId,
       });
 
-    case "ToolCallStart":
-      return createEvent<ToolCallStart>("ToolCallStart", threadId, {
+    case "ToolCallStart": {
+      const start = createEvent<ToolCallStart>("ToolCallStart", threadId, {
         runId,
         toolCallId: event.toolCallId ?? generateId(),
         toolName: event.toolName ?? "unknown",
       });
-
-    case "ToolCallArgs": {
-      // Preserve payload format if already DeckPayload
-      let argsPayload: DeckPayload | undefined;
-      if (event.args && isDeckPayload(event.args)) {
-        argsPayload = event.args;
-      } else if (event.args?.data !== undefined) {
-        argsPayload = jsonPayload(event.args.data);
-      } else if (event.args !== undefined) {
-        argsPayload = jsonPayload(event.args);
+      // agent-ts attaches the call's arguments to ToolCallStart
+      // (loop.ts tool_execution_start). The AG-UI ToolCallStart type has
+      // no args field, but the ledger stores the whole event JSON and the
+      // wire tolerates extra keys — persist them under `args` so the T17
+      // replay feed (agent-run.ts) can rebuild real tool_calls arguments.
+      // Runs persisted before this change simply have no args; replay
+      // tolerates that (arguments omitted).
+      const args = coercePayloadField(event.args);
+      if (args !== undefined) {
+        (start as ToolCallStart & { args?: DeckPayload }).args = args;
       }
+      return start;
+    }
 
+    case "ToolCallArgs":
       return createEvent<ToolCallArgs>("ToolCallArgs", threadId, {
         runId,
         toolCallId: event.toolCallId ?? generateId(),
         delta: "",
-        args: argsPayload,
+        args: coercePayloadField(event.args),
       });
-    }
 
-    case "ToolCallResult": {
-      // Preserve GLYPH encoding if executor provided it as DeckPayload
-      let resultPayload: DeckPayload;
-      if (event.result && isDeckPayload(event.result)) {
-        // Already a DeckPayload (GLYPH or JSON), use as-is
-        resultPayload = event.result;
-      } else if (event.result?.data !== undefined) {
-        // Legacy format: { format: string, data: unknown }
-        resultPayload = jsonPayload(event.result.data);
-      } else if (event.result !== undefined) {
-        // Raw value, wrap in JSON payload
-        resultPayload = jsonPayload(event.result);
-      } else {
-        resultPayload = jsonPayload({});
-      }
-
+    case "ToolCallResult":
       return createEvent<ToolCallResult>("ToolCallResult", threadId, {
         runId,
         toolCallId: event.toolCallId ?? generateId(),
-        result: resultPayload,
+        result: coercePayloadField(event.result) ?? jsonPayload({}),
         success: event.success,
         durationMs: event.durationMs,
       });
-    }
 
     case "InterruptRequested":
       // Publish interrupt request to hub for UI to handle

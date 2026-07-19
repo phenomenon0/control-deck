@@ -3,11 +3,27 @@
  *
  * Background proxy loop: write the locally pre-emitted prelude, start the
  * agent-ts run, then forward every upstream event (mapped to AG-UI,
- * persisted, republished) into the client-facing SSE stream. Terminals:
- *   - RunFinished / `event: done` → TextMessageEnd + RunFinished, run row 'finished'
- *   - RunError → forwarded, run row 'error' (never overwritten by finishRun)
- *   - client abort → run row marked "aborted", no further events
- *   - transport/agent-ts failure → RunError event, run row 'error'
+ * persisted, republished) into the client-facing SSE stream.
+ *
+ * Terminal state machine — the deck guarantees every run ends with EXACTLY
+ * ONE terminal event (RunFinished XOR RunError) on the wire:
+ *   - Upstream RunFinished → forwarded (enriched with the thread title) and
+ *     it IS the terminal; post-loop only persists the run row, no second
+ *     terminal event is minted.
+ *   - Upstream RunError → forwarded as the terminal; run row 'error' (never
+ *     overwritten by finishRun).
+ *   - Silent FIN (stream ends or `event: done` with no terminal) → the deck
+ *     mints the one canonical RunFinished. This guard is load-bearing: a
+ *     run ALWAYS terminates exactly once even if agent-ts goes quiet.
+ *   - Transport/agent-ts failure → deck-minted RunError, run row 'error'.
+ *   - Client abort → run row marked "aborted", no further events.
+ *
+ * The deck pre-emits a TextMessageStart under its own messageId before
+ * upstream connects. That segment stays open until an upstream
+ * TextMessageEnd targets the same id; if it is still open when the run
+ * terminates, the deck mints the matching TextMessageEnd immediately
+ * BEFORE the terminal event — on the error path too — so the UI never
+ * keeps a dangling streaming segment.
  */
 
 import { raiseWarning } from "@/lib/agui/warn";
@@ -32,7 +48,7 @@ import {
   type AgentGOStartRunRequest,
 } from "./agent-run";
 import {
-  mapAndPublishEvent,
+  mapAgentEvent,
   parseAgentEvent,
   persistAndPublish,
 } from "./publish";
@@ -52,11 +68,34 @@ export interface ProxyAgentRunOptions {
 export async function proxyAgentRun(opts: ProxyAgentRunOptions): Promise<void> {
   const { agentRequest, signal, threadId, runId, messageId, prelude, stream } = opts;
   let fullText = "";
-  // Track per-stream state used by mapAndPublishEvent — currently tells us
+  // Track per-stream state used by mapAgentEvent — currently tells us
   // whether to suppress the first TextMessageStart from agent-ts (the deck
   // pre-emitted one locally) vs forwarding the ones that begin each model
   // turn after a tool-call round.
   const eventState = { sawFirstTextStart: false };
+
+  // Terminal bookkeeping (see header). `terminalKind` records the upstream
+  // terminal once forwarded so the post-loop path persists ledger state
+  // only and never re-emits it; `localTextOpen` tracks the deck's
+  // pre-emitted TextMessageStart.
+  let terminalKind: "finished" | "error" | null = null;
+  let localTextOpen = true;
+
+  /**
+   * Mint + persist + stream the TextMessageEnd closing the deck's
+   * pre-emitted segment, at most once. Called immediately before whatever
+   * terminal event ends the run (forwarded or minted).
+   */
+  const closeLocalText = async (): Promise<void> => {
+    if (!localTextOpen) return;
+    localTextOpen = false;
+    const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", threadId, {
+      runId,
+      messageId,
+    });
+    persistAndPublish(msgEnd);
+    await stream.write(msgEnd);
+  };
 
   try {
     // Write initial locally-emitted events to the SSE stream
@@ -114,11 +153,36 @@ export async function proxyAgentRun(opts: ProxyAgentRunOptions): Promise<void> {
             fullText += event.delta;
           }
 
-          // Map to AGUI event, save to DB, publish to hub (for other consumers)
-          const aguiEvent = mapAndPublishEvent(event, threadId, runId, messageId, eventState);
-
-          // Write the AGUI event to the SSE response stream
+          // Map to AGUI event, then persist + publish + forward it.
+          const aguiEvent = mapAgentEvent(event, threadId, runId, messageId, eventState);
           if (aguiEvent) {
+            // The forwarded upstream RunFinished is the one canonical
+            // terminal — enrich it with the thread title so the SURFACE.md
+            // §6.2 title flow (previously carried by the deck-minted second
+            // RunFinished, removed as a duplicate) keeps working.
+            if (aguiEvent.type === "RunFinished") {
+              const title = getThread(threadId)?.title;
+              if (title) (aguiEvent as RunFinished).threadTitle = title;
+            }
+
+            persistAndPublish(aguiEvent);
+
+            // An upstream TextMessageEnd addressed to the deck's messageId
+            // closes the pre-emitted segment — nothing left to mint later.
+            if (
+              aguiEvent.type === "TextMessageEnd" &&
+              (aguiEvent as TextMessageEnd).messageId === messageId
+            ) {
+              localTextOpen = false;
+            }
+
+            // A terminal event ends every open text segment: close the
+            // deck's pre-emitted start BEFORE the terminal hits the wire.
+            if (aguiEvent.type === "RunFinished" || aguiEvent.type === "RunError") {
+              await closeLocalText();
+            }
+
+            // Write the AGUI event to the SSE response stream
             if (!await stream.write(aguiEvent)) break outer;
           }
 
@@ -126,9 +190,11 @@ export async function proxyAgentRun(opts: ProxyAgentRunOptions): Promise<void> {
           // the post-loop finishRun path — that would overwrite the
           // error status with 'finished'.
           if (event.type === "RunFinished") {
+            terminalKind = "finished";
             break outer;
           }
           if (event.type === "RunError") {
+            terminalKind = "error";
             upstreamErrorMessage = event.error?.message ?? "agent error";
             break outer;
           }
@@ -146,21 +212,22 @@ export async function proxyAgentRun(opts: ProxyAgentRunOptions): Promise<void> {
       updateRunPreview(runId, fullText.slice(0, 200));
     }
 
-    if (upstreamErrorMessage !== null) {
+    if (terminalKind === "error") {
       // Agent-ts surfaced its own RunError (most commonly "aborted" after
       // a /cancel). The event itself was already forwarded to the SSE
       // stream and hub above; here we just persist the run row state.
-      errorRun(runId, upstreamErrorMessage);
+      errorRun(runId, upstreamErrorMessage ?? "agent error");
+    } else if (terminalKind === "finished") {
+      // The forwarded RunFinished was the terminal event — persist the
+      // ledger transition only. Minting a second one here used to put two
+      // RunFinished events on the wire for a single run.
+      finishRun(runId, 0, 0, 0);
     } else {
-      // Emit and stream TextMessageEnd
-      const msgEnd = createEvent<TextMessageEnd>("TextMessageEnd", threadId, {
-        runId,
-        messageId,
-      });
-      persistAndPublish(msgEnd);
-      await stream.write(msgEnd);
-
-      // Emit and stream RunFinished — include LLM-generated title (SURFACE.md §6.2)
+      // Silent-FIN guard: the stream ended (or `event: done` arrived)
+      // without any upstream terminal event. The deck mints the one
+      // canonical RunFinished so a run ALWAYS terminates exactly once —
+      // include the LLM-generated title (SURFACE.md §6.2).
+      await closeLocalText();
       const threadRow = getThread(threadId);
       const runFinished = createEvent<RunFinished>("RunFinished", threadId, {
         runId,
@@ -194,6 +261,10 @@ export async function proxyAgentRun(opts: ProxyAgentRunOptions): Promise<void> {
           ? error.message
           : "Unknown error";
       console.error("[Chat] agent-ts proxy error:", error);
+
+      // Close the pre-emitted text segment before the terminal error so
+      // the UI isn't left with a dangling streaming segment.
+      await closeLocalText();
 
       const runError = createEvent<RunError>("RunError", threadId, {
         runId,

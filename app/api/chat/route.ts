@@ -36,7 +36,7 @@ import {
 } from "./_lib/validate";
 import { assembleSystemPrompt } from "./_lib/prompt";
 import { resolveChatModel } from "./_lib/model-route";
-import { buildAgentMessages, buildStartRunRequest } from "./_lib/agent-run";
+import { buildAgentMessages, buildStartRunRequest, buildToolReplayBlocks, mergeReplayBlocks } from "./_lib/agent-run";
 import { proxyAgentRun } from "./_lib/proxy";
 import { persistAndPublish } from "./_lib/publish";
 import { ChatSSEStream, createSSEResponse } from "./_lib/stream";
@@ -120,7 +120,16 @@ export async function POST(req: Request) {
   });
   persistAndPublish(msgStart);
 
-  const agentMessages = buildAgentMessages(chatMessages);
+  const baseMessages = buildAgentMessages(chatMessages);
+  // T17 replay feed: agent-ts's wireToPiMessages replays assistant
+  // tool_calls + tool results when the wire history carries them, but the
+  // client only sends user/assistant text — so prior tool exchanges were
+  // invisible to the model. Rebuild them from the events ledger (bounded;
+  // see _lib/agent-run.ts). Skipped for minted threads: no prior runs.
+  const agentMessages = mergeReplayBlocks(
+    baseMessages,
+    threadId ? buildToolReplayBlocks(thread, runId) : [],
+  );
 
   // The assembled system prompt travels as the dedicated `system_prompt`
   // wire field — agent-ts installs it as the run's actual system prompt.

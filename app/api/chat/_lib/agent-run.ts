@@ -12,6 +12,14 @@
 import { raiseWarning } from "@/lib/agui/warn";
 import { stripForLLMHistory } from "@/lib/chat/stripPatterns";
 import { retryingFetch } from "@/lib/agentgo/client";
+import { getEvents, getRuns } from "@/lib/agui/db";
+import type {
+  AGUIEvent,
+  ToolCallArgs,
+  ToolCallResult,
+  ToolCallStart,
+} from "@/lib/agui/events";
+import { tryDecodePayload, type DeckPayload } from "@/lib/agui/payload";
 import type { ModelRoute } from "@/lib/engine/resolve";
 // Agent runtime: agent-ts (apps/agent-ts) on :4244. pi-agent-core wrapped
 // in the AG-UI/SSE wire contract. URL resolution lives in
@@ -19,9 +27,25 @@ import type { ModelRoute } from "@/lib/engine/resolve";
 import { AGENTGO_URL, withAgentTsAuth } from "@/lib/agentgo/launcher";
 import type { ClientMessage } from "./validate";
 
+/** OpenAI-style tool call on an assistant wire message (apps/agent-ts wire.ts ChatMessageWireToolCall). */
+export interface AgentGOMessageToolCall {
+  id: string;
+  name: string;
+  /** Arguments as a JSON string or an already-parsed object. */
+  arguments?: unknown;
+}
+
 export interface AgentGOMessage {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
+  /** Assistant role only: tool calls the model issued in that turn. */
+  tool_calls?: AgentGOMessageToolCall[];
+  /** tool role: id of the assistant tool call this answers. */
+  tool_call_id?: string;
+  /** tool role: originating tool name. */
+  name?: string;
+  /** tool role: true when the result is an error. */
+  is_error?: boolean;
 }
 
 export interface AgentGOStartRunRequest {
@@ -80,6 +104,248 @@ export function buildAgentMessages(chatMessages: ClientMessage[]): AgentGOMessag
       };
     })
     .filter(m => m.content.trim().length > 0);
+}
+
+/* ── T17 tool-call replay feed ──────────────────────────────────────
+ *
+ * agent-ts's wireToPiMessages replays prior tool exchanges when the wire
+ * history carries them (assistant tool_calls immediately followed by their
+ * tool messages — LLM APIs reject unpaired entries). The deck's client
+ * only sends user/assistant text, so everything the agent DID in earlier
+ * turns was invisible to the model. This feed rebuilds the exchanges from
+ * the events ledger (lib/agui/db getRuns/getEvents), which persists full
+ * ToolCallStart / ToolCallArgs / ToolCallResult payloads per run.
+ *
+ * Bounds (kept deliberately simple):
+ *   REPLAY_SCAN_RUNS        — only the 8 most recent prior runs of the
+ *                             thread are scanned (newest first).
+ *   REPLAY_MAX_TOOL_CALLS   — at most 12 paired exchanges make the wire,
+ *                             newest runs first; a budget exhausted mid-run
+ *                             keeps that run's EARLIEST exchanges.
+ *   REPLAY_RESULT_MAX_CHARS — each replayed tool result is capped at 4000
+ *                             chars so replay can't blow the context window.
+ *
+ * Known ledger gap: agent-ts attaches call arguments to ToolCallStart and
+ * runs persisted before the publish.ts args fix have none — replay then
+ * omits `arguments` (agent-ts substitutes {}). Never invent arguments.
+ */
+export const REPLAY_SCAN_RUNS = 8;
+export const REPLAY_MAX_TOOL_CALLS = 12;
+export const REPLAY_RESULT_MAX_CHARS = 4000;
+
+/** One completed start→result pair, in the order the results arrived. */
+export interface ToolExchange {
+  id: string;
+  name: string;
+  /** Decoded arguments; undefined when the ledger row has none (see gap note). */
+  arguments?: unknown;
+  /** Flattened result text, capped at REPLAY_RESULT_MAX_CHARS. */
+  content: string;
+  isError: boolean;
+}
+
+/** A run's replayable wire messages plus its position among prior runs. */
+export interface ReplayBlock {
+  /** 0 = most recent prior run of the thread, 1 = the one before it, … */
+  priorIndex: number;
+  /** [assistant(tool_calls), tool, tool, …] — pairing is never broken. */
+  messages: AgentGOMessage[];
+}
+
+/** Decode a persisted args DeckPayload; undefined when absent/undecodable. */
+function decodeArgsPayload(payload: DeckPayload | undefined): unknown {
+  if (payload === undefined) return undefined;
+  return tryDecodePayload(payload) ?? undefined;
+}
+
+/** Concatenated ToolCallArgs deltas parse as one JSON document, or nothing. */
+function parseArgDeltas(deltas: string[]): unknown {
+  const raw = deltas.join("");
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Flatten a persisted ToolCallResult payload into wire `content` text. */
+function toolResultContent(result: DeckPayload | undefined): string {
+  const decoded = result === undefined ? undefined : tryDecodePayload(result);
+  let text: string;
+  if (decoded == null) {
+    text = "";
+  } else if (typeof decoded === "string") {
+    text = decoded;
+  } else if (
+    typeof decoded === "object" &&
+    Array.isArray((decoded as { content?: unknown }).content)
+  ) {
+    // pi tool-result shape persisted by agent-ts runs:
+    // { content: [{ type: "text", text }, ...], details? }
+    const blocks = (decoded as { content: Array<{ type?: string; text?: unknown }> }).content;
+    text = blocks
+      .filter(b => b && (b.type === undefined || b.type === "text") && typeof b.text === "string")
+      .map(b => b.text as string)
+      .join("\n");
+  } else {
+    text = JSON.stringify(decoded);
+  }
+  if (text.length > REPLAY_RESULT_MAX_CHARS) {
+    return text.slice(0, REPLAY_RESULT_MAX_CHARS) + "…[truncated]";
+  }
+  return text;
+}
+
+/**
+ * Pair one run's persisted ToolCallStart/Args/Result events into replayable
+ * exchanges. Pairs are emitted in result-arrival order; starts without a
+ * result (run errored mid-call) and results without a start are dropped —
+ * LLM APIs reject unpaired tool calls, so nothing unpaired ever leaves here.
+ */
+export function extractToolExchanges(events: AGUIEvent[]): ToolExchange[] {
+  interface PendingCall {
+    name: string;
+    arguments?: unknown;
+    argDeltas: string[];
+  }
+  const pending = new Map<string, PendingCall>();
+  const exchanges: ToolExchange[] = [];
+
+  for (const event of events) {
+    if (event.type === "ToolCallStart") {
+      const start = event as ToolCallStart & { args?: DeckPayload };
+      pending.set(start.toolCallId, {
+        name: start.toolName,
+        arguments: decodeArgsPayload(start.args),
+        argDeltas: [],
+      });
+    } else if (event.type === "ToolCallArgs") {
+      const argsEvent = event as ToolCallArgs;
+      const call = pending.get(argsEvent.toolCallId);
+      if (!call) continue;
+      if (argsEvent.args !== undefined) {
+        // Mapped args payloads carry the complete args; last one wins.
+        call.arguments = decodeArgsPayload(argsEvent.args);
+      } else if (typeof argsEvent.delta === "string" && argsEvent.delta) {
+        call.argDeltas.push(argsEvent.delta);
+      }
+    } else if (event.type === "ToolCallResult") {
+      const result = event as ToolCallResult;
+      const call = pending.get(result.toolCallId);
+      if (!call) continue; // result without a start — nothing to pair with
+      pending.delete(result.toolCallId);
+      exchanges.push({
+        id: result.toolCallId,
+        name: call.name,
+        arguments: call.arguments ?? parseArgDeltas(call.argDeltas),
+        content: toolResultContent(result.result),
+        isError: result.success === false,
+      });
+    }
+  }
+  // Leftover pending calls never got a result — dropped (unpaired).
+  return exchanges;
+}
+
+/** Materialize exchanges as the exact wire pair sequence agent-ts expects. */
+export function exchangesToMessages(exchanges: ToolExchange[]): AgentGOMessage[] {
+  if (exchanges.length === 0) return [];
+  return [
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: exchanges.map(x => ({
+        id: x.id,
+        name: x.name,
+        ...(x.arguments !== undefined ? { arguments: x.arguments } : {}),
+      })),
+    },
+    ...exchanges.map(x => ({
+      role: "tool" as const,
+      content: x.content,
+      tool_call_id: x.id,
+      name: x.name,
+      is_error: x.isError,
+    })),
+  ];
+}
+
+/**
+ * Read the events ledger and build replay blocks for the thread's recent
+ * prior runs (newest first, bounded by REPLAY_SCAN_RUNS /
+ * REPLAY_MAX_TOOL_CALLS). Ledger failures degrade to no replay — the chat
+ * turn must never fail because history reconstruction did.
+ */
+export function buildToolReplayBlocks(threadId: string, excludeRunId?: string): ReplayBlock[] {
+  try {
+    const runs = getRuns(threadId)
+      .filter(r => r.id !== excludeRunId)
+      .slice(0, REPLAY_SCAN_RUNS);
+    const blocks: ReplayBlock[] = [];
+    let budget = REPLAY_MAX_TOOL_CALLS;
+    for (let priorIndex = 0; priorIndex < runs.length && budget > 0; priorIndex++) {
+      const exchanges = extractToolExchanges(getEvents(runs[priorIndex].id));
+      if (exchanges.length === 0) continue;
+      const kept = exchanges.slice(0, budget);
+      budget -= kept.length;
+      blocks.push({ priorIndex, messages: exchangesToMessages(kept) });
+    }
+    return blocks;
+  } catch (err) {
+    raiseWarning({
+      source: "chat.replay",
+      message: `tool replay feed failed for thread ${threadId}: ${err instanceof Error ? err.message : String(err)}`,
+      threadId,
+      runId: excludeRunId,
+    });
+    return [];
+  }
+}
+
+/**
+ * Weave replay blocks into the sanitized client history. Each block anchors
+ * right after the user message that started its run: the LAST user message
+ * belongs to the current run, so prior run #p (0 = newest) anchors to the
+ * (p + 2)-th user message from the end. Blocks whose anchor was trimmed
+ * from client history are parked just before the current user message —
+ * still past-turn context, pairing always intact.
+ */
+export function mergeReplayBlocks(
+  messages: AgentGOMessage[],
+  blocks: ReplayBlock[]
+): AgentGOMessage[] {
+  if (blocks.length === 0) return messages;
+
+  const userIdx: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "user") userIdx.push(i);
+  }
+  const lastUserIdx = userIdx.length > 0 ? userIdx[userIdx.length - 1] : -1;
+
+  const after = new Map<number, AgentGOMessage[]>();
+  const orphans: AgentGOMessage[] = [];
+  // Oldest run first so co-anchored/orphaned blocks stay chronological.
+  const sorted = [...blocks].sort((a, b) => b.priorIndex - a.priorIndex);
+  for (const block of sorted) {
+    const fromEnd = block.priorIndex + 2;
+    const anchor = userIdx.length >= fromEnd ? userIdx[userIdx.length - fromEnd] : -1;
+    if (anchor >= 0) {
+      after.set(anchor, [...(after.get(anchor) ?? []), ...block.messages]);
+    } else {
+      orphans.push(...block.messages);
+    }
+  }
+
+  const out: AgentGOMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (i === lastUserIdx) out.push(...orphans);
+    out.push(messages[i]);
+    const parked = after.get(i);
+    if (parked) out.push(...parked);
+  }
+  if (lastUserIdx === -1) out.push(...orphans);
+  return out;
 }
 
 export interface BuildRunRequestInput {

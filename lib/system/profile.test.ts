@@ -71,10 +71,12 @@ describe("recommended-getters", () => {
     expect(getImageResolution()).toBe(256);
   });
 
-  test("power mode → resolution=768", () => {
+  test("power mode → resolution follows GPU presence (768 with, 256 without)", () => {
     process.env.CONTROL_DECK_MODE = "power";
     refreshSystemProfile();
-    expect(getImageResolution()).toBe(768);
+    // Host-honest: forced power mode on a GPU-less host (CI) still gets 256 —
+    // the pure mapping is proven hermetically in detect.test.ts.
+    expect(getImageResolution()).toBe(getSystemProfile().gpu ? 768 : 256);
   });
 
   test("getTextModel returns a non-empty string", () => {

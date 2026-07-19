@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { detectSystem, formatSystemProfile, type SystemProfile } from "./detect";
+import {
+  detectSystem,
+  formatSystemProfile,
+  getRecommendedSettings,
+  type GpuInfo,
+  type SystemProfile,
+} from "./detect";
 
 // ── formatSystemProfile ─────────────────────────────────────────────
 // Pure formatter — straightforward to test with synthetic inputs.
@@ -125,11 +131,22 @@ describe("detectSystem — shape invariants", () => {
     });
   });
 
-  test("power mode uses 768, lite uses 256; both route to comfy", () => {
+  // The pure mapping — hermetic, no live hardware. 768 needs power AND a GPU;
+  // a forced power mode on a GPU-less host (CI runners) still gets 256.
+  test("recommended settings: 768 iff power mode with a GPU, else 256", () => {
+    const gpu: GpuInfo = { name: "Fake RTX", vram: 8000 };
+    expect(getRecommendedSettings("power", gpu).imageResolution).toBe(768);
+    expect(getRecommendedSettings("power", null).imageResolution).toBe(256);
+    expect(getRecommendedSettings("lite", gpu).imageResolution).toBe(256);
+    expect(getRecommendedSettings("lite", null).imageResolution).toBe(256);
+  });
+
+  test("live detectSystem honours the mapping on whatever host runs it", () => {
     process.env.CONTROL_DECK_MODE = "power";
     const powerP = detectSystem();
     expect(powerP.recommended.imageBackend).toBe("comfy");
-    expect(powerP.recommended.imageResolution).toBe(768);
+    // Host-honest: 768 only when this machine actually has a GPU.
+    expect(powerP.recommended.imageResolution).toBe(powerP.gpu ? 768 : 256);
 
     process.env.CONTROL_DECK_MODE = "lite";
     const liteP = detectSystem();

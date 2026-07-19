@@ -239,9 +239,12 @@ function determineMode(gpu: GpuInfo | null, ram: number): DeckMode {
 }
 
 /**
- * Get recommended settings based on mode
+ * Get recommended settings based on mode. 768 requires power mode AND a
+ * detected GPU — a CONTROL_DECK_MODE=power override on a GPU-less host still
+ * recommends 256 (comfy can't render 768 without one). Exported so the
+ * mapping is unit-testable without live hardware detection.
  */
-function getRecommendedSettings(
+export function getRecommendedSettings(
   mode: DeckMode,
   gpu: GpuInfo | null
 ): SystemProfile["recommended"] {

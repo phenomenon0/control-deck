@@ -20,6 +20,24 @@ export const dynamic = "force-dynamic";
  * Each event arrives as `event: <kind>\ndata: <json>\n\n`. The
  * subscriber receives the current snapshot as a `ledger` event on
  * connect so the UI paints immediately.
+ *
+ * BLESSED NON-AG-UI SSE CONTRACT — "resource-arbiter-events"
+ * (recorded in lib/agui/sse.ts). This is fleet/arbiter state sync for
+ * the ResourcePane, not per-run agent telemetry: ResourceEvent
+ * (lib/resource/types.ts) has no threadId/runId and fires outside any
+ * agent run. Frames:
+ *   `: ready\n\n`                — kickoff comment (proxy flush)
+ *   `event: <ResourceEvent.kind>` — data: the ResourceEvent variant;
+ *     kinds: ledger | acquire-granted | acquire-denied | acquire-queued
+ *          | evict-start | evict-done | evict-failed | release
+ *          | restore-scheduled | downgrade-swap | oom
+ *   `: hb\n\n`                   — heartbeat comment, 25s cadence
+ *
+ * FLAGGED (not migrated): `oom`, `evict-failed`, and `acquire-denied`
+ * semantically overlap AG-UI `WarningRaised` — a future pass could
+ * dual-publish those three as WarningRaised { source: "resource.arbiter" }
+ * so run timelines see resource faults. The stream itself stays blessed:
+ * ledger snapshots and acquire/evict lifecycle have no run to key on.
  */
 export async function GET(_req: NextRequest): Promise<Response> {
   ensureArbiterBooted();

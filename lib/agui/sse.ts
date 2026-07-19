@@ -88,3 +88,41 @@ function parseFrame(frame: string): AGUIEvent | null {
     return null; // malformed frame — skip, never crash the stream consumer
   }
 }
+
+/**
+ * BLESSED NON-AG-UI SSE ROUTES (decision record, 2026-07-18)
+ *
+ * Four routes intentionally stream non-AG-UI payload frames while sharing
+ * this module's keystone framing (sseHeaders) and heartbeat comment frames.
+ * They are BLESSED as named contracts — do NOT "fix" them into AG-UI
+ * events, and do NOT feed them to SSEParser: it ignores `event:` lines and
+ * does no validation, so their payloads would surface as bogus AGUIEvent
+ * objects (no type/timestamp/threadId) instead of parse errors. Each route
+ * file carries the full frame contract in its header comment.
+ *
+ *   1. app/api/workspace/commands  — "workspace-command-relay"
+ *      `event: workspace-command`, data: WorkspaceCommand. Server→client
+ *      Dockview command channel; no threadId/runId, not agent telemetry.
+ *
+ *   2. app/api/resource/events     — "resource-arbiter-events"
+ *      `event: <ResourceEvent.kind>`, data: ResourceEvent. Arbiter/ledger
+ *      fleet state for ResourcePane; fires outside any agent run.
+ *      FLAGGED: oom / evict-failed / acquire-denied overlap WarningRaised
+ *      semantics — a future pass may dual-publish those as WarningRaised
+ *      { source: "resource.arbiter" }, but the stream itself stays blessed
+ *      (ledger snapshots + acquire/evict lifecycle have no run to key on).
+ *
+ *   3. app/api/code/stream         — "code-exec-stream"
+ *      `event: chunk|result|done|error`. One-shot RPC-over-SSE for code
+ *      execution; short-lived (maxDuration 60s, no heartbeats), no run
+ *      ledger. runId/threadId are artifact-correlation passthroughs only.
+ *
+ *   4. app/api/onboarding/run      — "onboarding-steps"
+ *      default-named `data: <Step>` frames + terminal `event: end`.
+ *      First-run wizard progress under a single-user mutex; not an agent
+ *      run, nothing to normalize.
+ *
+ * scripts/contract-check.ts should treat this set as the allowed
+ * non-AG-UI SSE routes; any NEW non-AG-UI SSE route needs a blessing
+ * entry here + a header comment before it merges.
+ */

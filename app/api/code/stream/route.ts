@@ -1,8 +1,22 @@
 /**
  * Code Execution Streaming API
  * POST /api/code/stream
- * 
- * Executes code and streams output via Server-Sent Events
+ *
+ * Executes code and streams output via Server-Sent Events.
+ *
+ * BLESSED NON-AG-UI SSE CONTRACT — "code-exec-stream" (recorded in
+ * lib/agui/sse.ts). This is one-shot RPC-over-SSE (POST in, execution
+ * output out, connection closes), not agent-run telemetry: no thread
+ * ledger, no run lifecycle, runId/threadId are optional passthroughs
+ * for artifact correlation only. Frames:
+ *   `event: chunk`  — data: CodeExecChunk
+ *     { type: "stdout"|"stderr"|"image"|"file"|"status"|"error",
+ *       data: string, timestamp: number }  (lib/tools/code-exec/types.ts)
+ *   `event: result` — data: CodeExecResult
+ *     { success, exitCode, stdout, stderr, durationMs, images?, files?, … }
+ *   `event: done`   — data: { success: boolean } (terminal, stream closes)
+ *   `event: error`  — data: { message: string }  (terminal, stream closes)
+ * Short-lived (maxDuration 60s) — no heartbeat frames on this route.
  */
 
 import { NextRequest } from "next/server";

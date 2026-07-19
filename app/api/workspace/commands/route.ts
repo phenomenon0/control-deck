@@ -13,6 +13,19 @@ export const dynamic = "force-dynamic";
  * /api/tools/bridge) publishes a workspace_* command, every
  * connected client receives it and executes against its local
  * Dockview API.
+ *
+ * BLESSED NON-AG-UI SSE CONTRACT — "workspace-command-relay"
+ * (recorded in lib/agui/sse.ts). This is a server→client command
+ * channel, not agent-run telemetry: payloads carry no threadId/runId
+ * and commands mutate Dockview layout, so the AG-UI event union does
+ * not apply. Frames:
+ *   `: ready\n\n`                       — kickoff comment (proxy flush)
+ *   `event: workspace-command`          — data: WorkspaceCommand
+ *     { id: string, at: number,
+ *       command: "open_pane" | "close_pane" | "reset" | "focus_pane"
+ *              | "query:get_state" | "query:list_panes" | "query:pane_call",
+ *       args: Record<string, unknown> }  (lib/workspace/command-relay.ts)
+ *   `: hb\n\n`                          — heartbeat comment, 25s cadence
  */
 export async function GET(_req: NextRequest): Promise<Response> {
   const encoder = new TextEncoder();

@@ -1,4 +1,14 @@
 // POST /api/onboarding/run — SSE stream of Step events. Body: { tier?, consents? }.
+//
+// BLESSED NON-AG-UI SSE CONTRACT — "onboarding-steps" (recorded in
+// lib/agui/sse.ts). This is first-run wizard progress (single-user mutex
+// below), not an agent run: no run ledger, no threadId/runId, nothing to
+// normalize. Frames:
+//   `data: <Step json>\n\n`  — DEFAULT event name (no `event:` line);
+//     Step { id, title, status: "running"|"done"|"skipped"|"failed",
+//            detail?, progress?: 0..1, t?: ms }  (lib/onboarding/orchestrator.ts)
+//   `event: end`             — data: {} (terminal success marker)
+//   `: hb\n\n`               — heartbeat comment, HEARTBEAT_MS cadence
 
 import { runOnboarding, type Consents, type Step } from "@/lib/onboarding/orchestrator";
 import type { TierId } from "@/lib/inference/hardware-tiers";

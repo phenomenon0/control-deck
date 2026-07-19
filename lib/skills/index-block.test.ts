@@ -22,6 +22,7 @@ function makeSkill(over: Partial<Skill> = {}): Skill {
     prompt: "body",
     path: `/tmp/${id}`,
     writable: true,
+    enabled: true,
     source: {
       id: "local",
       kind: "local",
@@ -84,5 +85,23 @@ describe("renderSkillIndex", () => {
   test("includes the skill_view usage hint in the header", () => {
     const out = renderSkillIndex({ skills: [makeSkill()] });
     expect(out.split("\n")[0]).toContain("skill_view");
+  });
+
+  test("filters disabled skills out of the index", () => {
+    const out = renderSkillIndex({
+      skills: [
+        makeSkill({ id: "shown" }),
+        makeSkill({ id: "hidden", enabled: false }),
+      ],
+    });
+    expect(out).toContain("- shown [local]");
+    expect(out).not.toContain("hidden");
+  });
+
+  test("returns empty string when every skill is disabled", () => {
+    const out = renderSkillIndex({
+      skills: [makeSkill({ id: "hidden", enabled: false })],
+    });
+    expect(out).toBe("");
   });
 });

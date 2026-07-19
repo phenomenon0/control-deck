@@ -1,7 +1,8 @@
 /**
- * Skill registry — joins loader output with per-skill invocation stats.
- * Thin wrapper, lives separately so the loader can stay pure-fs and the
- * registry layer can pull in DB reads.
+ * Skill registry — joins the filesystem index (loader) with per-skill
+ * invocation stats from the generic invocations log. Despite the name this
+ * is NOT the old DB skill registry (thread T9: gone — the filesystem is
+ * the store); the only DB read left here is usage stats, keyed by skill id.
  */
 
 import { loadSkills, loadSkill } from "./loader";

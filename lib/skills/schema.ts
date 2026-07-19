@@ -168,6 +168,13 @@ export const SkillSchema = z.object({
   path: z.string(),
   /** true when the skill folder is writable (edit / delete allowed). */
   writable: z.boolean(),
+  /**
+   * Thin settings overlay keyed by `path` (lib/skills/enabled.ts) — the
+   * replacement for the old DB registry's enabled flag. Default true;
+   * disabled skills stay listed in the API/UI but are filtered out of the
+   * prompt index (renderSkillIndex).
+   */
+  enabled: z.boolean().default(true),
   /** Provenance — which source this skill came from. */
   source: SkillSourceRefSchema,
   /** Codex extras when `agents/openai.yaml` is present. */

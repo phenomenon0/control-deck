@@ -6,8 +6,13 @@
  * via the `skill_view` tool. This keeps the prompt prefix short and
  * cacheable while the model still knows what's available.
  *
- * Returns "" when there are no skills or the feature is disabled in
- * settings, so callers can splice unconditionally without producing a
+ * The catalog is the filesystem index from ./loader — the same SKILL.md
+ * files agent-ts exposes as tools. Skills disabled through the settings
+ * overlay (./enabled, keyed by path) are filtered out here so the model
+ * never sees them advertised.
+ *
+ * Returns "" when there are no enabled skills or the feature is disabled
+ * in settings, so callers can splice unconditionally without producing a
  * dead heading.
  */
 
@@ -48,7 +53,7 @@ export function renderSkillIndex(opts: RenderSkillIndexOpts = {}): string {
   const enabled = opts.enabled ?? settings.indexInPrompt;
   if (!enabled) return "";
 
-  const skills = opts.skills ?? loadSkills();
+  const skills = (opts.skills ?? loadSkills()).filter((s) => s.enabled !== false);
   if (skills.length === 0) return "";
 
   const max = opts.descChars ?? settings.indexDescChars;

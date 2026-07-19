@@ -16,8 +16,10 @@
    "not configured" so they never read as live. A failed /api/skills or /api/rules
    fetch shows an honest error panel with a retry, never sample data.
 
-   The enable toggles have no persistence route on the deck, so they're disabled
-   and tagged `preview` rather than pretending to save a change.
+   Skill toggles persist: they PATCH /api/skills { id, enabled } into the
+   settings overlay (lib/skills/enabled) and disabled skills drop out of the
+   agent's prompt index. Rules and MCP toggles have no persistence route, so
+   they stay disabled and tagged `preview` rather than pretending to save.
    ============================================================================= */
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
@@ -53,6 +55,7 @@ interface ApiSkill {
   version?: string;
   tags?: string[];
   tools?: string[];
+  enabled?: boolean;
   stats?: { count?: number };
 }
 interface ApiRule {
@@ -101,7 +104,7 @@ function skillToRow(s: ApiSkill): Row {
     kind: skillKind(s),
     status: toolCount > 0 ? { label: "agentic", tone: "caution" } : undefined,
     meta: toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? "" : "s"}` : `v${s.version ?? "0.1.0"}`,
-    enabled: true,
+    enabled: s.enabled !== false,
   };
 }
 
@@ -234,6 +237,22 @@ export default function CapabilitiesV2Page() {
     void load();
   }, [load]);
 
+  // Skill toggles persist via PATCH /api/skills into the settings overlay —
+  // optimistic update, reverted when the request fails.
+  const toggleSkill = useCallback((r: Row, next: boolean) => {
+    const key = `skills:${r.id}`;
+    setOn((m) => ({ ...m, [key]: next }));
+    fetch("/api/skills", {
+      method: "PATCH",
+      headers: { ...HDRS, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: r.id, enabled: next }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`toggle failed: ${res.status}`);
+      })
+      .catch(() => setOn((m) => ({ ...m, [key]: !next })));
+  }, []);
+
   const rows = data[tab];
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => {
@@ -278,7 +297,9 @@ export default function CapabilitiesV2Page() {
         </div>
         <span className="barmeta">
           <b>{activeInTab}</b> of {rows.length} on
-          <span className="pv" title="UI preview — enabling/disabling isn't persisted yet">preview</span>
+          {tab !== "skills" && (
+            <span className="pv" title="UI preview — enabling/disabling isn't persisted yet">preview</span>
+          )}
         </span>
         <div className="spacer" />
         <div className="field" style={{ width: 220 }}>
@@ -310,6 +331,8 @@ export default function CapabilitiesV2Page() {
           shown.map((r, i) => {
             const isOn = !!on[`${tab}:${r.id}`];
             const firstSuggestion = !!r.suggestion && (i === 0 || !shown[i - 1].suggestion);
+            // Skills persist their toggle; rules/MCP stay a non-persisted preview.
+            const persistable = tab === "skills" && !r.suggestion;
             return (
               <Fragment key={`${tab}:${r.id}`}>
                 {firstSuggestion && <div className="glabel">suggestions</div>}
@@ -326,13 +349,25 @@ export default function CapabilitiesV2Page() {
                   </div>
                   <div className="crow__aside">
                     {r.meta && <span className="crow__meta">{r.meta}</span>}
-                    <label className="ctl ctl--preview" title="UI preview — enabling/disabling isn't persisted yet">
+                    <label
+                      className={"ctl" + (persistable ? "" : " ctl--preview")}
+                      title={
+                        persistable
+                          ? "Toggle skill — persisted; disabled skills leave the agent's prompt index"
+                          : "UI preview — enabling/disabling isn't persisted yet"
+                      }
+                    >
                       <input
                         type="checkbox"
                         checked={isOn}
-                        disabled
-                        aria-label={`${r.name} — preview toggle, not persisted`}
-                        readOnly
+                        disabled={!persistable}
+                        aria-label={
+                          persistable
+                            ? `${r.name} — toggle skill`
+                            : `${r.name} — preview toggle, not persisted`
+                        }
+                        readOnly={!persistable}
+                        onChange={persistable ? (e) => toggleSkill(r, e.target.checked) : undefined}
                       />
                       <span className="ctl__track" />
                     </label>

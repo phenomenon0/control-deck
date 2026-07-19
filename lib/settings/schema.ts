@@ -237,6 +237,13 @@ export const SkillsSettingsSchema = z.object({
   indexInPrompt: z.boolean().default(true),
   /** Max chars per description in the index block. Tight is good. */
   indexDescChars: z.number().int().min(40).max(400).default(140),
+  /**
+   * Per-skill enable overrides, keyed by the skill's absolute folder path
+   * (`Skill.path`). Missing key = enabled. This is the thin settings
+   * overlay that replaced the DB skill registry's enabled flag — see
+   * lib/skills/enabled.ts.
+   */
+  overrides: z.record(z.string(), z.object({ enabled: z.boolean() })).default({}),
 });
 export type SkillsSettings = z.infer<typeof SkillsSettingsSchema>;
 

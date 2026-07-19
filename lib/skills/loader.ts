@@ -1,16 +1,30 @@
 /**
- * Multi-source skill loader. Walks every enabled source from
- * `lib/skills/sources.ts`, parses SKILL.md frontmatter (cross-compatible
- * with Claude Code / OpenCode / Codex), and returns a deduplicated list.
+ * Multi-source skill loader — the deck's filesystem index over the SAME
+ * SKILL.md files agent-ts exposes as native tools (canon, thread T9: the
+ * filesystem is the store; the DB registry is gone). Walks every enabled
+ * source from `lib/skills/sources.ts`, parses SKILL.md frontmatter
+ * (cross-compatible with Claude Code / OpenCode / Codex), and returns a
+ * deduplicated list with the settings enabled-overlay applied.
+ *
+ * Scan parity with agent-ts (`apps/agent-ts/src/context/skills.ts`): the
+ * walk recurses into category folders up to SKILL_SCAN_MAX_DEPTH levels
+ * (see ./roots.ts — the shared layout contract; agent-ts keeps its own
+ * copy). A skill is any directory containing SKILL.md; dot/underscore
+ * folders are skipped.
  *
  * Dedup rule: **first source wins on id collision** — this matches how
  * Claude Code and OpenCode treat project skills as overriding user skills
  * when they share a name. Source ordering is set in `builtInSources()`.
+ *
+ * `scanSkills`/`scanSkill` take explicit sources + overrides so tests can
+ * run against fixture directories without touching settings or the DB;
+ * the exported `loadSkills`/`loadSkill` wire in live settings.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { parseFrontmatter } from "./frontmatter";
+import { SKILL_FILE_NAME, SKILL_SCAN_MAX_DEPTH } from "./roots";
 import {
   CodexExtrasSchema,
   SkillManifestSchema,
@@ -19,6 +33,7 @@ import {
   type SkillSourceRef,
 } from "./schema";
 import { builtInSources, resolveSources, type SkillSource } from "./sources";
+import { readSkillOverrides, type SkillOverrides } from "./enabled";
 import { resolveSection } from "@/lib/settings/resolve";
 import type { SkillSourcesSettings } from "@/lib/settings/schema";
 
@@ -56,7 +71,7 @@ function loadCodexExtras(folder: string): CodexExtras | undefined {
 }
 
 function loadSkillFolder(folder: string, source: SkillSource): Skill | null {
-  const skillMdPath = path.join(folder, "SKILL.md");
+  const skillMdPath = path.join(folder, SKILL_FILE_NAME);
   if (!fs.existsSync(skillMdPath)) return null;
 
   const folderId = path.basename(folder);
@@ -113,9 +128,39 @@ function loadSkillFolder(folder: string, source: SkillSource): Skill | null {
     prompt,
     path: folder,
     writable: isWritable(folder),
+    // Real state comes from the settings overlay — scanSkills applies it.
+    enabled: true,
     source: sourceRef(source),
     codex,
   };
+}
+
+/**
+ * Recursively collect every directory holding a SKILL.md, up to
+ * SKILL_SCAN_MAX_DEPTH levels below `root` (depth 0 = root). Mirrors
+ * agent-ts's `collectSkillFiles`; dot/underscore folders are pruned.
+ * Parents list before their children.
+ */
+export function collectSkillFolders(root: string, depth = 0): string[] {
+  if (depth > SKILL_SCAN_MAX_DEPTH) return [];
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  let hasSkillMd = false;
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith(".") || entry.name.startsWith("_")) continue;
+      out.push(...collectSkillFolders(path.join(root, entry.name), depth + 1));
+    } else if (entry.isFile() && entry.name === SKILL_FILE_NAME) {
+      hasSkillMd = true;
+    }
+  }
+  if (hasSkillMd) out.unshift(root);
+  return out;
 }
 
 function readSourceSettings(): SkillSourcesSettings {
@@ -137,40 +182,50 @@ export function allSources(): SkillSource[] {
   return resolveSources(s.overrides, s.custom);
 }
 
-export function loadSkills(): Skill[] {
+function withEnabled(skill: Skill, overrides: SkillOverrides): Skill {
+  return { ...skill, enabled: overrides[skill.path]?.enabled ?? true };
+}
+
+/**
+ * Pure scan over explicit sources with an explicit enabled-overlay — the
+ * testable seam behind `loadSkills`. First source wins on id collision.
+ */
+export function scanSkills(sources: SkillSource[], overrides: SkillOverrides = {}): Skill[] {
   const seen = new Map<string, Skill>();
-  for (const source of enabledSources()) {
-    if (!source.exists) continue;
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(source.path, { withFileTypes: true });
-    } catch (e) {
-      console.warn(`[skills] can't list ${source.path}:`, e);
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".") || entry.name.startsWith("_")) continue;
-      const folder = path.join(source.path, entry.name);
+  for (const source of sources) {
+    if (!source.enabled || !source.exists) continue;
+    for (const folder of collectSkillFolders(source.path)) {
       const skill = loadSkillFolder(folder, source);
       if (!skill) continue;
       // Dedup: first source wins on id collision.
-      if (!seen.has(skill.id)) seen.set(skill.id, skill);
+      if (!seen.has(skill.id)) seen.set(skill.id, withEnabled(skill, overrides));
     }
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function loadSkill(id: string): Skill | null {
-  // Same ordering as loadSkills — first hit wins.
-  for (const source of enabledSources()) {
-    if (!source.exists) continue;
-    const folder = path.join(source.path, id);
-    if (!fs.existsSync(path.join(folder, "SKILL.md"))) continue;
-    const skill = loadSkillFolder(folder, source);
-    if (skill) return skill;
+/** Pure single-skill lookup behind `loadSkill` — same ordering as scanSkills. */
+export function scanSkill(
+  id: string,
+  sources: SkillSource[],
+  overrides: SkillOverrides = {},
+): Skill | null {
+  for (const source of sources) {
+    if (!source.enabled || !source.exists) continue;
+    for (const folder of collectSkillFolders(source.path)) {
+      const skill = loadSkillFolder(folder, source);
+      if (skill && skill.id === id) return withEnabled(skill, overrides);
+    }
   }
   return null;
+}
+
+export function loadSkills(): Skill[] {
+  return scanSkills(enabledSources(), readSkillOverrides());
+}
+
+export function loadSkill(id: string): Skill | null {
+  return scanSkill(id, enabledSources(), readSkillOverrides());
 }
 
 /**
@@ -198,4 +253,3 @@ export function rootIsWritable(): boolean {
 export function skillsRoot(): string {
   return writableRoot();
 }
-

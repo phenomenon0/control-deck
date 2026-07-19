@@ -6,19 +6,23 @@
  * — plus the legacy runtimeOverride (binding tier) and non-primary slot
  * fallthrough.
  *
- * Mocking strategy:
- *   - `@/lib/hardware/settings` is replaced so resolveProviderUrl returns
- *     deterministic mock URLs (no settings DB in tests).
- *   - `@/lib/inference/bootstrap` / `persistence` are stubbed so slot
+ * Mocking strategy — spyOn, NEVER mock.module (bun 1.3.4: mock.module is
+ * process-global and un-revertable; a partial persistence mock here gutted
+ * savePersistedBinding for whichever test file evaluated after this one —
+ * order differs per machine, so it only detonated on CI):
+ *   - spy `resolveProviderUrl` so URLs are deterministic (no settings DB).
+ *   - spy `ensureBootstrap` / `applyPersistedBindings` to no-ops so slot
  *     bindings come straight from the real in-memory runtime (bindSlot /
  *     clearAllSlots), with no provider registration or disk replay.
- *   - The module under test is imported dynamically AFTER the mocks are
- *     registered so its settings import resolves to the mock.
+ *   - afterAll(mock.restore) reverts every spy for later files.
  */
 
-import { describe, test, expect, beforeAll, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, afterAll, beforeAll, beforeEach, afterEach, mock, spyOn } from "bun:test";
 
-import { bindSlot, clearAllSlots, getSlot } from "@/lib/inference/runtime";
+import * as actualSettings from "@/lib/hardware/settings";
+import * as actualBootstrap from "@/lib/inference/bootstrap";
+import * as actualPersistence from "@/lib/inference/persistence";
+import { bindSlot, clearAllSlots } from "@/lib/inference/runtime";
 import type { Modality } from "@/lib/inference/types";
 
 const SETTINGS_URLS: Record<string, string> = {
@@ -29,18 +33,15 @@ const SETTINGS_URLS: Record<string, string> = {
   comfyui: "http://mock-comfy:8188",
 };
 
-mock.module("@/lib/hardware/settings", () => ({
-  resolveProviderUrl: (id: string) => SETTINGS_URLS[id] ?? "http://mock-ollama:11434",
-}));
+spyOn(actualSettings, "resolveProviderUrl").mockImplementation(
+  (id: string) => SETTINGS_URLS[id] ?? "http://mock-ollama:11434",
+);
+spyOn(actualBootstrap, "ensureBootstrap").mockImplementation(() => {});
+spyOn(actualPersistence, "applyPersistedBindings").mockImplementation(() => {});
 
-mock.module("@/lib/inference/bootstrap", () => ({
-  ensureBootstrap: () => {},
-  getSlot,
-}));
-
-mock.module("@/lib/inference/persistence", () => ({
-  applyPersistedBindings: () => {},
-}));
+afterAll(() => {
+  mock.restore();
+});
 
 type ResolveModule = typeof import("@/lib/engine/resolve");
 let engine: ResolveModule;

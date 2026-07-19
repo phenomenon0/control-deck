@@ -186,6 +186,20 @@ function assertDeckRequiredFields(event: AGUIEvent) {
       assert.equal(typeof event.provider, "string");
       assert.equal(typeof event.modelId, "string");
       break;
+    case "InterruptRequested": {
+      // Top-level toolCallId/toolName are the primary channel; the typed
+      // approval envelope (InterruptApprovalData in lib/agui/events.ts)
+      // rides in `data` when the interrupt gates an approval.
+      assert.equal(typeof event.toolCallId, "string");
+      assert.equal(typeof event.toolName, "string");
+      if (event.data !== undefined) {
+        const data = event.data as { kind?: unknown; approvalId?: unknown; toolName?: unknown };
+        assert.equal(data.kind, "approval");
+        assert.equal(typeof data.approvalId, "string");
+        assert.equal(typeof data.toolName, "string");
+      }
+      break;
+    }
     case "RunError":
       assert.equal(typeof (event.error as { message?: unknown })?.message, "string");
       break;
@@ -309,4 +323,77 @@ test("conformance: LLM resolution failure emits a deck-conformant RunError", asy
   assert.deepEqual(events.map((e) => e.type), ["RunError"]);
   for (const event of events) assertDeckConformant(event, handle);
   assert.equal(bus.getStatus(handle.runId), "failed");
+});
+
+test("conformance: approval interrupt emits a deck-shaped InterruptRequested", async () => {
+  const bus = new EventBus();
+  const broker = new ApprovalBroker();
+
+  const handle = fakeHandle();
+  const events: AGUIEvent[] = [];
+  bus.subscribe(handle.runId, 0, (ev) => events.push(ev), () => {});
+
+  // The stubbed Agent never runs a tool on its own; instead it invokes the
+  // real beforeToolCall hook (wired by makeLoopRunner) for a gated,
+  // non-bridge tool, so the loop's approval path emits for real.
+  const runner = makeLoopRunner({
+    bus,
+    broker,
+    createAgent: (options: AgentOptions): Pick<Agent, "subscribe" | "continue"> => ({
+      subscribe: () => () => {},
+      continue: async () => {
+        const ctx = {
+          assistantMessage: {} as never,
+          toolCall: { type: "toolCall", id: "call-bash-1", name: "bash", arguments: {} },
+          args: { command: "echo hi" },
+          context: {} as never,
+        };
+        const decision = await options.beforeToolCall?.(
+          ctx as never,
+          new AbortController().signal,
+        );
+        assert.equal(decision, undefined, "an approved call must proceed");
+      },
+    }),
+  });
+
+  // Resolve the broker request as soon as the interrupt hits the bus.
+  const approver = (async () => {
+    const deadline = Date.now() + 2_000;
+    for (;;) {
+      const interrupt = events.find((e) => e.type === "InterruptRequested");
+      if (interrupt) {
+        const { approvalId } = interrupt.data as { approvalId: string };
+        assert.ok(broker.approve(approvalId), "broker.approve should succeed");
+        return;
+      }
+      if (Date.now() > deadline) assert.fail("InterruptRequested never emitted");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  })();
+
+  await runner(
+    handle,
+    { messages: [{ role: "user", content: "hi" }] },
+    handle.controller.signal,
+  );
+  await approver;
+
+  const interrupt = events.find((e) => e.type === "InterruptRequested");
+  assert.ok(interrupt, "InterruptRequested should be emitted");
+  assertDeckConformant(interrupt, handle);
+
+  // Top-level fields are the primary channel…
+  assert.equal(interrupt.toolCallId, "call-bash-1");
+  assert.equal(interrupt.toolName, "bash");
+  // …and the typed approval envelope (InterruptApprovalData in
+  // lib/agui/events.ts) links the broker request.
+  const data = interrupt.data as Record<string, unknown>;
+  assert.equal(data.kind, "approval");
+  assert.equal(typeof data.approvalId, "string");
+  assert.equal(data.toolName, "bash");
+  assert.equal(typeof data.riskLevel, "string");
+
+  const resolved = events.find((e) => e.type === "InterruptResolved");
+  assert.ok(resolved, "InterruptResolved should follow the approval");
 });

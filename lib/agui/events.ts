@@ -142,12 +142,32 @@ export interface CostIncurred extends AGUIBase {
   model: string;
 }
 
+/**
+ * Approval envelope carried on `InterruptRequested` when the interrupt gates
+ * an approval decision. Both emitters (lib/approvals/gate.ts via the hub,
+ * apps/agent-ts/src/server/loop.ts via the run bus) attach this so clients
+ * can link the prompt to the approval row / broker request without falling
+ * back to heuristics. `normalizeEvent` passes it through untouched.
+ */
+export interface InterruptApprovalData {
+  kind: "approval";
+  approvalId: string;
+  toolName: string;
+  riskLevel?: string;
+}
+
 export interface InterruptRequested extends AGUIBase {
   type: "InterruptRequested";
   runId: string;
   toolCallId: string;
   toolName: string;
   args?: DeckPayload;
+  /**
+   * Approval linkage — present when this interrupt is an approval prompt.
+   * The top-level toolCallId/toolName/args remain the primary channel;
+   * `data` adds the approval id + risk level the UI needs to resolve it.
+   */
+  data?: InterruptApprovalData;
 }
 
 export interface InterruptResolved extends AGUIBase {

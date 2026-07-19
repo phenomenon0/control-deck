@@ -553,6 +553,9 @@ export interface InterruptRequest {
   toolCallId: string;
   toolName: string;
   args?: any;
+  /** Approval linkage, when this interrupt is an approval prompt. */
+  approvalId?: string;
+  riskLevel?: string;
 }
 
 export interface UseAgentRunOptions {
@@ -781,6 +784,8 @@ export function useAgentRun(options?: UseAgentRunOptions): UseAgentRunReturn {
               toolCallId: event.toolCallId ?? "",
               toolName: event.toolName ?? "unknown",
               args: event.args?.kind === "json" ? event.args.data : event.args,
+              approvalId: event.data?.kind === "approval" ? event.data.approvalId : undefined,
+              riskLevel: event.data?.kind === "approval" ? event.data.riskLevel : undefined,
             });
             return;
           case "InterruptResolved":

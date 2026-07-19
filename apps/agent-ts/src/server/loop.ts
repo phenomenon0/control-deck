@@ -393,13 +393,18 @@ function makeBeforeToolCall(args: {
     bus.emit(runId, {
       ...baseEvent,
       type: "InterruptRequested",
+      // Deck-canonical top-level fields (InterruptRequested in
+      // lib/agui/events.ts) are the primary channel; the typed approval
+      // envelope (InterruptApprovalData) rides in `data` so clients can
+      // link the broker request without touching args.
+      toolCallId: ctx.toolCall.id,
+      toolName,
+      args: { format: "json", data: ctx.args },
       data: {
         kind: "approval",
         approvalId: requestId,
-        toolCallId: ctx.toolCall.id,
         toolName,
         riskLevel,
-        args: ctx.args,
       },
     });
 

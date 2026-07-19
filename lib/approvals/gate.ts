@@ -31,6 +31,7 @@ import {
 import { resolveSection } from "@/lib/settings/resolve";
 import type { ApprovalMode } from "@/lib/settings/schema";
 import { hub } from "@/lib/agui/hub";
+import { createEvent, type InterruptRequested } from "@/lib/agui/events";
 import { raiseWarning } from "@/lib/agui/warn";
 import { getManifest, hasManifestEntry } from "@/lib/tools/manifest";
 
@@ -153,20 +154,22 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
 
   if (options.threadId) {
     try {
-      hub.publish(options.threadId, {
-        type: "InterruptRequested",
-        threadId: options.threadId,
-        runId: options.runId,
-        timestamp: new Date().toISOString(),
-        schemaVersion: 2,
-        // AG-UI InterruptRequested carries a free-form `data` field; we
-        // stuff the approval id in there so the client can link it.
-        data: {
-          kind: "approval",
-          approvalId: id,
+      hub.publish(
+        options.threadId,
+        createEvent<InterruptRequested>("InterruptRequested", options.threadId, {
+          // The gate may fire outside an agent run (runId optional). The
+          // approval id doubles as toolCallId: no LLM tool-call id exists
+          // at gate time, and it is the identity clients resolve with.
+          runId: options.runId ?? "",
+          toolCallId: id,
           toolName: options.toolName,
-        },
-      } as never);
+          data: {
+            kind: "approval",
+            approvalId: id,
+            toolName: options.toolName,
+          },
+        }),
+      );
     } catch (err) {
       // Approval still works via polling, but a UI relying on the hub
       // would miss the prompt — surface that.

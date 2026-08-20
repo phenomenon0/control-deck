@@ -30,4 +30,5 @@ export const PANE_CATALOG: readonly PaneCatalogEntry[] = [
   { component: "audio",     label: "Audio",     defaultTitle: "Audio" },
   { component: "voice",     label: "Voice",     defaultTitle: "Voice" },
   { component: "resource",  label: "Resource",  defaultTitle: "GPU Resource" },
+  { component: "fleet",     label: "Fleet",     defaultTitle: "Fleet" },
 ];

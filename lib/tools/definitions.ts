@@ -479,6 +479,7 @@ export const NativeBaselineRestoreSchema = z.object({
 const WORKSPACE_PANE_TYPES = [
   "chat", "terminal", "canvas", "browser", "notes",
   "agentgo", "audio", "comfy", "control", "models", "runs", "tools", "voice",
+  "fleet",
 ] as const;
 
 export const WorkspaceOpenPaneSchema = z.object({
@@ -1155,7 +1156,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "workspace_open_pane",
-    description: "Open a new pane in the user's workspace (must be on /v2/workspace). Fire-and-forget: the command relays to any connected WorkspaceShell which adds the panel via Dockview. Types: chat, terminal, canvas, browser, notes, agentgo, audio, comfy, control, models, runs, tools, voice.",
+    description: "Open a new pane in the user's workspace (must be on /v2/workspace). Fire-and-forget: the command relays to any connected WorkspaceShell which adds the panel via Dockview. Types: chat, terminal, canvas, browser, notes, agentgo, audio, comfy, control, models, runs, tools, voice, fleet.",
     parameters: [
       { name: "type", type: "string", required: true, description: "Pane component key" },
       { name: "title", type: "string", required: false, description: "Tab title; defaults to the type name" },

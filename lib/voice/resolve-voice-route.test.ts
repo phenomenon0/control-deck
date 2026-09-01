@@ -167,12 +167,12 @@ describe("resolveVoiceRoute", () => {
     expect(r.fallbacksApplied).toContain("stt");
   });
 
-  test("routes to realtime when S2S is reachable", () => {
+  test("routes to realtime when the local voice agent is reachable", () => {
     const r = resolveVoiceRoute({
       preset: "local",
       sttProviders: [],
       ttsProviders: [],
-      s2sReachable: true,
+      voiceAgentReachable: true,
     });
     expect(r.transport.mode).toBe("realtime");
   });

@@ -19,13 +19,12 @@ import {
   type ProviderAvailability,
   type VoiceRoutePreset,
 } from "@/lib/voice/resolve-voice-route";
-import { s2sUrl, s2sRealtimeWsUrl } from "@/lib/voice/s2s-url";
+import { voiceAgentToken, voiceAgentUiUrl, voiceAgentWsUrl } from "@/lib/voice/voice-agent-url";
 import type { SlotBinding } from "@/lib/inference/types";
 
 export const runtime = "nodejs";
 
 const PROBE_TIMEOUT_MS = 1500;
-const S2S_BASE_URL = s2sUrl();
 
 /**
  * Environment variables the registry uses to decide "configured". Kept in one
@@ -50,9 +49,10 @@ function providerConfigured(id: string, omniReady: boolean): boolean {
   return Boolean(process.env[envKey]);
 }
 
-async function probeS2sPool(baseURL: string): Promise<boolean> {
+/** The agent has no health route; its UI server answering is the liveness signal. */
+async function probeVoiceAgent(): Promise<boolean> {
   try {
-    const res = await fetch(`${baseURL.replace(/\/+$/, "")}/v1/pool`, {
+    const res = await fetch(`${voiceAgentUiUrl().replace(/\/+$/, "")}/`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     return res.ok;
@@ -80,8 +80,8 @@ export async function GET(req: NextRequest) {
   applyPersistedBindings();
 
   const preset = normalizePreset(req.nextUrl.searchParams.get("preset"));
-  const [s2sOk, omni] = await Promise.all([
-    probeS2sPool(S2S_BASE_URL),
+  const [agentOk, omni] = await Promise.all([
+    probeVoiceAgent(),
     getQwenOmniStatusAsync({ probeRuntime: true, probeSidecar: true }),
   ]);
 
@@ -96,14 +96,16 @@ export async function GET(req: NextRequest) {
     preset,
     sttProviders: sttAvailability,
     ttsProviders: ttsAvailability,
-    s2sReachable: s2sOk,
+    voiceAgentReachable: agentOk,
   });
   const route = applyBoundVoiceSlots(resolved, omni);
 
   const transport = {
-    mode: s2sOk ? "realtime" : "app-gateway",
-    wsUrl: s2sOk ? s2sRealtimeWsUrl() : null,
-    sidecar: (s2sOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
+    mode: agentOk ? "realtime" : "app-gateway",
+    wsUrl: agentOk ? voiceAgentWsUrl() : null,
+    // Shared local secret, same one the agent's own UI page uses.
+    token: agentOk ? voiceAgentToken() : null,
+    sidecar: (agentOk ? "ok" : "unreachable") as "ok" | "unreachable" | "unknown",
   };
 
   // Provider matrix for the Health pane: one row per provider per role.

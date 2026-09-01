@@ -290,8 +290,8 @@ export function VoicePane() {
         {/* Info */}
         <div className="card bg-[var(--bg-primary)]">
           <div className="text-xs text-[var(--text-muted)] space-y-2">
-            <p>s2s must be reachable for local realtime voice.</p>
-            <p>Start the s2s supervisor or Voice Lab, then check the connection.</p>
+            <p>The local voice agent must be reachable for realtime voice.</p>
+            <p>Start voice-agent-linux (agent.py) or the Mac agent, then check the connection.</p>
             {voiceApiStatus === "disconnected" && (
               <button
                 onClick={checkVoiceApi}

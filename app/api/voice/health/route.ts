@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { s2sLabUrl, s2sUrl } from "@/lib/voice/s2s-url";
+import { voiceAgentUiUrl } from "@/lib/voice/voice-agent-url";
 
 /**
  * Voice subsystem health probe.
@@ -54,30 +54,19 @@ function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response
   return fetch(url, { ...init, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
 }
 
-async function probeS2s(): Promise<ProviderHealth> {
-  const poolUrl = `${s2sUrl().replace(/\/+$/, "")}/v1/pool`;
-  const labStatusUrl = `${s2sLabUrl().replace(/\/+$/, "")}/v1/voice-lab/status`;
-  const [pool, lab] = await Promise.all([
-    probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
-      fetchWithTimeout(poolUrl).catch(() => null),
-    ),
-    probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
-      fetchWithTimeout(labStatusUrl).catch(() => null),
-    ),
-  ]);
-  const detail = pool.reachable
-    ? s2sUrl()
-    : lab.reachable
-      ? `pool unreachable; lab supervisor reachable at ${s2sLabUrl()}`
-      : pool.detail;
+async function probeVoiceAgent(): Promise<ProviderHealth> {
+  const ui = `${voiceAgentUiUrl().replace(/\/+$/, "")}/`;
+  const r = await probe(AbortSignal.timeout(PROBE_TIMEOUT_MS), () =>
+    fetchWithTimeout(ui).catch(() => null),
+  );
   return {
-    id: "s2s",
+    id: "voice-agent",
     modalities: ["tts", "stt"],
     configured: true,
-    reachable: pool.reachable,
-    detail,
-    latencyMs: pool.latencyMs,
-    engines: [{ id: "realtime", label: "Realtime speech-to-speech", mode: "realtime" }],
+    reachable: r.reachable,
+    detail: r.reachable ? ui : r.detail,
+    latencyMs: r.latencyMs,
+    engines: [{ id: "realtime", label: "Local voice agent (pipecat)", mode: "realtime" }],
   };
 }
 
@@ -243,7 +232,7 @@ async function probeAssemblyAi(): Promise<ProviderHealth> {
 
 export async function GET() {
   const providers = await Promise.all([
-    probeS2s(),
+    probeVoiceAgent(),
     probeElevenLabs(),
     probeOpenAi(),
     probeCartesia(),
@@ -261,7 +250,7 @@ export async function GET() {
   const unconfigured = providers.filter((p) => !p.configured).map((p) => p.id);
 
   // Back-compat: keep the existing `status` shape so older callers don't break.
-  const sidecar = providers.find((p) => p.id === "s2s");
+  const sidecar = providers.find((p) => p.id === "voice-agent");
   const anyReachable = reachable.length > 0;
   const status = anyReachable ? "ok" : "degraded";
 

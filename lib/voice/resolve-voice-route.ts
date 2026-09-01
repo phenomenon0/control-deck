@@ -65,7 +65,7 @@ export interface ResolverSnapshot {
   preset: VoiceRoutePreset;
   sttProviders: ProviderAvailability[];
   ttsProviders: ProviderAvailability[];
-  s2sReachable?: boolean;
+  voiceAgentReachable?: boolean;
 }
 
 export interface ResolvedBinding {
@@ -178,7 +178,7 @@ export function resolveVoiceRoute(snapshot: ResolverSnapshot): ResolvedRoute {
   if (ttsPick?.fellBack) fallbacksApplied.push("tts");
 
   const transportMode: "app-gateway" | "realtime" =
-    snapshot.s2sReachable === true ? "realtime" : "app-gateway";
+    snapshot.voiceAgentReachable === true ? "realtime" : "app-gateway";
 
   const rationale = buildRationale(snapshot.preset, stt, tts, fallbacksApplied, snapshot);
 
@@ -201,10 +201,10 @@ function buildRationale(
 ): string {
   const label = VOICE_ROUTE_PRESET_INFO[preset].label;
   if (!stt && !tts) {
-    if (snapshot.s2sReachable === true) {
-      return `Selected ${label} → realtime s2s voice.`;
+    if (snapshot.voiceAgentReachable === true) {
+      return `Selected ${label} → realtime voice via the local voice agent.`;
     }
-    return `Selected ${label} → no providers reachable. Configure a provider or start s2s local voice.`;
+    return `Selected ${label} → no providers reachable. Configure a provider or start the local voice agent.`;
   }
   if (fallbacks.length === 0) {
     const sttLabel = stt ? `${stt.providerName}${stt.model ? ` (${stt.model})` : ""}` : "none";

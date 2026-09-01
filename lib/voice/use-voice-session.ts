@@ -46,7 +46,7 @@ import {
 import { SpeechHandle } from "@/lib/voice/speech-handle";
 import { AgentOutput } from "@/lib/voice/audio-output";
 import { AgentInput } from "@/lib/voice/audio-input";
-import { RealtimeVoiceClient } from "@/lib/voice/realtime-session";
+import { VoiceAgentClient } from "@/lib/voice/voice-agent-session";
 import { decideSpeakingBridge } from "@/lib/voice/speaking-bridge";
 import {
   createVoiceOwnerId,
@@ -72,6 +72,7 @@ export interface VoiceRuntimeSnapshot {
     mode: "app-gateway" | "realtime";
     sidecar: "ok" | "unreachable" | "unknown";
     wsUrl: string | null;
+    token: string | null;
   };
 }
 
@@ -527,7 +528,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   const agentOutputRef = useRef<AgentOutput | null>(null);
   const streamingHandleSeqRef = useRef(0);
-  const realtimeClientRef = useRef<RealtimeVoiceClient | null>(null);
+  const realtimeClientRef = useRef<VoiceAgentClient | null>(null);
   const realtimeInputRef = useRef<AgentInput | null>(null);
   const realtimeFirstAudioMarkedRef = useRef(false);
   const [realtimeAudioLevel, setRealtimeAudioLevel] = useState(0);
@@ -556,7 +557,8 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
 
   useEffect(() => {
     const wsUrl = runtime?.transport.wsUrl;
-    if (!enabled || !isRealtime || !wsUrl) return;
+    const token = runtime?.transport.token;
+    if (!enabled || !isRealtime || !wsUrl || !token) return;
 
     const ensureRealtimeHandle = () => {
       if (!agentOutputRef.current) agentOutputRef.current = createAgentOutput();
@@ -568,8 +570,9 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       return handle;
     };
 
-    const client = new RealtimeVoiceClient({
+    const client = new VoiceAgentClient({
       wsUrl,
+      token,
       callbacks: {
         onStatus: () => {},
         onSpeechStarted: () => {
@@ -620,7 +623,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
           void output.playPcm16Chunk(handle, pcm, sampleRate);
         },
         onAssistantTranscript: () => {},
-        onResponseDone: (status) => {
+        onResponseDone: (status, turnId) => {
           globalThis.__voiceProbe?.mark("realtime_response_done", { status });
           const handle = speechHandleRef.current;
           replyInFlightRef.current = false;
@@ -631,6 +634,15 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
           }
           const output = agentOutputRef.current;
           if (!output) return;
+          if (turnId !== undefined) {
+            // Mac agent holds the next turn until playback is acked — ack at
+            // real drain, not at finish(), or its VAD reopens over our speaker.
+            const off = output.on("speechEnd", ({ handle: ended }) => {
+              if (ended !== handle) return;
+              off();
+              client.ackPlayback(turnId);
+            });
+          }
           void output.finish(handle).finally(() => {
             if (speechHandleRef.current === handle && handle.state === "done") {
               speechHandleRef.current = null;
@@ -672,7 +684,7 @@ export function useVoiceSession(options: UseVoiceSessionOptions = {}): VoiceSess
       void input.stop();
       setRealtimeAudioLevel(0);
     };
-  }, [createAgentOutput, enabled, inputDeviceId, isRealtime, runtime?.transport.wsUrl]);
+  }, [createAgentOutput, enabled, inputDeviceId, isRealtime, runtime?.transport.token, runtime?.transport.wsUrl]);
 
   // Tear down output resources on unmount.
   useEffect(() => {

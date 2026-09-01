@@ -456,21 +456,21 @@ async function evict(victim: Reservation, reason: string): Promise<void> {
     });
   }
 
-  if (victim.restoreOnIdle) {
-    restoreQueue.unshift({
-      lane: victim.lane,
-      estimateMb: victim.estimateMb,
-      reason: victim.reason,
-      modelId: victim.modelId,
-      evictedAt: Date.now(),
-    });
-    emit({ kind: "restore-scheduled", at: Date.now(), lane: victim.lane, modelId: victim.modelId });
-  }
   const before = getSnapshot().freeMb;
   const res = await doUnload(victim.lane, victim.modelId);
   await refreshSnapshot();
   const after = getSnapshot().freeMb;
   if (res.ok) {
+    if (victim.restoreOnIdle) {
+      restoreQueue.unshift({
+        lane: victim.lane,
+        estimateMb: victim.estimateMb,
+        reason: victim.reason,
+        modelId: victim.modelId,
+        evictedAt: Date.now(),
+      });
+      emit({ kind: "restore-scheduled", at: Date.now(), lane: victim.lane, modelId: victim.modelId });
+    }
     emit({
       kind: "evict-done",
       at: Date.now(),
@@ -479,6 +479,10 @@ async function evict(victim: Reservation, reason: string): Promise<void> {
       freedMb: Math.max(0, after - before),
     });
   } else {
+    // Weights are still resident: put the ticket back so the ledger keeps
+    // tracking them and the lane stays evictable, instead of leaving a ghost
+    // no later eviction can reach.
+    reservations.set(victim.ticket, victim);
     emit({
       kind: "evict-failed",
       at: Date.now(),

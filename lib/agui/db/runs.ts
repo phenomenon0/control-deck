@@ -124,11 +124,14 @@ export interface EventRow {
   timestamp: string;
 }
 
-export function getEvents(runId: string): AGUIEvent[] {
+export function getEvents(runId: string, types?: readonly string[]): AGUIEvent[] {
   const db = getDb();
+  // Optional type filter so hot-path readers (tool replay) never load or
+  // parse a run's text deltas.
+  const typeFilter = types?.length ? ` AND type IN (${types.map(() => "?").join(", ")})` : "";
   const rows = db
-    .prepare(`SELECT * FROM events WHERE run_id = ? ORDER BY id ASC`)
-    .all(runId) as EventRow[];
+    .prepare(`SELECT * FROM events WHERE run_id = ?${typeFilter} ORDER BY id ASC`)
+    .all(runId, ...(types ?? [])) as EventRow[];
   // Parse and normalize to current schema (handles v1 → v2 migration)
   return rows.map((r) => normalizeEvent(JSON.parse(r.data)));
 }

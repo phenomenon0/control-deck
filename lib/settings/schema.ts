@@ -56,7 +56,7 @@ export const ApprovalPolicySchema = z.object({
   perTool: z.record(z.string(), ApprovalModeSchema).default({}),
   /** Cost threshold for mode=cost (USD). */
   costThresholdUsd: z.number().min(0).default(0.05),
-  /** How long the approval prompt waits before auto-denying (seconds). 0 = no timeout. */
+  /** How long the approval prompt waits before auto-denying (seconds). 0 = wait the maximum (3600). */
   timeoutSeconds: z.number().int().min(0).max(3600).default(120),
 });
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>;

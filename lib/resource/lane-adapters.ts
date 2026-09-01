@@ -31,6 +31,8 @@ export interface UnloadResult {
   error?: string;
 }
 
+const OLLAMA_IDLE = "ollama (nothing loaded)";
+
 async function safeFetch(url: string, init: RequestInit & { timeoutMs?: number }): Promise<Response> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), init.timeoutMs ?? 5000);
@@ -109,7 +111,7 @@ async function unloadOllama(): Promise<UnloadResult> {
     if (!ps.ok) return { ok: false, via: "ollama /api/ps", error: `${ps.status}` };
     const data = (await ps.json()) as { models?: Array<{ name?: string }> };
     const loaded = (data.models ?? []).map((m) => m.name).filter((n): n is string => !!n);
-    if (loaded.length === 0) return { ok: true, via: "ollama (nothing loaded)" };
+    if (loaded.length === 0) return { ok: true, via: OLLAMA_IDLE };
     let allOk = true;
     for (const name of loaded) {
       try {
@@ -152,7 +154,9 @@ export async function unloadLane(lane: LaneId, modelId?: string): Promise<Unload
       {
         const r = await unloadLlamaSwap(modelId);
         if (r.ok) return r;
-        return await unloadOllama();
+        const o = await unloadOllama();
+        // An idle Ollama cannot vouch for llama-swap's still-resident weights.
+        return o.via === OLLAMA_IDLE ? r : o;
       }
     case "image":
     case "audio":

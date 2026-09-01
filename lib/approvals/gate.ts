@@ -82,6 +82,15 @@ function isSideEffectTool(toolName: string, toolArgs: Record<string, unknown>): 
   }
 }
 
+/**
+ * Settings allow `timeoutSeconds: 0` ("no timeout"). An unbounded wait would
+ * outlive the boot reconcile, which expires pending rows after an hour as
+ * orphans — so bound it there instead of never auto-denying.
+ */
+export function effectiveApprovalTimeout(seconds: number): number {
+  return seconds > 0 ? seconds : 3600;
+}
+
 function randomId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 11)}`;
 }
@@ -184,7 +193,8 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
 
   // Poll the row until decided or timeout.
   const tickMs = 250;
-  const deadline = timeoutSeconds === 0 ? Number.POSITIVE_INFINITY : Date.now() + timeoutSeconds * 1000;
+  timeoutSeconds = effectiveApprovalTimeout(timeoutSeconds);
+  const deadline = Date.now() + timeoutSeconds * 1000;
   while (Date.now() < deadline) {
     const row = getApproval(id);
     if (row && row.status !== "pending") return finalise(id, row.status, options.threadId);
@@ -210,7 +220,9 @@ export async function gateToolCall(options: GateOptions): Promise<GateVerdict> {
  * effects are denied, read-only tools are allowed through.
  */
 function failSafeVerdict(options: GateOptions, cause: string): GateVerdict {
-  if (isSideEffectTool(options.toolName, options.toolArgs)) {
+  // A tool without a manifest row cannot prove it is read-only, and with the
+  // gate itself broken nothing downstream re-decides — deny it too.
+  if (!hasManifestEntry(options.toolName) || isSideEffectTool(options.toolName, options.toolArgs)) {
     return {
       decision: "denied",
       reason: `${cause}; side-effect tool denied (fail-closed)`,

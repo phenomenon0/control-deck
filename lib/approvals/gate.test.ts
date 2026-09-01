@@ -71,7 +71,7 @@ const resolveAllSpy = spyOn(actualResolve, "resolveAll").mockImplementation(
   (() => ({ approval: state.approval, runs: state.runs })) as never,
 );
 
-const { gateToolCall } = await import("./gate");
+const { gateToolCall, effectiveApprovalTimeout } = await import("./gate");
 
 beforeEach(() => {
   dbState.nextStatus = [];
@@ -177,6 +177,13 @@ describe("gateToolCall — infra faults must not widen permissions", () => {
     expect(verdict.decision).toBe("approved");
   });
 
+  test("settings resolution throws → tool with no manifest row is DENIED", async () => {
+    state.resolveThrows = true;
+    const verdict = await gateToolCall({ toolName: "tool_added_without_manifest", toolArgs: {} });
+    expect(verdict.decision).toBe("denied");
+    expect(verdict.reason).toContain("fail-closed");
+  });
+
   test("approval row insert throws → side-effect tool is DENIED", async () => {
     state.approval.defaultMode = "ask";
     dbState.createThrows = true;
@@ -199,6 +206,11 @@ describe("gateToolCall — wait behaviour", () => {
     dbState.nextStatus = ["pending", "denied"];
     const verdict = await gateToolCall({ toolName: "web_search", toolArgs: {} });
     expect(verdict.decision).toBe("denied");
+  });
+
+  test("timeoutSeconds 0 is bounded by the reconcile horizon, never infinite", () => {
+    expect(effectiveApprovalTimeout(0)).toBe(3600);
+    expect(effectiveApprovalTimeout(45)).toBe(45);
   });
 
   test("timeout auto-denies and records the decision", async () => {

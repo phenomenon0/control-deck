@@ -381,6 +381,10 @@ describe("buildToolReplayBlocks", () => {
     expect(blocks[0].priorIndex).toBe(1); // ordinal preserved despite the gap
     expect(blocks[0].messages[0].tool_calls).toEqual([{ id: "tc-old", name: "glob" }]);
     expect(getEventsSpy.mock.calls.map(c => c[0])).toEqual(["run-newest-prior", "run-older"]);
+    // Replay must ask SQLite for tool events only — never a run's text deltas.
+    for (const call of getEventsSpy.mock.calls) {
+      expect(call[1]).toEqual(["ToolCallStart", "ToolCallArgs", "ToolCallResult"]);
+    }
   });
 
   test("caps the total at REPLAY_MAX_TOOL_CALLS, newest runs first", () => {

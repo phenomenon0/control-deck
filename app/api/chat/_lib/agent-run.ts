@@ -131,6 +131,8 @@ export function buildAgentMessages(chatMessages: ClientMessage[]): AgentGOMessag
  */
 export const REPLAY_SCAN_RUNS = 8;
 export const REPLAY_MAX_TOOL_CALLS = 12;
+/** The only event types replay reads — text deltas stay in SQLite. */
+export const REPLAY_EVENT_TYPES = ["ToolCallStart", "ToolCallArgs", "ToolCallResult"] as const;
 export const REPLAY_RESULT_MAX_CHARS = 4000;
 
 /** One completed start→result pair, in the order the results arrived. */
@@ -285,7 +287,7 @@ export function buildToolReplayBlocks(threadId: string, excludeRunId?: string): 
     const blocks: ReplayBlock[] = [];
     let budget = REPLAY_MAX_TOOL_CALLS;
     for (let priorIndex = 0; priorIndex < runs.length && budget > 0; priorIndex++) {
-      const exchanges = extractToolExchanges(getEvents(runs[priorIndex].id));
+      const exchanges = extractToolExchanges(getEvents(runs[priorIndex].id, REPLAY_EVENT_TYPES));
       if (exchanges.length === 0) continue;
       const kept = exchanges.slice(0, budget);
       budget -= kept.length;

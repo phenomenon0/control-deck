@@ -448,10 +448,13 @@ test("absent system_prompt: bootstrap stack remains the standalone-dev fallback"
     "local SYSTEM_PROMPT anchors the fallback stack",
   );
 
-  // Whitespace-only counts as absent — fall back rather than installing
-  // an empty prompt.
+  // Blank but PRESENT means a deck is in front and assembled nothing
+  // (persona off, memory disabled): keep the local base prompt, but never
+  // read the bootstrap files — that would inject the MEMORY.md/SOUL.md the
+  // deck's settings just turned off.
   const blank = await hooks.resolveSystemPrompt("   \n  ", jail);
-  assert.ok(blank.includes("TEST-PERSONA"));
+  assert.ok(blank.includes("Control Deck cockpit"), "base prompt still anchors a blank deck prompt");
+  assert.ok(!blank.includes("TEST-PERSONA"), "bootstrap must not leak in under a deck");
 
   // Present → verbatim, bootstrap untouched.
   const sent = "exact prompt\nwith newlines  and  spacing ";

@@ -147,9 +147,12 @@ describe("buildStartRunRequest", () => {
     });
   });
 
-  test("omits system_prompt when the assembled prompt is empty", () => {
+  test("sends system_prompt even when the assembled prompt is empty", () => {
+    // Why: an absent field makes agent-ts fall back to its own bootstrap
+    // files (MEMORY.md/SOUL.md). Present-but-empty says "a deck is in front
+    // and assembled nothing" — persona/memory the user turned off stay off.
     const out = buildStartRunRequest({ ...base, assembledSystemPrompt: "" });
-    expect(out.system_prompt).toBeUndefined();
+    expect(out.system_prompt).toBe("");
   });
 
   test("passes a resolved api key through", () => {

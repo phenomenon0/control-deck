@@ -48,6 +48,10 @@ function req(
   return new NextRequest(`http://localhost${path}`, { headers });
 }
 
+function post(path: string, headers: Record<string, string> = {}): NextRequest {
+  return new NextRequest(`http://localhost${path}`, { method: "POST", headers });
+}
+
 const bearer = { Authorization: `Bearer ${DECK}` };
 const deckHeader = { "X-Deck-Token": DECK };
 
@@ -222,5 +226,35 @@ describe("DECK_TOKEN unset — production fails closed", () => {
       if (prevNodeEnv === undefined) delete (process.env as Record<string, string | undefined>).NODE_ENV;
       else (process.env as Record<string, string | undefined>).NODE_ENV = prevNodeEnv;
     }
+  });
+});
+
+describe("same-origin gate — side-effect methods, independent of DECK_TOKEN", () => {
+  // Why: DECK_TOKEN is empty by default, so the origin check is the only
+  // thing between a foreign tab and code/execute, the tool bridge and the
+  // approvals writer. It must hold with no token AND ahead of a valid one.
+  test("cross-origin POST → 403 with no token configured (dev default)", () => {
+    setEnv({});
+    expect(middleware(post("/api/code/execute", { origin: "http://evil.example" })).status).toBe(403);
+  });
+
+  test("cross-origin POST → 403 even with a valid Bearer (origin precedes auth)", () => {
+    setEnv({ deck: DECK });
+    expect(middleware(post("/api/chat", { ...bearer, origin: "http://evil.example" })).status).toBe(403);
+  });
+
+  test("same-origin POST via a loopback alias → allow", () => {
+    setEnv({});
+    expectAllow(middleware(post("/api/chat", { origin: "http://127.0.0.1" })));
+  });
+
+  test("no Origin (server-to-server) POST → allow", () => {
+    setEnv({});
+    expectAllow(middleware(post("/api/chat")));
+  });
+
+  test("cross-origin GET is not origin-gated (CORS keeps reads unreadable)", () => {
+    setEnv({});
+    expectAllow(middleware(req("/api/chat", { origin: "http://evil.example" })));
   });
 });

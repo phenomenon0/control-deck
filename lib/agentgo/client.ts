@@ -258,7 +258,10 @@ export async function checkHealth(): Promise<HealthResponse> {
  * Start a new agent run
  */
 export async function startRun(req: StartRunRequest): Promise<string> {
-  const res = await fetch(`${AGENTGO_URL}/runs`, {
+  // Through the deck, not straight at agent-ts: /api/agentgo/runs puts the
+  // run on the spine (deck-assembled system prompt, resolved model route,
+  // tool bridge). Events are still streamed from agent-ts directly.
+  const res = await fetch(`/api/agentgo/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),

@@ -352,7 +352,12 @@ export interface BuildRunRequestInput {
   messages: AgentGOMessage[];
   threadId: string;
   runId: string;
-  /** Assembled + model-augmented system prompt; empty string → omitted. */
+  /**
+   * Assembled + model-augmented system prompt. ALWAYS sent, "" included: the
+   * field's presence tells agent-ts a deck is in front and owns memory and
+   * persona, so it must not fall back to its own bootstrap files (MEMORY.md,
+   * SOUL.md) when the deck's settings turned those off.
+   */
   assembledSystemPrompt: string;
   route: ModelRoute;
   selectedModel: string;
@@ -364,7 +369,7 @@ export function buildStartRunRequest(input: BuildRunRequestInput): AgentGOStartR
   return {
     messages: input.messages,
     thread_id: input.threadId,
-    system_prompt: input.assembledSystemPrompt || undefined,
+    system_prompt: input.assembledSystemPrompt,
     run_id: input.runId,
     workspace_root: process.env.WORKSPACE_ROOT ?? undefined,
     mode: "BUILD",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useAgentGoRun, type AgentGoEvent } from "@/lib/agentgo";
+import { checkHealth, useAgentGoRun, type AgentGoEvent } from "@/lib/agentgo";
 import { InterruptDialog } from "@/components/dojo/ui/InterruptDialog";
 import { ToolCallCard } from "@/components/dojo/ui/ToolCallCard";
 import { ActivityCard } from "@/components/dojo/ui/ActivityCard";
@@ -65,12 +65,10 @@ export function AgentGoPane() {
   useEffect(() => {
     const checkServer = async () => {
       try {
-        const res = await fetch("http://localhost:4243/health");
-        if (res.ok) {
-          setServerStatus("online");
-        } else {
-          setServerStatus("offline");
-        }
+        // Same URL the run/stream client uses — a hardcoded :4243 here kept
+        // the pane "Offline" (Run disabled) against the 4244 runtime.
+        await checkHealth();
+        setServerStatus("online");
       } catch {
         setServerStatus("offline");
       }
@@ -447,7 +445,7 @@ export function AgentGoPane() {
             </form>
             <p className="text-xs text-[var(--text-muted)] mt-2 text-center">
               Mode: <span className="font-medium">{mode}</span> |
-              Port: <span className="font-mono">4243</span> |
+              Port: <span className="font-mono">4244</span> |
               Workspace: current directory
             </p>
           </div>

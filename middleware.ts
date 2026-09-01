@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { denyIfCrossOrigin } from "@/lib/security/originGuard";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -20,8 +21,22 @@ if (!process.env.DECK_TOKEN) {
  * Prod (no token):  503 — something is misconfigured, better to surface it
  *                   loudly than to quietly expose every route.
  * Token set:        Authorization: Bearer <token> OR X-Deck-Token required.
+ *
+ * Before any of that, side-effect methods must be same-origin. This is
+ * independent of DECK_TOKEN on purpose: the checked-in default is empty, and
+ * a cross-origin text/plain POST needs no preflight — without this gate any
+ * website in the same browser could hit code/execute, the tool bridge or the
+ * approvals writer. No Origin header means server-to-server (agent-ts,
+ * scripts, the GNOME widget) and passes; reads stay CORS-protected as usual.
  */
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 export function middleware(req: NextRequest) {
+  if (!SAFE_METHODS.has(req.method)) {
+    const denied = denyIfCrossOrigin(req);
+    if (denied) return denied;
+  }
+
   const token = process.env.DECK_TOKEN;
 
   if (!token || token === "") {

@@ -94,7 +94,11 @@ async function resolveSystemPrompt(
   deckPrompt: string | undefined,
   jail: WorkspaceJail,
 ): Promise<string> {
-  if (deckPrompt && deckPrompt.trim()) return deckPrompt;
+  // Present-but-blank means a deck is in front and assembled nothing
+  // (persona off, memory disabled, no skills): keep the local base prompt,
+  // but never read the bootstrap files — MEMORY.md/SOUL.md are the deck's
+  // to inject, and it just chose not to.
+  if (deckPrompt !== undefined) return deckPrompt.trim() ? deckPrompt : SYSTEM_PROMPT;
   const bootstrap = await readBootstrap(jail);
   return bootstrap.prefix ? `${SYSTEM_PROMPT}\n\n${bootstrap.prefix}` : SYSTEM_PROMPT;
 }

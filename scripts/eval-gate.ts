@@ -130,6 +130,12 @@ function main(): void {
   const rate = passed / total;
 
   console.log(`[eval-gate] mode=${mode} latest run: ${latestDir} (model: ${latest.model ?? "unknown"})`);
+  if (latestDir === BASELINE_RUN_DIR) {
+    console.log(
+      `[eval-gate] NOTE: the latest recorded run IS the baseline — nothing newer to gate. ` +
+        `The floor only bites once a newer run is recorded (bun scripts/mcp-tool-eval.ts --mode ${mode}).`,
+    );
+  }
   console.log(`[eval-gate] pass rate: ${passed}/${total} = ${(rate * 100).toFixed(1)}% — floor: ${(floor * 100).toFixed(1)}% (baseline ${BASELINE_RUN_DIR}, 10/11)`);
 
   if (rate + 1e-9 >= floor) {

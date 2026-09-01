@@ -45,7 +45,7 @@ jobs:
           CONTROL_DECK_DOCTOR_CI: "1"
 
       - name: Eval floor gate (latest recorded agent-work run vs baseline)
-        run: bun scripts/eval-gate.ts
+        run: bun scripts/eval-gate.ts --require-runs
 
       - name: Hermetic eval subset (offline; live probes SKIPped)
         run: bun scripts/mcp-tool-eval.ts --mode hermetic

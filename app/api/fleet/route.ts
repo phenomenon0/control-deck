@@ -1,10 +1,9 @@
 import { NextRequest } from "next/server";
-import { execFile } from "child_process";
-import { access, readFile } from "fs/promises";
-import { constants as FS } from "fs";
+import { readFile } from "fs/promises";
 import path from "path";
 
-import { encodeHeartbeat, sseHeaders } from "@/lib/agui/sse";
+import { HEARTBEAT_MS, encodeHeartbeat, sseHeaders } from "@/lib/agui/sse";
+import { NODECTL, nodectlProblem, runNodectl } from "./nodectl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,19 +15,31 @@ export const dynamic = "force-dynamic";
  * FleetPane. Every POLL_MS the route shells out to `nodectl --json` for the
  * whole fleet and pushes one merged snapshot:
  *
- *   fleet ls          -> per-node reachability (host, up/DOWN, rtt, clock offset)
- *   mesh anchor       -> anchor election + split-brain detection (agree flag)
- *   mesh peers        -> each live node's peer list, incl. advertised capabilities
- *   sensors --on all  -> latest sensor snapshot per node
+ *   fleet ls           -> per-node reachability (host, up/DOWN, rtt, clock offset)
+ *   mesh anchor        -> anchor election + split-brain detection (agree flag)
+ *   mesh peers         -> each live node's peer list, incl. advertised capabilities
+ *   sensors --on all   -> latest sensor snapshot per node
+ *   fleet call viz.status -> nodebootstrap's view: heartbeat, SAFE MODE, uptime
+ *   wall stats         -> what each renderer is actually DRAWING (frames, fps)
+ *   wall ls            -> the wall layout: grid, per-cell rect, who sits where
+ *
+ * viz.status and wall stats exist because everything else here can be green
+ * while a pad's screen is dead. viz.status.safe_mode is set after 3 renderer crashes in 60s,
+ * at which point nodebootstrap stops relaunching -- the node then answers every
+ * other check perfectly and shows nothing. And a renderer whose draw loop has
+ * stalled still holds its TCP port and still answers `ping`, so only the frame
+ * counter behind `wall stats` can tell "the node is up" from "the screen is on".
+ * (viz.status.renderer_pid is NOT that signal: ipad-d and ipad-e report null for
+ * it while demonstrably drawing at 51 fps.)
  *
  * plus two host-side activity notes read straight off disk (no device I/O):
  * the last scene nodectl pushed and the last scheduled fleet-smoke verdict.
  *
- * Each of those four CLI calls opens TCP to every seed host. An unreachable
+ * All but `wall ls` open TCP to every seed host. An unreachable
  * node costs a full connect timeout, and unreachable is a NORMAL fleet state,
  * not a fault: a node away in a bounded mesh session is deliberately off the
  * LAN and coming back on its own, and a node with no infrastructure association
- * has no door at all. The four calls run in parallel, then the route waits
+ * has no door at all. The calls run in parallel, then the route waits
  * POLL_MS before the next cycle — a deliberately modest cadence, because this
  * talks to embedded hardware over a radio link, not a database.
  *
@@ -42,33 +53,6 @@ export const dynamic = "force-dynamic";
  *   `: hb\n\n`                         — heartbeat comment, 15s cadence
  */
 
-/** Absolute path to the ipad-lab control-plane CLI; overridable for other checkouts. */
-const NODECTL =
-  process.env.FLEET_NODECTL ??
-  "/home/omen/Documents/Project/ipad-lab/bin/nodectl";
-
-/**
- * Is the CLI actually there? Checked ONCE before the first poll.
- *
- * The default above is one developer's absolute path. On any other checkout
- * every execFile fails identically, and without this the pane renders four
- * separate "no output from nodectl" errors that look exactly like a fleet-wide
- * outage — the operator goes looking at the hardware for a problem that is in
- * the environment. A configuration error must announce itself as one.
- */
-async function nodectlProblem(): Promise<string | null> {
-  try {
-    await access(NODECTL, FS.X_OK);
-    return null;
-  } catch {
-    return (
-      `nodectl is not executable at ${NODECTL} — this pane is not talking to ` +
-      `the fleet at all. Set FLEET_NODECTL to your ipad-lab checkout's ` +
-      `bin/nodectl (and FLEET_LOGS if its logs/ lives elsewhere).`
-    );
-  }
-}
-
 /**
  * Where the fleet tooling drops its host-side activity notes. Derived from
  * NODECTL (<repo>/bin/nodectl -> <repo>/logs) so a checkout override moves both
@@ -77,56 +61,14 @@ async function nodectlProblem(): Promise<string | null> {
 const FLEET_LOGS =
   process.env.FLEET_LOGS ?? path.resolve(path.dirname(NODECTL), "..", "logs");
 
-// A poll's four CLI calls run in parallel (~5s wall when nodes are down); this
-// is the idle gap AFTER a snapshot ships before the next cycle starts.
-const POLL_MS = 4_000;
-// Each nodectl call opens TCP to up to five hosts with its own per-host
-// timeout; 25s is a generous ceiling that only trips if the CLI itself wedges.
-const CMD_TIMEOUT_MS = 25_000;
-
-interface CmdResult {
-  /** Parsed JSON stdout, or null when the CLI produced no valid JSON. */
-  json: unknown;
-  /** Raw stderr, surfaced only when json is null so the UI can show why. */
-  error?: string;
-}
-
-/**
- * Run one `nodectl --json <args...>` and return its parsed stdout.
- *
- * nodectl exits non-zero when nodes are unreachable (e.g. `mesh anchor`
- * returns 1 on any error row) but STILL prints a complete JSON document to
- * stdout describing that partial state. We therefore parse stdout regardless
- * of exit code and only fall back to the error branch when stdout has no JSON
- * at all — the down-node case is normal data, not a failure.
- */
-function runNodectl(args: string[]): Promise<CmdResult> {
-  return new Promise((resolve) => {
-    execFile(
-      NODECTL,
-      ["--json", ...args],
-      { timeout: CMD_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        const raw = (stdout ?? "").trim();
-        if (raw) {
-          try {
-            resolve({ json: JSON.parse(raw) });
-            return;
-          } catch {
-            /* fall through — malformed JSON is a real failure */
-          }
-        }
-        resolve({
-          json: null,
-          error:
-            (stderr ?? "").trim() ||
-            (err ? err.message : "no output from nodectl"),
-        });
-      },
-    );
-  });
-}
-
+// A poll's CLI calls run in parallel (~5s wall when nodes are down); this
+// is the idle gap AFTER a snapshot ships before the next cycle starts. Raised
+// from 4s when the last two calls were added: each one is another TCP fan-out
+// to all four pads, two of which run on battery, so the gap grew with the
+// payload to keep device I/O per minute roughly flat while carrying more.
+// (`wall ls` was added at the same time and is free: it reads fleet.json and
+// wall.json only, opening no socket to any device.)
+const POLL_MS = 6_000;
 /**
  * Read one host-side activity note. These are written by the fleet tooling, not
  * by a device: host/ops/run-smoke.sh writes fleet-smoke-last.json after every
@@ -182,19 +124,27 @@ function formatSmoke(note: Record<string, unknown> | null): string | undefined {
   if (!devices) return `no result parsed (rc ${note.rc ?? "?"})${when}`;
   const failed = devices.filter((d) => !d.ok).map((d) => d.id ?? "?");
   const verdict = failed.length === 0 ? "PASS" : `FAIL: ${failed.join(", ")}`;
-  return `${result?.passed ?? devices.length - failed.length}/${result?.total ?? devices.length} ${verdict}${when}`;
+  // run-smoke.sh records the nodes it skipped (no door on the LAN) precisely so
+  // a green badge cannot be read as "the whole fleet" when it was a subset.
+  const notCovered = Array.isArray(note.not_covered) ? note.not_covered.filter(Boolean) : [];
+  const skipped = notCovered.length ? ` · untested: ${notCovered.join(", ")}` : "";
+  return `${result?.passed ?? devices.length - failed.length}/${result?.total ?? devices.length} ${verdict}${skipped}${when}`;
 }
 
 /** Gather every source in parallel and merge into one snapshot for the pane. */
 async function collectSnapshot(): Promise<Record<string, unknown>> {
-  const [roster, anchor, peers, sensors, sceneNote, smokeNote] = await Promise.all([
-    runNodectl(["fleet", "ls"]),
-    runNodectl(["mesh", "anchor"]),
-    runNodectl(["mesh", "peers"]),
-    runNodectl(["sensors", "--on", "all"]),
-    readNote("fleet-scene-last.json"),
-    readNote("fleet-smoke-last.json"),
-  ]);
+  const [roster, anchor, peers, sensors, status, render, layout, sceneNote, smokeNote] =
+    await Promise.all([
+      runNodectl(["fleet", "ls"]),
+      runNodectl(["mesh", "anchor"]),
+      runNodectl(["mesh", "peers"]),
+      runNodectl(["sensors", "--on", "all"]),
+      runNodectl(["fleet", "call", "viz.status", "--on", "all"]),
+      runNodectl(["wall", "stats"]),
+      runNodectl(["wall", "ls"]),
+      readNote("fleet-scene-last.json"),
+      readNote("fleet-smoke-last.json"),
+    ]);
   return {
     ts: Date.now(),
     roster: roster.json,
@@ -205,12 +155,33 @@ async function collectSnapshot(): Promise<Record<string, unknown>> {
     peersError: peers.error,
     sensors: sensors.json,
     sensorsError: sensors.error,
+    status: status.json,
+    statusError: status.error,
+    render: render.json,
+    renderError: render.error,
+    layout: layout.json,
+    layoutError: layout.error,
     lastScene: formatScene(sceneNote),
     lastSmoke: formatSmoke(smokeNote),
   };
 }
 
-export async function GET(_req: NextRequest): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
+  // ?once=1 — one snapshot as plain JSON, then close. The SSE stream above is
+  // right for a pane that stays open; it is the wrong shape for the GNOME
+  // panel widget, which wakes every 10s and would otherwise need a GJS SSE
+  // client with its own reconnect logic to read a feed it does not keep.
+  // Same collector, same snapshot, so both surfaces agree by construction.
+  if (req.nextUrl.searchParams.get("once")) {
+    const problem = await nodectlProblem();
+    const body = problem
+      ? { ts: Date.now(), configError: problem }
+      : await collectSnapshot();
+    return new Response(JSON.stringify(body), {
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  }
+
   const encoder = new TextEncoder();
   let closed = false;
 
@@ -234,7 +205,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
           closed = true;
           clearInterval(heartbeat);
         }
-      }, 15_000);
+      }, HEARTBEAT_MS);
 
       // Poll loop: snapshot, ship, idle POLL_MS, repeat until the client
       // disconnects. Runs immediately so the pane paints on the first cycle.

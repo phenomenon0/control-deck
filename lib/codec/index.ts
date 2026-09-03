@@ -1,19 +1,24 @@
 /**
  * GLYPH Codec
  * Token-optimized encoding for LLM contexts
- * 
+ *
+ * Thin adapters over the official `cowrie-glyph` package: encoding delegates
+ * to its schema-free loose renderer (`canonicalizeLoose` family), decoding to
+ * `parseLoose`. See encode.ts / decode.ts headers for the exact official
+ * grammar and the documented behavior deltas.
+ *
  * Usage:
  * ```typescript
  * import { encodeGlyph, decodeGlyph, encodeGlyphSmart } from '@/lib/codec';
- * 
+ *
  * // Encode data
  * const glyph = encodeGlyph({ name: 'Alice', age: 30 });
- * // => "@[age name](30 Alice)"
- * 
+ * // => "{age=30 name=Alice}"   (official loose; keys sorted)
+ *
  * // Decode back
  * const data = decodeGlyph(glyph);
  * // => { age: 30, name: "Alice" }
- * 
+ *
  * // Smart encode (picks shorter of tabular/non-tabular)
  * const result = encodeGlyphSmart(largeArray);
  * console.log(`Saved ${result.savings.toFixed(1)}%`);

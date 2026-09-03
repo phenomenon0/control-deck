@@ -1,6 +1,10 @@
 /**
  * GLYPH Tool Parser Tests
  * Run with: bun test lib/codec/tool-parser.test.ts
+ *
+ * Fixtures model LLM-written tool-call text in the OFFICIAL loose dialect
+ * (the grammar taught by glyphInstruction / emitted by cowrie-glyph):
+ *   Tool{name=web_search args={query="test query"}}
  */
 
 import { test, expect, describe } from "bun:test";
@@ -15,7 +19,7 @@ describe("parseGlyphToolCall", () => {
   test("parses simple tool call", () => {
     const text = `Tool{
       name = web_search
-      args = @[query]("test query")
+      args = {query="test query"}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -25,7 +29,7 @@ describe("parseGlyphToolCall", () => {
   });
 
   test("parses compact inline tool call", () => {
-    const text = `Tool{name=generate_image args=@[prompt width]("sunset" 1024)}`;
+    const text = `Tool{name=generate_image args={prompt="sunset" width=1024}}`;
     
     const result = parseGlyphToolCall(text);
     expect(result.tool?.name).toBe("generate_image");
@@ -35,7 +39,7 @@ describe("parseGlyphToolCall", () => {
   test("parses tool with multiple args", () => {
     const text = `Tool{
       name = execute_code
-      args = @[language code timeout](python "print('hello')" 30000)
+      args = {code="print('hello')" language=python timeout=30000}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -48,7 +52,7 @@ describe("parseGlyphToolCall", () => {
   test("extracts text before and after tool", () => {
     const text = `Let me search for that.
 
-Tool{name=web_search args=@[query]("AI news")}
+Tool{name=web_search args={query="AI news"}}
 
 I'll analyze the results.`;
     
@@ -68,11 +72,11 @@ I'll analyze the results.`;
 describe("parseAllGlyphToolCalls", () => {
   test("parses multiple tool calls", () => {
     const text = `
-      Tool{name=web_search args=@[query]("first search")}
+      Tool{name=web_search args={query="first search"}}
       Some text in between
-      Tool{name=generate_image args=@[prompt]("mountain")}
+      Tool{name=generate_image args={prompt="mountain"}}
       More text
-      Tool{name=vector_store args=@[text collection]("save this" notes)}
+      Tool{name=vector_store args={collection=notes text="save this"}}
     `;
     
     const tools = parseAllGlyphToolCalls(text);
@@ -91,7 +95,7 @@ describe("parseAllGlyphToolCalls", () => {
 
 describe("hasGlyphToolCall", () => {
   test("detects tool call presence", () => {
-    expect(hasGlyphToolCall("Tool{name=test args=@[]()}")).toBe(true);
+    expect(hasGlyphToolCall("Tool{name=test args={}}")).toBe(true);
     expect(hasGlyphToolCall("No tool here")).toBe(false);
     expect(hasGlyphToolCall("Tool{ incomplete")).toBe(false);
   });
@@ -99,7 +103,7 @@ describe("hasGlyphToolCall", () => {
 
 describe("parseTool", () => {
   test("parses GLYPH tool call", () => {
-    const text = `Tool{name=web_search args=@[query]("glyph format")}`;
+    const text = `Tool{name=web_search args={query="glyph format"}}`;
     const tool = parseTool(text);
     expect(tool?.name).toBe("web_search");
     expect(tool?.args.query).toBe("glyph format");
@@ -114,11 +118,12 @@ describe("parseTool", () => {
   test("extracts tool from surrounding text", () => {
     const text = `Let me search for that.
     
-Tool{name=web_search args=@[query]("test")}
+Tool{name=web_search args={query="test"}}
 
 Here are the results.`;
     const tool = parseTool(text);
     expect(tool?.name).toBe("web_search");
+    expect(tool?.args.query).toBe("test");
   });
 });
 
@@ -126,7 +131,7 @@ describe("edge cases", () => {
   test("handles nested objects in args (single-line)", () => {
     const text = `Tool{
       name = vector_store
-      args = @[text metadata]("document content" @[source author](web "John Doe"))
+      args = {metadata={author="John Doe" source=web} text="document content"}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -138,10 +143,13 @@ describe("edge cases", () => {
   test("handles nested objects in args (multiline)", () => {
     const text = `Tool{
       name = vector_store
-      args = @[text metadata](
-        "document content"
-        @[source author](web "John Doe")
-      )
+      args = {
+        metadata = {
+          author = "John Doe"
+          source = web
+        }
+        text = "document content"
+      }
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -153,7 +161,7 @@ describe("edge cases", () => {
   test("handles arrays in args", () => {
     const text = `Tool{
       name = execute_code
-      args = @[language code args](bash "echo $1" ["hello" "world"])
+      args = {args=[hello world] code="echo $1" language=bash}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -163,7 +171,7 @@ describe("edge cases", () => {
   test("handles special characters in strings", () => {
     const text = `Tool{
       name = execute_code
-      args = @[language code](python "print('hello\\nworld')")
+      args = {code="print('hello\\nworld')" language=python}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -171,7 +179,7 @@ describe("edge cases", () => {
   });
 
   test("handles bare string values", () => {
-    const text = `Tool{name=glyph_motif args=@[prompt style](protection sigil)}`;
+    const text = `Tool{name=glyph_motif args={prompt=protection style=sigil}}`;
     
     const result = parseGlyphToolCall(text);
     expect(result.tool?.args.prompt).toBe("protection");
@@ -179,14 +187,14 @@ describe("edge cases", () => {
   });
 
   test("handles boolean values", () => {
-    const text = `Tool{name=glyph_motif args=@[prompt sheet](test t)}`;
+    const text = `Tool{name=glyph_motif args={prompt=test sheet=t}}`;
     
     const result = parseGlyphToolCall(text);
     expect(result.tool?.args.sheet).toBe(true);
   });
 
   test("handles null values", () => {
-    const text = `Tool{name=test args=@[a b](hello ∅)}`;
+    const text = `Tool{name=test args={a=hello b=∅}}`;
     
     const result = parseGlyphToolCall(text);
     expect(result.tool?.args.a).toBe("hello");
@@ -194,7 +202,7 @@ describe("edge cases", () => {
   });
 
   test("handles numeric values", () => {
-    const text = `Tool{name=generate_image args=@[prompt width height seed]("test" 1024 768 42)}`;
+    const text = `Tool{name=generate_image args={height=768 prompt="test" seed=42 width=1024}}`;
     
     const result = parseGlyphToolCall(text);
     expect(result.tool?.args.width).toBe(1024);
@@ -207,11 +215,11 @@ describe("multiline support", () => {
   test("multiline args with simple values", () => {
     const text = `Tool{
       name = generate_image
-      args = @[prompt width height](
-        "a beautiful sunset over the ocean with waves"
-        1024
-        768
-      )
+      args = {
+        height = 768
+        prompt = "a beautiful sunset over the ocean with waves"
+        width = 1024
+      }
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -224,14 +232,14 @@ describe("multiline support", () => {
   test("multiline args with nested arrays", () => {
     const text = `Tool{
       name = execute_code
-      args = @[language code args](
-        bash
-        "echo $1 $2"
-        [
+      args = {
+        args = [
           hello
           world
         ]
-      )
+        code = "echo $1 $2"
+        language = bash
+      }
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -243,13 +251,13 @@ describe("multiline support", () => {
   test("deeply nested multiline structure", () => {
     const text = `Tool{
       name = complex_tool
-      args = @[config](
-        @[settings](
-          @[inner](
-            value
-          )
-        )
-      )
+      args = {
+        config = {
+          settings = {
+            inner = value
+          }
+        }
+      }
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -264,11 +272,11 @@ describe("multiline support", () => {
   test("multiline code string", () => {
     const text = `Tool{
       name = execute_code
-      args = @[language code](python "def hello():
+      args = {code="def hello():
     print('Hello')
     return 42
 
-result = hello()")
+result = hello()" language=python}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -283,10 +291,10 @@ result = hello()")
 
 Tool{
   name = web_search
-  args = @[query max_results](
-    "latest AI news"
-    5
-  )
+  args = {
+    max_results = 5
+    query = "latest AI news"
+  }
 }
 
 Let me know if you need more results.`;
@@ -304,7 +312,7 @@ describe("real-world examples", () => {
 
 Tool{
   name = generate_image
-  args = @[prompt width height]("a majestic mountain landscape at sunset with snow-capped peaks" 1024 768)
+  args = {height=768 prompt="a majestic mountain landscape at sunset with snow-capped peaks" width=1024}
 }`;
     
     const result = parseGlyphToolCall(text);
@@ -318,7 +326,7 @@ Tool{
 
 Tool{
   name = web_search
-  args = @[query max_results]("latest AI developments December 2024" 5)
+  args = {max_results=5 query="latest AI developments December 2024"}
 }`;
     
     const result = parseGlyphToolCall(text);
@@ -329,7 +337,7 @@ Tool{
   test("code execution request", () => {
     const text = `Tool{
       name = execute_code
-      args = @[language code](python "
+      args = {code="
 def fibonacci(n):
     if n <= 1:
         return n
@@ -337,7 +345,7 @@ def fibonacci(n):
 
 for i in range(10):
     print(f'F({i}) = {fibonacci(i)}')
-")
+" language=python}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -349,7 +357,7 @@ for i in range(10):
   test("vector search with filter (single-line)", () => {
     const text = `Tool{
       name = vector_search
-      args = @[query k mode filter]("machine learning tutorials" 10 hybrid @[source date](arxiv 2024))
+      args = {filter={date=2024 source=arxiv} k=10 mode=hybrid query="machine learning tutorials"}
     }`;
     
     const result = parseGlyphToolCall(text);
@@ -362,12 +370,15 @@ for i in range(10):
   test("vector search with filter (multiline)", () => {
     const text = `Tool{
       name = vector_search
-      args = @[query k mode filter](
-        "machine learning tutorials"
-        10
-        hybrid
-        @[source date](arxiv 2024)
-      )
+      args = {
+        filter = {
+          date = 2024
+          source = arxiv
+        }
+        k = 10
+        mode = hybrid
+        query = "machine learning tutorials"
+      }
     }`;
     
     const result = parseGlyphToolCall(text);

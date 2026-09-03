@@ -4,7 +4,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { encodeGlyph, decodeGlyph, encodeGlyphSmart, wrapGlyphBlock } from "./index";
+import { encodeGlyph, decodeGlyph, encodeGlyphSmart, tryDecodeGlyph, wrapGlyphBlock } from "./index";
 
 describe("scalars", () => {
   test("null encodes to ∅", () => {
@@ -36,7 +36,9 @@ describe("scalars", () => {
   test("simple strings encode bare", () => {
     expect(encodeGlyph("hello")).toBe("hello");
     expect(encodeGlyph("foo_bar")).toBe("foo_bar");
-    expect(encodeGlyph("path/to/file")).toBe("path/to/file");
+    // Official loose bare-safe charset is ASCII identifier only ([A-Za-z_][A-Za-z0-9_]*);
+    // the private codec additionally allowed -./ inside bare words, so this is quoted now.
+    expect(encodeGlyph("path/to/file")).toBe('"path/to/file"');
     expect(decodeGlyph("hello")).toBe("hello");
   });
 
@@ -107,21 +109,23 @@ describe("arrays", () => {
 
 describe("objects", () => {
   test("empty object", () => {
-    expect(encodeGlyph({})).toBe("@[]()");
-    expect(decodeGlyph("@[]()")).toEqual({});
+    expect(encodeGlyph({})).toBe("{}");
+    expect(decodeGlyph("{}")).toEqual({});
   });
 
   test("simple object", () => {
     const obj = { name: "Alice", age: 30 };
     const glyph = encodeGlyph(obj);
-    expect(glyph).toBe("@[name age](Alice 30)");
+    // Official loose object form: {key=value ...} with keys sorted by code point
+    // (the private codec emitted positional @[key1 key2](val1 val2) in insertion order).
+    expect(glyph).toBe("{age=30 name=Alice}");
     expect(decodeGlyph(glyph)).toEqual(obj);
   });
 
   test("object with various types", () => {
     const obj = { active: true, count: 5, label: null };
     const glyph = encodeGlyph(obj);
-    expect(glyph).toContain("@[");
+    expect(glyph).toBe("{active=t count=5 label=∅}");
     const decoded = decodeGlyph(glyph);
     expect(decoded).toEqual(obj);
   });
@@ -129,7 +133,7 @@ describe("objects", () => {
   test("nested object", () => {
     const obj = { user: { name: "Bob", id: 1 } };
     const glyph = encodeGlyph(obj);
-    expect(glyph).toContain("@[name id]");
+    expect(glyph).toBe("{user={id=1 name=Bob}}");
     expect(decodeGlyph(glyph)).toEqual(obj);
   });
 
@@ -167,7 +171,10 @@ describe("tabular", () => {
     expect(glyph).not.toContain("@tab");
   });
 
-  test("array with nested objects does not use tabular", () => {
+  test("array with nested objects uses tabular (official allows nested cells)", () => {
+    // The private codec excluded arrays whose cells are objects; the official
+    // loose renderer allows nested values in tabular cells, so a uniform list
+    // of maps is tabular regardless of value depth. Round-trip is preserved.
     const arr = [
       { id: 1, meta: { x: 1 } },
       { id: 2, meta: { x: 2 } },
@@ -175,7 +182,9 @@ describe("tabular", () => {
       { id: 4, meta: { x: 4 } },
     ];
     const glyph = encodeGlyph(arr, { autoTabular: true, minRows: 4 });
-    expect(glyph).not.toContain("@tab");
+    expect(glyph).toContain("@tab");
+    expect(glyph).toContain("{x=1}");
+    expect(decodeGlyph(glyph)).toEqual(arr);
   });
 
   test("tabular with null values", () => {
@@ -212,7 +221,9 @@ describe("tabular", () => {
     ];
     const glyph = encodeGlyph(arr, { autoTabular: false });
     expect(glyph).not.toContain("@tab");
-    expect(glyph).toContain("@[");
+    // Official loose list-of-maps form when tabular is off.
+    expect(glyph).toBe("[{id=1 name=Alice} {id=2 name=Bob} {id=3 name=Charlie} {id=4 name=Diana}]");
+    expect(decodeGlyph(glyph)).toEqual(arr);
   });
 });
 
@@ -255,30 +266,39 @@ describe("wrapGlyphBlock", () => {
 });
 
 describe("edge cases", () => {
-  test("__proto__ keys round-trip as own properties (regression: fast-check counterexample)", () => {
-    // Minimal counterexample from property fuzzing (fc.jsonValue,
-    // seed -462561218): decodeGlyph used plain assignment, so "__proto__"
-    // hit the Object.prototype setter — the key silently vanished, and an
-    // object value polluted the decoded object's prototype.
+  test("__proto__ key emits official map form (upstream JS parse gap pinned)", () => {
+    // encode delegates to the official loose renderer, which writes the key
+    // bare: {__proto__=f}. cowrie-glyph's JS parseLoose lexes any token that
+    // starts with '_' as the NULL placeholder, so it cannot re-read its own
+    // bare emission (Go/Python loose surfaces accept `_`-leading bare keys;
+    // this is a JS-only dist quirk we must not paper over). Decode therefore
+    // fails loudly — never a silent corruption — and the quoted official
+    // spelling is the parseable form (asserted in the next test).
     const obj = JSON.parse('{"__proto__": false}');
-    const glyph = encodeGlyph(obj);
-    expect(glyph).toBe("@[__proto__](f)");
-    const decoded = decodeGlyph(glyph) as Record<string, unknown>;
+    expect(encodeGlyph(obj)).toBe("{__proto__=f}");
+    expect(() => decodeGlyph("{__proto__=f}")).toThrow();
+    expect(tryDecodeGlyph("{__proto__=f}")).toBeNull();
+  });
+
+  test("decoding quoted __proto__ official text yields an own property, no pollution", () => {
+    // Quoted spelling of the same official grammar: {"__proto__"=f}
+    const decoded = decodeGlyph('{"__proto__"=f}') as Record<string, unknown>;
     expect(Object.keys(decoded)).toEqual(["__proto__"]);
     expect(Object.prototype.hasOwnProperty.call(decoded, "__proto__")).toBe(true);
     expect(decoded.__proto__).toBe(false);
+    // A fresh object must not inherit the payload.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   test("object-valued __proto__ key does not pollute the decoded prototype", () => {
-    const obj = JSON.parse('{"__proto__": {"polluted": 1}}');
-    const decoded = decodeGlyph(encodeGlyph(obj)) as Record<string, unknown>;
+    const decoded = decodeGlyph('{"__proto__"={"polluted"=1}}') as Record<string, unknown>;
     expect(Object.prototype.hasOwnProperty.call(decoded, "__proto__")).toBe(true);
     expect((decoded.__proto__ as Record<string, unknown>).polluted).toBe(1);
     // A fresh object must not inherit the payload.
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
-  test("__proto__ tabular column round-trips", () => {
+  test("__proto__ tabular column: official emission pinned; quoted column spelling decodes safely", () => {
     const arr = [
       JSON.parse('{"__proto__": 1, "a": 2}'),
       JSON.parse('{"__proto__": 3, "a": 4}'),
@@ -287,7 +307,13 @@ describe("edge cases", () => {
     ];
     const glyph = encodeGlyph(arr, { autoTabular: true, minRows: 4 });
     expect(glyph).toContain("@tab");
-    const decoded = decodeGlyph(glyph) as Record<string, unknown>[];
+    // Official emitter writes the bare column name; the JS parser cannot re-read
+    // it (same upstream gap as map keys).
+    expect(glyph).toContain("[__proto__ a]");
+    expect(() => decodeGlyph(glyph)).toThrow();
+    // The parseable official spelling quotes the column name.
+    const quoted = '@tab _ rows=4 cols=2 ["__proto__" a]\n|1|2|\n|3|4|\n|5|6|\n|7|8|\n@end';
+    const decoded = decodeGlyph(quoted) as Record<string, unknown>[];
     expect(Object.keys(decoded[0]).sort()).toEqual(["__proto__", "a"]);
     expect(decoded[0].__proto__).toBe(1);
     expect(decoded[3].__proto__).toBe(7);

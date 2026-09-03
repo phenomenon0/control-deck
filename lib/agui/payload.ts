@@ -10,6 +10,7 @@
  */
 
 import { decodeGlyph, encodeGlyphSmart } from "@/lib/codec";
+import { fingerprintData } from "./identity";
 
 /**
  * Canonical envelope for structured payloads
@@ -19,10 +20,14 @@ import { decodeGlyph, encodeGlyphSmart } from "@/lib/codec";
  * - `text`: Plain text (for unstructured content)
  * - `binary`: Base64-encoded binary (for files, images)
  * 
- * All variants include optional `approxBytes` for size tracking
+ * All variants include optional `approxBytes` for size tracking.
+ * `kind:"json"` entries additionally carry an optional `fp` — the canonical
+ * JSON fingerprint (sha256 of canonical JSON, SPEC-CANON.md) of the payload's
+ * data. `fp` is additive identity metadata: omitted when the data is not
+ * fingerprintable (NaN, |int| ≥ 2^53, depth > 128, …), never wrong.
  */
 export type DeckPayload =
-  | { kind: "json"; data: unknown; approxBytes?: number }
+  | { kind: "json"; data: unknown; approxBytes?: number; fp?: string }
   | { kind: "glyph"; glyph: string; approxBytes?: number }
   | { kind: "text"; text: string; approxBytes?: number }
   | { kind: "binary"; base64: string; mimeType: string; approxBytes?: number };
@@ -46,7 +51,7 @@ export function isDeckPayload(value: unknown): value is DeckPayload {
   }
 }
 
-export function isJsonPayload(p: DeckPayload): p is { kind: "json"; data: unknown; approxBytes?: number } {
+export function isJsonPayload(p: DeckPayload): p is { kind: "json"; data: unknown; approxBytes?: number; fp?: string } {
   return p.kind === "json";
 }
 
@@ -64,10 +69,14 @@ export function isBinaryPayload(p: DeckPayload): p is { kind: "binary"; base64: 
 
 /**
  * Create a JSON payload
+ * 
+ * When `data` is fingerprintable, the envelope carries `fp` — the canonical
+ * JSON fingerprint of `data`'s JSON representation (see ./identity.ts).
  */
 export function jsonPayload(data: unknown, approxBytes?: number): DeckPayload {
   const bytes = approxBytes ?? (typeof data === "string" ? data.length : JSON.stringify(data).length);
-  return { kind: "json", data, approxBytes: bytes };
+  const fp = fingerprintData(data);
+  return fp ? { kind: "json", data, approxBytes: bytes, fp } : { kind: "json", data, approxBytes: bytes };
 }
 
 /**

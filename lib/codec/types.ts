@@ -35,6 +35,8 @@ export interface SmartEncodeResult {
   glyphBytes: number;
   /** Whether tabular mode was used */
   usedTabular: boolean;
+  /** Rendering mode actually used: "tabular" (an @tab block) or "loose" (map/list text) */
+  format?: "tabular" | "loose";
   /** Percentage savings vs JSON */
   savings: number;
 }

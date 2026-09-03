@@ -34,6 +34,9 @@ export {
   deserializePayload,
 } from "./payload";
 
+// Canonical-JSON fingerprint identity (SPEC-CANON.md dogfood)
+export { fingerprintData } from "./identity";
+
 // Event types and factory
 export type {
   AGUIBase,

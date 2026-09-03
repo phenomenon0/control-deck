@@ -1,16 +1,46 @@
 /**
- * GLYPH Encoder
- * Token-optimized text encoding for LLM contexts
- * 
- * Format:
- * - null: ∅
- * - bool: t / f
- * - number: bare (42, 3.14)
- * - string: bare if safe, else quoted ("hello world")
- * - array: [elem1 elem2 elem3]
- * - object: @[key1 key2](val1 val2)
- * - tabular: @tab _ [cols]\n|v1|v2|\n@end
+ * GLYPH Encoder — thin adapter over the official `cowrie-glyph` renderer.
+ *
+ * The private hand-rolled GLYPH-text encoder has been deleted. All text is
+ * produced by cowrie-glyph's schema-free "loose" renderer
+ * (`canonicalizeLooseWithOpts` over a `fromJsonLoose` GValue), which is the
+ * official renderer for JSON-domain data and is governed by the GLYPH spec
+ * (`docs/CANONICAL_FORMS.md`, SPEC-CANON.md). Glyph text is a renderer, never
+ * hashed: identity lives on canonical JSON + fingerprint (see
+ * `lib/agui/identity.ts`).
+ *
+ * Deliberate adapter configuration (all knobs are official LooseCanonOpts):
+ * - `nullStyle: "symbol"` — null renders as `∅` (Go reference canon null;
+ *   also what this codec historically emitted, so stored glyph text stays
+ *   readable). The official JS default preset uses `_`; both spellings parse
+ *   back identically.
+ * - `autoTabular` / `minRows` map 1:1 onto the private options with the same
+ *   defaults (true / 4). Tabular selection itself is official: any list of
+ *   3+ maps with ≥ half shared keys is eligible, nested values are allowed in
+ *   cells (the private codec required primitive-only cells with identical key
+ *   sets).
+ *
+ * Rendered format (official loose):
+ * - null: ∅  ·  bool: t / f  ·  int: bare digits  ·  float: shortest
+ *   round-trip with Go exponent thresholds (e.g. `1e-07`, `1e+21`)
+ * - string: bare iff ASCII identifier [A-Za-z_][A-Za-z0-9_]* outside the
+ *   reserved list, else quoted
+ * - array: `[elem1 elem2]`  ·  object: `{key=value key2=value2}` (keys
+ *   sorted by code point, unlike the old positional `@[k1 k2](v1 v2)`)
+ * - tabular: `@tab _ rows=N cols=M [cols]` … `|v1|v2|` … `@end`
+ *
+ * Behavior changes vs the private encoder (official wins; LLM-facing text
+ * changing is INTENTIONAL):
+ * - NaN/±Infinity now THROW (`fromJsonLoose` rejects non-finite numbers,
+ *   matching the canonical-JSON profile). Callers that need a JSON fallback
+ *   catch this (payload.ts smartEncode does).
+ * - Values/keys that the official loose renderer emits bare but its own JS
+ *   parser cannot re-read (`_`-leading identifiers, e.g. `_id`, `__proto__`)
+ *   still encode to official text; decoding that text is an upstream JS
+ *   parser gap (see decode.ts header).
  */
+
+import { fromJsonLoose, canonicalizeLooseWithOpts } from "cowrie-glyph";
 
 import {
   type GlyphEncodeOptions,
@@ -18,243 +48,26 @@ import {
   DEFAULT_ENCODE_OPTIONS,
 } from "./types";
 
-const MAX_DEPTH = 50;
-
-/** Reserved words that must be quoted when used as string values */
-const RESERVED_WORDS = new Set([
-  "t", "f", "true", "false", "null", "none", "nil", "∅"
-]);
-
 /**
- * Check if character is ASCII letter
- */
-function isLetter(c: number): boolean {
-  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
-}
-
-/**
- * Check if character is ASCII digit
- */
-function isDigit(c: number): boolean {
-  return c >= 48 && c <= 57;
-}
-
-/**
- * Check if string can be represented as bare (unquoted) in GLYPH
- * Bare-safe if: starts with letter/underscore, contains only [a-zA-Z0-9_\-./]
- */
-function isBareSafe(s: string): boolean {
-  if (s.length === 0) return false;
-  if (s.startsWith("@")) return false;
-  if (RESERVED_WORDS.has(s)) return false;
-  
-  const first = s.charCodeAt(0);
-  if (!isLetter(first) && first !== 95) return false; // _ = 95
-  
-  for (let i = 1; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    // a-z, A-Z, 0-9, _, -, ., /
-    if (!isLetter(c) && !isDigit(c) && c !== 95 && c !== 45 && c !== 46 && c !== 47) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Quote a string with minimal escapes
- */
-function quoteString(s: string): string {
-  let result = '"';
-  for (const ch of s) {
-    switch (ch) {
-      case "\\": result += "\\\\"; break;
-      case '"': result += '\\"'; break;
-      case "\n": result += "\\n"; break;
-      case "\r": result += "\\r"; break;
-      case "\t": result += "\\t"; break;
-      default:
-        if (ch.charCodeAt(0) < 0x20) {
-          result += "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0");
-        } else {
-          result += ch;
-        }
-    }
-  }
-  return result + '"';
-}
-
-/**
- * Escape pipe characters in tabular cells
- */
-function escapeTabularCell(s: string): string {
-  return s.replace(/\|/g, "\\|");
-}
-
-/**
- * Check if a value is safe for tabular cell (primitive only)
- */
-function isTabularSafeValue(val: unknown): boolean {
-  if (val === null || val === undefined) return true;
-  const t = typeof val;
-  return t === "boolean" || t === "number" || t === "string";
-}
-
-/**
- * Check if an array qualifies for tabular encoding
- * Requirements:
- * - All elements are objects (not arrays)
- * - All elements have identical keys
- * - All values are primitives (no nested objects/arrays)
- */
-function isTabularArray(arr: unknown[], minRows: number): boolean {
-  if (arr.length < minRows) return false;
-  
-  const first = arr[0];
-  if (typeof first !== "object" || first === null || Array.isArray(first)) {
-    return false;
-  }
-  
-  const keys = Object.keys(first).sort().join(",");
-  
-  for (const item of arr) {
-    if (typeof item !== "object" || item === null || Array.isArray(item)) {
-      return false;
-    }
-    if (Object.keys(item).sort().join(",") !== keys) {
-      return false;
-    }
-    if (!Object.values(item).every(isTabularSafeValue)) {
-      return false;
-    }
-  }
-  
-  return true;
-}
-
-/**
- * Encode a value to GLYPH format
+ * Encode a value to GLYPH (official loose renderer).
  */
 export function encodeGlyph(
   value: unknown,
   options?: GlyphEncodeOptions
 ): string {
   const opts = { ...DEFAULT_ENCODE_OPTIONS, ...options };
-  return emitValue(value, 0, opts);
+  const gv = fromJsonLoose(value);
+  return canonicalizeLooseWithOpts(gv, {
+    autoTabular: opts.autoTabular,
+    minRows: opts.minRows,
+    // ∅ is this codec's historical and the Go-reference null spelling.
+    nullStyle: "symbol",
+  });
 }
 
 /**
- * Emit a value as GLYPH
- */
-function emitValue(
-  value: unknown,
-  depth: number,
-  opts: Required<GlyphEncodeOptions>
-): string {
-  if (depth > MAX_DEPTH) {
-    throw new Error("GLYPH encoding exceeded maximum depth");
-  }
-  
-  // Null
-  if (value === null || value === undefined) {
-    return "∅";
-  }
-  
-  // Boolean
-  if (typeof value === "boolean") {
-    return value ? "t" : "f";
-  }
-  
-  // Number
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      // NaN, Infinity - quote as string
-      return quoteString(String(value));
-    }
-    if (Number.isInteger(value)) {
-      return String(value);
-    }
-    // Float: use shortest representation
-    return String(value).replace(/e\+/g, "e");
-  }
-  
-  // String
-  if (typeof value === "string") {
-    return isBareSafe(value) ? value : quoteString(value);
-  }
-  
-  // Array
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "[]";
-    
-    // Check for tabular encoding
-    if (opts.autoTabular && isTabularArray(value, opts.minRows)) {
-      return emitTabular(value as Record<string, unknown>[], depth, opts);
-    }
-    
-    // Regular array
-    const items = value.map(v => emitValue(v, depth + 1, opts));
-    return "[" + items.join(" ") + "]";
-  }
-  
-  // Object
-  if (typeof value === "object") {
-    return emitStruct(value as Record<string, unknown>, depth, opts);
-  }
-  
-  // Fallback
-  return quoteString(String(value));
-}
-
-/**
- * Emit an object as packed struct: @[key1 key2](val1 val2)
- */
-function emitStruct(
-  obj: Record<string, unknown>,
-  depth: number,
-  opts: Required<GlyphEncodeOptions>
-): string {
-  const keys = Object.keys(obj);
-  if (keys.length === 0) return "@[]()";
-  
-  const quotedKeys = keys.map(k => isBareSafe(k) ? k : quoteString(k));
-  const values = keys.map(k => emitValue(obj[k], depth + 1, opts));
-  
-  return "@[" + quotedKeys.join(" ") + "](" + values.join(" ") + ")";
-}
-
-/**
- * Emit an array of uniform objects as tabular:
- * @tab _ [col1 col2]
- * |v1|v2|
- * |v3|v4|
- * @end
- */
-function emitTabular(
-  arr: Record<string, unknown>[],
-  depth: number,
-  opts: Required<GlyphEncodeOptions>
-): string {
-  const keys = Object.keys(arr[0]).sort();
-  const quotedKeys = keys.map(k => isBareSafe(k) ? k : quoteString(k));
-  
-  let result = "@tab _ [" + quotedKeys.join(" ") + "]\n";
-  
-  for (const row of arr) {
-    const cells = keys.map(k => {
-      const encoded = emitValue(row[k], depth + 1, opts);
-      return escapeTabularCell(encoded);
-    });
-    result += "|" + cells.join("|") + "|\n";
-  }
-  
-  result += "@end";
-  return result;
-}
-
-/**
- * Smart encode: tries both tabular and non-tabular, picks shorter
- * Only does dual-encode for payloads > 2KB JSON
+ * Smart encode: tries both tabular and non-tabular, picks shorter.
+ * Only does dual-encode for payloads > 2KB JSON.
  */
 export function encodeGlyphSmart(
   data: unknown,
@@ -262,9 +75,9 @@ export function encodeGlyphSmart(
 ): SmartEncodeResult {
   const json = JSON.stringify(data);
   const jsonBytes = json.length;
-  
+
   const opts = { ...DEFAULT_ENCODE_OPTIONS, ...options };
-  
+
   // Small payloads: just encode with auto-tabular
   if (jsonBytes < 2048) {
     const glyph = encodeGlyph(data, { ...opts, autoTabular: true });
@@ -273,21 +86,23 @@ export function encodeGlyphSmart(
       jsonBytes,
       glyphBytes: glyph.length,
       usedTabular: glyph.includes("@tab"),
+      format: glyph.includes("@tab") ? "tabular" : "loose",
       savings: ((jsonBytes - glyph.length) / jsonBytes) * 100,
     };
   }
-  
+
   // Large payloads: try both, pick shorter
   const withTab = encodeGlyph(data, { ...opts, autoTabular: true });
   const withoutTab = encodeGlyph(data, { ...opts, autoTabular: false });
-  
+
   const glyph = withTab.length <= withoutTab.length ? withTab : withoutTab;
-  
+
   return {
     glyph,
     jsonBytes,
     glyphBytes: glyph.length,
     usedTabular: glyph === withTab && withTab.includes("@tab"),
+    format: glyph === withTab && withTab.includes("@tab") ? "tabular" : "loose",
     savings: ((jsonBytes - glyph.length) / jsonBytes) * 100,
   };
 }
@@ -303,7 +118,8 @@ export function wrapGlyphBlock(glyph: string, label?: string): string {
 /**
  * Primer block taught to the LLM so it can read GLYPH payloads that arrive
  * as tool results or catalog data. Kept short — the goal is recognition,
- * not full grammar memorization.
+ * not full grammar memorization. Mirrors the official loose renderer
+ * (cowrie-glyph canonicalizeLoose) byte-for-byte.
  */
 export function glyphInstruction(): string {
   return [
@@ -311,15 +127,16 @@ export function glyphInstruction(): string {
     "Some tool results and catalog blocks arrive GLYPH-encoded inside ```glyph fences```. GLYPH is a compact JSON-equivalent. Read it like JSON, not prose.",
     "",
     "Syntax you will see:",
-    "- `@[key1 key2](val1 val2)` — an object (positional keys, then values).",
-    "- `@tab _ [col1 col2]\\n|v1|v2|\\n|v3|v4|\\n@end` — a table (array of uniform objects).",
-    "- Bare values: strings unquoted when safe, numbers as-is, `t`/`f` for booleans, and `∅` for null.",
+    "- `{key=value key2=value2}` — an object (keys are sorted; nested values recurse, e.g. `{user={id=1 name=Bob}}`).",
+    "- `[elem1 elem2]` — an array.",
+    "- `@tab _ rows=N cols=M [col1 col2]\\n|v1|v2|\\n|v3|v4|\\n@end` — a table (array of objects with shared keys).",
+    "- Bare values: strings unquoted when safe (ASCII identifiers), numbers as-is, `t`/`f` for booleans, and `∅` for null. Strings with spaces or special characters are quoted, e.g. `\"hello world\"`.",
     "",
     "Example:",
     "```glyph data",
-    "@tab _ [title enabled note]",
-    "|Rust 1.79 release|t|∅|",
-    "|Bun 1.1.17 notes|f|\"beta\"|",
+    "@tab _ rows=2 cols=3 [enabled note title]",
+    "|t|∅|\"Rust 1.79 release\"|",
+    "|f|\"beta\"|\"Bun 1.1.17 notes\"|",
     "@end",
     "```",
     "↑ decodes to `[{title:\"Rust 1.79 release\", enabled:true, note:null}, {title:\"Bun 1.1.17 notes\", enabled:false, note:\"beta\"}]`.",

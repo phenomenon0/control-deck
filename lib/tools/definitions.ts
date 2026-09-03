@@ -548,6 +548,7 @@ export const WorkspaceWriteNoteSchema = z.object({
     mode: z.enum(["append", "replace"]).default("append").describe("Append to the existing note or replace it entirely"),
     paneId: z.string().optional().describe("Optional notes pane handle; omit to use the first open notes pane"),
     verify: z.boolean().default(true).describe("Read the notes pane after writing and verify the text is present"),
+    baseFingerprint: z.string().regex(/^[0-9a-f]{64}$/).optional().describe("Fingerprint of the note you last read; the write is refused if the note changed since"),
   }).describe("Semantic notes-pane macro that discovers a notes pane, writes text, and optionally verifies it"),
 });
 
@@ -1206,12 +1207,13 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "workspace_write_note",
-    description: "Semantic notes macro: find a notes pane, append or replace markdown text, and optionally verify the resulting note. Prefer this over raw workspace_pane_call for notes edits.",
+    description: "Semantic notes macro: find a notes pane, append or replace markdown text, and optionally verify the resulting note. Prefer this over raw workspace_pane_call for notes edits. Returns the note's fingerprint; pass it back as baseFingerprint on the next write to refuse the write if someone else changed the note in between.",
     parameters: [
       { name: "text", type: "string", required: true, description: "Markdown/plain text to write" },
       { name: "mode", type: "string", required: false, description: "'append' or 'replace'", default: "append" },
       { name: "paneId", type: "string", required: false, description: "Specific notes pane handle; omit to use the first notes pane" },
       { name: "verify", type: "boolean", required: false, description: "Read the note after writing and verify the text", default: true },
+      { name: "baseFingerprint", type: "string", required: false, description: "Fingerprint from a previous write/read; refuses the write if the note changed since (lost-update guard)" },
     ],
   },
   {

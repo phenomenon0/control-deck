@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as actualRelay from "@/lib/workspace/command-relay";
+import { fingerprint, fromJsonLoose } from "cowrie-glyph";
 
 type RelayCall = { command: string; args: Record<string, unknown>; timeoutMs?: number };
 
@@ -113,6 +114,7 @@ describe("workspace tool handlers", () => {
           },
         ],
       },
+      { text: "Existing notes" },
       { appended: true },
       { text: "Existing notes\nHarness online" },
     );
@@ -125,6 +127,15 @@ describe("workspace tool handlers", () => {
 
     expect(relayState.calls).toEqual([
       { command: "query:get_state", args: { includeLayout: false }, timeoutMs: 5_000 },
+      {
+        command: "query:pane_call",
+        args: {
+          target: "notes:notes-default",
+          capability: "read_text",
+          args: {},
+        },
+        timeoutMs: 5_000,
+      },
       {
         command: "query:pane_call",
         args: {
@@ -152,6 +163,68 @@ describe("workspace tool handlers", () => {
       mode: "append",
       verified: true,
     });
+  });
+
+  // A notes pane is shared state: the user types in it, another agent writes
+  // to it. An agent that composed its text against an older note must not
+  // silently overwrite what landed in between — that is a lost update, and the
+  // only evidence it happened is the base fingerprint not matching.
+  const notesSnapshot = {
+    snapshotId: "ws_notes_base",
+    workspaceOpen: true,
+    paneCount: 1,
+    panes: [
+      {
+        handle: { id: "notes:notes-default", type: "notes", label: "Notes" },
+        capabilities: [
+          { name: "read_text", description: "Return the full markdown text" },
+          { name: "append_text", description: "Append text to the note" },
+          { name: "replace_text", description: "Overwrite the note" },
+        ],
+        topics: [],
+        autoThrottled: [],
+      },
+    ],
+  };
+
+  test("workspace_write_note refuses a write whose base fingerprint is stale", async () => {
+    relayState.next.push(notesSnapshot, { text: "note the user edited" });
+
+    const out = await executeWorkspaceWriteNote({
+      text: "agent text composed against an older note",
+      mode: "replace",
+      verify: false,
+      baseFingerprint: fingerprint(fromJsonLoose("the note the agent read earlier")),
+    });
+
+    expect(out.success).toBe(false);
+    expect(out.error_code).toBe("workspace_stale_base");
+    // The decisive assertion: nothing was written. Two calls — the state query
+    // and the read that caught the drift — and no replace_text.
+    expect(relayState.calls).toHaveLength(2);
+    expect(relayState.calls.every((c) => c.args.capability !== "replace_text")).toBe(true);
+    expect(out.data).toMatchObject({
+      observedFingerprint: fingerprint(fromJsonLoose("note the user edited")),
+    });
+  });
+
+  test("workspace_write_note applies a write whose base fingerprint is current, and returns the next base", async () => {
+    relayState.next.push(notesSnapshot, { text: "current note" }, { length: 8 });
+
+    const out = await executeWorkspaceWriteNote({
+      text: "new note",
+      mode: "replace",
+      verify: false,
+      baseFingerprint: fingerprint(fromJsonLoose("current note")),
+    });
+
+    expect(out.success).toBe(true);
+    expect(relayState.calls[2]).toMatchObject({
+      command: "query:pane_call",
+      args: { capability: "replace_text", args: { text: "new note" } },
+    });
+    // The returned fingerprint is the base for the caller's next write.
+    expect(out.data).toMatchObject({ fingerprint: fingerprint(fromJsonLoose("new note")) });
   });
 
   test("workspace_show_canvas loads markdown into the first canvas pane", async () => {

@@ -16,6 +16,7 @@ import type {
   WorkspaceShowCanvasArgs,
 } from "../definitions";
 import { publishCommand, publishQuery, subscriberCount } from "@/lib/workspace/command-relay";
+import { applyPatch, fingerprint, fromJsonLoose, PatchBaseMismatch, toJsonLoose } from "cowrie-glyph";
 import type { ToolExecutionResult } from "../executor";
 
 const WORKSPACE_QUERY_TIMEOUT_MS = 5_000;
@@ -359,12 +360,63 @@ export async function executeWorkspaceWriteNote(args: WorkspaceWriteNoteArgs): P
       );
     }
 
+    // Lost-update guard: the note the caller based its text on may have moved
+    // (the user typed, another agent wrote). Read it, then let glyph's
+    // applyPatch enforce the caller's base — a stale base throws rather than
+    // clobbering. No base recorded = apply unconditionally, as before.
+    const readCapability = selectCapability(pane, ["read_text", "notes.read_text"]);
+    if (!readCapability) {
+      return workspaceMacroError(
+        "workspace_write_note",
+        "workspace_capability_not_found",
+        `Notes pane ${target} does not expose read_text.`,
+        [
+          "Call workspace_get_state to refresh pane capabilities",
+          "Use a notes pane that exposes read_text",
+        ],
+        { target, label: paneLabel(pane), mode },
+      );
+    }
+    const before = extractReturnedText(
+      await publishQuery<unknown>(
+        "query:pane_call",
+        { target, capability: readCapability, args: {} },
+        WORKSPACE_QUERY_TIMEOUT_MS,
+      ),
+    ) ?? "";
+    const nextText = mode === "replace"
+      ? args.text
+      : before === "" || before.endsWith("\n") ? before + args.text : before + "\n" + args.text;
+
+    let written: string;
+    try {
+      written = toJsonLoose(applyPatch(fromJsonLoose(before), {
+        target: { prefix: "", value: "" },
+        baseFingerprint: args.baseFingerprint,
+        ops: [{ op: "=", path: [], value: fromJsonLoose(nextText) }],
+      })) as string;
+    } catch (err) {
+      if (!(err instanceof PatchBaseMismatch)) throw err;
+      return workspaceMacroError(
+        "workspace_write_note",
+        "workspace_stale_base",
+        `Notes pane ${target} changed since you read it — write refused.`,
+        [
+          "Read the note again with workspace_pane_call read_text",
+          "Rebase your text on the current note",
+          "Retry workspace_write_note with the fingerprint from that read",
+        ],
+        { target, label: paneLabel(pane), mode, expectedFingerprint: err.want, observedFingerprint: err.got },
+        false,
+      );
+    }
+
     const writeResult = await publishQuery<unknown>(
       "query:pane_call",
       {
         target,
         capability: writeCapability,
-        args: { text: args.text },
+        args: { text: mode === "replace" ? written : args.text },
       },
       WORKSPACE_QUERY_TIMEOUT_MS,
     );
@@ -372,20 +424,6 @@ export async function executeWorkspaceWriteNote(args: WorkspaceWriteNoteArgs): P
     let verifyResult: unknown;
     let verified = false;
     if (shouldVerify) {
-      const readCapability = selectCapability(pane, ["read_text", "notes.read_text"]);
-      if (!readCapability) {
-        return workspaceMacroError(
-          "workspace_write_note",
-          "workspace_capability_not_found",
-          `Notes pane ${target} does not expose read_text for verification.`,
-          [
-            "Call workspace_get_state to refresh pane capabilities",
-            "Use a notes pane that exposes read_text or call with verify=false",
-          ],
-          { target, label: paneLabel(pane), mode },
-        );
-      }
-
       verifyResult = await publishQuery<unknown>(
         "query:pane_call",
         { target, capability: readCapability, args: {} },
@@ -418,6 +456,9 @@ export async function executeWorkspaceWriteNote(args: WorkspaceWriteNoteArgs): P
         mode,
         capability: writeCapability,
         verified,
+        // Pass back as baseFingerprint on the next write to refuse it if the
+        // note moves in between (SPEC-CANON.md fingerprint over canonical JSON).
+        fingerprint: fingerprint(fromJsonLoose(written)),
         writeResult,
         verifyResult,
       },
